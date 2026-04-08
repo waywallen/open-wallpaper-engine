@@ -18,3 +18,4 @@ build
 .cache
 cmake-build-debug
 build-*
+/workshop

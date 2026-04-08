@@ -1,0 +1,75 @@
+{
+  "pkg": {
+    "file_count": 14,
+    "has_scene_json": true,
+    "version": "PKGV0017"
+  },
+  "puppets": [],
+  "scene": {
+    "camera": {
+      "center": [
+        0.0,
+        0.0,
+        -1.0
+      ],
+      "eye": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "up": [
+        0.0,
+        1.0,
+        0.0
+      ]
+    },
+    "general": {
+      "ambientcolor": [
+        0.30000001192092896,
+        0.30000001192092896,
+        0.30000001192092896
+      ],
+      "cameraparallax": false,
+      "cameraparallaxamount": 0.5,
+      "cameraparallaxdelay": 0.10000000149011612,
+      "cameraparallaxmouseinfluence": 0.0,
+      "clearcolor": [
+        0.699999988079071,
+        0.699999988079071,
+        0.699999988079071
+      ],
+      "farz": 10000.0,
+      "fov": 50.0,
+      "nearz": 0.009999999776482582,
+      "skylightcolor": [
+        0.30000001192092896,
+        0.30000001192092896,
+        0.30000001192092896
+      ],
+      "zoom": 1.0
+    },
+    "is_ortho": true,
+    "ortho": {
+      "height": 1080,
+      "width": 1920
+    },
+    "parsed": true
+  },
+  "textures": [
+    {
+      "count": 1,
+      "flags": 2,
+      "format": 0,
+      "height": 2048,
+      "map_height": 1080,
+      "map_width": 1920,
+      "ok": true,
+      "path": "/materials/stretched-1920-1080-107714777777.tex",
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 2048
+    }
+  ],
+  "workshop_dir": "2094043344"
+}

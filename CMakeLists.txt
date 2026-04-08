@@ -15,6 +15,12 @@ link_libraries(Eigen3::Eigen)
 add_subdirectory(third_party)
 add_subdirectory(src)
 
+# Test suite — opt-in via BUILD_TESTING (default ON via CTest module).
+include(CTest)
+if(BUILD_TESTING)
+    add_subdirectory(tests)
+endif()
+
 # waywallen-renderer: renderer host subprocess that speaks the IPC
 # protocol to the Rust waywallen daemon. Opt-in so consumers that just
 # want the scene renderer library are unaffected.
