@@ -1,0 +1,271 @@
+{
+  "pkg": {
+    "file_count": 14,
+    "has_scene_json": true,
+    "version": "PKGV0011"
+  },
+  "puppets": [],
+  "scene": {
+    "camera": {
+      "center": [
+        0.0,
+        0.0,
+        -1.0
+      ],
+      "eye": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "up": [
+        0.0,
+        1.0,
+        0.0
+      ]
+    },
+    "general": {
+      "ambientcolor": [
+        0.30000001192092896,
+        0.30000001192092896,
+        0.30000001192092896
+      ],
+      "cameraparallax": false,
+      "clearcolor": [
+        0.699999988079071,
+        0.699999988079071,
+        0.699999988079071
+      ],
+      "farz": 10000.0,
+      "fov": 50.0,
+      "nearz": 0.009999999776482582,
+      "skylightcolor": [
+        0.30000001192092896,
+        0.30000001192092896,
+        0.30000001192092896
+      ],
+      "zoom": 1.0
+    },
+    "is_ortho": true,
+    "object_count": 5,
+    "objects": [
+      {
+        "angles": "0.00000 -0.00000 0.70812",
+        "id": 40,
+        "kind": "unknown",
+        "name": "Text Layer",
+        "origin": "470.78223 623.62750 0.00000",
+        "parallaxDepth": "1.00000 1.00000",
+        "scale": "0.21502 0.37408 1.00000",
+        "size": "479.00000 209.00000",
+        "visible": true
+      },
+      {
+        "alignment": "center",
+        "alignment_parsed": "center",
+        "alpha": 1.0,
+        "angles": "0.00000 0.00000 0.00000",
+        "angles_parsed": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "brightness": 1.0,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "colorBlendMode": 0,
+        "effect_count": 0,
+        "effects": [],
+        "fullscreen": false,
+        "id": 47,
+        "image": "models/1612434089981-01.json",
+        "kind": "image",
+        "material": {
+          "blending": "translucent",
+          "combos": {
+            "version": 2
+          },
+          "constantshadervalues": {},
+          "cullmode": "nocull",
+          "depthtest": "disabled",
+          "depthwrite": "disabled",
+          "shader": "genericimage2",
+          "textures": [
+            "1612434089981-01"
+          ],
+          "use_puppet": false
+        },
+        "name": "1612434089981-01",
+        "nopadding": false,
+        "origin": "960.00000 540.00000 0.00000",
+        "origin_parsed": [
+          960.0,
+          540.0,
+          0.0
+        ],
+        "parallaxDepth": "1.00000 1.00000",
+        "parsed": true,
+        "puppet": "",
+        "scale": "1.00000 1.00000 1.00000",
+        "scale_parsed": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "size": "1920.00000 1080.00000",
+        "size_parsed": [
+          1920.0,
+          1080.0
+        ],
+        "visible": true,
+        "visible_parsed": true
+      },
+      {
+        "angles": "0.00000 0.00000 0.00000",
+        "angles_parsed": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "animationmode": "",
+        "child_count": 0,
+        "controlpoint_count": 8,
+        "emitter_count": 1,
+        "id": 72,
+        "initializer_count": 3,
+        "kind": "particle",
+        "maxcount": 128,
+        "name": "Trails 1",
+        "operator_count": 2,
+        "origin": "960.00000 540.00000 0.00000",
+        "origin_parsed": [
+          960.0,
+          540.0,
+          0.0
+        ],
+        "parallaxDepth": "1.00000 1.00000",
+        "parsed": true,
+        "particle": "particles/presets/trail_1.json",
+        "renderer_count": 1,
+        "scale": "1.00000 1.00000 1.00000",
+        "scale_parsed": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "starttime": 0,
+        "visible": true,
+        "visible_parsed": true
+      },
+      {
+        "angles": "0.00000 -0.00000 0.69259",
+        "angles_parsed": [
+          0.0,
+          -0.0,
+          0.6925899982452393
+        ],
+        "animationmode": "sequence",
+        "child_count": 0,
+        "controlpoint_count": 8,
+        "emitter_count": 1,
+        "id": 89,
+        "initializer_count": 4,
+        "kind": "particle",
+        "maxcount": 32,
+        "name": "Magic gravitation",
+        "operator_count": 3,
+        "origin": "519.82697 686.99677 0.00000",
+        "origin_parsed": [
+          519.8269653320313,
+          686.9967651367188,
+          0.0
+        ],
+        "parallaxDepth": "1.00000 1.00000",
+        "parsed": true,
+        "particle": "particles/presets/magic_gravity.json",
+        "renderer_count": 1,
+        "scale": "1.75456 0.92029 1.36675",
+        "scale_parsed": [
+          1.7545599937438965,
+          0.9202899932861328,
+          1.3667500019073486
+        ],
+        "starttime": 0,
+        "visible": true,
+        "visible_parsed": true
+      },
+      {
+        "angles": "0.00000 0.00000 0.00000",
+        "angles_parsed": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "animationmode": "",
+        "child_count": 0,
+        "controlpoint_count": 8,
+        "emitter_count": 1,
+        "id": 118,
+        "initializer_count": 4,
+        "kind": "particle",
+        "maxcount": 128,
+        "name": "Dust motes",
+        "operator_count": 5,
+        "origin": "999.47040 596.49408 0.00000",
+        "origin_parsed": [
+          999.4703979492188,
+          596.4940795898438,
+          0.0
+        ],
+        "parallaxDepth": "1.00000 1.00000",
+        "parsed": true,
+        "particle": "particles/presets/dust_motes_0.json",
+        "renderer_count": 1,
+        "scale": "1.00000 1.00000 1.00000",
+        "scale_parsed": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "starttime": 1,
+        "visible": true,
+        "visible_parsed": true
+      }
+    ],
+    "ortho": {
+      "height": 1080,
+      "width": 1920
+    },
+    "parsed": true
+  },
+  "textures": [
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 4,
+      "height": 2048,
+      "image_type": 2,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 1080,
+      "map_width": 1920,
+      "min_filter": 0,
+      "mipmap_larger": false,
+      "mipmap_pow2": false,
+      "ok": true,
+      "path": "/materials/1612434089981-01.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 2048,
+      "wrap_s": 0,
+      "wrap_t": 0
+    }
+  ],
+  "workshop_dir": "2387022483"
+}

@@ -1,0 +1,936 @@
+{
+  "pkg": {
+    "file_count": 151,
+    "has_scene_json": true,
+    "version": "PKGV0018"
+  },
+  "puppets": [
+    {
+      "anim_tracks": [
+        {
+          "bone_track_count": 30,
+          "fps": 2.5,
+          "id": 53,
+          "length": 30,
+          "mode": 1,
+          "name": "动画 1",
+          "total_bone_frames": 930
+        }
+      ],
+      "anims": 1,
+      "bone_tree": [
+        {
+          "parent": 4294967295,
+          "transform_col_sums": [
+            1.0,
+            1.0,
+            1.0,
+            5.5189208984375
+          ]
+        },
+        {
+          "parent": 0,
+          "transform_col_sums": [
+            1.0,
+            1.0,
+            1.0,
+            271.759765625
+          ]
+        },
+        {
+          "parent": 1,
+          "transform_col_sums": [
+            1.0,
+            1.0,
+            1.0,
+            327.6046142578125
+          ]
+        },
+        {
+          "parent": 2,
+          "transform_col_sums": [
+            1.0,
+            1.0,
+            1.0,
+            316.18798828125
+          ]
+        },
+        {
+          "parent": 3,
+          "transform_col_sums": [
+            1.0,
+            1.0,
+            1.0,
+            255.38623046875
+          ]
+        },
+        {
+          "parent": 4,
+          "transform_col_sums": [
+            1.0,
+            1.0,
+            1.0,
+            229.1629638671875
+          ]
+        },
+        {
+          "parent": 5,
+          "transform_col_sums": [
+            1.0,
+            1.0,
+            1.0,
+            1485.62451171875
+          ]
+        },
+        {
+          "parent": 3,
+          "transform_col_sums": [
+            1.0,
+            1.0,
+            1.0,
+            232.363525390625
+          ]
+        },
+        {
+          "parent": 7,
+          "transform_col_sums": [
+            1.0,
+            1.0,
+            1.0,
+            305.8900146484375
+          ]
+        },
+        {
+          "parent": 8,
+          "transform_col_sums": [
+            1.0,
+            1.0,
+            1.0,
+            1757.4326171875
+          ]
+        },
+        {
+          "parent": 9,
+          "transform_col_sums": [
+            1.0,
+            1.0,
+            1.0,
+            -132.061767578125
+          ]
+        },
+        {
+          "parent": 10,
+          "transform_col_sums": [
+            1.0,
+            1.0,
+            1.0,
+            -169.210693359375
+          ]
+        },
+        {
+          "parent": 11,
+          "transform_col_sums": [
+            1.0,
+            1.0,
+            1.0,
+            -222.40185546875
+          ]
+        },
+        {
+          "parent": 12,
+          "transform_col_sums": [
+            1.0,
+            1.0,
+            1.0,
+            -215.30908203125
+          ]
+        },
+        {
+          "parent": 13,
+          "transform_col_sums": [
+            1.0,
+            1.0,
+            1.0,
+            -209.990966796875
+          ]
+        },
+        {
+          "parent": 14,
+          "transform_col_sums": [
+            1.0,
+            1.0,
+            1.0,
+            -174.52978515625
+          ]
+        },
+        {
+          "parent": 15,
+          "transform_col_sums": [
+            1.0,
+            1.0,
+            1.0,
+            -3963.1256103515625
+          ]
+        },
+        {
+          "parent": 16,
+          "transform_col_sums": [
+            1.0,
+            1.0,
+            1.0,
+            -1204.5186767578125
+          ]
+        },
+        {
+          "parent": 3,
+          "transform_col_sums": [
+            1.0,
+            1.0,
+            1.0,
+            -206.3861083984375
+          ]
+        },
+        {
+          "parent": 18,
+          "transform_col_sums": [
+            1.0,
+            1.0,
+            1.0,
+            88.6986083984375
+          ]
+        },
+        {
+          "parent": 19,
+          "transform_col_sums": [
+            1.0,
+            1.0,
+            1.0,
+            1625.803466796875
+          ]
+        },
+        {
+          "parent": 20,
+          "transform_col_sums": [
+            1.0,
+            1.0,
+            1.0,
+            -272.7705078125
+          ]
+        },
+        {
+          "parent": 21,
+          "transform_col_sums": [
+            1.0,
+            1.0,
+            1.0,
+            -167.384033203125
+          ]
+        },
+        {
+          "parent": 22,
+          "transform_col_sums": [
+            1.0,
+            1.0,
+            1.0,
+            -203.9197998046875
+          ]
+        },
+        {
+          "parent": 23,
+          "transform_col_sums": [
+            1.0,
+            1.0,
+            1.0,
+            -243.63330078125
+          ]
+        },
+        {
+          "parent": 24,
+          "transform_col_sums": [
+            1.0,
+            1.0,
+            1.0,
+            -2101.753662109375
+          ]
+        },
+        {
+          "parent": 25,
+          "transform_col_sums": [
+            1.0,
+            1.0,
+            1.0,
+            379.0787353515625
+          ]
+        },
+        {
+          "parent": 5,
+          "transform_col_sums": [
+            1.0,
+            1.0,
+            1.0,
+            2874.74755859375
+          ]
+        },
+        {
+          "parent": 27,
+          "transform_col_sums": [
+            1.0,
+            1.0,
+            1.0,
+            22.85205078125
+          ]
+        },
+        {
+          "parent": 5,
+          "transform_col_sums": [
+            1.0,
+            1.0,
+            1.0,
+            2087.0361328125
+          ]
+        }
+      ],
+      "bones": 30,
+      "index_count": 3962,
+      "mat_json_file": "materials/拼图2.json",
+      "mdla": 3,
+      "mdls": 2,
+      "mdlv": 16,
+      "ok": true,
+      "path": "/models/拼图2_puppet.mdl",
+      "vertex_count": 2332
+    }
+  ],
+  "scene": {
+    "error": "[json.exception.type_error.302] type must be boolean, but is object",
+    "parsed": false
+  },
+  "textures": [
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 2,
+      "height": 2816,
+      "image_type": -1,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 2760,
+      "map_width": 2110,
+      "min_filter": 0,
+      "mipmap_larger": true,
+      "mipmap_pow2": false,
+      "ok": true,
+      "path": "/materials/3.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 2112,
+      "wrap_s": 0,
+      "wrap_t": 0
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 4,
+      "height": 32,
+      "image_type": -1,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 32,
+      "map_width": 32,
+      "min_filter": 0,
+      "mipmap_larger": false,
+      "mipmap_pow2": true,
+      "ok": true,
+      "path": "/materials/effects/waterflowphase.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 32,
+      "wrap_s": 1,
+      "wrap_t": 1
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 6,
+      "height": 1000,
+      "image_type": -1,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 1000,
+      "map_width": 1375,
+      "min_filter": 0,
+      "mipmap_larger": false,
+      "mipmap_pow2": false,
+      "ok": true,
+      "path": "/materials/masks/blend_mask_059888c9.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 1375,
+      "wrap_s": 0,
+      "wrap_t": 0
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 6,
+      "height": 1080,
+      "image_type": -1,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 1080,
+      "map_width": 1920,
+      "min_filter": 0,
+      "mipmap_larger": false,
+      "mipmap_pow2": false,
+      "ok": true,
+      "path": "/materials/masks/blur_combine_mask_04222c7f.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 1920,
+      "wrap_s": 0,
+      "wrap_t": 0
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 5,
+      "height": 1000,
+      "image_type": -1,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 1000,
+      "map_width": 1375,
+      "min_filter": 0,
+      "mipmap_larger": false,
+      "mipmap_pow2": false,
+      "ok": true,
+      "path": "/materials/masks/fire_mask_4caa79df.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 1375,
+      "wrap_s": 0,
+      "wrap_t": 0
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 6,
+      "height": 1000,
+      "image_type": -1,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 1000,
+      "map_width": 1375,
+      "min_filter": 0,
+      "mipmap_larger": false,
+      "mipmap_pow2": false,
+      "ok": true,
+      "path": "/materials/masks/iris_mask_7a94d495.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 1375,
+      "wrap_s": 0,
+      "wrap_t": 0
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 6,
+      "height": 1000,
+      "image_type": -1,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 1000,
+      "map_width": 1375,
+      "min_filter": 0,
+      "mipmap_larger": false,
+      "mipmap_pow2": false,
+      "ok": true,
+      "path": "/materials/masks/nitro_mask_2632bbbc.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 1375,
+      "wrap_s": 0,
+      "wrap_t": 0
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 6,
+      "height": 1080,
+      "image_type": -1,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 1080,
+      "map_width": 1920,
+      "min_filter": 0,
+      "mipmap_larger": false,
+      "mipmap_pow2": false,
+      "ok": true,
+      "path": "/materials/masks/opacity_mask_14ca5c67.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 1920,
+      "wrap_s": 0,
+      "wrap_t": 0
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 6,
+      "height": 1380,
+      "image_type": -1,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 1380,
+      "map_width": 1055,
+      "min_filter": 0,
+      "mipmap_larger": false,
+      "mipmap_pow2": false,
+      "ok": true,
+      "path": "/materials/masks/opacity_mask_818f532e.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 1055,
+      "wrap_s": 0,
+      "wrap_t": 0
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 6,
+      "height": 1000,
+      "image_type": -1,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 1000,
+      "map_width": 1375,
+      "min_filter": 0,
+      "mipmap_larger": false,
+      "mipmap_pow2": false,
+      "ok": true,
+      "path": "/materials/masks/pulse__mask_5a62b9fc.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 1375,
+      "wrap_s": 0,
+      "wrap_t": 0
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 6,
+      "height": 1000,
+      "image_type": -1,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 1000,
+      "map_width": 1375,
+      "min_filter": 0,
+      "mipmap_larger": false,
+      "mipmap_pow2": false,
+      "ok": true,
+      "path": "/materials/masks/pulse__mask_5db1cfed.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 1375,
+      "wrap_s": 0,
+      "wrap_t": 0
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 6,
+      "height": 1000,
+      "image_type": -1,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 1000,
+      "map_width": 1375,
+      "min_filter": 0,
+      "mipmap_larger": false,
+      "mipmap_pow2": false,
+      "ok": true,
+      "path": "/materials/masks/shake_mask_04a444ec.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 1375,
+      "wrap_s": 0,
+      "wrap_t": 0
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 5,
+      "height": 1000,
+      "image_type": -1,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 1000,
+      "map_width": 1375,
+      "min_filter": 0,
+      "mipmap_larger": false,
+      "mipmap_pow2": false,
+      "ok": true,
+      "path": "/materials/masks/shake_mask_0c8a3f5c.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 1375,
+      "wrap_s": 0,
+      "wrap_t": 0
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 5,
+      "height": 1000,
+      "image_type": -1,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 1000,
+      "map_width": 1375,
+      "min_filter": 0,
+      "mipmap_larger": false,
+      "mipmap_pow2": false,
+      "ok": true,
+      "path": "/materials/masks/shake_mask_935ed27b.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 1375,
+      "wrap_s": 0,
+      "wrap_t": 0
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 5,
+      "height": 1380,
+      "image_type": -1,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 1380,
+      "map_width": 1055,
+      "min_filter": 0,
+      "mipmap_larger": false,
+      "mipmap_pow2": false,
+      "ok": true,
+      "path": "/materials/masks/waterflow_mask_4e543308.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 1055,
+      "wrap_s": 0,
+      "wrap_t": 0
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 5,
+      "height": 1000,
+      "image_type": -1,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 1000,
+      "map_width": 1375,
+      "min_filter": 0,
+      "mipmap_larger": false,
+      "mipmap_pow2": false,
+      "ok": true,
+      "path": "/materials/masks/waterflow_mask_e067ddbc.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 1375,
+      "wrap_s": 0,
+      "wrap_t": 0
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 6,
+      "height": 1000,
+      "image_type": -1,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 1000,
+      "map_width": 1375,
+      "min_filter": 0,
+      "mipmap_larger": false,
+      "mipmap_pow2": false,
+      "ok": true,
+      "path": "/materials/masks/waterwaves_mask_50b707b8.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 1375,
+      "wrap_s": 0,
+      "wrap_t": 0
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 6,
+      "height": 1000,
+      "image_type": -1,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 1000,
+      "map_width": 1375,
+      "min_filter": 0,
+      "mipmap_larger": false,
+      "mipmap_pow2": false,
+      "ok": true,
+      "path": "/materials/masks/waterwaves_mask_eee0ac00.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 1375,
+      "wrap_s": 0,
+      "wrap_t": 0
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 4,
+      "height": 256,
+      "image_type": -1,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 256,
+      "map_width": 256,
+      "min_filter": 0,
+      "mipmap_larger": false,
+      "mipmap_pow2": true,
+      "ok": true,
+      "path": "/materials/workshop/2778097794/214024lkks1h2qhzjtp0lp.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 256,
+      "wrap_s": 0,
+      "wrap_t": 0
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 6,
+      "height": 64,
+      "image_type": -1,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 64,
+      "map_width": 64,
+      "min_filter": 0,
+      "mipmap_larger": false,
+      "mipmap_pow2": true,
+      "ok": true,
+      "path": "/materials/workshop/2778097794/masks/blur_combine_mask_c2ef8b26.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 64,
+      "wrap_s": 0,
+      "wrap_t": 0
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 2,
+      "height": 2176,
+      "image_type": -1,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 2160,
+      "map_width": 3840,
+      "min_filter": 0,
+      "mipmap_larger": true,
+      "mipmap_pow2": false,
+      "ok": true,
+      "path": "/materials/上下光.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 3840,
+      "wrap_s": 0,
+      "wrap_t": 0
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 2,
+      "height": 2176,
+      "image_type": -1,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 2160,
+      "map_width": 3840,
+      "min_filter": 0,
+      "mipmap_larger": true,
+      "mipmap_pow2": false,
+      "ok": true,
+      "path": "/materials/人物光.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 3840,
+      "wrap_s": 0,
+      "wrap_t": 0
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 2,
+      "height": 4032,
+      "image_type": -1,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 4000,
+      "map_width": 5500,
+      "min_filter": 0,
+      "mipmap_larger": true,
+      "mipmap_pow2": false,
+      "ok": true,
+      "path": "/materials/拼图2.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 5504,
+      "wrap_s": 0,
+      "wrap_t": 0
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 4,
+      "height": 4096,
+      "image_type": 2,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 2160,
+      "map_width": 3840,
+      "min_filter": 0,
+      "mipmap_larger": false,
+      "mipmap_pow2": false,
+      "ok": true,
+      "path": "/materials/未标题-1.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 4096,
+      "wrap_s": 0,
+      "wrap_t": 0
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 2,
+      "height": 1216,
+      "image_type": -1,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 1202,
+      "map_width": 3128,
+      "min_filter": 0,
+      "mipmap_larger": true,
+      "mipmap_pow2": false,
+      "ok": true,
+      "path": "/materials/横刀光.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 3136,
+      "wrap_s": 0,
+      "wrap_t": 0
+    }
+  ],
+  "workshop_dir": "2854277071"
+}

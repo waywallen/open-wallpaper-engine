@@ -1,9 +1,8 @@
 // Deep test for scene.pkg version PKGV0020.
 //
-// Auto-seeded by Iter 3. To regenerate after a deliberate parser change:
+// To regenerate after a deliberate parser change:
 //     ninja -C build wpdump
-//     ./build/tests/wpdump workshop/2551699733 \
-//         tests/fixtures/pkgv_0020/2551699733.json
+//     ./build/tests/wpdump workshop/<id> tests/fixtures/pkgv_0020/<id>.json
 
 #include "fixture_helpers.hpp"
 
