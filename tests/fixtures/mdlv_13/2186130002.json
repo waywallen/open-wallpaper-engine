@@ -1,0 +1,560 @@
+{
+  "pkg": {
+    "file_count": 60,
+    "has_scene_json": true,
+    "version": "PKGV0018"
+  },
+  "puppets": [
+    {
+      "anim_tracks": [
+        {
+          "bone_track_count": 3,
+          "fps": 3.933333396911621,
+          "id": 3143,
+          "length": 59,
+          "mode": 0,
+          "name": "Animation 1",
+          "total_bone_frames": 180
+        }
+      ],
+      "anims": 1,
+      "bone_tree": [
+        {
+          "parent": 4294967295,
+          "transform_col_sums": [
+            1.0,
+            1.0,
+            1.0,
+            499.6400146484375
+          ]
+        },
+        {
+          "parent": 0,
+          "transform_col_sums": [
+            1.0,
+            1.0,
+            1.0,
+            -212.7310791015625
+          ]
+        },
+        {
+          "parent": 1,
+          "transform_col_sums": [
+            1.0,
+            1.0,
+            1.0,
+            -76.2430419921875
+          ]
+        }
+      ],
+      "bones": 3,
+      "index_count": 581,
+      "mat_json_file": "materials/Man.json",
+      "mdla": 1,
+      "mdls": 1,
+      "mdlv": 13,
+      "ok": true,
+      "path": "/models/Man_puppet.mdl",
+      "vertex_count": 341
+    },
+    {
+      "anim_tracks": [
+        {
+          "bone_track_count": 3,
+          "fps": 11.800000190734863,
+          "id": 4332,
+          "length": 59,
+          "mode": 0,
+          "name": "Animation 1",
+          "total_bone_frames": 180
+        }
+      ],
+      "anims": 1,
+      "bone_tree": [
+        {
+          "parent": 4294967295,
+          "transform_col_sums": [
+            1.0,
+            1.0,
+            1.0,
+            162.7998046875
+          ]
+        },
+        {
+          "parent": 0,
+          "transform_col_sums": [
+            1.0,
+            1.0,
+            1.0,
+            153.6253662109375
+          ]
+        },
+        {
+          "parent": 1,
+          "transform_col_sums": [
+            1.0,
+            1.0,
+            1.0,
+            194.2742919921875
+          ]
+        }
+      ],
+      "bones": 3,
+      "index_count": 619,
+      "mat_json_file": "materials/arm.json",
+      "mdla": 1,
+      "mdls": 1,
+      "mdlv": 13,
+      "ok": true,
+      "path": "/models/arm_puppet.mdl",
+      "vertex_count": 355
+    },
+    {
+      "anim_tracks": [
+        {
+          "bone_track_count": 6,
+          "fps": 7.375,
+          "id": 3765,
+          "length": 59,
+          "mode": 0,
+          "name": "Animation 1",
+          "total_bone_frames": 360
+        }
+      ],
+      "anims": 1,
+      "bone_tree": [
+        {
+          "parent": 4294967295,
+          "transform_col_sums": [
+            1.0,
+            1.0,
+            1.0,
+            -157.1165771484375
+          ]
+        },
+        {
+          "parent": 0,
+          "transform_col_sums": [
+            1.0,
+            1.0,
+            1.0,
+            -134.18109130859375
+          ]
+        },
+        {
+          "parent": 1,
+          "transform_col_sums": [
+            1.0,
+            1.0,
+            1.0,
+            -400.82257080078125
+          ]
+        },
+        {
+          "parent": 2,
+          "transform_col_sums": [
+            1.0,
+            1.0,
+            1.0,
+            -237.1170654296875
+          ]
+        },
+        {
+          "parent": 4294967295,
+          "transform_col_sums": [
+            1.0,
+            1.0,
+            1.0,
+            -939.2579956054688
+          ]
+        },
+        {
+          "parent": 4,
+          "transform_col_sums": [
+            1.0,
+            1.0,
+            1.0,
+            -141.196533203125
+          ]
+        }
+      ],
+      "bones": 6,
+      "index_count": 589,
+      "mat_json_file": "materials/leg 2.json",
+      "mdla": 1,
+      "mdls": 1,
+      "mdlv": 13,
+      "ok": true,
+      "path": "/models/leg 2_puppet.mdl",
+      "vertex_count": 319
+    },
+    {
+      "anim_tracks": [
+        {
+          "bone_track_count": 4,
+          "fps": 3.933333396911621,
+          "id": 2546,
+          "length": 59,
+          "mode": 0,
+          "name": "Animation 1",
+          "total_bone_frames": 240
+        }
+      ],
+      "anims": 1,
+      "bone_tree": [
+        {
+          "parent": 4294967295,
+          "transform_col_sums": [
+            1.0,
+            1.0,
+            1.0,
+            -41.42132568359375
+          ]
+        },
+        {
+          "parent": 0,
+          "transform_col_sums": [
+            1.0,
+            1.0,
+            1.0,
+            -82.8802490234375
+          ]
+        },
+        {
+          "parent": 1,
+          "transform_col_sums": [
+            1.0,
+            1.0,
+            1.0,
+            -304.7418212890625
+          ]
+        },
+        {
+          "parent": 2,
+          "transform_col_sums": [
+            1.0,
+            1.0,
+            1.0,
+            -147.23175811767578
+          ]
+        }
+      ],
+      "bones": 4,
+      "index_count": 601,
+      "mat_json_file": "materials/leg.json",
+      "mdla": 1,
+      "mdls": 1,
+      "mdlv": 13,
+      "ok": true,
+      "path": "/models/leg_puppet.mdl",
+      "vertex_count": 356
+    }
+  ],
+  "scene": {
+    "error": "[json.exception.type_error.302] type must be boolean, but is object",
+    "parsed": false
+  },
+  "textures": [
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 4,
+      "height": 4096,
+      "image_type": 2,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 2160,
+      "map_width": 3840,
+      "min_filter": 0,
+      "mipmap_larger": false,
+      "mipmap_pow2": false,
+      "ok": true,
+      "path": "/materials/Galaxy.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 4096,
+      "wrap_s": 0,
+      "wrap_t": 0
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 4,
+      "height": 2048,
+      "image_type": 13,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 1800,
+      "map_width": 1200,
+      "min_filter": 0,
+      "mipmap_larger": false,
+      "mipmap_pow2": false,
+      "ok": true,
+      "path": "/materials/Miles.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 2048,
+      "wrap_s": 0,
+      "wrap_t": 0
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 4,
+      "height": 2048,
+      "image_type": 13,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 1800,
+      "map_width": 1200,
+      "min_filter": 0,
+      "mipmap_larger": false,
+      "mipmap_pow2": false,
+      "ok": true,
+      "path": "/materials/arm.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 2048,
+      "wrap_s": 0,
+      "wrap_t": 0
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 4,
+      "height": 2048,
+      "image_type": 13,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 1800,
+      "map_width": 1200,
+      "min_filter": 0,
+      "mipmap_larger": false,
+      "mipmap_pow2": false,
+      "ok": true,
+      "path": "/materials/leg (1).tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 2048,
+      "wrap_s": 0,
+      "wrap_t": 0
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 4,
+      "height": 2048,
+      "image_type": 13,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 1800,
+      "map_width": 1200,
+      "min_filter": 0,
+      "mipmap_larger": false,
+      "mipmap_pow2": false,
+      "ok": true,
+      "path": "/materials/leg 2.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 2048,
+      "wrap_s": 0,
+      "wrap_t": 0
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 6,
+      "height": 1080,
+      "image_type": -1,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 1080,
+      "map_width": 1920,
+      "min_filter": 0,
+      "mipmap_larger": false,
+      "mipmap_pow2": false,
+      "ok": true,
+      "path": "/materials/masks/foliagesway_mask_f1bd440a.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 1920,
+      "wrap_s": 0,
+      "wrap_t": 0
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 4,
+      "height": 1024,
+      "image_type": 13,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 900,
+      "map_width": 600,
+      "min_filter": 0,
+      "mipmap_larger": false,
+      "mipmap_pow2": false,
+      "ok": true,
+      "path": "/materials/masks/opacity_mask_4734b942e71f1487a48e88d0e6cc8bc3600f77ef.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 1024,
+      "wrap_s": 0,
+      "wrap_t": 0
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 6,
+      "height": 900,
+      "image_type": -1,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 900,
+      "map_width": 600,
+      "min_filter": 0,
+      "mipmap_larger": false,
+      "mipmap_pow2": false,
+      "ok": true,
+      "path": "/materials/masks/opacity_mask_6bba7151.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 600,
+      "wrap_s": 0,
+      "wrap_t": 0
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 6,
+      "height": 900,
+      "image_type": -1,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 900,
+      "map_width": 600,
+      "min_filter": 0,
+      "mipmap_larger": false,
+      "mipmap_pow2": false,
+      "ok": true,
+      "path": "/materials/masks/opacity_mask_7f4d7e9c.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 600,
+      "wrap_s": 0,
+      "wrap_t": 0
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 6,
+      "height": 900,
+      "image_type": -1,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 900,
+      "map_width": 600,
+      "min_filter": 0,
+      "mipmap_larger": false,
+      "mipmap_pow2": false,
+      "ok": true,
+      "path": "/materials/masks/opacity_mask_d0d65ae9.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 600,
+      "wrap_s": 0,
+      "wrap_t": 0
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 4,
+      "height": 2048,
+      "image_type": 13,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 1080,
+      "map_width": 1920,
+      "min_filter": 0,
+      "mipmap_larger": false,
+      "mipmap_pow2": false,
+      "ok": true,
+      "path": "/materials/masks/shift_hue_mask_a490f8c6f9cff0680b4f74fb4cdcf896e8c43d53.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 2048,
+      "wrap_s": 0,
+      "wrap_t": 0
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 6,
+      "height": 900,
+      "image_type": -1,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 900,
+      "map_width": 600,
+      "min_filter": 0,
+      "mipmap_larger": false,
+      "mipmap_pow2": false,
+      "ok": true,
+      "path": "/materials/masks/waterwaves_mask_c8c56022.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 600,
+      "wrap_s": 0,
+      "wrap_t": 0
+    }
+  ],
+  "workshop_dir": "2186130002"
+}

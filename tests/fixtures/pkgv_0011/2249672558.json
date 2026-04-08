@@ -30,9 +30,6 @@
         0.30000001192092896
       ],
       "cameraparallax": false,
-      "cameraparallaxamount": 0.5,
-      "cameraparallaxdelay": 0.10000000149011612,
-      "cameraparallaxmouseinfluence": 0.0,
       "clearcolor": [
         0.699999988079071,
         0.699999988079071,

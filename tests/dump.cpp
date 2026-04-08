@@ -326,20 +326,28 @@ json DumpWorkshop(const std::string& workshop_dir, std::string& err) {
                     { "eye", scene.camera.eye },
                     { "up", scene.camera.up },
                 };
-                jscene["general"] = {
+                // cameraparallaxamount/delay/mouseinfluence are undefaulted
+                // floats in WPSceneGeneral, so when the source scene.json
+                // omits them the parser leaves stack garbage. Only emit
+                // them when cameraparallax is enabled (in which case the
+                // source must supply real values).
+                json jgen = {
                     { "clearcolor", scene.general.clearcolor },
                     { "ambientcolor", scene.general.ambientcolor },
                     { "skylightcolor", scene.general.skylightcolor },
                     { "cameraparallax", scene.general.cameraparallax },
-                    { "cameraparallaxamount", scene.general.cameraparallaxamount },
-                    { "cameraparallaxdelay", scene.general.cameraparallaxdelay },
-                    { "cameraparallaxmouseinfluence",
-                      scene.general.cameraparallaxmouseinfluence },
                     { "zoom", scene.general.zoom },
                     { "fov", scene.general.fov },
                     { "nearz", scene.general.nearz },
                     { "farz", scene.general.farz },
                 };
+                if (scene.general.cameraparallax) {
+                    jgen["cameraparallaxamount"] = scene.general.cameraparallaxamount;
+                    jgen["cameraparallaxdelay"]  = scene.general.cameraparallaxdelay;
+                    jgen["cameraparallaxmouseinfluence"] =
+                        scene.general.cameraparallaxmouseinfluence;
+                }
+                jscene["general"] = std::move(jgen);
                 // ---- objects ----
                 json jobjects = json::array();
                 if (j.contains("objects") && j["objects"].is_array()) {

@@ -1,6 +1,6 @@
 {
   "pkg": {
-    "file_count": 16,
+    "file_count": 7,
     "has_scene_json": true,
     "version": "PKGV0001"
   },
@@ -8,13 +8,13 @@
   "scene": {
     "camera": {
       "center": [
-        0.0,
-        0.0,
+        -190.17599487304688,
+        -106.9739990234375,
         -1.0
       ],
       "eye": [
-        0.0,
-        0.0,
+        -190.17599487304688,
+        -106.9739990234375,
         0.0
       ],
       "up": [
@@ -25,28 +25,28 @@
     },
     "general": {
       "ambientcolor": [
-        1.0,
-        0.6470588445663452,
-        0.0
+        0.30000001192092896,
+        0.30000001192092896,
+        0.30000001192092896
       ],
       "cameraparallax": false,
       "clearcolor": [
-        0.7019608020782471,
-        0.7019608020782471,
-        0.7019608020782471
+        0.699999988079071,
+        0.699999988079071,
+        0.699999988079071
       ],
       "farz": 10000.0,
       "fov": 50.0,
       "nearz": 0.009999999776482582,
       "skylightcolor": [
-        0.0,
-        0.0,
-        0.0
+        0.30000001192092896,
+        0.30000001192092896,
+        0.30000001192092896
       ],
       "zoom": 1.0
     },
     "is_ortho": true,
-    "object_count": 5,
+    "object_count": 1,
     "objects": [
       {
         "alignment_parsed": "center",
@@ -67,23 +67,40 @@
         "effect_count": 0,
         "effects": [],
         "fullscreen": false,
-        "id": 12,
-        "image": "models/F (17).json",
+        "id": 5,
+        "image": "models/background.json",
         "kind": "image",
         "material": {
           "blending": "translucent",
           "combos": {},
-          "constantshadervalues": {},
+          "constantshadervalues": {
+            "Alpha": [
+              1.0
+            ],
+            "Amount": [
+              0.6000000238418579
+            ],
+            "Bright": [
+              0.8600000143051147
+            ],
+            "Power": [
+              1.0
+            ],
+            "Speed": [
+              0.10999999940395355
+            ]
+          },
           "cullmode": "nocull",
           "depthtest": "disabled",
           "depthwrite": "disabled",
-          "shader": "genericimage2",
+          "shader": "flowimage",
           "textures": [
-            "F (17)"
+            "background",
+            "flowmask"
           ],
           "use_puppet": false
         },
-        "name": "F (17)",
+        "name": "Background",
         "nopadding": false,
         "origin": "960.000 540.000 0.000",
         "origin_parsed": [
@@ -91,65 +108,20 @@
           540.0,
           0.0
         ],
-        "parallaxDepth": "1.000 1.000",
         "parsed": true,
         "puppet": "",
-        "scale": "1.000 1.000 1.000",
+        "scale": "1.500 1.500 1.500",
         "scale_parsed": [
-          1.0,
-          1.0,
-          1.0
+          1.5,
+          1.5,
+          1.5
         ],
-        "size": "1920.000 1080.000",
         "size_parsed": [
           1920.0,
           1080.0
         ],
         "visible": true,
         "visible_parsed": true
-      },
-      {
-        "angles": "0.000 0.000 0.000",
-        "id": 40,
-        "kind": "image",
-        "name": "Fireflies",
-        "origin": "987.327 490.356 0.000",
-        "parallaxDepth": "1.000 1.000",
-        "parsed": false,
-        "scale": "1.000 1.000 1.000",
-        "visible": true
-      },
-      {
-        "angles": "0.000 0.000 0.000",
-        "id": 73,
-        "kind": "image",
-        "name": "Ember",
-        "origin": "940.981 570.569 0.000",
-        "parallaxDepth": "1.000 1.000",
-        "parsed": false,
-        "scale": "1.000 1.000 1.000",
-        "visible": true
-      },
-      {
-        "angles": "0.000 0.000 0.000",
-        "id": 359,
-        "kind": "image",
-        "name": "Ember small",
-        "origin": "982.491 523.168 0.000",
-        "parallaxDepth": "1.000 1.000",
-        "parsed": false,
-        "scale": "1.000 1.000 1.000",
-        "visible": true
-      },
-      {
-        "angles": "0.000 0.000 0.000",
-        "id": 419,
-        "kind": "particle",
-        "name": "One",
-        "origin": "1067.412 480.136 0.000",
-        "parallaxDepth": "1.000 1.000",
-        "scale": "1.000 1.000 1.000",
-        "visible": true
       }
     ],
     "ortho": {
@@ -164,7 +136,7 @@
       "compo2": 0,
       "compo3": 0,
       "count": 1,
-      "format": 4,
+      "format": 2,
       "height": 2048,
       "image_type": -1,
       "is_sprite": false,
@@ -175,15 +147,40 @@
       "mipmap_larger": true,
       "mipmap_pow2": true,
       "ok": true,
-      "path": "/materials/F (17).tex",
+      "path": "/materials/background.tex",
       "sprite_frames": 0,
-      "texb": 2,
+      "texb": 1,
       "texi": 1,
       "texv": 5,
       "width": 2048,
       "wrap_s": 0,
       "wrap_t": 0
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 4,
+      "height": 1024,
+      "image_type": -1,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 600,
+      "map_width": 800,
+      "min_filter": 0,
+      "mipmap_larger": true,
+      "mipmap_pow2": true,
+      "ok": true,
+      "path": "/materials/flowmask.tex",
+      "sprite_frames": 0,
+      "texb": 1,
+      "texi": 1,
+      "texv": 5,
+      "width": 1024,
+      "wrap_s": 0,
+      "wrap_t": 0
     }
   ],
-  "workshop_dir": "1120440003"
+  "workshop_dir": "820654165"
 }

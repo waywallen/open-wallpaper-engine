@@ -1,10 +1,99 @@
 {
   "pkg": {
-    "file_count": 45,
+    "file_count": 62,
     "has_scene_json": true,
-    "version": "PKGV0014"
+    "version": "PKGV0018"
   },
-  "puppets": [],
+  "puppets": [
+    {
+      "anim_tracks": [
+        {
+          "bone_track_count": 7,
+          "fps": 2.9000000953674316,
+          "id": 35,
+          "length": 29,
+          "mode": 0,
+          "name": "动画 1",
+          "total_bone_frames": 210
+        }
+      ],
+      "anims": 1,
+      "bone_tree": [
+        {
+          "parent": 4294967295,
+          "transform_col_sums": [
+            1.0,
+            1.0,
+            1.0,
+            -384.41101264953613
+          ]
+        },
+        {
+          "parent": 0,
+          "transform_col_sums": [
+            1.0,
+            1.0,
+            1.0,
+            353.274658203125
+          ]
+        },
+        {
+          "parent": 1,
+          "transform_col_sums": [
+            1.0,
+            1.0,
+            1.0,
+            -354.36499404907227
+          ]
+        },
+        {
+          "parent": 2,
+          "transform_col_sums": [
+            1.0,
+            1.0,
+            1.0,
+            -164.02874755859375
+          ]
+        },
+        {
+          "parent": 1,
+          "transform_col_sums": [
+            1.0,
+            1.0,
+            1.0,
+            291.47192001342773
+          ]
+        },
+        {
+          "parent": 4,
+          "transform_col_sums": [
+            1.0,
+            1.0,
+            1.0,
+            -139.330810546875
+          ]
+        },
+        {
+          "parent": 1,
+          "transform_col_sums": [
+            1.0,
+            1.0,
+            1.0,
+            461.42907524108887
+          ]
+        }
+      ],
+      "bones": 7,
+      "index_count": 902,
+      "mat_json_file": "materials/拼图.json",
+      "mdla": 3,
+      "mdls": 2,
+      "mdlv": 16,
+      "ok": true,
+      "path": "/models/拼图_puppet.mdl",
+      "vertex_count": 530
+    }
+  ],
   "scene": {
     "camera": {
       "center": [
@@ -46,38 +135,8 @@
       "zoom": 1.0
     },
     "is_ortho": true,
-    "object_count": 16,
+    "object_count": 7,
     "objects": [
-      {
-        "angles": "0.00000 0.00000 0.00000",
-        "id": 62,
-        "kind": "sound",
-        "name": "280843_Coiin___Colour_My_World.mp3",
-        "origin": "0.00000 0.00000 0.00000",
-        "parallaxDepth": "1.00000 1.00000",
-        "scale": "1.00000 1.00000 1.00000",
-        "visible": true
-      },
-      {
-        "angles": "0.00000 0.00000 0.00000",
-        "id": 104,
-        "kind": "particle",
-        "name": "Sakura",
-        "origin": "2272.51172 707.03577 0.00000",
-        "parallaxDepth": "1.00000 1.00000",
-        "scale": "0.50000 0.50000 0.50000",
-        "visible": true
-      },
-      {
-        "angles": "0.00000 0.00000 0.00000",
-        "id": 110,
-        "kind": "particle",
-        "name": "Sakura",
-        "origin": "52.46498 493.76440 0.00000",
-        "parallaxDepth": "1.00000 1.00000",
-        "scale": "1.00000 1.00000 1.00000",
-        "visible": true
-      },
       {
         "alignment": "center",
         "alignment_parsed": "center",
@@ -95,8 +154,28 @@
           1.0
         ],
         "colorBlendMode": 0,
-        "effect_count": 2,
+        "effect_count": 3,
         "effects": [
+          {
+            "fbo_count": 0,
+            "material_count": 1,
+            "materials": [
+              {
+                "blending": "normal",
+                "combos": {},
+                "constantshadervalues": {},
+                "cullmode": "nocull",
+                "depthtest": "disabled",
+                "depthwrite": "disabled",
+                "shader": "effects/foliagesway",
+                "textures": [],
+                "use_puppet": false
+              }
+            ],
+            "name": "ui_editor_effect_foliage_sway_title",
+            "pass_count": 1,
+            "visible": true
+          },
           {
             "fbo_count": 0,
             "material_count": 1,
@@ -122,8 +201,8 @@
             "visible": true
           },
           {
-            "fbo_count": 0,
-            "material_count": 1,
+            "fbo_count": 2,
+            "material_count": 5,
             "materials": [
               {
                 "blending": "normal",
@@ -132,19 +211,65 @@
                 "cullmode": "nocull",
                 "depthtest": "disabled",
                 "depthwrite": "disabled",
-                "shader": "effects/foliagesway",
+                "shader": "effects/godrays_downsample2",
+                "textures": [],
+                "use_puppet": false
+              },
+              {
+                "blending": "normal",
+                "combos": {},
+                "constantshadervalues": {},
+                "cullmode": "nocull",
+                "depthtest": "disabled",
+                "depthwrite": "disabled",
+                "shader": "effects/godrays_cast",
+                "textures": [],
+                "use_puppet": false
+              },
+              {
+                "blending": "normal",
+                "combos": {},
+                "constantshadervalues": {},
+                "cullmode": "nocull",
+                "depthtest": "disabled",
+                "depthwrite": "disabled",
+                "shader": "effects/godrays_gaussian",
+                "textures": [],
+                "use_puppet": false
+              },
+              {
+                "blending": "normal",
+                "combos": {
+                  "VERTICAL": 1
+                },
+                "constantshadervalues": {},
+                "cullmode": "nocull",
+                "depthtest": "disabled",
+                "depthwrite": "disabled",
+                "shader": "effects/godrays_gaussian",
+                "textures": [],
+                "use_puppet": false
+              },
+              {
+                "blending": "normal",
+                "combos": {},
+                "constantshadervalues": {},
+                "cullmode": "nocull",
+                "depthtest": "disabled",
+                "depthwrite": "disabled",
+                "shader": "effects/godrays_combine",
                 "textures": [],
                 "use_puppet": false
               }
             ],
-            "name": "ui_editor_effect_foliage_sway_title",
-            "pass_count": 1,
+            "name": "ui_editor_effect_godrays_title",
+            "pass_count": 5,
             "visible": true
           }
         ],
         "fullscreen": false,
-        "id": 123,
-        "image": "models/62975519_p0.json",
+        "id": 14,
+        "image": "models/背景.json",
         "kind": "image",
         "material": {
           "blending": "translucent",
@@ -157,11 +282,11 @@
           "depthwrite": "disabled",
           "shader": "genericimage2",
           "textures": [
-            "62975519_p0"
+            "背景"
           ],
           "use_puppet": false
         },
-        "name": "62975519_p0",
+        "name": "背景",
         "nopadding": false,
         "origin": "1920.00000 1080.00000 0.00000",
         "origin_parsed": [
@@ -188,29 +313,6 @@
       },
       {
         "alignment": "center",
-        "angles": "0.00000 0.00000 0.00000",
-        "id": 127,
-        "kind": "image",
-        "name": "Compose",
-        "origin": "1090.60986 497.24866 0.00000",
-        "parallaxDepth": "1.00000 1.00000",
-        "parsed": false,
-        "scale": "1.00000 1.00000 1.00000",
-        "size": "2200.00000 1000.00000",
-        "visible": true
-      },
-      {
-        "angles": "0.00000 -0.00000 1.56318",
-        "id": 136,
-        "kind": "particle",
-        "name": "Snow storm",
-        "origin": "3112.83765 30.06915 0.00000",
-        "parallaxDepth": "1.00000 1.00000",
-        "scale": "0.52112 1.12394 1.00000",
-        "visible": true
-      },
-      {
-        "alignment": "center",
         "alignment_parsed": "center",
         "alpha": 1.0,
         "angles": "0.00000 0.00000 0.00000",
@@ -226,7 +328,7 @@
           1.0
         ],
         "colorBlendMode": 0,
-        "effect_count": 2,
+        "effect_count": 3,
         "effects": [
           {
             "fbo_count": 0,
@@ -239,18 +341,18 @@
                 "cullmode": "nocull",
                 "depthtest": "disabled",
                 "depthwrite": "disabled",
-                "shader": "effects/spin",
+                "shader": "effects/shake",
                 "textures": [],
                 "use_puppet": false
               }
             ],
-            "name": "ui_editor_effect_spin_title",
+            "name": "ui_editor_effect_shake_title",
             "pass_count": 1,
             "visible": true
           },
           {
-            "fbo_count": 1,
-            "material_count": 2,
+            "fbo_count": 0,
+            "material_count": 1,
             "materials": [
               {
                 "blending": "normal",
@@ -259,32 +361,39 @@
                 "cullmode": "nocull",
                 "depthtest": "disabled",
                 "depthwrite": "disabled",
-                "shader": "effects/blur_precise_gaussian",
-                "textures": [],
-                "use_puppet": false
-              },
-              {
-                "blending": "normal",
-                "combos": {
-                  "VERTICAL": 1
-                },
-                "constantshadervalues": {},
-                "cullmode": "nocull",
-                "depthtest": "disabled",
-                "depthwrite": "disabled",
-                "shader": "effects/blur_precise_gaussian",
+                "shader": "effects/waterwaves",
                 "textures": [],
                 "use_puppet": false
               }
             ],
-            "name": "ui_editor_effect_blur_precise_title",
-            "pass_count": 2,
+            "name": "ui_editor_effect_water_waves_title",
+            "pass_count": 1,
+            "visible": true
+          },
+          {
+            "fbo_count": 0,
+            "material_count": 1,
+            "materials": [
+              {
+                "blending": "normal",
+                "combos": {},
+                "constantshadervalues": {},
+                "cullmode": "nocull",
+                "depthtest": "disabled",
+                "depthwrite": "disabled",
+                "shader": "effects/shake",
+                "textures": [],
+                "use_puppet": false
+              }
+            ],
+            "name": "ui_editor_effect_shake_title",
+            "pass_count": 1,
             "visible": true
           }
         ],
         "fullscreen": false,
-        "id": 266,
-        "image": "models/layer_01.json",
+        "id": 18,
+        "image": "models/拼图.json",
         "kind": "image",
         "material": {
           "blending": "translucent",
@@ -297,270 +406,83 @@
           "depthwrite": "disabled",
           "shader": "genericimage2",
           "textures": [
-            "layer_01"
+            "拼图"
           ],
           "use_puppet": false
         },
-        "name": "layer_01",
+        "name": "拼图",
         "nopadding": false,
-        "origin": "669.82092 1255.57324 0.00000",
+        "origin": "1920.00000 1080.00000 0.00000",
         "origin_parsed": [
-          669.8209228515625,
-          1255.5732421875,
+          1920.0,
+          1080.0,
           0.0
         ],
         "parallaxDepth": "1.00000 1.00000",
         "parsed": true,
-        "puppet": "",
+        "puppet": "models/拼图_puppet.mdl",
         "scale": "1.00000 1.00000 1.00000",
         "scale_parsed": [
           1.0,
           1.0,
           1.0
         ],
-        "size": "754.00000 753.00000",
+        "size": "3840.00000 2160.00000",
         "size_parsed": [
-          754.0,
-          753.0
+          3840.0,
+          2160.0
         ],
         "visible": true,
         "visible_parsed": true
       },
       {
-        "angles": "0.00000 -0.00000 1.56318",
-        "id": 269,
+        "angles": "-0.00000 -0.00000 -0.29453",
+        "id": 84,
         "kind": "particle",
-        "name": "Snow storm",
-        "origin": "2527.16064 1032.31604 0.00000",
+        "name": "Light shafts 1",
+        "origin": "1824.38696 1663.71008 0.00000",
         "parallaxDepth": "1.00000 1.00000",
-        "scale": "0.12227 0.32393 1.00000",
+        "scale": "-7.50941 4.75740 1.00000",
         "visible": true
       },
       {
-        "angles": "0.00000 -0.00000 1.56318",
-        "id": 282,
+        "angles": "-0.00000 -0.00000 -1.52097",
+        "id": 101,
         "kind": "particle",
-        "name": "Snow storm",
-        "origin": "3572.42847 1056.97827 0.00000",
+        "name": "Glitter",
+        "origin": "1574.75977 704.17316 0.00000",
         "parallaxDepth": "1.00000 1.00000",
-        "scale": "0.24200 0.45922 1.00000",
-        "visible": true
-      },
-      {
-        "alignment": "center",
-        "alignment_parsed": "center",
-        "alpha": 0.4399999976158142,
-        "angles": "0.00000 -0.00000 0.10121",
-        "angles_parsed": [
-          0.0,
-          -0.0,
-          0.10120999813079834
-        ],
-        "brightness": 1.0,
-        "color": [
-          1.0,
-          1.0,
-          1.0
-        ],
-        "colorBlendMode": 0,
-        "effect_count": 4,
-        "effects": [
-          {
-            "fbo_count": 0,
-            "material_count": 1,
-            "materials": [
-              {
-                "blending": "normal",
-                "combos": {},
-                "constantshadervalues": {},
-                "cullmode": "nocull",
-                "depthtest": "disabled",
-                "depthwrite": "disabled",
-                "shader": "effects/spin",
-                "textures": [],
-                "use_puppet": false
-              }
-            ],
-            "name": "ui_editor_effect_spin_title",
-            "pass_count": 1,
-            "visible": true
-          },
-          {
-            "fbo_count": 0,
-            "material_count": 1,
-            "materials": [
-              {
-                "blending": "normal",
-                "combos": {},
-                "constantshadervalues": {},
-                "cullmode": "nocull",
-                "depthtest": "disabled",
-                "depthwrite": "disabled",
-                "shader": "effects/tint",
-                "textures": [],
-                "use_puppet": false
-              }
-            ],
-            "name": "ui_editor_effect_tint_title",
-            "pass_count": 1,
-            "visible": true
-          },
-          {
-            "fbo_count": 1,
-            "material_count": 2,
-            "materials": [
-              {
-                "blending": "normal",
-                "combos": {},
-                "constantshadervalues": {},
-                "cullmode": "nocull",
-                "depthtest": "disabled",
-                "depthwrite": "disabled",
-                "shader": "effects/blur_precise_gaussian",
-                "textures": [],
-                "use_puppet": false
-              },
-              {
-                "blending": "normal",
-                "combos": {
-                  "VERTICAL": 1
-                },
-                "constantshadervalues": {},
-                "cullmode": "nocull",
-                "depthtest": "disabled",
-                "depthwrite": "disabled",
-                "shader": "effects/blur_precise_gaussian",
-                "textures": [],
-                "use_puppet": false
-              }
-            ],
-            "name": "ui_editor_effect_blur_precise_title",
-            "pass_count": 2,
-            "visible": true
-          },
-          {
-            "fbo_count": 0,
-            "material_count": 1,
-            "materials": [
-              {
-                "blending": "normal",
-                "combos": {},
-                "constantshadervalues": {},
-                "cullmode": "nocull",
-                "depthtest": "disabled",
-                "depthwrite": "disabled",
-                "shader": "effects/opacity",
-                "textures": [],
-                "use_puppet": false
-              }
-            ],
-            "name": "ui_editor_effect_opacity_title",
-            "pass_count": 1,
-            "visible": true
-          }
-        ],
-        "fullscreen": false,
-        "id": 286,
-        "image": "models/layer_01.json",
-        "kind": "image",
-        "material": {
-          "blending": "translucent",
-          "combos": {
-            "VERSION": 2
-          },
-          "constantshadervalues": {},
-          "cullmode": "nocull",
-          "depthtest": "disabled",
-          "depthwrite": "disabled",
-          "shader": "genericimage2",
-          "textures": [
-            "layer_01"
-          ],
-          "use_puppet": false
-        },
-        "name": "layer_01",
-        "nopadding": false,
-        "origin": "690.71576 1275.23108 0.00000",
-        "origin_parsed": [
-          690.7157592773438,
-          1275.2310791015625,
-          0.0
-        ],
-        "parallaxDepth": "1.00000 1.00000",
-        "parsed": true,
-        "puppet": "",
-        "scale": "1.00000 1.10305 1.00000",
-        "scale_parsed": [
-          1.0,
-          1.1030499935150146,
-          1.0
-        ],
-        "size": "754.00000 753.00000",
-        "size_parsed": [
-          754.0,
-          753.0
-        ],
-        "visible": true,
-        "visible_parsed": true
-      },
-      {
-        "angles": "0.00000 -0.00000 1.56318",
-        "id": 295,
-        "kind": "particle",
-        "name": "Snow storm",
-        "origin": "-39.91669 1789.80408 0.00000",
-        "parallaxDepth": "1.00000 1.00000",
-        "scale": "0.24200 0.45922 1.00000",
-        "visible": true
-      },
-      {
-        "angles": "0.00000 -0.00000 1.56318",
-        "id": 308,
-        "kind": "particle",
-        "name": "Snow storm",
-        "origin": "1066.41638 1786.24634 0.00000",
-        "parallaxDepth": "1.00000 1.00000",
-        "scale": "0.13235 0.35949 1.00000",
-        "visible": true
-      },
-      {
-        "angles": "0.00000 -0.00000 1.56318",
-        "id": 321,
-        "kind": "particle",
-        "name": "Snow storm",
-        "origin": "1697.57324 1275.40796 0.00000",
-        "parallaxDepth": "1.00000 1.00000",
-        "scale": "0.24200 0.45922 1.00000",
+        "scale": "1.90489 1.87501 1.37200",
         "visible": true
       },
       {
         "angles": "0.00000 0.00000 0.00000",
-        "id": 439,
-        "kind": "particle",
-        "name": "Sakura",
-        "origin": "119.62994 891.47876 0.00000",
+        "id": 134,
+        "kind": "sound",
+        "name": "Kyle Xian - A Tender Moon Tempo (翻奏_ 八木海莉).mp3",
+        "origin": "0.00000 0.00000 0.00000",
         "parallaxDepth": "1.00000 1.00000",
-        "scale": "0.50000 0.50000 0.50000",
+        "scale": "1.00000 1.00000 1.00000",
         "visible": true
       },
       {
         "angles": "0.00000 0.00000 0.00000",
-        "id": 445,
+        "id": 168,
         "kind": "particle",
-        "name": "Sakura",
-        "origin": "916.01044 868.63184 0.00000",
+        "name": "星星背景",
+        "origin": "2209.87378 1763.75793 0.00000",
         "parallaxDepth": "1.00000 1.00000",
-        "scale": "0.50000 0.50000 0.50000",
+        "scale": "1.96724 1.99232 1.00000",
         "visible": true
       },
       {
-        "angles": "0.00000 0.00000 0.00000",
-        "id": 451,
+        "angles": "0.00000 -0.00000 -3.09254",
+        "id": 188,
         "kind": "particle",
         "name": "Sakura",
-        "origin": "1487.07263 702.39447 0.00000",
+        "origin": "1728.08997 1321.64514 0.00000",
         "parallaxDepth": "1.00000 1.00000",
-        "scale": "0.70000 0.70000 0.70000",
+        "scale": "1.52236 1.25595 1.00000",
         "visible": true
       }
     ],
@@ -571,31 +493,6 @@
     "parsed": true
   },
   "textures": [
-    {
-      "compo1": 0,
-      "compo2": 0,
-      "compo3": 0,
-      "count": 1,
-      "format": 4,
-      "height": 4096,
-      "image_type": 2,
-      "is_sprite": false,
-      "mag_filter": 0,
-      "map_height": 2160,
-      "map_width": 3840,
-      "min_filter": 0,
-      "mipmap_larger": false,
-      "mipmap_pow2": false,
-      "ok": true,
-      "path": "/materials/62975519_p0.tex",
-      "sprite_frames": 0,
-      "texb": 3,
-      "texi": 1,
-      "texv": 5,
-      "width": 4096,
-      "wrap_s": 0,
-      "wrap_t": 0
-    },
     {
       "compo1": 0,
       "compo2": 0,
@@ -626,151 +523,201 @@
       "compo2": 0,
       "compo3": 0,
       "count": 1,
+      "format": 6,
+      "height": 1080,
+      "image_type": -1,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 1080,
+      "map_width": 1920,
+      "min_filter": 0,
+      "mipmap_larger": false,
+      "mipmap_pow2": false,
+      "ok": true,
+      "path": "/materials/masks/foliagesway_mask_540f3829.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 1920,
+      "wrap_s": 0,
+      "wrap_t": 0
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 6,
+      "height": 1080,
+      "image_type": -1,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 1080,
+      "map_width": 1920,
+      "min_filter": 0,
+      "mipmap_larger": false,
+      "mipmap_pow2": false,
+      "ok": true,
+      "path": "/materials/masks/godrays_downsample2_mask_2d53bfb5.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 1920,
+      "wrap_s": 0,
+      "wrap_t": 0
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 5,
+      "height": 1080,
+      "image_type": -1,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 1080,
+      "map_width": 1920,
+      "min_filter": 0,
+      "mipmap_larger": false,
+      "mipmap_pow2": false,
+      "ok": true,
+      "path": "/materials/masks/shake_mask_3763423f.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 1920,
+      "wrap_s": 0,
+      "wrap_t": 0
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 5,
+      "height": 1080,
+      "image_type": -1,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 1080,
+      "map_width": 1920,
+      "min_filter": 0,
+      "mipmap_larger": false,
+      "mipmap_pow2": false,
+      "ok": true,
+      "path": "/materials/masks/shake_mask_cd5a8501.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 1920,
+      "wrap_s": 0,
+      "wrap_t": 0
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 6,
+      "height": 1080,
+      "image_type": -1,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 1080,
+      "map_width": 1920,
+      "min_filter": 0,
+      "mipmap_larger": false,
+      "mipmap_pow2": false,
+      "ok": true,
+      "path": "/materials/masks/waterripple_mask_9c84dd58.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 1920,
+      "wrap_s": 0,
+      "wrap_t": 0
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 6,
+      "height": 1080,
+      "image_type": -1,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 1080,
+      "map_width": 1920,
+      "min_filter": 0,
+      "mipmap_larger": false,
+      "mipmap_pow2": false,
+      "ok": true,
+      "path": "/materials/masks/waterwaves_mask_d7aaeb4a.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 1920,
+      "wrap_s": 0,
+      "wrap_t": 0
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 2,
+      "height": 2176,
+      "image_type": -1,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 2160,
+      "map_width": 3840,
+      "min_filter": 0,
+      "mipmap_larger": true,
+      "mipmap_pow2": false,
+      "ok": true,
+      "path": "/materials/拼图.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 3840,
+      "wrap_s": 0,
+      "wrap_t": 0
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
       "format": 4,
-      "height": 1024,
-      "image_type": 13,
+      "height": 4096,
+      "image_type": 2,
       "is_sprite": false,
       "mag_filter": 0,
-      "map_height": 753,
-      "map_width": 754,
+      "map_height": 2160,
+      "map_width": 3840,
       "min_filter": 0,
       "mipmap_larger": false,
       "mipmap_pow2": false,
       "ok": true,
-      "path": "/materials/layer_01.tex",
+      "path": "/materials/背景.tex",
       "sprite_frames": 0,
       "texb": 3,
       "texi": 1,
       "texv": 5,
-      "width": 1024,
-      "wrap_s": 0,
-      "wrap_t": 0
-    },
-    {
-      "compo1": 0,
-      "compo2": 0,
-      "compo3": 0,
-      "count": 1,
-      "format": 6,
-      "height": 650,
-      "image_type": -1,
-      "is_sprite": false,
-      "mag_filter": 0,
-      "map_height": 650,
-      "map_width": 1500,
-      "min_filter": 0,
-      "mipmap_larger": false,
-      "mipmap_pow2": false,
-      "ok": true,
-      "path": "/materials/masks/foliagesway_mask_5506dc3e.tex",
-      "sprite_frames": 0,
-      "texb": 3,
-      "texi": 1,
-      "texv": 5,
-      "width": 1500,
-      "wrap_s": 0,
-      "wrap_t": 0
-    },
-    {
-      "compo1": 0,
-      "compo2": 0,
-      "compo3": 0,
-      "count": 1,
-      "format": 6,
-      "height": 1080,
-      "image_type": -1,
-      "is_sprite": false,
-      "mag_filter": 0,
-      "map_height": 1080,
-      "map_width": 1920,
-      "min_filter": 0,
-      "mipmap_larger": false,
-      "mipmap_pow2": false,
-      "ok": true,
-      "path": "/materials/masks/foliagesway_mask_80e0ff4a.tex",
-      "sprite_frames": 0,
-      "texb": 3,
-      "texi": 1,
-      "texv": 5,
-      "width": 1920,
-      "wrap_s": 0,
-      "wrap_t": 0
-    },
-    {
-      "compo1": 0,
-      "compo2": 0,
-      "compo3": 0,
-      "count": 1,
-      "format": 6,
-      "height": 376,
-      "image_type": -1,
-      "is_sprite": false,
-      "mag_filter": 0,
-      "map_height": 376,
-      "map_width": 377,
-      "min_filter": 0,
-      "mipmap_larger": false,
-      "mipmap_pow2": false,
-      "ok": true,
-      "path": "/materials/masks/opacity_mask_1979b3c4.tex",
-      "sprite_frames": 0,
-      "texb": 3,
-      "texi": 1,
-      "texv": 5,
-      "width": 377,
-      "wrap_s": 0,
-      "wrap_t": 0
-    },
-    {
-      "compo1": 0,
-      "compo2": 0,
-      "compo3": 0,
-      "count": 1,
-      "format": 6,
-      "height": 376,
-      "image_type": -1,
-      "is_sprite": false,
-      "mag_filter": 0,
-      "map_height": 376,
-      "map_width": 377,
-      "min_filter": 0,
-      "mipmap_larger": false,
-      "mipmap_pow2": false,
-      "ok": true,
-      "path": "/materials/masks/spin_mask_4ba8383a.tex",
-      "sprite_frames": 0,
-      "texb": 3,
-      "texi": 1,
-      "texv": 5,
-      "width": 377,
-      "wrap_s": 0,
-      "wrap_t": 0
-    },
-    {
-      "compo1": 0,
-      "compo2": 0,
-      "compo3": 0,
-      "count": 1,
-      "format": 6,
-      "height": 1080,
-      "image_type": -1,
-      "is_sprite": false,
-      "mag_filter": 0,
-      "map_height": 1080,
-      "map_width": 1920,
-      "min_filter": 0,
-      "mipmap_larger": false,
-      "mipmap_pow2": false,
-      "ok": true,
-      "path": "/materials/masks/waterripple_mask_10f9359b.tex",
-      "sprite_frames": 0,
-      "texb": 3,
-      "texi": 1,
-      "texv": 5,
-      "width": 1920,
+      "width": 4096,
       "wrap_s": 0,
       "wrap_t": 0
     }
   ],
-  "workshop_dir": "1721043273"
+  "workshop_dir": "2664591394"
 }

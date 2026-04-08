@@ -1,0 +1,265 @@
+{
+  "pkg": {
+    "file_count": 23,
+    "has_scene_json": true,
+    "version": "PKGV0001"
+  },
+  "puppets": [
+    {
+      "anims": 0,
+      "bones": 0,
+      "index_count": 0,
+      "mat_json_file": "materials/neongrid/neongrid.json",
+      "mdla": 1,
+      "mdls": 1,
+      "mdlv": 4,
+      "ok": false,
+      "path": "/models/neongrid/neongrid.mdl",
+      "vertex_count": 0
+    },
+    {
+      "anims": 0,
+      "bones": 0,
+      "index_count": 0,
+      "mat_json_file": "materials/neonsun/neonsun.json",
+      "mdla": 1,
+      "mdls": 1,
+      "mdlv": 4,
+      "ok": false,
+      "path": "/models/neonsun/neonsun.mdl",
+      "vertex_count": 0
+    }
+  ],
+  "scene": {
+    "camera": {
+      "center": [
+        0.0,
+        0.0,
+        -0.10000000149011612
+      ],
+      "eye": [
+        0.0,
+        -0.0,
+        0.0
+      ],
+      "up": [
+        0.0,
+        1.0,
+        0.0
+      ]
+    },
+    "general": {
+      "ambientcolor": [
+        0.30000001192092896,
+        0.30000001192092896,
+        0.30000001192092896
+      ],
+      "cameraparallax": false,
+      "clearcolor": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "farz": 10000.0,
+      "fov": 50.0,
+      "nearz": 0.009999999776482582,
+      "skylightcolor": [
+        0.30000001192092896,
+        0.30000001192092896,
+        0.30000001192092896
+      ],
+      "zoom": 1.0
+    },
+    "is_ortho": false,
+    "object_count": 5,
+    "objects": [
+      {
+        "angles": "0.000 3.142 0.000",
+        "id": 12,
+        "kind": "unknown",
+        "name": "neongrid",
+        "origin": "0.000 -0.132 -1.275",
+        "parallaxDepth": "1.000 1.000",
+        "scale": "1.176 1.000 1.000",
+        "visible": true
+      },
+      {
+        "angles": "0.000 0.000 0.000",
+        "id": 37,
+        "kind": "unknown",
+        "name": "neonsun",
+        "origin": "0.000 0.135 -0.711",
+        "parallaxDepth": "1.000 1.000",
+        "scale": "0.387 0.387 0.387",
+        "visible": true
+      },
+      {
+        "alignment_parsed": "center",
+        "alpha": 1.0,
+        "angles": "0.000 0.000 0.000",
+        "angles_parsed": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "brightness": 1.0,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "colorBlendMode": 0,
+        "effect_count": 0,
+        "effects": [],
+        "fullscreen": true,
+        "id": 52,
+        "image": "models/cloudsbg.json",
+        "kind": "image",
+        "material": {
+          "blending": "normal",
+          "combos": {},
+          "constantshadervalues": {},
+          "cullmode": "nocull",
+          "depthtest": "disabled",
+          "depthwrite": "disabled",
+          "shader": "cloudsbg",
+          "textures": [
+            "_rt_FullFrameBuffer",
+            "clouds_512"
+          ],
+          "use_puppet": false
+        },
+        "name": "Fullscreen",
+        "nopadding": false,
+        "origin": "0.000 0.000 0.000",
+        "origin_parsed": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "parallaxDepth": "1.000 1.000",
+        "parsed": true,
+        "puppet": "",
+        "scale": "1.000 1.000 1.000",
+        "scale_parsed": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "size": "1147.000 791.000",
+        "size_parsed": [
+          2.0,
+          2.0
+        ],
+        "visible": true,
+        "visible_parsed": true
+      },
+      {
+        "angles": "0.000 0.000 0.000",
+        "id": 53,
+        "kind": "image",
+        "name": "Fullscreen",
+        "origin": "0.000 0.000 0.000",
+        "parallaxDepth": "1.000 1.000",
+        "parsed": false,
+        "scale": "1.000 1.000 1.000",
+        "size": "1147.000 791.000",
+        "visible": true
+      },
+      {
+        "angles": "0.000 0.000 0.000",
+        "id": 209,
+        "kind": "image",
+        "name": "Fog 1",
+        "origin": "0.000 0.140 -0.824",
+        "parallaxDepth": "1.000 1.000",
+        "parsed": false,
+        "scale": "1.000 1.000 1.000",
+        "visible": true
+      }
+    ],
+    "ortho": {
+      "height": 1080,
+      "width": 1920
+    },
+    "parsed": true
+  },
+  "textures": [
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 2,
+      "height": 512,
+      "image_type": -1,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 512,
+      "map_width": 512,
+      "min_filter": 0,
+      "mipmap_larger": false,
+      "mipmap_pow2": true,
+      "ok": true,
+      "path": "/materials/clouds_512.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 512,
+      "wrap_s": 1,
+      "wrap_t": 1
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 4,
+      "height": 128,
+      "image_type": -1,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 128,
+      "map_width": 128,
+      "min_filter": 0,
+      "mipmap_larger": false,
+      "mipmap_pow2": true,
+      "ok": true,
+      "path": "/materials/neongrid/neongrid.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 128,
+      "wrap_s": 0,
+      "wrap_t": 0
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 4,
+      "height": 128,
+      "image_type": -1,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 128,
+      "map_width": 128,
+      "min_filter": 0,
+      "mipmap_larger": false,
+      "mipmap_pow2": true,
+      "ok": true,
+      "path": "/materials/neonsun/neonsun.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 128,
+      "wrap_s": 0,
+      "wrap_t": 0
+    }
+  ],
+  "workshop_dir": "1548688862"
+}
