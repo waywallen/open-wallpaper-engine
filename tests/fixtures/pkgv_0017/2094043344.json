@@ -176,18 +176,29 @@
   },
   "textures": [
     {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
       "count": 1,
-      "flags": 2,
-      "format": 0,
+      "format": 4,
       "height": 2048,
+      "image_type": 2,
+      "is_sprite": false,
+      "mag_filter": 0,
       "map_height": 1080,
       "map_width": 1920,
+      "min_filter": 0,
+      "mipmap_larger": false,
+      "mipmap_pow2": false,
       "ok": true,
       "path": "/materials/stretched-1920-1080-107714777777.tex",
+      "sprite_frames": 0,
       "texb": 3,
       "texi": 1,
       "texv": 5,
-      "width": 2048
+      "width": 2048,
+      "wrap_s": 0,
+      "wrap_t": 0
     }
   ],
   "workshop_dir": "2094043344"

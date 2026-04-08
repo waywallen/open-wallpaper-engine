@@ -9,6 +9,8 @@
 #include "WPCommon.hpp"
 #include "WPMdlParser.hpp"
 #include "WPPkgFs.hpp"
+#include "WPTexImageParser.hpp"
+#include "Image.hpp"
 #include "wpscene/WPImageObject.h"
 #include "wpscene/WPMaterial.h"
 #include "wpscene/WPScene.h"
@@ -67,43 +69,85 @@ bool ReadPkgHeader(const std::string& pkg_path, std::string& version,
 
 // --- texture header reader ---------------------------------------------------
 //
-// Mirrors src/WPTexImageParser.cpp::LoadHeader (which lives in an anonymous
-// namespace and is therefore not reusable). We only read the bytes we need
-// for fingerprinting; the actual pixel payload is intentionally skipped.
+// Delegates to WPTexImageParser::ParseHeader so we exercise the same
+// production code path the renderer uses. ParseHeader fills ImageHeader,
+// including sprite frame counts (numFrames()) when isSprite is true.
 
 struct TexMeta {
     std::string path;
     int32_t     texv { 0 };
     int32_t     texi { 0 };
     int32_t     texb { 0 };
+    int32_t     compo1 { 0 };
+    int32_t     compo2 { 0 };
+    int32_t     compo3 { 0 };
     int32_t     format { 0 };
-    uint32_t    flags { 0 };
+    int32_t     image_type { 0 };
     int32_t     width { 0 };
     int32_t     height { 0 };
     int32_t     map_width { 0 };
     int32_t     map_height { 0 };
     int32_t     count { 0 };
+    bool        is_sprite { false };
+    int64_t     sprite_frames { 0 };
+    bool        mipmap_pow2 { false };
+    bool        mipmap_larger { false };
+    int         wrap_s { 0 };
+    int         wrap_t { 0 };
+    int         min_filter { 0 };
+    int         mag_filter { 0 };
     bool        ok { false };
 };
 
-TexMeta ReadTexMeta(wallpaper::fs::VFS& vfs, const std::string& vfs_path) {
+TexMeta ReadTexMeta(wallpaper::fs::VFS& vfs, const std::string& pkg_path) {
     TexMeta meta;
-    meta.path  = vfs_path;
-    auto pfile = vfs.Open(vfs_path);
-    if (! pfile) return meta;
-    auto& f      = *pfile;
-    meta.texv    = wallpaper::ReadTexVesion(f);
-    meta.texi    = wallpaper::ReadTexVesion(f);
-    meta.format  = f.ReadInt32();
-    meta.flags   = f.ReadUint32();
-    meta.width   = f.ReadInt32();
-    meta.height  = f.ReadInt32();
-    meta.map_width  = f.ReadInt32();
-    meta.map_height = f.ReadInt32();
-    f.ReadInt32(); // unknown
-    meta.texb    = wallpaper::ReadTexVesion(f);
-    meta.count   = f.ReadInt32();
-    meta.ok      = (meta.texv > 0 && meta.width > 0 && meta.height > 0);
+    meta.path = pkg_path;
+
+    // ParseHeader takes a "name" without /assets/materials/ prefix or
+    // .tex suffix, so strip both before passing it through.
+    constexpr std::string_view prefix = "/materials/";
+    constexpr std::string_view suffix = ".tex";
+    if (pkg_path.compare(0, prefix.size(), prefix) != 0) return meta;
+    if (pkg_path.size() < prefix.size() + suffix.size()) return meta;
+    if (pkg_path.compare(pkg_path.size() - suffix.size(), suffix.size(), suffix) != 0)
+        return meta;
+    std::string name = pkg_path.substr(prefix.size(),
+                                       pkg_path.size() - prefix.size() - suffix.size());
+
+    wallpaper::WPTexImageParser parser(&vfs);
+    wallpaper::ImageHeader      h;
+    try {
+        h = parser.ParseHeader(name);
+    } catch (const std::exception&) {
+        return meta;
+    }
+
+    auto extra_val = [&](const std::string& k) -> int32_t {
+        auto it = h.extraHeader.find(k);
+        return it == h.extraHeader.end() ? 0 : it->second.val;
+    };
+    meta.texv          = extra_val("texv");
+    meta.texi          = extra_val("texi");
+    meta.texb          = extra_val("texb");
+    meta.compo1        = extra_val("compo1");
+    meta.compo2        = extra_val("compo2");
+    meta.compo3        = extra_val("compo3");
+    meta.format        = static_cast<int32_t>(h.format);
+    meta.image_type    = static_cast<int32_t>(h.type);
+    meta.width         = h.width;
+    meta.height        = h.height;
+    meta.map_width     = h.mapWidth;
+    meta.map_height    = h.mapHeight;
+    meta.count         = h.count;
+    meta.is_sprite     = h.isSprite;
+    meta.sprite_frames = static_cast<int64_t>(h.spriteAnim.numFrames());
+    meta.mipmap_pow2   = h.mipmap_pow2;
+    meta.mipmap_larger = h.mipmap_larger;
+    meta.wrap_s        = static_cast<int>(h.sample.wrapS);
+    meta.wrap_t        = static_cast<int>(h.sample.wrapT);
+    meta.min_filter    = static_cast<int>(h.sample.minFilter);
+    meta.mag_filter    = static_cast<int>(h.sample.magFilter);
+    meta.ok            = (meta.texv > 0 && meta.width > 0 && meta.height > 0);
     return meta;
 }
 
@@ -326,20 +370,31 @@ json DumpWorkshop(const std::string& workshop_dir, std::string& err) {
         if (! ends_with(e.path, ".tex")) continue;
         if (e.path.rfind("/materials/", 0) != 0) continue;
         std::string vfs_path = "/assets" + e.path;
-        TexMeta     m        = ReadTexMeta(vfs, vfs_path);
+        TexMeta     m        = ReadTexMeta(vfs, e.path);
         json        jm;
-        jm["path"]       = e.path;
-        jm["ok"]         = m.ok;
-        jm["texv"]       = m.texv;
-        jm["texi"]       = m.texi;
-        jm["texb"]       = m.texb;
-        jm["format"]     = m.format;
-        jm["flags"]      = m.flags;
-        jm["width"]      = m.width;
-        jm["height"]     = m.height;
-        jm["map_width"]  = m.map_width;
-        jm["map_height"] = m.map_height;
-        jm["count"]      = m.count;
+        jm["path"]          = e.path;
+        jm["ok"]            = m.ok;
+        jm["texv"]          = m.texv;
+        jm["texi"]          = m.texi;
+        jm["texb"]          = m.texb;
+        jm["compo1"]        = m.compo1;
+        jm["compo2"]        = m.compo2;
+        jm["compo3"]        = m.compo3;
+        jm["format"]        = m.format;
+        jm["image_type"]    = m.image_type;
+        jm["width"]         = m.width;
+        jm["height"]        = m.height;
+        jm["map_width"]     = m.map_width;
+        jm["map_height"]    = m.map_height;
+        jm["count"]         = m.count;
+        jm["is_sprite"]     = m.is_sprite;
+        jm["sprite_frames"] = m.sprite_frames;
+        jm["mipmap_pow2"]   = m.mipmap_pow2;
+        jm["mipmap_larger"] = m.mipmap_larger;
+        jm["wrap_s"]        = m.wrap_s;
+        jm["wrap_t"]        = m.wrap_t;
+        jm["min_filter"]    = m.min_filter;
+        jm["mag_filter"]    = m.mag_filter;
         jtex.push_back(std::move(jm));
     }
     sort_by_path(jtex);
