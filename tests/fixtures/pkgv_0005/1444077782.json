@@ -143,13 +143,40 @@
       },
       {
         "angles": "0.281 0.000 0.000",
+        "angles_parsed": [
+          0.2809999883174896,
+          0.0,
+          0.0
+        ],
+        "animationmode": "",
+        "child_count": 0,
+        "controlpoint_count": 8,
+        "emitter_count": 1,
         "id": 207,
+        "initializer_count": 4,
         "kind": "particle",
+        "maxcount": 500,
         "name": "new particle system",
+        "operator_count": 2,
         "origin": "6.210 44.718 0.000",
+        "origin_parsed": [
+          6.210000038146973,
+          44.71799850463867,
+          0.0
+        ],
         "parallaxDepth": "1.000 1.000",
+        "parsed": true,
+        "particle": "particles/new_particle_system.json",
+        "renderer_count": 1,
         "scale": "1.000 0.200 1.000",
-        "visible": true
+        "scale_parsed": [
+          1.0,
+          0.20000000298023224,
+          1.0
+        ],
+        "starttime": 0,
+        "visible": true,
+        "visible_parsed": true
       },
       {
         "alignment_parsed": "center",
@@ -236,13 +263,40 @@
       },
       {
         "angles": "0.000 0.000 0.000",
+        "angles_parsed": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "animationmode": "",
+        "child_count": 0,
+        "controlpoint_count": 8,
+        "emitter_count": 1,
         "id": 384,
+        "initializer_count": 4,
         "kind": "particle",
+        "maxcount": 500,
         "name": "new particle system",
+        "operator_count": 2,
         "origin": "131.859 105.007 0.000",
+        "origin_parsed": [
+          131.85899353027344,
+          105.00700378417969,
+          0.0
+        ],
         "parallaxDepth": "1.000 1.000",
+        "parsed": true,
+        "particle": "particles/new_particle_system_5.json",
+        "renderer_count": 1,
         "scale": "0.600 0.600 1.000",
-        "visible": true
+        "scale_parsed": [
+          0.6000000238418579,
+          0.6000000238418579,
+          1.0
+        ],
+        "starttime": 0,
+        "visible": true,
+        "visible_parsed": true
       },
       {
         "alignment_parsed": "center",
@@ -507,13 +561,40 @@
       },
       {
         "angles": "0.000 0.000 0.000",
+        "angles_parsed": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "animationmode": "",
+        "child_count": 0,
+        "controlpoint_count": 8,
+        "emitter_count": 1,
         "id": 1699,
+        "initializer_count": 4,
         "kind": "particle",
+        "maxcount": 500,
         "name": "new particle system",
+        "operator_count": 2,
         "origin": "591.062 138.038 0.000",
+        "origin_parsed": [
+          591.06201171875,
+          138.03799438476563,
+          0.0
+        ],
         "parallaxDepth": "1.000 1.000",
+        "parsed": true,
+        "particle": "particles/new_particle_system_5.json",
+        "renderer_count": 1,
         "scale": "0.600 0.600 1.000",
-        "visible": true
+        "scale_parsed": [
+          0.6000000238418579,
+          0.6000000238418579,
+          1.0
+        ],
+        "starttime": 0,
+        "visible": true,
+        "visible_parsed": true
       },
       {
         "angles": "0.000 0.000 0.000",
@@ -528,33 +609,114 @@
       },
       {
         "angles": "0.000 0.000 0.000",
+        "angles_parsed": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "animationmode": "",
+        "child_count": 0,
+        "controlpoint_count": 8,
+        "emitter_count": 1,
         "id": 1714,
+        "initializer_count": 4,
         "kind": "particle",
+        "maxcount": 500,
         "name": "new particle system",
+        "operator_count": 2,
         "origin": "1151.061 163.473 0.000",
+        "origin_parsed": [
+          1151.06103515625,
+          163.47300720214844,
+          0.0
+        ],
         "parallaxDepth": "1.000 1.000",
+        "parsed": true,
+        "particle": "particles/new_particle_system_5.json",
+        "renderer_count": 1,
         "scale": "0.600 0.600 1.000",
-        "visible": true
+        "scale_parsed": [
+          0.6000000238418579,
+          0.6000000238418579,
+          1.0
+        ],
+        "starttime": 0,
+        "visible": true,
+        "visible_parsed": true
       },
       {
         "angles": "0.000 0.000 0.000",
+        "angles_parsed": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "animationmode": "",
+        "child_count": 0,
+        "controlpoint_count": 8,
+        "emitter_count": 1,
         "id": 1722,
+        "initializer_count": 4,
         "kind": "particle",
+        "maxcount": 500,
         "name": "new particle system",
+        "operator_count": 2,
         "origin": "1689.503 165.526 0.000",
+        "origin_parsed": [
+          1689.5030517578125,
+          165.5260009765625,
+          0.0
+        ],
         "parallaxDepth": "1.000 1.000",
+        "parsed": true,
+        "particle": "particles/new_particle_system_5.json",
+        "renderer_count": 1,
         "scale": "0.600 0.600 1.000",
-        "visible": true
+        "scale_parsed": [
+          0.6000000238418579,
+          0.6000000238418579,
+          1.0
+        ],
+        "starttime": 0,
+        "visible": true,
+        "visible_parsed": true
       },
       {
         "angles": "0.000 0.000 0.000",
+        "angles_parsed": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "animationmode": "",
+        "child_count": 0,
+        "controlpoint_count": 8,
+        "emitter_count": 1,
         "id": 1736,
+        "initializer_count": 4,
         "kind": "particle",
+        "maxcount": 500,
         "name": "new particle system",
+        "operator_count": 2,
         "origin": "2258.371 202.896 0.000",
+        "origin_parsed": [
+          2258.37109375,
+          202.89599609375,
+          0.0
+        ],
         "parallaxDepth": "1.000 1.000",
+        "parsed": true,
+        "particle": "particles/new_particle_system_5.json",
+        "renderer_count": 1,
         "scale": "0.600 0.600 1.000",
-        "visible": true
+        "scale_parsed": [
+          0.6000000238418579,
+          0.6000000238418579,
+          1.0
+        ],
+        "starttime": 0,
+        "visible": true,
+        "visible_parsed": true
       },
       {
         "angles": "0.000 0.000 0.000",
@@ -577,43 +739,133 @@
       },
       {
         "angles": "0.281 0.000 0.000",
+        "angles_parsed": [
+          0.2809999883174896,
+          0.0,
+          0.0
+        ],
+        "animationmode": "",
+        "child_count": 0,
+        "controlpoint_count": 8,
+        "emitter_count": 1,
         "id": 1975,
+        "initializer_count": 4,
         "kind": "particle",
+        "maxcount": 500,
         "name": "new particle system",
+        "operator_count": 2,
         "origin": "1174.178 346.302 0.000",
+        "origin_parsed": [
+          1174.177978515625,
+          346.302001953125,
+          0.0
+        ],
         "parallaxDepth": "1.000 1.000",
+        "parsed": true,
+        "particle": "particles/new_particle_system.json",
+        "renderer_count": 1,
         "scale": "0.400 0.100 1.000",
-        "visible": true
+        "scale_parsed": [
+          0.4000000059604645,
+          0.10000000149011612,
+          1.0
+        ],
+        "starttime": 0,
+        "visible": true,
+        "visible_parsed": true
       },
       {
         "angles": "0.281 0.000 0.000",
+        "angles_parsed": [
+          0.2809999883174896,
+          0.0,
+          0.0
+        ],
+        "animationmode": "",
+        "child_count": 0,
+        "controlpoint_count": 8,
+        "emitter_count": 1,
         "id": 1992,
+        "initializer_count": 4,
         "kind": "particle",
+        "maxcount": 500,
         "name": "new particle system",
+        "operator_count": 2,
         "origin": "1963.907 383.514 0.000",
+        "origin_parsed": [
+          1963.906982421875,
+          383.5140075683594,
+          0.0
+        ],
         "parallaxDepth": "1.000 1.000",
+        "parsed": true,
+        "particle": "particles/new_particle_system.json",
+        "renderer_count": 1,
         "scale": "0.400 0.100 1.000",
-        "visible": true
+        "scale_parsed": [
+          0.4000000059604645,
+          0.10000000149011612,
+          1.0
+        ],
+        "starttime": 0,
+        "visible": true,
+        "visible_parsed": true
       },
       {
         "angles": "0.000 0.000 0.000",
         "id": 1995,
         "kind": "sound",
+        "maxtime": 5.0,
+        "mintime": 1.0,
         "name": "68f154dea6f21c43e87eae0a4254313b.mp3",
         "origin": "0.000 0.000 0.000",
         "parallaxDepth": "1.000 1.000",
+        "parsed": true,
+        "playbackmode": "loop",
         "scale": "1.000 1.000 1.000",
-        "visible": true
+        "sound_paths": [
+          "sounds/68f154dea6f21c43e87eae0a4254313b.mp3"
+        ],
+        "visible": true,
+        "visible_parsed": true,
+        "volume": 0.5
       },
       {
         "angles": "0.281 0.000 0.000",
+        "angles_parsed": [
+          0.2809999883174896,
+          0.0,
+          0.0
+        ],
+        "animationmode": "",
+        "child_count": 0,
+        "controlpoint_count": 8,
+        "emitter_count": 1,
         "id": 2010,
+        "initializer_count": 4,
         "kind": "particle",
+        "maxcount": 500,
         "name": "new particle system",
+        "operator_count": 2,
         "origin": "474.298 378.874 0.000",
+        "origin_parsed": [
+          474.2980041503906,
+          378.8739929199219,
+          0.0
+        ],
         "parallaxDepth": "1.000 1.000",
+        "parsed": true,
+        "particle": "particles/new_particle_system.json",
+        "renderer_count": 1,
         "scale": "0.400 0.100 1.000",
-        "visible": true
+        "scale_parsed": [
+          0.4000000059604645,
+          0.10000000149011612,
+          1.0
+        ],
+        "starttime": 0,
+        "visible": true,
+        "visible_parsed": true
       },
       {
         "alignment_parsed": "center",
@@ -1017,13 +1269,40 @@
       },
       {
         "angles": "0.000 0.000 0.000",
+        "angles_parsed": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "animationmode": "",
+        "child_count": 0,
+        "controlpoint_count": 8,
+        "emitter_count": 1,
         "id": 2489,
+        "initializer_count": 4,
         "kind": "particle",
+        "maxcount": 500,
         "name": "new particle system",
+        "operator_count": 2,
         "origin": "902.858 1083.582 0.000",
+        "origin_parsed": [
+          902.8579711914063,
+          1083.58203125,
+          0.0
+        ],
         "parallaxDepth": "1.000 1.000",
+        "parsed": true,
+        "particle": "particles/new_particle_system_5.json",
+        "renderer_count": 1,
         "scale": "2.000 2.000 1.000",
-        "visible": true
+        "scale_parsed": [
+          2.0,
+          2.0,
+          1.0
+        ],
+        "starttime": 0,
+        "visible": true,
+        "visible_parsed": true
       },
       {
         "angles": "0.000 0.000 0.000",
@@ -1093,133 +1372,484 @@
       },
       {
         "angles": "0.281 0.000 0.000",
+        "angles_parsed": [
+          0.2809999883174896,
+          0.0,
+          0.0
+        ],
+        "animationmode": "",
+        "child_count": 0,
+        "controlpoint_count": 8,
+        "emitter_count": 1,
         "id": 3562,
+        "initializer_count": 4,
         "kind": "particle",
+        "maxcount": 500,
         "name": "new particle system",
+        "operator_count": 2,
         "origin": "307.799 33.338 0.000",
+        "origin_parsed": [
+          307.79901123046875,
+          33.3380012512207,
+          0.0
+        ],
         "parallaxDepth": "1.000 1.000",
+        "parsed": true,
+        "particle": "particles/new_particle_system.json",
+        "renderer_count": 1,
         "scale": "1.000 0.200 1.000",
-        "visible": true
+        "scale_parsed": [
+          1.0,
+          0.20000000298023224,
+          1.0
+        ],
+        "starttime": 0,
+        "visible": true,
+        "visible_parsed": true
       },
       {
         "angles": "0.281 0.000 0.000",
+        "angles_parsed": [
+          0.2809999883174896,
+          0.0,
+          0.0
+        ],
+        "animationmode": "",
+        "child_count": 0,
+        "controlpoint_count": 8,
+        "emitter_count": 1,
         "id": 3566,
+        "initializer_count": 4,
         "kind": "particle",
+        "maxcount": 500,
         "name": "new particle system",
+        "operator_count": 2,
         "origin": "1021.618 -62.566 0.000",
+        "origin_parsed": [
+          1021.6179809570313,
+          -62.566001892089844,
+          0.0
+        ],
         "parallaxDepth": "1.000 1.000",
+        "parsed": true,
+        "particle": "particles/new_particle_system.json",
+        "renderer_count": 1,
         "scale": "1.000 0.200 1.000",
-        "visible": true
+        "scale_parsed": [
+          1.0,
+          0.20000000298023224,
+          1.0
+        ],
+        "starttime": 0,
+        "visible": true,
+        "visible_parsed": true
       },
       {
         "angles": "0.281 0.000 0.000",
+        "angles_parsed": [
+          0.2809999883174896,
+          0.0,
+          0.0
+        ],
+        "animationmode": "",
+        "child_count": 0,
+        "controlpoint_count": 8,
+        "emitter_count": 1,
         "id": 3570,
+        "initializer_count": 4,
         "kind": "particle",
+        "maxcount": 500,
         "name": "new particle system",
+        "operator_count": 2,
         "origin": "1962.617 -37.046 0.000",
+        "origin_parsed": [
+          1962.616943359375,
+          -37.04600143432617,
+          0.0
+        ],
         "parallaxDepth": "1.000 1.000",
+        "parsed": true,
+        "particle": "particles/new_particle_system.json",
+        "renderer_count": 1,
         "scale": "1.000 0.200 1.000",
-        "visible": true
+        "scale_parsed": [
+          1.0,
+          0.20000000298023224,
+          1.0
+        ],
+        "starttime": 0,
+        "visible": true,
+        "visible_parsed": true
       },
       {
         "angles": "0.281 0.000 0.000",
+        "angles_parsed": [
+          0.2809999883174896,
+          0.0,
+          0.0
+        ],
+        "animationmode": "",
+        "child_count": 0,
+        "controlpoint_count": 8,
+        "emitter_count": 1,
         "id": 3574,
+        "initializer_count": 4,
         "kind": "particle",
+        "maxcount": 500,
         "name": "new particle system",
+        "operator_count": 2,
         "origin": "2074.701 394.391 0.000",
+        "origin_parsed": [
+          2074.700927734375,
+          394.3909912109375,
+          0.0
+        ],
         "parallaxDepth": "1.000 1.000",
+        "parsed": true,
+        "particle": "particles/new_particle_system.json",
+        "renderer_count": 1,
         "scale": "0.400 0.100 1.000",
-        "visible": true
+        "scale_parsed": [
+          0.4000000059604645,
+          0.10000000149011612,
+          1.0
+        ],
+        "starttime": 0,
+        "visible": true,
+        "visible_parsed": true
       },
       {
         "angles": "0.281 0.000 0.000",
+        "angles_parsed": [
+          0.2809999883174896,
+          0.0,
+          0.0
+        ],
+        "animationmode": "",
+        "child_count": 0,
+        "controlpoint_count": 8,
+        "emitter_count": 1,
         "id": 3578,
+        "initializer_count": 4,
         "kind": "particle",
+        "maxcount": 500,
         "name": "new particle system",
+        "operator_count": 2,
         "origin": "1574.990 390.770 0.000",
+        "origin_parsed": [
+          1574.989990234375,
+          390.7699890136719,
+          0.0
+        ],
         "parallaxDepth": "1.000 1.000",
+        "parsed": true,
+        "particle": "particles/new_particle_system.json",
+        "renderer_count": 1,
         "scale": "0.400 0.100 1.000",
-        "visible": true
+        "scale_parsed": [
+          0.4000000059604645,
+          0.10000000149011612,
+          1.0
+        ],
+        "starttime": 0,
+        "visible": true,
+        "visible_parsed": true
       },
       {
         "angles": "0.281 0.000 0.000",
+        "angles_parsed": [
+          0.2809999883174896,
+          0.0,
+          0.0
+        ],
+        "animationmode": "",
+        "child_count": 0,
+        "controlpoint_count": 8,
+        "emitter_count": 1,
         "id": 3582,
+        "initializer_count": 4,
         "kind": "particle",
+        "maxcount": 500,
         "name": "new particle system",
+        "operator_count": 2,
         "origin": "1147.701 381.717 0.000",
+        "origin_parsed": [
+          1147.7010498046875,
+          381.7170104980469,
+          0.0
+        ],
         "parallaxDepth": "1.000 1.000",
+        "parsed": true,
+        "particle": "particles/new_particle_system.json",
+        "renderer_count": 1,
         "scale": "0.400 0.100 1.000",
-        "visible": true
+        "scale_parsed": [
+          0.4000000059604645,
+          0.10000000149011612,
+          1.0
+        ],
+        "starttime": 0,
+        "visible": true,
+        "visible_parsed": true
       },
       {
         "angles": "0.281 0.000 0.000",
+        "angles_parsed": [
+          0.2809999883174896,
+          0.0,
+          0.0
+        ],
+        "animationmode": "",
+        "child_count": 0,
+        "controlpoint_count": 8,
+        "emitter_count": 1,
         "id": 3586,
+        "initializer_count": 4,
         "kind": "particle",
+        "maxcount": 500,
         "name": "new particle system",
+        "operator_count": 2,
         "origin": "698.686 369.043 0.000",
+        "origin_parsed": [
+          698.6859741210938,
+          369.0429992675781,
+          0.0
+        ],
         "parallaxDepth": "1.000 1.000",
+        "parsed": true,
+        "particle": "particles/new_particle_system.json",
+        "renderer_count": 1,
         "scale": "0.400 0.100 1.000",
-        "visible": true
+        "scale_parsed": [
+          0.4000000059604645,
+          0.10000000149011612,
+          1.0
+        ],
+        "starttime": 0,
+        "visible": true,
+        "visible_parsed": true
       },
       {
         "angles": "0.281 0.000 0.000",
+        "angles_parsed": [
+          0.2809999883174896,
+          0.0,
+          0.0
+        ],
+        "animationmode": "",
+        "child_count": 0,
+        "controlpoint_count": 8,
+        "emitter_count": 1,
         "id": 3590,
+        "initializer_count": 4,
         "kind": "particle",
+        "maxcount": 500,
         "name": "new particle system",
+        "operator_count": 2,
         "origin": "322.092 385.338 0.000",
+        "origin_parsed": [
+          322.0920104980469,
+          385.3380126953125,
+          0.0
+        ],
         "parallaxDepth": "1.000 1.000",
+        "parsed": true,
+        "particle": "particles/new_particle_system.json",
+        "renderer_count": 1,
         "scale": "0.400 0.100 1.000",
-        "visible": true
+        "scale_parsed": [
+          0.4000000059604645,
+          0.10000000149011612,
+          1.0
+        ],
+        "starttime": 0,
+        "visible": true,
+        "visible_parsed": true
       },
       {
         "angles": "0.000 0.000 3.142",
+        "angles_parsed": [
+          0.0,
+          0.0,
+          3.1419999599456787
+        ],
+        "animationmode": "",
+        "child_count": 0,
+        "controlpoint_count": 8,
+        "emitter_count": 1,
         "id": 3642,
+        "initializer_count": 4,
         "kind": "particle",
+        "maxcount": 500,
         "name": "new particle system",
+        "operator_count": 2,
         "origin": "342.812 207.511 0.000",
+        "origin_parsed": [
+          342.81201171875,
+          207.51100158691406,
+          0.0
+        ],
         "parallaxDepth": "1.000 1.000",
+        "parsed": true,
+        "particle": "particles/new_particle_system_2.json",
+        "renderer_count": 1,
         "scale": "0.700 0.500 1.000",
-        "visible": true
+        "scale_parsed": [
+          0.699999988079071,
+          0.5,
+          1.0
+        ],
+        "starttime": 0,
+        "visible": true,
+        "visible_parsed": true
       },
       {
         "angles": "0.000 0.000 0.000",
+        "angles_parsed": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "animationmode": "",
+        "child_count": 0,
+        "controlpoint_count": 8,
+        "emitter_count": 1,
         "id": 3936,
+        "initializer_count": 4,
         "kind": "particle",
+        "maxcount": 500,
         "name": "new particle system",
+        "operator_count": 2,
         "origin": "2314.025 979.909 0.000",
+        "origin_parsed": [
+          2314.02490234375,
+          979.9089965820313,
+          0.0
+        ],
         "parallaxDepth": "1.000 1.000",
+        "parsed": true,
+        "particle": "particles/new_particle_system_5.json",
+        "renderer_count": 1,
         "scale": "2.000 2.000 1.000",
-        "visible": true
+        "scale_parsed": [
+          2.0,
+          2.0,
+          1.0
+        ],
+        "starttime": 0,
+        "visible": true,
+        "visible_parsed": true
       },
       {
         "angles": "0.000 0.000 3.142",
+        "angles_parsed": [
+          0.0,
+          0.0,
+          3.1419999599456787
+        ],
+        "animationmode": "",
+        "child_count": 0,
+        "controlpoint_count": 8,
+        "emitter_count": 1,
         "id": 4340,
+        "initializer_count": 4,
         "kind": "particle",
+        "maxcount": 500,
         "name": "new particle system",
+        "operator_count": 2,
         "origin": "960.355 212.767 0.000",
+        "origin_parsed": [
+          960.35498046875,
+          212.76699829101563,
+          0.0
+        ],
         "parallaxDepth": "1.000 1.000",
+        "parsed": true,
+        "particle": "particles/new_particle_system_2.json",
+        "renderer_count": 1,
         "scale": "0.700 0.500 1.000",
-        "visible": true
+        "scale_parsed": [
+          0.699999988079071,
+          0.5,
+          1.0
+        ],
+        "starttime": 0,
+        "visible": true,
+        "visible_parsed": true
       },
       {
         "angles": "0.000 0.000 3.142",
+        "angles_parsed": [
+          0.0,
+          0.0,
+          3.1419999599456787
+        ],
+        "animationmode": "",
+        "child_count": 0,
+        "controlpoint_count": 8,
+        "emitter_count": 1,
         "id": 4344,
+        "initializer_count": 4,
         "kind": "particle",
+        "maxcount": 500,
         "name": "new particle system",
+        "operator_count": 2,
         "origin": "1517.457 241.673 0.000",
+        "origin_parsed": [
+          1517.45703125,
+          241.67300415039063,
+          0.0
+        ],
         "parallaxDepth": "1.000 1.000",
+        "parsed": true,
+        "particle": "particles/new_particle_system_2.json",
+        "renderer_count": 1,
         "scale": "0.700 0.500 1.000",
-        "visible": true
+        "scale_parsed": [
+          0.699999988079071,
+          0.5,
+          1.0
+        ],
+        "starttime": 0,
+        "visible": true,
+        "visible_parsed": true
       },
       {
         "angles": "0.000 0.000 3.142",
+        "angles_parsed": [
+          0.0,
+          0.0,
+          3.1419999599456787
+        ],
+        "animationmode": "",
+        "child_count": 0,
+        "controlpoint_count": 8,
+        "emitter_count": 1,
         "id": 4348,
+        "initializer_count": 4,
         "kind": "particle",
+        "maxcount": 500,
         "name": "new particle system",
+        "operator_count": 2,
         "origin": "2208.580 210.139 0.000",
+        "origin_parsed": [
+          2208.580078125,
+          210.13900756835938,
+          0.0
+        ],
         "parallaxDepth": "1.000 1.000",
+        "parsed": true,
+        "particle": "particles/new_particle_system_2.json",
+        "renderer_count": 1,
         "scale": "0.700 0.500 1.000",
-        "visible": true
+        "scale_parsed": [
+          0.699999988079071,
+          0.5,
+          1.0
+        ],
+        "starttime": 0,
+        "visible": true,
+        "visible_parsed": true
       },
       {
         "angles": "0.000 0.000 0.000",

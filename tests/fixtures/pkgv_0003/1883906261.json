@@ -216,11 +216,20 @@
         "angles": "0.000 0.000 0.000",
         "id": 128,
         "kind": "sound",
+        "maxtime": 5.0,
+        "mintime": 1.0,
         "name": "405561__inspectorj__wind-realistic-a.wav",
         "origin": "0.000 0.000 0.000",
         "parallaxDepth": "1.000 1.000",
+        "parsed": true,
+        "playbackmode": "loop",
         "scale": "1.000 1.000 1.000",
-        "visible": true
+        "sound_paths": [
+          "sounds/405561__inspectorj__wind-realistic-a.wav"
+        ],
+        "visible": true,
+        "visible_parsed": true,
+        "volume": 0.5
       },
       {
         "angles": "-0.017 0.005 -1.303",

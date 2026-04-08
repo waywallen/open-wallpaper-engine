@@ -209,13 +209,40 @@
       },
       {
         "angles": "0.000 0.000 0.000",
+        "angles_parsed": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "animationmode": "",
+        "child_count": 0,
+        "controlpoint_count": 8,
+        "emitter_count": 1,
         "id": 349,
+        "initializer_count": 3,
         "kind": "particle",
+        "maxcount": 6000,
         "name": "new particle system",
+        "operator_count": 5,
         "origin": "885.271 484.799 0.000",
+        "origin_parsed": [
+          885.27099609375,
+          484.79901123046875,
+          0.0
+        ],
         "parallaxDepth": "1.000 1.000",
+        "parsed": true,
+        "particle": "particles/new_particle_system_3.json",
+        "renderer_count": 1,
         "scale": "1.000 1.000 1.000",
-        "visible": true
+        "scale_parsed": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "starttime": 0,
+        "visible": true,
+        "visible_parsed": true
       },
       {
         "alignment_parsed": "center",

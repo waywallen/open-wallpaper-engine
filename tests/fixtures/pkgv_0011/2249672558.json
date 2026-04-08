@@ -156,11 +156,24 @@
         "angles": "0.00000 0.00000 0.00000",
         "id": 113,
         "kind": "sound",
+        "maxtime": 5.0,
+        "mintime": 1.0,
         "name": "【Piano】上帝是女孩 By泽熙欧巴.mp3",
         "origin": "0.00000 0.00000 0.00000",
         "parallaxDepth": "1.00000 1.00000",
+        "parsed": true,
+        "playbackmode": "random",
         "scale": "1.00000 1.00000 1.00000",
-        "visible": true
+        "sound_paths": [
+          "sounds/【Piano】上帝是女孩 By泽熙欧巴.mp3",
+          "sounds/挥着翅膀的女孩.mp3",
+          "sounds/那女孩对我说（钢琴版）.mp3",
+          "sounds/我曾爱过的女孩 钢琴演奏.mp3",
+          "sounds/杨钢-一个深爱的女孩钢琴版.mp3"
+        ],
+        "visible": true,
+        "visible_parsed": true,
+        "volume": 0.5
       }
     ],
     "ortho": {

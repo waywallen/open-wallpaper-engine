@@ -224,11 +224,20 @@
         "angles": "0.000 0.000 0.000",
         "id": 66,
         "kind": "sound",
+        "maxtime": 5.0,
+        "mintime": 1.0,
         "name": "",
         "origin": "0.000 0.000 0.000",
         "parallaxDepth": "1.000 1.000",
+        "parsed": true,
+        "playbackmode": "loop",
         "scale": "1.000 1.000 1.000",
-        "visible": true
+        "sound_paths": [
+          "sounds/Soothing Relaxation - Relaxing Piano Music ★102 (30 Minutes).mp3"
+        ],
+        "visible": true,
+        "visible_parsed": true,
+        "volume": 1.0
       },
       {
         "angles": "0.000 0.000 -0.488",

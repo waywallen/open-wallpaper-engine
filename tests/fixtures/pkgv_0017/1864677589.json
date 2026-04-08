@@ -1175,13 +1175,40 @@
       },
       {
         "angles": "0.00000 0.00000 1.57080",
+        "angles_parsed": [
+          0.0,
+          0.0,
+          1.5707999467849731
+        ],
+        "animationmode": "",
+        "child_count": 0,
+        "controlpoint_count": 8,
+        "emitter_count": 1,
         "id": 71,
+        "initializer_count": 6,
         "kind": "particle",
+        "maxcount": 50,
         "name": "Smoke cloud",
+        "operator_count": 3,
         "origin": "1665.02515 343.85187 0.00000",
+        "origin_parsed": [
+          1665.025146484375,
+          343.85186767578125,
+          0.0
+        ],
         "parallaxDepth": "1.00000 1.00000",
+        "parsed": true,
+        "particle": "particles/presets/smoke1.json",
+        "renderer_count": 1,
         "scale": "0.10448 0.12938 1.00000",
-        "visible": true
+        "scale_parsed": [
+          0.10447999835014343,
+          0.129380002617836,
+          1.0
+        ],
+        "starttime": 1,
+        "visible": true,
+        "visible_parsed": true
       },
       {
         "alignment": "center",
@@ -3216,11 +3243,20 @@
         "angles": "0.00000 0.00000 0.00000",
         "id": 249,
         "kind": "sound",
+        "maxtime": 5.0,
+        "mintime": 1.0,
         "name": "city_center_night_ambience-resources.assets-1058.wav",
         "origin": "1012.43402 527.18500 0.00000",
         "parallaxDepth": "1.00000 1.00000",
+        "parsed": true,
+        "playbackmode": "loop",
         "scale": "1.00000 1.00000 1.00000",
-        "visible": true
+        "sound_paths": [
+          "sounds/city_center_night_ambience-resources.assets-1058.wav"
+        ],
+        "visible": true,
+        "visible_parsed": true,
+        "volume": 0.5
       }
     ],
     "ortho": {

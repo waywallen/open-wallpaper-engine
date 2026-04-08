@@ -608,13 +608,40 @@
       },
       {
         "angles": "0.000 0.000 0.000",
+        "angles_parsed": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "animationmode": "",
+        "child_count": 0,
+        "controlpoint_count": 8,
+        "emitter_count": 1,
         "id": 42,
+        "initializer_count": 2,
         "kind": "particle",
+        "maxcount": 1,
         "name": "Blinking eyes",
+        "operator_count": 0,
         "origin": "960.000 540.000 0.000",
+        "origin_parsed": [
+          960.0,
+          540.0,
+          0.0
+        ],
         "parallaxDepth": "1.000 1.000",
+        "parsed": true,
+        "particle": "particles/Blinking_eyes.json",
+        "renderer_count": 1,
         "scale": "1.000 1.000 1.000",
-        "visible": false
+        "scale_parsed": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "starttime": 0,
+        "visible": false,
+        "visible_parsed": false
       },
       {
         "alignment_parsed": "center",
@@ -730,23 +757,77 @@
       },
       {
         "angles": "0.000 0.000 0.000",
+        "angles_parsed": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "animationmode": "",
+        "child_count": 0,
+        "controlpoint_count": 8,
+        "emitter_count": 1,
         "id": 193,
+        "initializer_count": 4,
         "kind": "particle",
+        "maxcount": 100,
         "name": "Mouse Cursor",
+        "operator_count": 3,
         "origin": "960.000 540.000 0.000",
+        "origin_parsed": [
+          960.0,
+          540.0,
+          0.0
+        ],
         "parallaxDepth": "1.000 1.000",
+        "parsed": true,
+        "particle": "particles/Test.json",
+        "renderer_count": 1,
         "scale": "1.000 1.000 1.000",
-        "visible": true
+        "scale_parsed": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "starttime": 0,
+        "visible": true,
+        "visible_parsed": true
       },
       {
         "angles": "0.000 0.000 0.000",
+        "angles_parsed": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "animationmode": "",
+        "child_count": 0,
+        "controlpoint_count": 8,
+        "emitter_count": 1,
         "id": 200,
+        "initializer_count": 5,
         "kind": "particle",
+        "maxcount": 15,
         "name": "lightshafts",
+        "operator_count": 2,
         "origin": "1004.166 542.454 0.000",
+        "origin_parsed": [
+          1004.166015625,
+          542.4539794921875,
+          0.0
+        ],
         "parallaxDepth": "1.000 1.000",
+        "parsed": true,
+        "particle": "particles/presets/lightshafts.json",
+        "renderer_count": 1,
         "scale": "1.000 1.000 1.000",
-        "visible": true
+        "scale_parsed": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "starttime": 10,
+        "visible": true,
+        "visible_parsed": true
       },
       {
         "alignment_parsed": "center",

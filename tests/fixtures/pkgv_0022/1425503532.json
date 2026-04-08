@@ -49,11 +49,38 @@
     "object_count": 4,
     "objects": [
       {
+        "angles_parsed": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "animationmode": "",
+        "child_count": 3,
+        "controlpoint_count": 8,
+        "emitter_count": 1,
         "id": 12,
+        "initializer_count": 2,
         "kind": "particle",
+        "maxcount": 1,
         "name": "ghost1",
+        "operator_count": 4,
         "origin": "960.00000 540.00000 0.00000",
-        "visible": true
+        "origin_parsed": [
+          960.0,
+          540.0,
+          0.0
+        ],
+        "parsed": true,
+        "particle": "particles/ghost1.json",
+        "renderer_count": 1,
+        "scale_parsed": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "starttime": 0,
+        "visible": true,
+        "visible_parsed": true
       },
       {
         "alignment_parsed": "center",
@@ -116,18 +143,72 @@
         "visible_parsed": true
       },
       {
+        "angles_parsed": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "animationmode": "",
+        "child_count": 3,
+        "controlpoint_count": 8,
+        "emitter_count": 1,
         "id": 192,
+        "initializer_count": 3,
         "kind": "particle",
+        "maxcount": 1,
         "name": "ghost2",
+        "operator_count": 4,
         "origin": "960.00000 540.00000 0.00000",
-        "visible": true
+        "origin_parsed": [
+          960.0,
+          540.0,
+          0.0
+        ],
+        "parsed": true,
+        "particle": "particles/ghost2.json",
+        "renderer_count": 1,
+        "scale_parsed": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "starttime": 0,
+        "visible": true,
+        "visible_parsed": true
       },
       {
+        "angles_parsed": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "animationmode": "",
+        "child_count": 3,
+        "controlpoint_count": 8,
+        "emitter_count": 1,
         "id": 239,
+        "initializer_count": 3,
         "kind": "particle",
+        "maxcount": 1,
         "name": "pacman",
+        "operator_count": 4,
         "origin": "474.22501 540.00000 0.00000",
-        "visible": true
+        "origin_parsed": [
+          474.2250061035156,
+          540.0,
+          0.0
+        ],
+        "parsed": true,
+        "particle": "particles/pacman.json",
+        "renderer_count": 1,
+        "scale_parsed": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "starttime": 0,
+        "visible": true,
+        "visible_parsed": true
       }
     ],
     "ortho": {

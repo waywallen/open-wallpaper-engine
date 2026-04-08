@@ -12,8 +12,11 @@
 #include "WPTexImageParser.hpp"
 #include "Image.hpp"
 #include "wpscene/WPImageObject.h"
+#include "wpscene/WPLightObject.hpp"
 #include "wpscene/WPMaterial.h"
+#include "wpscene/WPParticleObject.h"
 #include "wpscene/WPScene.h"
+#include "wpscene/WPSoundObject.h"
 
 #include "Fs/CBinaryStream.h"
 #include "Fs/IBinaryStream.h"
@@ -206,6 +209,79 @@ json dump_object_common(const json& obj) {
     return o;
 }
 
+json dump_light_object(const json& obj, wallpaper::fs::VFS& vfs) {
+    json out  = dump_object_common(obj);
+    out["kind"] = "light";
+    wallpaper::wpscene::WPLightObject lo;
+    bool                              ok = false;
+    try {
+        ok = lo.FromJson(obj, vfs);
+    } catch (const std::exception&) {
+        ok = false;
+    }
+    out["parsed"] = ok;
+    if (! ok) return out;
+    out["light"]     = lo.light;
+    out["color"]     = lo.color;
+    out["intensity"] = lo.intensity;
+    out["radius"]    = lo.radius;
+    out["origin_parsed"] = lo.origin;
+    out["scale_parsed"]  = lo.scale;
+    out["angles_parsed"] = lo.angles;
+    out["visible_parsed"] = lo.visible;
+    return out;
+}
+
+json dump_particle_object(const json& obj, wallpaper::fs::VFS& vfs) {
+    json out  = dump_object_common(obj);
+    out["kind"] = "particle";
+    wallpaper::wpscene::WPParticleObject po;
+    bool                                 ok = false;
+    try {
+        ok = po.FromJson(obj, vfs);
+    } catch (const std::exception&) {
+        ok = false;
+    }
+    out["parsed"] = ok;
+    if (! ok) return out;
+    out["particle"] = po.particle;
+    out["origin_parsed"] = po.origin;
+    out["scale_parsed"]  = po.scale;
+    out["angles_parsed"] = po.angles;
+    out["visible_parsed"] = po.visible;
+    out["emitter_count"]      = static_cast<int>(po.particleObj.emitters.size());
+    out["initializer_count"]  = static_cast<int>(po.particleObj.initializers.size());
+    out["operator_count"]     = static_cast<int>(po.particleObj.operators.size());
+    out["renderer_count"]     = static_cast<int>(po.particleObj.renderers.size());
+    out["controlpoint_count"] = static_cast<int>(po.particleObj.controlpoints.size());
+    out["child_count"]        = static_cast<int>(po.particleObj.children.size());
+    out["maxcount"]           = static_cast<int>(po.particleObj.maxcount);
+    out["starttime"]          = static_cast<int>(po.particleObj.starttime);
+    out["animationmode"]      = po.particleObj.animationmode;
+    return out;
+}
+
+json dump_sound_object(const json& obj, wallpaper::fs::VFS& vfs) {
+    json out  = dump_object_common(obj);
+    out["kind"] = "sound";
+    wallpaper::wpscene::WPSoundObject so;
+    bool                              ok = false;
+    try {
+        ok = so.FromJson(obj, vfs);
+    } catch (const std::exception&) {
+        ok = false;
+    }
+    out["parsed"] = ok;
+    if (! ok) return out;
+    out["playbackmode"]   = so.playbackmode;
+    out["volume"]         = so.volume;
+    out["mintime"]        = so.mintime;
+    out["maxtime"]        = so.maxtime;
+    out["visible_parsed"] = so.visible;
+    out["sound_paths"]    = so.sound;
+    return out;
+}
+
 // Run WPImageObject::FromJson against a single object json and dump the
 // parsed fields. Returns nullopt if the object is not an image object
 // (no "image" field) so the caller can fall back to common-only dumps.
@@ -352,14 +428,17 @@ json DumpWorkshop(const std::string& workshop_dir, std::string& err) {
                 json jobjects = json::array();
                 if (j.contains("objects") && j["objects"].is_array()) {
                     for (const auto& obj : j["objects"]) {
-                        if (obj.contains("image")) {
+                        if (obj.contains("image"))
                             jobjects.push_back(dump_image_object(obj, vfs));
-                        } else {
-                            json o     = dump_object_common(obj);
-                            o["kind"]  = obj.contains("light")    ? "light"
-                                         : obj.contains("particle") ? "particle"
-                                         : obj.contains("sound")    ? "sound"
-                                                                    : "unknown";
+                        else if (obj.contains("light"))
+                            jobjects.push_back(dump_light_object(obj, vfs));
+                        else if (obj.contains("particle"))
+                            jobjects.push_back(dump_particle_object(obj, vfs));
+                        else if (obj.contains("sound"))
+                            jobjects.push_back(dump_sound_object(obj, vfs));
+                        else {
+                            json o    = dump_object_common(obj);
+                            o["kind"] = "unknown";
                             jobjects.push_back(std::move(o));
                         }
                     }

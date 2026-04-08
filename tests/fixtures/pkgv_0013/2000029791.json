@@ -105,133 +105,466 @@
       },
       {
         "angles": "-0.00000 -0.00000 -0.61158",
+        "angles_parsed": [
+          -0.0,
+          -0.0,
+          -0.6115800142288208
+        ],
+        "animationmode": "",
+        "child_count": 0,
+        "controlpoint_count": 8,
+        "emitter_count": 1,
         "id": 2165,
+        "initializer_count": 3,
         "kind": "particle",
+        "maxcount": 500,
         "name": "Stars",
+        "operator_count": 2,
         "origin": "3035.38403 1719.97205 0.00000",
+        "origin_parsed": [
+          3035.384033203125,
+          1719.9720458984375,
+          0.0
+        ],
         "parallaxDepth": "1.00000 1.00000",
+        "parsed": true,
+        "particle": "particles/Stars_1.json",
+        "renderer_count": 1,
         "scale": "-0.10525 0.11545 0.07084",
-        "visible": true
+        "scale_parsed": [
+          -0.10525000095367432,
+          0.11545000225305557,
+          0.07084000110626221
+        ],
+        "starttime": 0,
+        "visible": true,
+        "visible_parsed": true
       },
       {
         "angles": "0.00000 0.00000 0.00000",
+        "angles_parsed": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "animationmode": "",
+        "child_count": 1,
+        "controlpoint_count": 8,
+        "emitter_count": 1,
         "id": 2483,
+        "initializer_count": 4,
         "kind": "particle",
+        "maxcount": 16,
         "name": "Shooting star",
+        "operator_count": 2,
         "origin": "1988.80859 1894.81165 0.00000",
+        "origin_parsed": [
+          1988.80859375,
+          1894.8116455078125,
+          0.0
+        ],
         "parallaxDepth": "1.00000 1.00000",
+        "parsed": true,
+        "particle": "particles/presets/shootingstar.json",
+        "renderer_count": 1,
         "scale": "0.69490 0.69490 1.00000",
-        "visible": true
+        "scale_parsed": [
+          0.6948999762535095,
+          0.6948999762535095,
+          1.0
+        ],
+        "starttime": 9,
+        "visible": true,
+        "visible_parsed": true
       },
       {
         "angles": "0.00000 -0.00000 0.36317",
+        "angles_parsed": [
+          0.0,
+          -0.0,
+          0.36316999793052673
+        ],
+        "animationmode": "",
+        "child_count": 0,
+        "controlpoint_count": 8,
+        "emitter_count": 1,
         "id": 2534,
+        "initializer_count": 3,
         "kind": "particle",
+        "maxcount": 500,
         "name": "Stars",
+        "operator_count": 2,
         "origin": "3097.62256 1852.56714 0.00000",
+        "origin_parsed": [
+          3097.62255859375,
+          1852.567138671875,
+          0.0
+        ],
         "parallaxDepth": "1.00000 1.00000",
+        "parsed": true,
+        "particle": "particles/Stars_1.json",
+        "renderer_count": 1,
         "scale": "-0.11129 0.06811 0.07084",
-        "visible": true
+        "scale_parsed": [
+          -0.11129000037908554,
+          0.06810999661684036,
+          0.07084000110626221
+        ],
+        "starttime": 0,
+        "visible": true,
+        "visible_parsed": true
       },
       {
         "angles": "0.00000 0.00000 0.00000",
+        "angles_parsed": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "animationmode": "",
+        "child_count": 1,
+        "controlpoint_count": 8,
+        "emitter_count": 1,
         "id": 2918,
+        "initializer_count": 4,
         "kind": "particle",
+        "maxcount": 16,
         "name": "Shooting star",
+        "operator_count": 2,
         "origin": "869.64563 1815.41199 0.00000",
+        "origin_parsed": [
+          869.6456298828125,
+          1815.4119873046875,
+          0.0
+        ],
         "parallaxDepth": "1.00000 1.00000",
+        "parsed": true,
+        "particle": "particles/presets/shootingstar.json",
+        "renderer_count": 1,
         "scale": "0.69490 0.69490 1.00000",
-        "visible": true
+        "scale_parsed": [
+          0.6948999762535095,
+          0.6948999762535095,
+          1.0
+        ],
+        "starttime": 9,
+        "visible": true,
+        "visible_parsed": true
       },
       {
         "angles": "0.00000 0.00000 0.00000",
+        "angles_parsed": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "animationmode": "",
+        "child_count": 0,
+        "controlpoint_count": 8,
+        "emitter_count": 1,
         "id": 3211,
+        "initializer_count": 3,
         "kind": "particle",
+        "maxcount": 500,
         "name": "Stars",
+        "operator_count": 2,
         "origin": "1469.74451 1908.56702 0.00000",
+        "origin_parsed": [
+          1469.7445068359375,
+          1908.5670166015625,
+          0.0
+        ],
         "parallaxDepth": "1.00000 1.00000",
+        "parsed": true,
+        "particle": "particles/Stars_1.json",
+        "renderer_count": 1,
         "scale": "0.46086 0.27410 0.06900",
-        "visible": true
+        "scale_parsed": [
+          0.460860013961792,
+          0.27410000562667847,
+          0.0689999982714653
+        ],
+        "starttime": 0,
+        "visible": true,
+        "visible_parsed": true
       },
       {
         "angles": "-0.00000 -0.00000 -1.17235",
+        "angles_parsed": [
+          -0.0,
+          -0.0,
+          -1.1723500490188599
+        ],
+        "animationmode": "",
+        "child_count": 0,
+        "controlpoint_count": 8,
+        "emitter_count": 1,
         "id": 3319,
+        "initializer_count": 3,
         "kind": "particle",
+        "maxcount": 500,
         "name": "Stars",
+        "operator_count": 2,
         "origin": "1672.72461 1899.81775 0.00000",
+        "origin_parsed": [
+          1672.724609375,
+          1899.8177490234375,
+          0.0
+        ],
         "parallaxDepth": "1.00000 1.00000",
+        "parsed": true,
+        "particle": "particles/Stars_1.json",
+        "renderer_count": 1,
         "scale": "0.30718 0.11545 0.07084",
-        "visible": true
+        "scale_parsed": [
+          0.3071799874305725,
+          0.11545000225305557,
+          0.07084000110626221
+        ],
+        "starttime": 0,
+        "visible": true,
+        "visible_parsed": true
       },
       {
         "angles": "-0.00000 -0.00000 -0.25132",
+        "angles_parsed": [
+          -0.0,
+          -0.0,
+          -0.2513200044631958
+        ],
+        "animationmode": "",
+        "child_count": 0,
+        "controlpoint_count": 8,
+        "emitter_count": 1,
         "id": 3405,
+        "initializer_count": 3,
         "kind": "particle",
+        "maxcount": 500,
         "name": "Stars",
+        "operator_count": 2,
         "origin": "1463.06018 1704.94055 0.00000",
+        "origin_parsed": [
+          1463.0601806640625,
+          1704.9405517578125,
+          0.0
+        ],
         "parallaxDepth": "1.00000 1.00000",
+        "parsed": true,
+        "particle": "particles/Stars_1.json",
+        "renderer_count": 1,
         "scale": "-0.28957 0.11545 0.07084",
-        "visible": true
+        "scale_parsed": [
+          -0.28957000374794006,
+          0.11545000225305557,
+          0.07084000110626221
+        ],
+        "starttime": 0,
+        "visible": true,
+        "visible_parsed": true
       },
       {
         "angles": "-0.00000 -0.00000 -0.00373",
+        "angles_parsed": [
+          -0.0,
+          -0.0,
+          -0.0037299999967217445
+        ],
+        "animationmode": "",
+        "child_count": 0,
+        "controlpoint_count": 8,
+        "emitter_count": 1,
         "id": 3558,
+        "initializer_count": 3,
         "kind": "particle",
+        "maxcount": 500,
         "name": "Stars",
+        "operator_count": 2,
         "origin": "2153.48730 2172.36890 0.00000",
+        "origin_parsed": [
+          2153.4873046875,
+          2172.368896484375,
+          0.0
+        ],
         "parallaxDepth": "1.00000 1.00000",
+        "parsed": true,
+        "particle": "particles/Stars_1.json",
+        "renderer_count": 1,
         "scale": "0.62502 0.17316 0.06900",
-        "visible": true
+        "scale_parsed": [
+          0.6250200271606445,
+          0.17316000163555145,
+          0.0689999982714653
+        ],
+        "starttime": 0,
+        "visible": true,
+        "visible_parsed": true
       },
       {
         "angles": "0.00000 0.00000 0.00000",
         "id": 3609,
         "kind": "sound",
+        "maxtime": 5.0,
+        "mintime": 1.0,
         "name": "Endless Love (The Myth OST) - Jackie Chan ft. Kim Hee Seon PIANO COVER AN COONG PIANO.mp3",
         "origin": "0.00000 0.00000 0.00000",
         "parallaxDepth": "1.00000 1.00000",
+        "parsed": true,
+        "playbackmode": "loop",
         "scale": "1.00000 1.00000 1.00000",
-        "visible": true
+        "sound_paths": [
+          "sounds/Endless Love (The Myth OST) - Jackie Chan ft. Kim Hee Seon PIANO COVER AN COONG PIANO.mp3"
+        ],
+        "visible": true,
+        "visible_parsed": true,
+        "volume": 0.5
       },
       {
         "angles": "-0.00000 -0.00000 -0.61158",
+        "angles_parsed": [
+          -0.0,
+          -0.0,
+          -0.6115800142288208
+        ],
+        "animationmode": "",
+        "child_count": 0,
+        "controlpoint_count": 8,
+        "emitter_count": 1,
         "id": 3649,
+        "initializer_count": 3,
         "kind": "particle",
+        "maxcount": 500,
         "name": "Stars",
+        "operator_count": 2,
         "origin": "2727.79980 1874.21545 0.00000",
+        "origin_parsed": [
+          2727.7998046875,
+          1874.2154541015625,
+          0.0
+        ],
         "parallaxDepth": "1.00000 1.00000",
+        "parsed": true,
+        "particle": "particles/Stars_1.json",
+        "renderer_count": 1,
         "scale": "-0.34599 0.11545 0.07084",
-        "visible": true
+        "scale_parsed": [
+          -0.34599000215530396,
+          0.11545000225305557,
+          0.07084000110626221
+        ],
+        "starttime": 0,
+        "visible": true,
+        "visible_parsed": true
       },
       {
         "angles": "0.00000 -0.00000 0.58005",
+        "angles_parsed": [
+          0.0,
+          -0.0,
+          0.580049991607666
+        ],
+        "animationmode": "",
+        "child_count": 0,
+        "controlpoint_count": 8,
+        "emitter_count": 1,
         "id": 3733,
+        "initializer_count": 3,
         "kind": "particle",
+        "maxcount": 500,
         "name": "Stars",
+        "operator_count": 2,
         "origin": "3463.57520 1872.55103 0.00000",
+        "origin_parsed": [
+          3463.5751953125,
+          1872.551025390625,
+          0.0
+        ],
         "parallaxDepth": "1.00000 1.00000",
+        "parsed": true,
+        "particle": "particles/Stars_1.json",
+        "renderer_count": 1,
         "scale": "-0.42975 0.11545 0.07084",
-        "visible": true
+        "scale_parsed": [
+          -0.429749995470047,
+          0.11545000225305557,
+          0.07084000110626221
+        ],
+        "starttime": 0,
+        "visible": true,
+        "visible_parsed": true
       },
       {
         "angles": "-0.00000 -0.00000 -0.12171",
+        "angles_parsed": [
+          -0.0,
+          -0.0,
+          -0.12171000242233276
+        ],
+        "animationmode": "",
+        "child_count": 0,
+        "controlpoint_count": 8,
+        "emitter_count": 1,
         "id": 3853,
+        "initializer_count": 3,
         "kind": "particle",
+        "maxcount": 500,
         "name": "Stars",
+        "operator_count": 2,
         "origin": "125.73637 1918.63306 0.00000",
+        "origin_parsed": [
+          125.73636627197266,
+          1918.633056640625,
+          0.0
+        ],
         "parallaxDepth": "1.00000 1.00000",
+        "parsed": true,
+        "particle": "particles/Stars_1.json",
+        "renderer_count": 1,
         "scale": "-0.34599 0.24101 0.07084",
-        "visible": true
+        "scale_parsed": [
+          -0.34599000215530396,
+          0.24100999534130096,
+          0.07084000110626221
+        ],
+        "starttime": 0,
+        "visible": true,
+        "visible_parsed": true
       },
       {
         "angles": "-0.00000 -0.00000 -0.84490",
+        "angles_parsed": [
+          -0.0,
+          -0.0,
+          -0.8449000120162964
+        ],
+        "animationmode": "",
+        "child_count": 0,
+        "controlpoint_count": 8,
+        "emitter_count": 1,
         "id": 3902,
+        "initializer_count": 3,
         "kind": "particle",
+        "maxcount": 500,
         "name": "Stars",
+        "operator_count": 2,
         "origin": "-184.86734 2259.97925 0.00000",
+        "origin_parsed": [
+          -184.86734008789063,
+          2259.979248046875,
+          0.0
+        ],
         "parallaxDepth": "1.00000 1.00000",
+        "parsed": true,
+        "particle": "particles/Stars_1.json",
+        "renderer_count": 1,
         "scale": "-0.34599 0.22453 0.07084",
-        "visible": true
+        "scale_parsed": [
+          -0.34599000215530396,
+          0.22452999651432037,
+          0.07084000110626221
+        ],
+        "starttime": 0,
+        "visible": true,
+        "visible_parsed": true
       },
       {
         "angles": "0.00000 0.00000 0.00000",
@@ -515,13 +848,40 @@
       },
       {
         "angles": "0.00000 0.00000 0.00000",
+        "angles_parsed": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "animationmode": "",
+        "child_count": 0,
+        "controlpoint_count": 8,
+        "emitter_count": 1,
         "id": 8271,
+        "initializer_count": 3,
         "kind": "particle",
+        "maxcount": 500,
         "name": "Stars",
+        "operator_count": 2,
         "origin": "3232.07837 2127.20703 0.00000",
+        "origin_parsed": [
+          3232.078369140625,
+          2127.20703125,
+          0.0
+        ],
         "parallaxDepth": "1.00000 1.00000",
+        "parsed": true,
+        "particle": "particles/Stars_1.json",
+        "renderer_count": 1,
         "scale": "0.56042 0.56042 0.06900",
-        "visible": true
+        "scale_parsed": [
+          0.5604199767112732,
+          0.5604199767112732,
+          0.0689999982714653
+        ],
+        "starttime": 0,
+        "visible": true,
+        "visible_parsed": true
       },
       {
         "angles": "0.00000 0.00000 0.00000",

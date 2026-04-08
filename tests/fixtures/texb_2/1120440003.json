@@ -143,13 +143,40 @@
       },
       {
         "angles": "0.000 0.000 0.000",
+        "angles_parsed": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "animationmode": "",
+        "child_count": 0,
+        "controlpoint_count": 8,
+        "emitter_count": 1,
         "id": 419,
+        "initializer_count": 4,
         "kind": "particle",
+        "maxcount": 500,
         "name": "One",
+        "operator_count": 2,
         "origin": "1067.412 480.136 0.000",
+        "origin_parsed": [
+          1067.4119873046875,
+          480.135986328125,
+          0.0
+        ],
         "parallaxDepth": "1.000 1.000",
+        "parsed": true,
+        "particle": "particles/One_1.json",
+        "renderer_count": 1,
         "scale": "1.000 1.000 1.000",
-        "visible": true
+        "scale_parsed": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "starttime": 0,
+        "visible": true,
+        "visible_parsed": true
       }
     ],
     "ortho": {

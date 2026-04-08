@@ -486,12 +486,39 @@
       },
       {
         "angles": "0.00000 -0.00000 -3.04200",
+        "angles_parsed": [
+          0.0,
+          -0.0,
+          -3.0420000553131104
+        ],
+        "animationmode": "randomframe",
+        "child_count": 0,
+        "controlpoint_count": 8,
+        "emitter_count": 1,
         "id": 330,
+        "initializer_count": 8,
         "kind": "particle",
+        "maxcount": 200,
         "name": "Sakura",
+        "operator_count": 3,
         "origin": "2333.04492 1455.32397 0.00000",
+        "origin_parsed": [
+          2333.044921875,
+          1455.323974609375,
+          0.0
+        ],
+        "parsed": true,
+        "particle": "particles/presets/leaves5.json",
+        "renderer_count": 1,
         "scale": "0.56000 0.56000 0.56000",
-        "visible": true
+        "scale_parsed": [
+          0.5600000023841858,
+          0.5600000023841858,
+          0.5600000023841858
+        ],
+        "starttime": 3,
+        "visible": true,
+        "visible_parsed": true
       }
     ],
     "ortho": {

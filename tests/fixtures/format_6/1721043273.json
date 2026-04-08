@@ -52,31 +52,94 @@
         "angles": "0.00000 0.00000 0.00000",
         "id": 62,
         "kind": "sound",
+        "maxtime": 5.0,
+        "mintime": 1.0,
         "name": "280843_Coiin___Colour_My_World.mp3",
         "origin": "0.00000 0.00000 0.00000",
         "parallaxDepth": "1.00000 1.00000",
+        "parsed": true,
+        "playbackmode": "loop",
         "scale": "1.00000 1.00000 1.00000",
-        "visible": true
+        "sound_paths": [
+          "sounds/280843_Coiin___Colour_My_World.mp3"
+        ],
+        "visible": true,
+        "visible_parsed": true,
+        "volume": 0.5
       },
       {
         "angles": "0.00000 0.00000 0.00000",
+        "angles_parsed": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "animationmode": "randomframe",
+        "child_count": 0,
+        "controlpoint_count": 8,
+        "emitter_count": 1,
         "id": 104,
+        "initializer_count": 6,
         "kind": "particle",
+        "maxcount": 200,
         "name": "Sakura",
+        "operator_count": 3,
         "origin": "2272.51172 707.03577 0.00000",
+        "origin_parsed": [
+          2272.51171875,
+          707.0357666015625,
+          0.0
+        ],
         "parallaxDepth": "1.00000 1.00000",
+        "parsed": true,
+        "particle": "particles/presets/leaves5.json",
+        "renderer_count": 1,
         "scale": "0.50000 0.50000 0.50000",
-        "visible": true
+        "scale_parsed": [
+          0.5,
+          0.5,
+          0.5
+        ],
+        "starttime": 3,
+        "visible": true,
+        "visible_parsed": true
       },
       {
         "angles": "0.00000 0.00000 0.00000",
+        "angles_parsed": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "animationmode": "randomframe",
+        "child_count": 0,
+        "controlpoint_count": 8,
+        "emitter_count": 1,
         "id": 110,
+        "initializer_count": 6,
         "kind": "particle",
+        "maxcount": 200,
         "name": "Sakura",
+        "operator_count": 3,
         "origin": "52.46498 493.76440 0.00000",
+        "origin_parsed": [
+          52.46498107910156,
+          493.764404296875,
+          0.0
+        ],
         "parallaxDepth": "1.00000 1.00000",
+        "parsed": true,
+        "particle": "particles/presets/leaves5.json",
+        "renderer_count": 1,
         "scale": "1.00000 1.00000 1.00000",
-        "visible": true
+        "scale_parsed": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "starttime": 3,
+        "visible": true,
+        "visible_parsed": true
       },
       {
         "alignment": "center",
@@ -201,13 +264,40 @@
       },
       {
         "angles": "0.00000 -0.00000 1.56318",
+        "angles_parsed": [
+          0.0,
+          -0.0,
+          1.5631799697875977
+        ],
+        "animationmode": "randomframe",
+        "child_count": 1,
+        "controlpoint_count": 8,
+        "emitter_count": 1,
         "id": 136,
+        "initializer_count": 3,
         "kind": "particle",
+        "maxcount": 1,
         "name": "Snow storm",
+        "operator_count": 3,
         "origin": "3112.83765 30.06915 0.00000",
+        "origin_parsed": [
+          3112.837646484375,
+          30.069150924682617,
+          0.0
+        ],
         "parallaxDepth": "1.00000 1.00000",
+        "parsed": true,
+        "particle": "particles/presets/snowstorm.json",
+        "renderer_count": 1,
         "scale": "0.52112 1.12394 1.00000",
-        "visible": true
+        "scale_parsed": [
+          0.521120011806488,
+          1.1239399909973145,
+          1.0
+        ],
+        "starttime": 0,
+        "visible": true,
+        "visible_parsed": true
       },
       {
         "alignment": "center",
@@ -328,23 +418,77 @@
       },
       {
         "angles": "0.00000 -0.00000 1.56318",
+        "angles_parsed": [
+          0.0,
+          -0.0,
+          1.5631799697875977
+        ],
+        "animationmode": "randomframe",
+        "child_count": 1,
+        "controlpoint_count": 8,
+        "emitter_count": 1,
         "id": 269,
+        "initializer_count": 3,
         "kind": "particle",
+        "maxcount": 1,
         "name": "Snow storm",
+        "operator_count": 3,
         "origin": "2527.16064 1032.31604 0.00000",
+        "origin_parsed": [
+          2527.16064453125,
+          1032.3160400390625,
+          0.0
+        ],
         "parallaxDepth": "1.00000 1.00000",
+        "parsed": true,
+        "particle": "particles/presets/snowstorm.json",
+        "renderer_count": 1,
         "scale": "0.12227 0.32393 1.00000",
-        "visible": true
+        "scale_parsed": [
+          0.12227000296115875,
+          0.3239299952983856,
+          1.0
+        ],
+        "starttime": 0,
+        "visible": true,
+        "visible_parsed": true
       },
       {
         "angles": "0.00000 -0.00000 1.56318",
+        "angles_parsed": [
+          0.0,
+          -0.0,
+          1.5631799697875977
+        ],
+        "animationmode": "randomframe",
+        "child_count": 1,
+        "controlpoint_count": 8,
+        "emitter_count": 1,
         "id": 282,
+        "initializer_count": 3,
         "kind": "particle",
+        "maxcount": 1,
         "name": "Snow storm",
+        "operator_count": 3,
         "origin": "3572.42847 1056.97827 0.00000",
+        "origin_parsed": [
+          3572.428466796875,
+          1056.978271484375,
+          0.0
+        ],
         "parallaxDepth": "1.00000 1.00000",
+        "parsed": true,
+        "particle": "particles/presets/snowstorm.json",
+        "renderer_count": 1,
         "scale": "0.24200 0.45922 1.00000",
-        "visible": true
+        "scale_parsed": [
+          0.24199999868869781,
+          0.4592199921607971,
+          1.0
+        ],
+        "starttime": 0,
+        "visible": true,
+        "visible_parsed": true
       },
       {
         "alignment": "center",
@@ -505,63 +649,225 @@
       },
       {
         "angles": "0.00000 -0.00000 1.56318",
+        "angles_parsed": [
+          0.0,
+          -0.0,
+          1.5631799697875977
+        ],
+        "animationmode": "randomframe",
+        "child_count": 1,
+        "controlpoint_count": 8,
+        "emitter_count": 1,
         "id": 295,
+        "initializer_count": 3,
         "kind": "particle",
+        "maxcount": 1,
         "name": "Snow storm",
+        "operator_count": 3,
         "origin": "-39.91669 1789.80408 0.00000",
+        "origin_parsed": [
+          -39.916690826416016,
+          1789.8040771484375,
+          0.0
+        ],
         "parallaxDepth": "1.00000 1.00000",
+        "parsed": true,
+        "particle": "particles/presets/snowstorm.json",
+        "renderer_count": 1,
         "scale": "0.24200 0.45922 1.00000",
-        "visible": true
+        "scale_parsed": [
+          0.24199999868869781,
+          0.4592199921607971,
+          1.0
+        ],
+        "starttime": 0,
+        "visible": true,
+        "visible_parsed": true
       },
       {
         "angles": "0.00000 -0.00000 1.56318",
+        "angles_parsed": [
+          0.0,
+          -0.0,
+          1.5631799697875977
+        ],
+        "animationmode": "randomframe",
+        "child_count": 1,
+        "controlpoint_count": 8,
+        "emitter_count": 1,
         "id": 308,
+        "initializer_count": 3,
         "kind": "particle",
+        "maxcount": 1,
         "name": "Snow storm",
+        "operator_count": 3,
         "origin": "1066.41638 1786.24634 0.00000",
+        "origin_parsed": [
+          1066.4163818359375,
+          1786.246337890625,
+          0.0
+        ],
         "parallaxDepth": "1.00000 1.00000",
+        "parsed": true,
+        "particle": "particles/presets/snowstorm.json",
+        "renderer_count": 1,
         "scale": "0.13235 0.35949 1.00000",
-        "visible": true
+        "scale_parsed": [
+          0.13234999775886536,
+          0.3594900071620941,
+          1.0
+        ],
+        "starttime": 0,
+        "visible": true,
+        "visible_parsed": true
       },
       {
         "angles": "0.00000 -0.00000 1.56318",
+        "angles_parsed": [
+          0.0,
+          -0.0,
+          1.5631799697875977
+        ],
+        "animationmode": "randomframe",
+        "child_count": 1,
+        "controlpoint_count": 8,
+        "emitter_count": 1,
         "id": 321,
+        "initializer_count": 3,
         "kind": "particle",
+        "maxcount": 1,
         "name": "Snow storm",
+        "operator_count": 3,
         "origin": "1697.57324 1275.40796 0.00000",
+        "origin_parsed": [
+          1697.5732421875,
+          1275.407958984375,
+          0.0
+        ],
         "parallaxDepth": "1.00000 1.00000",
+        "parsed": true,
+        "particle": "particles/presets/snowstorm.json",
+        "renderer_count": 1,
         "scale": "0.24200 0.45922 1.00000",
-        "visible": true
+        "scale_parsed": [
+          0.24199999868869781,
+          0.4592199921607971,
+          1.0
+        ],
+        "starttime": 0,
+        "visible": true,
+        "visible_parsed": true
       },
       {
         "angles": "0.00000 0.00000 0.00000",
+        "angles_parsed": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "animationmode": "randomframe",
+        "child_count": 0,
+        "controlpoint_count": 8,
+        "emitter_count": 1,
         "id": 439,
+        "initializer_count": 6,
         "kind": "particle",
+        "maxcount": 200,
         "name": "Sakura",
+        "operator_count": 3,
         "origin": "119.62994 891.47876 0.00000",
+        "origin_parsed": [
+          119.62993621826172,
+          891.478759765625,
+          0.0
+        ],
         "parallaxDepth": "1.00000 1.00000",
+        "parsed": true,
+        "particle": "particles/presets/leaves5.json",
+        "renderer_count": 1,
         "scale": "0.50000 0.50000 0.50000",
-        "visible": true
+        "scale_parsed": [
+          0.5,
+          0.5,
+          0.5
+        ],
+        "starttime": 3,
+        "visible": true,
+        "visible_parsed": true
       },
       {
         "angles": "0.00000 0.00000 0.00000",
+        "angles_parsed": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "animationmode": "randomframe",
+        "child_count": 0,
+        "controlpoint_count": 8,
+        "emitter_count": 1,
         "id": 445,
+        "initializer_count": 6,
         "kind": "particle",
+        "maxcount": 200,
         "name": "Sakura",
+        "operator_count": 3,
         "origin": "916.01044 868.63184 0.00000",
+        "origin_parsed": [
+          916.0104370117188,
+          868.6318359375,
+          0.0
+        ],
         "parallaxDepth": "1.00000 1.00000",
+        "parsed": true,
+        "particle": "particles/presets/leaves5.json",
+        "renderer_count": 1,
         "scale": "0.50000 0.50000 0.50000",
-        "visible": true
+        "scale_parsed": [
+          0.5,
+          0.5,
+          0.5
+        ],
+        "starttime": 3,
+        "visible": true,
+        "visible_parsed": true
       },
       {
         "angles": "0.00000 0.00000 0.00000",
+        "angles_parsed": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "animationmode": "randomframe",
+        "child_count": 0,
+        "controlpoint_count": 8,
+        "emitter_count": 1,
         "id": 451,
+        "initializer_count": 6,
         "kind": "particle",
+        "maxcount": 200,
         "name": "Sakura",
+        "operator_count": 3,
         "origin": "1487.07263 702.39447 0.00000",
+        "origin_parsed": [
+          1487.0726318359375,
+          702.3944702148438,
+          0.0
+        ],
         "parallaxDepth": "1.00000 1.00000",
+        "parsed": true,
+        "particle": "particles/presets/leaves5.json",
+        "renderer_count": 1,
         "scale": "0.70000 0.70000 0.70000",
-        "visible": true
+        "scale_parsed": [
+          0.699999988079071,
+          0.699999988079071,
+          0.699999988079071
+        ],
+        "starttime": 3,
+        "visible": true,
+        "visible_parsed": true
       }
     ],
     "ortho": {

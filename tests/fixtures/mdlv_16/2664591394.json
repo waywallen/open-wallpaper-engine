@@ -437,53 +437,178 @@
       },
       {
         "angles": "-0.00000 -0.00000 -0.29453",
+        "angles_parsed": [
+          -0.0,
+          -0.0,
+          -0.2945300042629242
+        ],
+        "animationmode": "",
+        "child_count": 0,
+        "controlpoint_count": 0,
+        "emitter_count": 1,
         "id": 84,
+        "initializer_count": 5,
         "kind": "particle",
+        "maxcount": 16,
         "name": "Light shafts 1",
+        "operator_count": 2,
         "origin": "1824.38696 1663.71008 0.00000",
+        "origin_parsed": [
+          1824.386962890625,
+          1663.7100830078125,
+          0.0
+        ],
         "parallaxDepth": "1.00000 1.00000",
+        "parsed": true,
+        "particle": "particles/presets/light_shafts_1.json",
+        "renderer_count": 1,
         "scale": "-7.50941 4.75740 1.00000",
-        "visible": true
+        "scale_parsed": [
+          -7.5094099044799805,
+          4.757400035858154,
+          1.0
+        ],
+        "starttime": 15,
+        "visible": true,
+        "visible_parsed": true
       },
       {
         "angles": "-0.00000 -0.00000 -1.52097",
+        "angles_parsed": [
+          -0.0,
+          -0.0,
+          -1.5209699869155884
+        ],
+        "animationmode": "",
+        "child_count": 0,
+        "controlpoint_count": 8,
+        "emitter_count": 1,
         "id": 101,
+        "initializer_count": 4,
         "kind": "particle",
+        "maxcount": 50,
         "name": "Glitter",
+        "operator_count": 5,
         "origin": "1574.75977 704.17316 0.00000",
+        "origin_parsed": [
+          1574.759765625,
+          704.1731567382813,
+          0.0
+        ],
         "parallaxDepth": "1.00000 1.00000",
+        "parsed": true,
+        "particle": "particles/workshop/2257234152/presets/dust_motes_0.json",
+        "renderer_count": 1,
         "scale": "1.90489 1.87501 1.37200",
-        "visible": true
+        "scale_parsed": [
+          1.9048899412155151,
+          1.8750100135803223,
+          1.371999979019165
+        ],
+        "starttime": 1,
+        "visible": true,
+        "visible_parsed": true
       },
       {
         "angles": "0.00000 0.00000 0.00000",
         "id": 134,
         "kind": "sound",
+        "maxtime": 5.0,
+        "mintime": 1.0,
         "name": "Kyle Xian - A Tender Moon Tempo (翻奏_ 八木海莉).mp3",
         "origin": "0.00000 0.00000 0.00000",
         "parallaxDepth": "1.00000 1.00000",
+        "parsed": true,
+        "playbackmode": "random",
         "scale": "1.00000 1.00000 1.00000",
-        "visible": true
+        "sound_paths": [
+          "sounds/Kyle Xian - A Tender Moon Tempo (翻奏_ 八木海莉).mp3",
+          "sounds/Piano Dreamers - Talking to the Moon.mp3",
+          "sounds/Shin Giwon Piano - Don't Start Now (Instrumental).mp3",
+          "sounds/Shin Giwon Piano - It Starts Today.mp3",
+          "sounds/Shin Giwon Piano - My Love From the Star (Piano Arrangement).mp3",
+          "sounds/Shin Giwon Piano - Starlight(1).mp3",
+          "sounds/Shin Giwon Piano - Starry Night (Piano Arrangement).mp3",
+          "sounds/Shin Giwon Piano - Start.mp3",
+          "sounds/Shin Giwon Piano - STARLIGHT.mp3"
+        ],
+        "visible": true,
+        "visible_parsed": true,
+        "volume": 0.5
       },
       {
         "angles": "0.00000 0.00000 0.00000",
+        "angles_parsed": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "animationmode": "",
+        "child_count": 0,
+        "controlpoint_count": 8,
+        "emitter_count": 1,
         "id": 168,
+        "initializer_count": 4,
         "kind": "particle",
+        "maxcount": 128,
         "name": "星星背景",
+        "operator_count": 5,
         "origin": "2209.87378 1763.75793 0.00000",
+        "origin_parsed": [
+          2209.873779296875,
+          1763.7579345703125,
+          0.0
+        ],
         "parallaxDepth": "1.00000 1.00000",
+        "parsed": true,
+        "particle": "particles/workshop/2634923148/presets/dust_motes_0.json",
+        "renderer_count": 1,
         "scale": "1.96724 1.99232 1.00000",
-        "visible": true
+        "scale_parsed": [
+          1.9672399759292603,
+          1.992319941520691,
+          1.0
+        ],
+        "starttime": 1,
+        "visible": true,
+        "visible_parsed": true
       },
       {
         "angles": "0.00000 -0.00000 -3.09254",
+        "angles_parsed": [
+          0.0,
+          -0.0,
+          -3.0925400257110596
+        ],
+        "animationmode": "randomframe",
+        "child_count": 0,
+        "controlpoint_count": 8,
+        "emitter_count": 1,
         "id": 188,
+        "initializer_count": 8,
         "kind": "particle",
+        "maxcount": 200,
         "name": "Sakura",
+        "operator_count": 3,
         "origin": "1728.08997 1321.64514 0.00000",
+        "origin_parsed": [
+          1728.0899658203125,
+          1321.6451416015625,
+          0.0
+        ],
         "parallaxDepth": "1.00000 1.00000",
+        "parsed": true,
+        "particle": "particles/workshop/2649326346/presets/leaves5.json",
+        "renderer_count": 1,
         "scale": "1.52236 1.25595 1.00000",
-        "visible": true
+        "scale_parsed": [
+          1.5223599672317505,
+          1.2559499740600586,
+          1.0
+        ],
+        "starttime": 3,
+        "visible": true,
+        "visible_parsed": true
       }
     ],
     "ortho": {

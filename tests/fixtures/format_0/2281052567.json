@@ -50,13 +50,40 @@
     "objects": [
       {
         "angles": "0.000 -0.000 2.797",
+        "angles_parsed": [
+          0.0,
+          -0.0,
+          2.796999931335449
+        ],
+        "animationmode": "",
+        "child_count": 0,
+        "controlpoint_count": 0,
+        "emitter_count": 1,
         "id": 36,
+        "initializer_count": 5,
         "kind": "particle",
+        "maxcount": 16,
         "name": "Light shafts 1",
+        "operator_count": 2,
         "origin": "1479.068 2011.278 0.000",
+        "origin_parsed": [
+          1479.0679931640625,
+          2011.2779541015625,
+          0.0
+        ],
         "parallaxDepth": "1.000 1.000",
+        "parsed": true,
+        "particle": "particles/presets/light_shafts_1.json",
+        "renderer_count": 1,
         "scale": "1.000 1.000 1.000",
-        "visible": true
+        "scale_parsed": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "starttime": 15,
+        "visible": true,
+        "visible_parsed": true
       },
       {
         "alignment": "center",
@@ -168,23 +195,77 @@
       },
       {
         "angles": "0.000 -0.000 2.902",
+        "angles_parsed": [
+          0.0,
+          -0.0,
+          2.9019999504089355
+        ],
+        "animationmode": "",
+        "child_count": 0,
+        "controlpoint_count": 8,
+        "emitter_count": 1,
         "id": 54,
+        "initializer_count": 6,
         "kind": "particle",
+        "maxcount": 16,
         "name": "Light shafts 0",
+        "operator_count": 3,
         "origin": "1593.382 2096.359 0.000",
+        "origin_parsed": [
+          1593.3819580078125,
+          2096.35888671875,
+          0.0
+        ],
         "parallaxDepth": "1.000 1.000",
+        "parsed": true,
+        "particle": "particles/presets/light_shafts_0.json",
+        "renderer_count": 1,
         "scale": "0.463 0.463 1.000",
-        "visible": true
+        "scale_parsed": [
+          0.46299999952316284,
+          0.46299999952316284,
+          1.0
+        ],
+        "starttime": 10,
+        "visible": true,
+        "visible_parsed": true
       },
       {
         "angles": "0.000 -0.000 2.702",
+        "angles_parsed": [
+          0.0,
+          -0.0,
+          2.7019999027252197
+        ],
+        "animationmode": "",
+        "child_count": 0,
+        "controlpoint_count": 0,
+        "emitter_count": 1,
         "id": 62,
+        "initializer_count": 5,
         "kind": "particle",
+        "maxcount": 16,
         "name": "Light shafts 1",
+        "operator_count": 2,
         "origin": "1711.511 1665.024 0.000",
+        "origin_parsed": [
+          1711.510986328125,
+          1665.0240478515625,
+          0.0
+        ],
         "parallaxDepth": "1.000 1.000",
+        "parsed": true,
+        "particle": "particles/presets/light_shafts_1.json",
+        "renderer_count": 1,
         "scale": "0.435 0.435 1.000",
-        "visible": true
+        "scale_parsed": [
+          0.4350000023841858,
+          0.4350000023841858,
+          1.0
+        ],
+        "starttime": 15,
+        "visible": true,
+        "visible_parsed": true
       },
       {
         "alignment": "center",
@@ -1069,11 +1150,20 @@
         "angles": "0.000 0.000 0.000",
         "id": 296,
         "kind": "sound",
+        "maxtime": 5.0,
+        "mintime": 1.0,
         "name": "Marcin Przybyłowicz - Corposeduction.mp3",
         "origin": "1920.000 1080.000 0.000",
         "parallaxDepth": "1.000 1.000",
+        "parsed": true,
+        "playbackmode": "loop",
         "scale": "1.000 1.000 1.000",
-        "visible": true
+        "sound_paths": [
+          "sounds/Marcin Przybyłowicz - Corposeduction.mp3"
+        ],
+        "visible": true,
+        "visible_parsed": true,
+        "volume": 0.5
       },
       {
         "alignment": "center",
@@ -1228,11 +1318,20 @@
         "angles": "0.000 0.000 0.000",
         "id": 352,
         "kind": "sound",
+        "maxtime": 5.0,
+        "mintime": 1.0,
         "name": "Street Ambience.mp3",
         "origin": "1920.000 1080.000 0.000",
         "parallaxDepth": "1.000 1.000",
+        "parsed": true,
+        "playbackmode": "loop",
         "scale": "1.000 1.000 1.000",
-        "visible": true
+        "sound_paths": [
+          "sounds/Street Ambience.mp3"
+        ],
+        "visible": true,
+        "visible_parsed": true,
+        "volume": 0.699999988079071
       },
       {
         "alignment": "center",
@@ -1913,33 +2012,114 @@
       },
       {
         "angles": "0.000 -0.000 0.245",
+        "angles_parsed": [
+          0.0,
+          -0.0,
+          0.24500000476837158
+        ],
+        "animationmode": "",
+        "child_count": 0,
+        "controlpoint_count": 8,
+        "emitter_count": 1,
         "id": 596,
+        "initializer_count": 6,
         "kind": "particle",
+        "maxcount": 20,
         "name": "Fog 1",
+        "operator_count": 2,
         "origin": "1044.231 133.246 0.000",
+        "origin_parsed": [
+          1044.23095703125,
+          133.24600219726563,
+          0.0
+        ],
         "parallaxDepth": "1.000 1.000",
+        "parsed": true,
+        "particle": "particles/presets/fog1.json",
+        "renderer_count": 1,
         "scale": "1.000 1.000 1.000",
-        "visible": true
+        "scale_parsed": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "starttime": 2,
+        "visible": true,
+        "visible_parsed": true
       },
       {
         "angles": "0.000 -0.000 0.059",
+        "angles_parsed": [
+          0.0,
+          -0.0,
+          0.05900000035762787
+        ],
+        "animationmode": "",
+        "child_count": 0,
+        "controlpoint_count": 8,
+        "emitter_count": 1,
         "id": 604,
+        "initializer_count": 6,
         "kind": "particle",
+        "maxcount": 20,
         "name": "Fog 1",
+        "operator_count": 2,
         "origin": "2512.293 372.372 0.000",
+        "origin_parsed": [
+          2512.29296875,
+          372.37200927734375,
+          0.0
+        ],
         "parallaxDepth": "1.000 1.000",
+        "parsed": true,
+        "particle": "particles/presets/fog1.json",
+        "renderer_count": 1,
         "scale": "0.457 0.457 1.000",
-        "visible": true
+        "scale_parsed": [
+          0.4569999873638153,
+          0.4569999873638153,
+          1.0
+        ],
+        "starttime": 2,
+        "visible": true,
+        "visible_parsed": true
       },
       {
         "angles": "0.000 -0.000 0.119",
+        "angles_parsed": [
+          0.0,
+          -0.0,
+          0.11900000274181366
+        ],
+        "animationmode": "",
+        "child_count": 0,
+        "controlpoint_count": 8,
+        "emitter_count": 1,
         "id": 696,
+        "initializer_count": 5,
         "kind": "particle",
+        "maxcount": 20,
         "name": "Fog 2",
+        "operator_count": 2,
         "origin": "3250.272 832.853 0.000",
+        "origin_parsed": [
+          3250.27197265625,
+          832.85302734375,
+          0.0
+        ],
         "parallaxDepth": "1.000 1.000",
+        "parsed": true,
+        "particle": "particles/presets/fog2.json",
+        "renderer_count": 1,
         "scale": "0.298 0.298 1.000",
-        "visible": true
+        "scale_parsed": [
+          0.2980000078678131,
+          0.2980000078678131,
+          1.0
+        ],
+        "starttime": 2,
+        "visible": true,
+        "visible_parsed": true
       },
       {
         "alignment": "center",

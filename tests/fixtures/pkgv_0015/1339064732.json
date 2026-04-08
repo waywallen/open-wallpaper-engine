@@ -1349,43 +1349,101 @@
       },
       {
         "angles": "0.00000 0.00000 0.00000",
+        "angles_parsed": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "animationmode": "",
+        "child_count": 0,
+        "controlpoint_count": 8,
+        "emitter_count": 1,
         "id": 217,
+        "initializer_count": 4,
         "kind": "particle",
+        "maxcount": 100,
         "name": "snowperspective",
+        "operator_count": 3,
         "origin": "1000.00000 939.46301 0.00000",
+        "origin_parsed": [
+          1000.0,
+          939.4630126953125,
+          0.0
+        ],
         "parallaxDepth": "1.00000 1.00000",
+        "parsed": true,
+        "particle": "particles/presets/snowperspective.json",
+        "renderer_count": 1,
         "scale": "1.00000 1.00000 1.00000",
-        "visible": true
+        "scale_parsed": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "starttime": 15,
+        "visible": true,
+        "visible_parsed": true
       },
       {
         "angles": "0.00000 0.00000 0.00000",
         "id": 221,
         "kind": "sound",
+        "maxtime": 5.0,
+        "mintime": 1.0,
         "name": "",
         "origin": "0.00000 0.00000 0.00000",
         "parallaxDepth": "1.00000 1.00000",
+        "parsed": true,
+        "playbackmode": "loop",
         "scale": "1.00000 1.00000 1.00000",
-        "visible": true
+        "sound_paths": [
+          "sounds/Forest Noises.mp3"
+        ],
+        "visible": true,
+        "visible_parsed": true,
+        "volume": 0.6299999952316284
       },
       {
         "angles": "0.00000 0.00000 0.00000",
         "id": 224,
         "kind": "sound",
+        "maxtime": 87.94999694824219,
+        "mintime": 57.95000076293945,
         "name": "",
         "origin": "-9.10600 -7.28700 0.00000",
         "parallaxDepth": "1.00000 1.00000",
+        "parsed": true,
+        "playbackmode": "random",
         "scale": "1.00000 1.00000 1.00000",
-        "visible": true
+        "sound_paths": [
+          "sounds/Ambient Song.mp3",
+          "sounds/Ambient Song 2.mp3",
+          "sounds/Ambient Song 3.mp3",
+          "sounds/Ambient Song 4.mp3"
+        ],
+        "visible": true,
+        "visible_parsed": true,
+        "volume": 0.699999988079071
       },
       {
         "angles": "0.00000 0.00000 0.00000",
         "id": 225,
         "kind": "sound",
+        "maxtime": 12.0,
+        "mintime": 6.0,
         "name": "",
         "origin": "0.00000 0.00000 0.00000",
         "parallaxDepth": "1.00000 1.00000",
+        "parsed": true,
+        "playbackmode": "random",
         "scale": "1.00000 1.00000 1.00000",
-        "visible": true
+        "sound_paths": [
+          "sounds/Horse noise1.mp3",
+          "sounds/2018-03-31 15-30-21.mp3"
+        ],
+        "visible": true,
+        "visible_parsed": true,
+        "volume": 0.4000000059604645
       },
       {
         "alignment": "center",
@@ -1480,11 +1538,20 @@
         "angles": "0.00000 0.00000 0.00000",
         "id": 227,
         "kind": "sound",
+        "maxtime": 5.0,
+        "mintime": 1.0,
         "name": "",
         "origin": "0.00000 0.00000 0.00000",
         "parallaxDepth": "1.00000 1.00000",
+        "parsed": true,
+        "playbackmode": "loop",
         "scale": "1.00000 1.00000 1.00000",
-        "visible": true
+        "sound_paths": [
+          "sounds/Water noises.mp3"
+        ],
+        "visible": true,
+        "visible_parsed": true,
+        "volume": 0.9100000262260437
       },
       {
         "alignment": "center",

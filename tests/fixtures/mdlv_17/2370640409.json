@@ -1125,89 +1125,314 @@
         "visible_parsed": true
       },
       {
+        "angles_parsed": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "animationmode": "",
+        "child_count": 1,
+        "controlpoint_count": 8,
+        "emitter_count": 1,
         "id": 59,
+        "initializer_count": 4,
         "kind": "particle",
+        "maxcount": 50,
         "name": "Torch",
+        "operator_count": 5,
         "origin": "582.71924 72.72554 0.00000",
+        "origin_parsed": [
+          582.71923828125,
+          72.72554016113281,
+          0.0
+        ],
+        "parsed": true,
+        "particle": "particles/presets/torch.json",
+        "renderer_count": 1,
         "scale": "1.01731 1.00000 1.00000",
-        "visible": true
+        "scale_parsed": [
+          1.0173100233078003,
+          1.0,
+          1.0
+        ],
+        "starttime": 1,
+        "visible": true,
+        "visible_parsed": true
       },
       {
+        "angles_parsed": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "animationmode": "",
+        "child_count": 1,
+        "controlpoint_count": 8,
+        "emitter_count": 1,
         "id": 79,
+        "initializer_count": 4,
         "kind": "particle",
+        "maxcount": 50,
         "name": "Torch",
+        "operator_count": 5,
         "origin": "503.97479 56.28442 0.00000",
+        "origin_parsed": [
+          503.97479248046875,
+          56.284420013427734,
+          0.0
+        ],
+        "parsed": true,
+        "particle": "particles/presets/torch.json",
+        "renderer_count": 1,
         "scale": "0.86735 0.85259 0.85259",
-        "visible": true
+        "scale_parsed": [
+          0.8673499822616577,
+          0.852590024471283,
+          0.852590024471283
+        ],
+        "starttime": 1,
+        "visible": true,
+        "visible_parsed": true
       },
       {
         "angles": "0.00000 -0.00000 0.20960",
+        "angles_parsed": [
+          0.0,
+          -0.0,
+          0.20960000157356262
+        ],
+        "animationmode": "",
+        "child_count": 1,
+        "controlpoint_count": 8,
+        "emitter_count": 1,
         "id": 95,
+        "initializer_count": 4,
         "kind": "particle",
+        "maxcount": 50,
         "name": "Torch",
+        "operator_count": 5,
         "origin": "586.92303 92.70878 0.00000",
+        "origin_parsed": [
+          586.9230346679688,
+          92.70877838134766,
+          0.0
+        ],
+        "parsed": true,
+        "particle": "particles/presets/torch.json",
+        "renderer_count": 1,
         "scale": "0.93500 0.91909 0.91909",
-        "visible": true
+        "scale_parsed": [
+          0.9350000023841858,
+          0.9190899729728699,
+          0.9190899729728699
+        ],
+        "starttime": 1,
+        "visible": true,
+        "visible_parsed": true
       },
       {
         "id": 199,
         "kind": "sound",
+        "maxtime": 5.0,
+        "mintime": 1.0,
         "name": "9fd379d402294ac287dd98588b09f8c9.mp3",
-        "visible": true
+        "parsed": true,
+        "playbackmode": "loop",
+        "sound_paths": [
+          "sounds/9fd379d402294ac287dd98588b09f8c9.mp3"
+        ],
+        "visible": true,
+        "visible_parsed": true,
+        "volume": 0.3199999928474426
       },
       {
         "id": 202,
         "kind": "sound",
+        "maxtime": 5.0,
+        "mintime": 1.0,
         "name": "TenorGalliclyre爷们儿的温柔_演奏莱雅琴_里拉琴.254571358~1.mp3",
-        "visible": true
+        "parsed": true,
+        "playbackmode": "loop",
+        "sound_paths": [
+          "sounds/TenorGalliclyre爷们儿的温柔_演奏莱雅琴_里拉琴.254571358~1.mp3"
+        ],
+        "visible": true,
+        "visible_parsed": true,
+        "volume": 0.5899999737739563
       },
       {
         "id": 203,
         "kind": "sound",
+        "maxtime": 5.0,
+        "mintime": 1.0,
         "name": "暴雪风.mp3",
-        "visible": true
+        "parsed": true,
+        "playbackmode": "loop",
+        "sound_paths": [
+          "sounds/暴雪风.mp3"
+        ],
+        "visible": true,
+        "visible_parsed": true,
+        "volume": 0.5099999904632568
       },
       {
         "id": 205,
         "kind": "sound",
+        "maxtime": 5.0,
+        "mintime": 1.0,
         "name": "火焰.mp3",
-        "visible": true
+        "parsed": true,
+        "playbackmode": "loop",
+        "sound_paths": [
+          "sounds/火焰.mp3"
+        ],
+        "visible": true,
+        "visible_parsed": true,
+        "volume": 0.8199999928474426
       },
       {
         "angles": "0.00000 0.00000 -0.11997",
+        "angles_parsed": [
+          0.0,
+          0.0,
+          -0.11997000128030777
+        ],
+        "animationmode": "",
+        "child_count": 0,
+        "controlpoint_count": 8,
+        "emitter_count": 1,
         "id": 278,
+        "initializer_count": 6,
         "kind": "particle",
+        "maxcount": 20,
         "name": "Fog 1",
+        "operator_count": 2,
         "origin": "846.96124 530.18915 0.00000",
+        "origin_parsed": [
+          846.9612426757813,
+          530.1891479492188,
+          0.0
+        ],
+        "parsed": true,
+        "particle": "particles/presets/fog1.json",
+        "renderer_count": 1,
         "scale": "0.38849 0.22887 0.22887",
-        "visible": true
+        "scale_parsed": [
+          0.3884899914264679,
+          0.22887000441551208,
+          0.22887000441551208
+        ],
+        "starttime": 2,
+        "visible": true,
+        "visible_parsed": true
       },
       {
         "angles": "0.00000 -0.00000 0.87359",
+        "angles_parsed": [
+          0.0,
+          -0.0,
+          0.8735899925231934
+        ],
+        "animationmode": "",
+        "child_count": 0,
+        "controlpoint_count": 8,
+        "emitter_count": 1,
         "id": 286,
+        "initializer_count": 6,
         "kind": "particle",
+        "maxcount": 20,
         "name": "Fog 1",
+        "operator_count": 2,
         "origin": "580.93079 252.71655 0.00000",
+        "origin_parsed": [
+          580.9307861328125,
+          252.716552734375,
+          0.0
+        ],
+        "parsed": true,
+        "particle": "particles/presets/fog1.json",
+        "renderer_count": 1,
         "scale": "0.36657 0.36657 0.36657",
-        "visible": true
+        "scale_parsed": [
+          0.36656999588012695,
+          0.36656999588012695,
+          0.36656999588012695
+        ],
+        "starttime": 2,
+        "visible": true,
+        "visible_parsed": true
       },
       {
         "angles": "0.00000 -0.00000 0.43906",
+        "angles_parsed": [
+          0.0,
+          -0.0,
+          0.4390600025653839
+        ],
+        "animationmode": "",
+        "child_count": 0,
+        "controlpoint_count": 8,
+        "emitter_count": 1,
         "id": 377,
+        "initializer_count": 4,
         "kind": "particle",
+        "maxcount": 300,
         "name": "Flat (runscript)",
+        "operator_count": 3,
         "origin": "931.75201 648.96271 0.00000",
+        "origin_parsed": [
+          931.7520141601563,
+          648.9627075195313,
+          0.0
+        ],
+        "parsed": true,
+        "particle": "particles/workshop/2111504995/presets/snowflat.json",
+        "renderer_count": 1,
         "scale": "-1.23663 1.23663 1.23663",
-        "visible": true
+        "scale_parsed": [
+          -1.2366299629211426,
+          1.2366299629211426,
+          1.2366299629211426
+        ],
+        "starttime": 15,
+        "visible": true,
+        "visible_parsed": true
       },
       {
         "angles": "0.00000 -0.00000 0.43906",
+        "angles_parsed": [
+          0.0,
+          -0.0,
+          0.4390600025653839
+        ],
+        "animationmode": "",
+        "child_count": 0,
+        "controlpoint_count": 8,
+        "emitter_count": 1,
         "id": 380,
+        "initializer_count": 4,
         "kind": "particle",
+        "maxcount": 300,
         "name": "Flat (runscript)",
+        "operator_count": 3,
         "origin": "866.59155 546.36963 0.00000",
+        "origin_parsed": [
+          866.591552734375,
+          546.36962890625,
+          0.0
+        ],
+        "parsed": true,
+        "particle": "particles/workshop/2111504995/presets/snowflat.json",
+        "renderer_count": 1,
         "scale": "-1.23663 1.23663 1.23663",
-        "visible": true
+        "scale_parsed": [
+          -1.2366299629211426,
+          1.2366299629211426,
+          1.2366299629211426
+        ],
+        "starttime": 15,
+        "visible": true,
+        "visible_parsed": true
       },
       {
         "alignment_parsed": "center",
@@ -1451,30 +1676,111 @@
       },
       {
         "angles": "0.00000 -0.00000 0.53381",
+        "angles_parsed": [
+          0.0,
+          -0.0,
+          0.533810019493103
+        ],
+        "animationmode": "",
+        "child_count": 0,
+        "controlpoint_count": 8,
+        "emitter_count": 1,
         "id": 641,
+        "initializer_count": 4,
         "kind": "particle",
+        "maxcount": 360,
         "name": "Perspective  (runscript)",
+        "operator_count": 3,
         "origin": "845.82690 594.75806 0.00000",
+        "origin_parsed": [
+          845.826904296875,
+          594.758056640625,
+          0.0
+        ],
+        "parsed": true,
+        "particle": "particles/workshop/2111504995/presets/snowperspective.json",
+        "renderer_count": 1,
         "scale": "-1.00000 1.00000 1.00000",
-        "visible": true
+        "scale_parsed": [
+          -1.0,
+          1.0,
+          1.0
+        ],
+        "starttime": 15,
+        "visible": true,
+        "visible_parsed": true
       },
       {
         "angles": "0.00000 -0.00000 0.43906",
+        "angles_parsed": [
+          0.0,
+          -0.0,
+          0.4390600025653839
+        ],
+        "animationmode": "",
+        "child_count": 0,
+        "controlpoint_count": 8,
+        "emitter_count": 1,
         "id": 646,
+        "initializer_count": 4,
         "kind": "particle",
+        "maxcount": 300,
         "name": "Flat (runscript)",
+        "operator_count": 3,
         "origin": "841.63647 567.16553 0.00000",
+        "origin_parsed": [
+          841.636474609375,
+          567.16552734375,
+          0.0
+        ],
+        "parsed": true,
+        "particle": "particles/workshop/2111504995/presets/snowflat.json",
+        "renderer_count": 1,
         "scale": "-1.23663 1.23663 1.23663",
-        "visible": true
+        "scale_parsed": [
+          -1.2366299629211426,
+          1.2366299629211426,
+          1.2366299629211426
+        ],
+        "starttime": 15,
+        "visible": true,
+        "visible_parsed": true
       },
       {
         "angles": "0.00000 -0.00000 0.56121",
+        "angles_parsed": [
+          0.0,
+          -0.0,
+          0.5612099766731262
+        ],
+        "animationmode": "",
+        "child_count": 0,
+        "controlpoint_count": 8,
+        "emitter_count": 1,
         "id": 651,
+        "initializer_count": 4,
         "kind": "particle",
+        "maxcount": 300,
         "name": "Flat (runscript)",
+        "operator_count": 3,
         "origin": "841.63647 567.16553 0.00000",
+        "origin_parsed": [
+          841.636474609375,
+          567.16552734375,
+          0.0
+        ],
+        "parsed": true,
+        "particle": "particles/workshop/2111504995/presets/snowflat.json",
+        "renderer_count": 1,
         "scale": "-1.23663 1.23663 1.23663",
-        "visible": true
+        "scale_parsed": [
+          -1.2366299629211426,
+          1.2366299629211426,
+          1.2366299629211426
+        ],
+        "starttime": 15,
+        "visible": true,
+        "visible_parsed": true
       }
     ],
     "ortho": {
