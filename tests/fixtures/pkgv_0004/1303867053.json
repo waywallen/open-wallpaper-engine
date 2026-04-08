@@ -68,6 +68,7 @@
         "effects": [
           {
             "fbo_count": 0,
+            "fbos": [],
             "material_count": 1,
             "materials": [
               {
@@ -87,10 +88,35 @@
             ],
             "name": "ui_editor_effect_water_ripple_title",
             "pass_count": 1,
+            "passes": [
+              {
+                "bind": [],
+                "combos": {},
+                "constantshadervalues": {},
+                "target": "",
+                "textures": [
+                  "",
+                  "effects/waterripplenormal",
+                  "masks/waterripple_mask_843377ec5689457129ad9ee2dd9c051f084db05d"
+                ]
+              }
+            ],
             "visible": true
           },
           {
             "fbo_count": 2,
+            "fbos": [
+              {
+                "format": "rgba8888",
+                "name": "_rt_QuarterCompoBuffer1",
+                "scale": 4
+              },
+              {
+                "format": "rgba8888",
+                "name": "_rt_QuarterCompoBuffer2",
+                "scale": 4
+              }
+            ],
             "material_count": 4,
             "materials": [
               {
@@ -142,10 +168,81 @@
             ],
             "name": "ui_editor_effect_blur_title",
             "pass_count": 4,
+            "passes": [
+              {
+                "bind": [
+                  {
+                    "index": 0,
+                    "name": "previous"
+                  }
+                ],
+                "combos": {},
+                "constantshadervalues": {},
+                "target": "_rt_QuarterCompoBuffer1",
+                "textures": []
+              },
+              {
+                "bind": [
+                  {
+                    "index": 0,
+                    "name": "_rt_QuarterCompoBuffer1"
+                  }
+                ],
+                "combos": {},
+                "constantshadervalues": {
+                  "ui_editor_properties_scale": [
+                    0.20000000298023224,
+                    0.20000000298023224
+                  ]
+                },
+                "target": "_rt_QuarterCompoBuffer2",
+                "textures": []
+              },
+              {
+                "bind": [
+                  {
+                    "index": 0,
+                    "name": "_rt_QuarterCompoBuffer2"
+                  }
+                ],
+                "combos": {
+                  "VERTICAL": 1
+                },
+                "constantshadervalues": {
+                  "ui_editor_properties_scale": [
+                    0.20000000298023224,
+                    0.20000000298023224
+                  ]
+                },
+                "target": "_rt_QuarterCompoBuffer1",
+                "textures": []
+              },
+              {
+                "bind": [
+                  {
+                    "index": 0,
+                    "name": "_rt_QuarterCompoBuffer1"
+                  },
+                  {
+                    "index": 2,
+                    "name": "previous"
+                  }
+                ],
+                "combos": {},
+                "constantshadervalues": {},
+                "target": "",
+                "textures": [
+                  "",
+                  "masks/blur_combine_mask_bdbea347ab7838b0661ae6af118d7d24d301b354",
+                  "_rt_imageLayerComposite_61_b"
+                ]
+              }
+            ],
             "visible": true
           },
           {
             "fbo_count": 0,
+            "fbos": [],
             "material_count": 1,
             "materials": [
               {
@@ -162,6 +259,24 @@
             ],
             "name": "ui_editor_effect_tint_title",
             "pass_count": 1,
+            "passes": [
+              {
+                "bind": [],
+                "combos": {},
+                "constantshadervalues": {
+                  "ui_editor_properties_alpha": [
+                    0.05000000074505806
+                  ],
+                  "ui_editor_properties_color": [
+                    1.0,
+                    0.0,
+                    0.0
+                  ]
+                },
+                "target": "",
+                "textures": []
+              }
+            ],
             "visible": true
           }
         ],
@@ -264,6 +379,7 @@
         "effects": [
           {
             "fbo_count": 0,
+            "fbos": [],
             "material_count": 1,
             "materials": [
               {
@@ -280,10 +396,31 @@
             ],
             "name": "ui_editor_effect_tint_title",
             "pass_count": 1,
+            "passes": [
+              {
+                "bind": [],
+                "combos": {
+                  "BLENDMODE": 2
+                },
+                "constantshadervalues": {
+                  "ui_editor_properties_alpha": [
+                    0.10000000149011612
+                  ],
+                  "ui_editor_properties_color": [
+                    0.0,
+                    0.0,
+                    0.0
+                  ]
+                },
+                "target": "",
+                "textures": []
+              }
+            ],
             "visible": true
           },
           {
             "fbo_count": 0,
+            "fbos": [],
             "material_count": 1,
             "materials": [
               {
@@ -300,6 +437,34 @@
             ],
             "name": "ui_editor_effect_water_waves_title",
             "pass_count": 1,
+            "passes": [
+              {
+                "bind": [],
+                "combos": {},
+                "constantshadervalues": {
+                  "ui_editor_properties_direction": [
+                    1.0
+                  ],
+                  "ui_editor_properties_perspective": [
+                    0.009999999776482582
+                  ],
+                  "ui_editor_properties_scale": [
+                    20.010000228881836
+                  ],
+                  "ui_editor_properties_speed": [
+                    2.009999990463257
+                  ],
+                  "ui_editor_properties_strength": [
+                    0.029999999329447746
+                  ]
+                },
+                "target": "",
+                "textures": [
+                  "",
+                  "masks/waterwaves_mask_ee0d9bbc6d0516b8583c8fb3e841485c0b7ec4e8"
+                ]
+              }
+            ],
             "visible": true
           }
         ],

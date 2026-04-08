@@ -192,6 +192,28 @@ json dump_material(const wallpaper::wpscene::WPMaterial& m) {
     };
 }
 
+json dump_material_pass(const wallpaper::wpscene::WPMaterialPass& p) {
+    json bind = json::array();
+    for (const auto& b : p.bind) {
+        bind.push_back({ { "name", b.name }, { "index", b.index } });
+    }
+    return {
+        { "target", p.target },
+        { "textures", p.textures },
+        { "combos", map_to_json(p.combos) },
+        { "constantshadervalues", map_to_json(p.constantshadervalues) },
+        { "bind", bind },
+    };
+}
+
+json dump_effect_fbo(const wallpaper::wpscene::WPEffectFbo& f) {
+    return {
+        { "name", f.name },
+        { "format", f.format },
+        { "scale", f.scale },
+    };
+}
+
 // Pull the universal transform-ish fields straight off the raw object
 // json so unknown subtypes (light/particle/sound) still produce a row.
 // Field types in scene.json are inconsistent (origin can be either an
@@ -320,14 +342,20 @@ json dump_image_object(const json& obj, wallpaper::fs::VFS& vfs) {
     json effs = json::array();
     for (const auto& e : img.effects) {
         json je;
-        je["name"]           = e.name;
-        je["visible"]        = e.visible;
+        je["name"]    = e.name;
+        je["visible"] = e.visible;
+        json mats     = json::array();
+        for (const auto& mm : e.materials) mats.push_back(dump_material(mm));
+        je["materials"] = std::move(mats);
+        json passes     = json::array();
+        for (const auto& p : e.passes) passes.push_back(dump_material_pass(p));
+        je["passes"] = std::move(passes);
+        json fbos    = json::array();
+        for (const auto& f : e.fbos) fbos.push_back(dump_effect_fbo(f));
+        je["fbos"] = std::move(fbos);
         je["material_count"] = static_cast<int>(e.materials.size());
         je["pass_count"]     = static_cast<int>(e.passes.size());
         je["fbo_count"]      = static_cast<int>(e.fbos.size());
-        json mats            = json::array();
-        for (const auto& mm : e.materials) mats.push_back(dump_material(mm));
-        je["materials"] = std::move(mats);
         effs.push_back(std::move(je));
     }
     out["effects"] = std::move(effs);

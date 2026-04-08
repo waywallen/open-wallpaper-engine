@@ -69,6 +69,7 @@
         "effects": [
           {
             "fbo_count": 0,
+            "fbos": [],
             "material_count": 1,
             "materials": [
               {
@@ -85,6 +86,52 @@
             ],
             "name": "ui_editor_effect_pulse_title",
             "pass_count": 1,
+            "passes": [
+              {
+                "bind": [],
+                "combos": {},
+                "constantshadervalues": {
+                  "ui_editor_properties_noise_amount": [
+                    0.7300000190734863
+                  ],
+                  "ui_editor_properties_noise_speed": [
+                    0.10000000149011612
+                  ],
+                  "ui_editor_properties_power": [
+                    0.9399999976158142
+                  ],
+                  "ui_editor_properties_pulse_amount": [
+                    0.3700000047683716
+                  ],
+                  "ui_editor_properties_pulse_bounds": [
+                    0.0,
+                    1.0
+                  ],
+                  "ui_editor_properties_pulse_phase": [
+                    1.9800000190734863
+                  ],
+                  "ui_editor_properties_pulse_speed": [
+                    2.380000114440918
+                  ],
+                  "ui_editor_properties_tint_high": [
+                    0.9764705896377563,
+                    0.7019608020782471,
+                    0.5529412031173706
+                  ],
+                  "ui_editor_properties_tint_low": [
+                    0.9843137264251709,
+                    0.9843137264251709,
+                    0.9843137264251709
+                  ]
+                },
+                "target": "",
+                "textures": [
+                  "",
+                  "util/noise",
+                  "masks/pulse_mask_a040c5e032380220bdbbaa86d467fe9f5c6bab33"
+                ]
+              }
+            ],
             "visible": true
           }
         ],

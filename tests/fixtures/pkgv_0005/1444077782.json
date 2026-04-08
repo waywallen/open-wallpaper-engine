@@ -198,6 +198,7 @@
         "effects": [
           {
             "fbo_count": 0,
+            "fbos": [],
             "material_count": 1,
             "materials": [
               {
@@ -214,6 +215,18 @@
             ],
             "name": "ui_editor_effect_opacity_title",
             "pass_count": 1,
+            "passes": [
+              {
+                "bind": [],
+                "combos": {},
+                "constantshadervalues": {},
+                "target": "",
+                "textures": [
+                  "",
+                  "masks/opacity_mask_1a2257adb44ee124e459745b3d42146f9981bfb0"
+                ]
+              }
+            ],
             "visible": true
           }
         ],
@@ -318,6 +331,7 @@
         "effects": [
           {
             "fbo_count": 0,
+            "fbos": [],
             "material_count": 1,
             "materials": [
               {
@@ -338,10 +352,40 @@
             ],
             "name": "ui_editor_effect_water_ripple_title",
             "pass_count": 1,
+            "passes": [
+              {
+                "bind": [],
+                "combos": {},
+                "constantshadervalues": {
+                  "ui_editor_properties_ratio": [
+                    1.899999976158142
+                  ],
+                  "ui_editor_properties_ripple_scale": [
+                    5.400000095367432
+                  ],
+                  "ui_editor_properties_ripple_strength": [
+                    0.05999999865889549
+                  ],
+                  "ui_editor_properties_scroll_direction": [
+                    5.460000038146973
+                  ],
+                  "ui_editor_properties_scroll_speed": [
+                    0.27000001072883606
+                  ]
+                },
+                "target": "",
+                "textures": [
+                  "",
+                  "effects/waterripplenormal",
+                  "masks/waterripple_mask_52eb9f701b38beef68e7b0b9e466e66b92052cd9"
+                ]
+              }
+            ],
             "visible": true
           },
           {
             "fbo_count": 0,
+            "fbos": [],
             "material_count": 1,
             "materials": [
               {
@@ -362,10 +406,43 @@
             ],
             "name": "ui_editor_effect_water_ripple_title",
             "pass_count": 1,
+            "passes": [
+              {
+                "bind": [],
+                "combos": {},
+                "constantshadervalues": {
+                  "ui_editor_properties_animation_speed": [
+                    0.0
+                  ],
+                  "ui_editor_properties_ratio": [
+                    0.5
+                  ],
+                  "ui_editor_properties_ripple_scale": [
+                    0.20000000298023224
+                  ],
+                  "ui_editor_properties_ripple_strength": [
+                    0.05999999865889549
+                  ],
+                  "ui_editor_properties_scroll_direction": [
+                    6.28000020980835
+                  ],
+                  "ui_editor_properties_scroll_speed": [
+                    0.5
+                  ]
+                },
+                "target": "",
+                "textures": [
+                  "",
+                  "effects/waterripplenormal",
+                  "masks/waterripple_mask_e56f99a6e1d7ea692694d3efd76a9427c028223d"
+                ]
+              }
+            ],
             "visible": true
           },
           {
             "fbo_count": 0,
+            "fbos": [],
             "material_count": 1,
             "materials": [
               {
@@ -382,6 +459,30 @@
             ],
             "name": "ui_editor_effect_pulse_title",
             "pass_count": 1,
+            "passes": [
+              {
+                "bind": [],
+                "combos": {},
+                "constantshadervalues": {
+                  "ui_editor_properties_tint_high": [
+                    1.0,
+                    0.4431372582912445,
+                    0.2862745225429535
+                  ],
+                  "ui_editor_properties_tint_low": [
+                    0.8745098114013672,
+                    0.9960784316062927,
+                    1.0
+                  ]
+                },
+                "target": "",
+                "textures": [
+                  "",
+                  "util/noise",
+                  "masks/pulse_mask_0cd327c709f6bf57b601c59f35ef676d09638ae6"
+                ]
+              }
+            ],
             "visible": true
           }
         ],
@@ -469,6 +570,7 @@
         "effects": [
           {
             "fbo_count": 0,
+            "fbos": [],
             "material_count": 1,
             "materials": [
               {
@@ -485,6 +587,18 @@
             ],
             "name": "ui_editor_effect_opacity_title",
             "pass_count": 1,
+            "passes": [
+              {
+                "bind": [],
+                "combos": {},
+                "constantshadervalues": {},
+                "target": "",
+                "textures": [
+                  "",
+                  "masks/opacity_mask_681d95af21112ea41fc4cd51aa49d9c553ef1173"
+                ]
+              }
+            ],
             "visible": true
           }
         ],
@@ -887,6 +1001,7 @@
         "effects": [
           {
             "fbo_count": 0,
+            "fbos": [],
             "material_count": 1,
             "materials": [
               {
@@ -903,6 +1018,18 @@
             ],
             "name": "ui_editor_effect_opacity_title",
             "pass_count": 1,
+            "passes": [
+              {
+                "bind": [],
+                "combos": {},
+                "constantshadervalues": {},
+                "target": "",
+                "textures": [
+                  "",
+                  "masks/opacity_mask_843377ec5689457129ad9ee2dd9c051f084db05d"
+                ]
+              }
+            ],
             "visible": true
           }
         ],
@@ -1102,6 +1229,7 @@
         "effects": [
           {
             "fbo_count": 0,
+            "fbos": [],
             "material_count": 1,
             "materials": [
               {
@@ -1118,6 +1246,18 @@
             ],
             "name": "ui_editor_effect_opacity_title",
             "pass_count": 1,
+            "passes": [
+              {
+                "bind": [],
+                "combos": {},
+                "constantshadervalues": {},
+                "target": "",
+                "textures": [
+                  "",
+                  "masks/opacity_mask_843377ec5689457129ad9ee2dd9c051f084db05d"
+                ]
+              }
+            ],
             "visible": true
           }
         ],
@@ -1196,6 +1336,7 @@
         "effects": [
           {
             "fbo_count": 0,
+            "fbos": [],
             "material_count": 1,
             "materials": [
               {
@@ -1212,6 +1353,18 @@
             ],
             "name": "ui_editor_effect_opacity_title",
             "pass_count": 1,
+            "passes": [
+              {
+                "bind": [],
+                "combos": {},
+                "constantshadervalues": {},
+                "target": "",
+                "textures": [
+                  "",
+                  "masks/opacity_mask_843377ec5689457129ad9ee2dd9c051f084db05d"
+                ]
+              }
+            ],
             "visible": true
           }
         ],

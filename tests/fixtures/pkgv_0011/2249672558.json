@@ -69,6 +69,7 @@
         "effects": [
           {
             "fbo_count": 0,
+            "fbos": [],
             "material_count": 1,
             "materials": [
               {
@@ -85,10 +86,31 @@
             ],
             "name": "ui_editor_effect_shake_title",
             "pass_count": 1,
+            "passes": [
+              {
+                "bind": [],
+                "combos": {},
+                "constantshadervalues": {
+                  "speed": [
+                    1.0
+                  ],
+                  "strength": [
+                    0.05000000074505806
+                  ]
+                },
+                "target": "",
+                "textures": [
+                  "",
+                  "masks/shake_mask_ee0d9bbc6d0516b8583c8fb3e841485c0b7ec4e8",
+                  "util/white"
+                ]
+              }
+            ],
             "visible": true
           },
           {
             "fbo_count": 0,
+            "fbos": [],
             "material_count": 1,
             "materials": [
               {
@@ -105,6 +127,28 @@
             ],
             "name": "ui_editor_effect_water_waves_title",
             "pass_count": 1,
+            "passes": [
+              {
+                "bind": [],
+                "combos": {},
+                "constantshadervalues": {
+                  "direction": [
+                    1.0462818145751953
+                  ],
+                  "scale": [
+                    40.0
+                  ],
+                  "speed": [
+                    3.0
+                  ]
+                },
+                "target": "",
+                "textures": [
+                  "",
+                  "masks/waterwaves_mask_681d95af21112ea41fc4cd51aa49d9c553ef1173"
+                ]
+              }
+            ],
             "visible": true
           }
         ],

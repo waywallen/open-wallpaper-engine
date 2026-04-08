@@ -69,6 +69,7 @@
         "effects": [
           {
             "fbo_count": 0,
+            "fbos": [],
             "material_count": 1,
             "materials": [
               {
@@ -85,6 +86,50 @@
             ],
             "name": "ui_editor_effect_foliage_sway_title",
             "pass_count": 1,
+            "passes": [
+              {
+                "bind": [],
+                "combos": {},
+                "constantshadervalues": {
+                  "Phase": [
+                    0.0
+                  ],
+                  "Power": [
+                    1.4199999570846558
+                  ],
+                  "Speed": [
+                    2.2699999809265137
+                  ],
+                  "Strength": [
+                    15.0
+                  ],
+                  "ui_editor_properties_corner_weights": [
+                    1.0,
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  "ui_editor_properties_direction_weights": [
+                    1.0,
+                    0.20000000298023224
+                  ],
+                  "ui_editor_properties_phase": [
+                    0.41999998688697815
+                  ],
+                  "ui_editor_properties_power": [
+                    1.6299999952316284
+                  ],
+                  "ui_editor_properties_speed": [
+                    1.7400000095367432
+                  ],
+                  "ui_editor_properties_strength": [
+                    6.679999828338623
+                  ]
+                },
+                "target": "",
+                "textures": []
+              }
+            ],
             "visible": true
           }
         ],
@@ -158,6 +203,7 @@
         "effects": [
           {
             "fbo_count": 0,
+            "fbos": [],
             "material_count": 1,
             "materials": [
               {
@@ -177,10 +223,43 @@
             ],
             "name": "ui_editor_effect_water_ripple_title",
             "pass_count": 1,
+            "passes": [
+              {
+                "bind": [],
+                "combos": {},
+                "constantshadervalues": {
+                  "ui_editor_properties_animation_speed": [
+                    0.05000000074505806
+                  ],
+                  "ui_editor_properties_ratio": [
+                    5.329999923706055
+                  ],
+                  "ui_editor_properties_ripple_scale": [
+                    3.069999933242798
+                  ],
+                  "ui_editor_properties_ripple_strength": [
+                    0.07000000029802322
+                  ],
+                  "ui_editor_properties_scroll_direction": [
+                    0.75
+                  ],
+                  "ui_editor_properties_scroll_speed": [
+                    0.14000000059604645
+                  ]
+                },
+                "target": "",
+                "textures": [
+                  "",
+                  "effects/waterripplenormal",
+                  "masks/waterripple_mask_681d95af21112ea41fc4cd51aa49d9c553ef1173"
+                ]
+              }
+            ],
             "visible": true
           },
           {
             "fbo_count": 0,
+            "fbos": [],
             "material_count": 1,
             "materials": [
               {
@@ -197,10 +276,39 @@
             ],
             "name": "ui_editor_effect_shake_title",
             "pass_count": 1,
+            "passes": [
+              {
+                "bind": [],
+                "combos": {},
+                "constantshadervalues": {
+                  "ui_editor_properties_bounds": [
+                    0.0,
+                    1.0
+                  ],
+                  "ui_editor_properties_friction": [
+                    1.0,
+                    1.0
+                  ],
+                  "ui_editor_properties_speed": [
+                    0.5400000214576721
+                  ],
+                  "ui_editor_properties_strength": [
+                    0.019999999552965164
+                  ]
+                },
+                "target": "",
+                "textures": [
+                  "",
+                  "masks/shake_mask_843377ec5689457129ad9ee2dd9c051f084db05d",
+                  "masks/shake_mask_bdbea347ab7838b0661ae6af118d7d24d301b354"
+                ]
+              }
+            ],
             "visible": true
           },
           {
             "fbo_count": 0,
+            "fbos": [],
             "material_count": 1,
             "materials": [
               {
@@ -221,10 +329,34 @@
             ],
             "name": "ui_editor_effect_water_flow_title",
             "pass_count": 1,
+            "passes": [
+              {
+                "bind": [],
+                "combos": {},
+                "constantshadervalues": {
+                  "ui_editor_properties_phase_scale": [
+                    1.0
+                  ],
+                  "ui_editor_properties_speed": [
+                    0.3700000047683716
+                  ],
+                  "ui_editor_properties_strength": [
+                    0.25999999046325684
+                  ]
+                },
+                "target": "",
+                "textures": [
+                  "",
+                  "masks/waterflow_mask_15c0e340127e863c97e552f860f4a84c3cb6ab74",
+                  "effects/waterflowphase"
+                ]
+              }
+            ],
             "visible": true
           },
           {
             "fbo_count": 0,
+            "fbos": [],
             "material_count": 1,
             "materials": [
               {
@@ -241,10 +373,39 @@
             ],
             "name": "ui_editor_effect_shake_title",
             "pass_count": 1,
+            "passes": [
+              {
+                "bind": [],
+                "combos": {},
+                "constantshadervalues": {
+                  "ui_editor_properties_bounds": [
+                    0.0,
+                    1.0
+                  ],
+                  "ui_editor_properties_friction": [
+                    1.0,
+                    1.0
+                  ],
+                  "ui_editor_properties_speed": [
+                    0.5600000023841858
+                  ],
+                  "ui_editor_properties_strength": [
+                    0.03999999910593033
+                  ]
+                },
+                "target": "",
+                "textures": [
+                  "",
+                  "masks/shake_mask_ee0d9bbc6d0516b8583c8fb3e841485c0b7ec4e8",
+                  "util/white"
+                ]
+              }
+            ],
             "visible": true
           },
           {
             "fbo_count": 0,
+            "fbos": [],
             "material_count": 1,
             "materials": [
               {
@@ -261,10 +422,39 @@
             ],
             "name": "ui_editor_effect_shake_title",
             "pass_count": 1,
+            "passes": [
+              {
+                "bind": [],
+                "combos": {},
+                "constantshadervalues": {
+                  "ui_editor_properties_bounds": [
+                    0.0,
+                    1.0
+                  ],
+                  "ui_editor_properties_friction": [
+                    1.0,
+                    1.0
+                  ],
+                  "ui_editor_properties_speed": [
+                    1.8700000047683716
+                  ],
+                  "ui_editor_properties_strength": [
+                    0.019999999552965164
+                  ]
+                },
+                "target": "",
+                "textures": [
+                  "",
+                  "masks/shake_mask_c4448fde52a4085d8714b1827fa56713014175c8",
+                  "util/white"
+                ]
+              }
+            ],
             "visible": true
           },
           {
             "fbo_count": 0,
+            "fbos": [],
             "material_count": 1,
             "materials": [
               {
@@ -281,10 +471,39 @@
             ],
             "name": "ui_editor_effect_shake_title",
             "pass_count": 1,
+            "passes": [
+              {
+                "bind": [],
+                "combos": {},
+                "constantshadervalues": {
+                  "ui_editor_properties_bounds": [
+                    0.0,
+                    1.0
+                  ],
+                  "ui_editor_properties_friction": [
+                    1.0,
+                    1.0
+                  ],
+                  "ui_editor_properties_speed": [
+                    1.0800000429153442
+                  ],
+                  "ui_editor_properties_strength": [
+                    0.03999999910593033
+                  ]
+                },
+                "target": "",
+                "textures": [
+                  "",
+                  "masks/shake_mask_abc55dd63fd72c35bd5fc28b6f385c6f9bc5ce00",
+                  "util/white"
+                ]
+              }
+            ],
             "visible": true
           },
           {
             "fbo_count": 0,
+            "fbos": [],
             "material_count": 1,
             "materials": [
               {
@@ -301,10 +520,39 @@
             ],
             "name": "ui_editor_effect_shake_title",
             "pass_count": 1,
+            "passes": [
+              {
+                "bind": [],
+                "combos": {},
+                "constantshadervalues": {
+                  "ui_editor_properties_bounds": [
+                    0.0,
+                    1.0
+                  ],
+                  "ui_editor_properties_friction": [
+                    1.0,
+                    1.0
+                  ],
+                  "ui_editor_properties_speed": [
+                    0.800000011920929
+                  ],
+                  "ui_editor_properties_strength": [
+                    0.03999999910593033
+                  ]
+                },
+                "target": "",
+                "textures": [
+                  "",
+                  "masks/shake_mask_14baecd88cd86197979e9592a3614e57bbd01235",
+                  "util/white"
+                ]
+              }
+            ],
             "visible": true
           },
           {
             "fbo_count": 0,
+            "fbos": [],
             "material_count": 1,
             "materials": [
               {
@@ -321,10 +569,61 @@
             ],
             "name": "ui_editor_effect_pulse_title",
             "pass_count": 1,
+            "passes": [
+              {
+                "bind": [],
+                "combos": {
+                  "BLENDMODE": 9,
+                  "PULSEALPHA": 0,
+                  "PULSECOLOR": 1
+                },
+                "constantshadervalues": {
+                  "ui_editor_properties_noise_amount": [
+                    0.8600000143051147
+                  ],
+                  "ui_editor_properties_noise_speed": [
+                    0.029999999329447746
+                  ],
+                  "ui_editor_properties_power": [
+                    2.1500000953674316
+                  ],
+                  "ui_editor_properties_pulse_amount": [
+                    0.09000000357627869
+                  ],
+                  "ui_editor_properties_pulse_bounds": [
+                    0.0,
+                    5.0
+                  ],
+                  "ui_editor_properties_pulse_phase": [
+                    0.0
+                  ],
+                  "ui_editor_properties_pulse_speed": [
+                    2.0
+                  ],
+                  "ui_editor_properties_tint_high": [
+                    0.01568629965186119,
+                    0.0,
+                    1.0
+                  ],
+                  "ui_editor_properties_tint_low": [
+                    0.6313729882240295,
+                    0.9843140244483948,
+                    1.0
+                  ]
+                },
+                "target": "",
+                "textures": [
+                  "",
+                  "util/noise",
+                  "masks/pulse_mask_681d95af21112ea41fc4cd51aa49d9c553ef1173"
+                ]
+              }
+            ],
             "visible": true
           },
           {
             "fbo_count": 0,
+            "fbos": [],
             "material_count": 1,
             "materials": [
               {
@@ -341,10 +640,39 @@
             ],
             "name": "ui_editor_effect_shake_title",
             "pass_count": 1,
+            "passes": [
+              {
+                "bind": [],
+                "combos": {},
+                "constantshadervalues": {
+                  "ui_editor_properties_bounds": [
+                    0.0,
+                    1.0
+                  ],
+                  "ui_editor_properties_friction": [
+                    1.0,
+                    1.0
+                  ],
+                  "ui_editor_properties_speed": [
+                    1.4800000190734863
+                  ],
+                  "ui_editor_properties_strength": [
+                    0.029999999329447746
+                  ]
+                },
+                "target": "",
+                "textures": [
+                  "",
+                  "masks/shake_mask_caec64e6ffdf6a40c1e812d3f131ee821a84054a",
+                  "masks/shake_mask_3b5022c8251b22d81fb9ec294c5197e0bddd9bd4"
+                ]
+              }
+            ],
             "visible": true
           },
           {
             "fbo_count": 0,
+            "fbos": [],
             "material_count": 1,
             "materials": [
               {
@@ -361,10 +689,39 @@
             ],
             "name": "ui_editor_effect_shake_title",
             "pass_count": 1,
+            "passes": [
+              {
+                "bind": [],
+                "combos": {},
+                "constantshadervalues": {
+                  "ui_editor_properties_bounds": [
+                    0.0,
+                    1.0
+                  ],
+                  "ui_editor_properties_friction": [
+                    1.0,
+                    1.0
+                  ],
+                  "ui_editor_properties_speed": [
+                    2.5399999618530273
+                  ],
+                  "ui_editor_properties_strength": [
+                    0.019999999552965164
+                  ]
+                },
+                "target": "",
+                "textures": [
+                  "",
+                  "masks/shake_mask_ea3f2c0d002fe646cc3154bd3826545e6d238d9e",
+                  "util/white"
+                ]
+              }
+            ],
             "visible": true
           },
           {
             "fbo_count": 0,
+            "fbos": [],
             "material_count": 1,
             "materials": [
               {
@@ -381,10 +738,39 @@
             ],
             "name": "ui_editor_effect_shake_title",
             "pass_count": 1,
+            "passes": [
+              {
+                "bind": [],
+                "combos": {},
+                "constantshadervalues": {
+                  "ui_editor_properties_bounds": [
+                    0.0,
+                    1.0
+                  ],
+                  "ui_editor_properties_friction": [
+                    1.0,
+                    1.0
+                  ],
+                  "ui_editor_properties_speed": [
+                    0.4000000059604645
+                  ],
+                  "ui_editor_properties_strength": [
+                    0.05000000074505806
+                  ]
+                },
+                "target": "",
+                "textures": [
+                  "",
+                  "masks/shake_mask_bbf9ec5cd7f3abeb6119901f8e7ab2dcdddaf1eb",
+                  "util/white"
+                ]
+              }
+            ],
             "visible": true
           },
           {
             "fbo_count": 0,
+            "fbos": [],
             "material_count": 1,
             "materials": [
               {
@@ -401,6 +787,34 @@
             ],
             "name": "ui_editor_effect_shake_title",
             "pass_count": 1,
+            "passes": [
+              {
+                "bind": [],
+                "combos": {},
+                "constantshadervalues": {
+                  "ui_editor_properties_bounds": [
+                    0.0,
+                    1.0
+                  ],
+                  "ui_editor_properties_friction": [
+                    1.0,
+                    1.0
+                  ],
+                  "ui_editor_properties_speed": [
+                    0.5
+                  ],
+                  "ui_editor_properties_strength": [
+                    0.03999999910593033
+                  ]
+                },
+                "target": "",
+                "textures": [
+                  "",
+                  "masks/shake_mask_7bfb13f51be22746c08466c9bb8b3d1e108682d4",
+                  "util/white"
+                ]
+              }
+            ],
             "visible": true
           }
         ],
@@ -467,6 +881,7 @@
         "effects": [
           {
             "fbo_count": 0,
+            "fbos": [],
             "material_count": 1,
             "materials": [
               {
@@ -483,6 +898,50 @@
             ],
             "name": "ui_editor_effect_foliage_sway_title",
             "pass_count": 1,
+            "passes": [
+              {
+                "bind": [],
+                "combos": {},
+                "constantshadervalues": {
+                  "Phase": [
+                    0.0
+                  ],
+                  "Power": [
+                    1.4199999570846558
+                  ],
+                  "Speed": [
+                    2.2699999809265137
+                  ],
+                  "Strength": [
+                    15.0
+                  ],
+                  "ui_editor_properties_corner_weights": [
+                    1.0,
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  "ui_editor_properties_direction_weights": [
+                    1.0,
+                    0.20000000298023224
+                  ],
+                  "ui_editor_properties_phase": [
+                    2.0899999141693115
+                  ],
+                  "ui_editor_properties_power": [
+                    0.9900000095367432
+                  ],
+                  "ui_editor_properties_speed": [
+                    1.0800000429153442
+                  ],
+                  "ui_editor_properties_strength": [
+                    6.679999828338623
+                  ]
+                },
+                "target": "",
+                "textures": []
+              }
+            ],
             "visible": true
           }
         ],
@@ -556,6 +1015,7 @@
         "effects": [
           {
             "fbo_count": 0,
+            "fbos": [],
             "material_count": 1,
             "materials": [
               {
@@ -572,6 +1032,50 @@
             ],
             "name": "ui_editor_effect_foliage_sway_title",
             "pass_count": 1,
+            "passes": [
+              {
+                "bind": [],
+                "combos": {},
+                "constantshadervalues": {
+                  "Phase": [
+                    0.0
+                  ],
+                  "Power": [
+                    1.4199999570846558
+                  ],
+                  "Speed": [
+                    2.2699999809265137
+                  ],
+                  "Strength": [
+                    15.0
+                  ],
+                  "ui_editor_properties_corner_weights": [
+                    1.0,
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  "ui_editor_properties_direction_weights": [
+                    1.0,
+                    0.20000000298023224
+                  ],
+                  "ui_editor_properties_phase": [
+                    0.0
+                  ],
+                  "ui_editor_properties_power": [
+                    1.0
+                  ],
+                  "ui_editor_properties_speed": [
+                    1.340000033378601
+                  ],
+                  "ui_editor_properties_strength": [
+                    7.0
+                  ]
+                },
+                "target": "",
+                "textures": []
+              }
+            ],
             "visible": true
           }
         ],
@@ -645,6 +1149,7 @@
         "effects": [
           {
             "fbo_count": 0,
+            "fbos": [],
             "material_count": 1,
             "materials": [
               {
@@ -661,6 +1166,50 @@
             ],
             "name": "ui_editor_effect_foliage_sway_title",
             "pass_count": 1,
+            "passes": [
+              {
+                "bind": [],
+                "combos": {},
+                "constantshadervalues": {
+                  "Phase": [
+                    0.0
+                  ],
+                  "Power": [
+                    1.4199999570846558
+                  ],
+                  "Speed": [
+                    2.2699999809265137
+                  ],
+                  "Strength": [
+                    15.0
+                  ],
+                  "ui_editor_properties_corner_weights": [
+                    1.0,
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  "ui_editor_properties_direction_weights": [
+                    1.0,
+                    0.20000000298023224
+                  ],
+                  "ui_editor_properties_phase": [
+                    0.0
+                  ],
+                  "ui_editor_properties_power": [
+                    2.0
+                  ],
+                  "ui_editor_properties_speed": [
+                    1.6100000143051147
+                  ],
+                  "ui_editor_properties_strength": [
+                    6.679999828338623
+                  ]
+                },
+                "target": "",
+                "textures": []
+              }
+            ],
             "visible": true
           }
         ],
@@ -745,6 +1294,7 @@
         "effects": [
           {
             "fbo_count": 0,
+            "fbos": [],
             "material_count": 1,
             "materials": [
               {
@@ -761,6 +1311,50 @@
             ],
             "name": "ui_editor_effect_foliage_sway_title",
             "pass_count": 1,
+            "passes": [
+              {
+                "bind": [],
+                "combos": {},
+                "constantshadervalues": {
+                  "Phase": [
+                    0.0
+                  ],
+                  "Power": [
+                    1.4199999570846558
+                  ],
+                  "Speed": [
+                    2.2699999809265137
+                  ],
+                  "Strength": [
+                    15.0
+                  ],
+                  "ui_editor_properties_corner_weights": [
+                    1.0,
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  "ui_editor_properties_direction_weights": [
+                    1.0,
+                    0.20000000298023224
+                  ],
+                  "ui_editor_properties_phase": [
+                    0.0
+                  ],
+                  "ui_editor_properties_power": [
+                    1.5
+                  ],
+                  "ui_editor_properties_speed": [
+                    1.6100000143051147
+                  ],
+                  "ui_editor_properties_strength": [
+                    5.0
+                  ]
+                },
+                "target": "",
+                "textures": []
+              }
+            ],
             "visible": true
           }
         ],
@@ -834,6 +1428,7 @@
         "effects": [
           {
             "fbo_count": 0,
+            "fbos": [],
             "material_count": 1,
             "materials": [
               {
@@ -850,6 +1445,50 @@
             ],
             "name": "ui_editor_effect_foliage_sway_title",
             "pass_count": 1,
+            "passes": [
+              {
+                "bind": [],
+                "combos": {},
+                "constantshadervalues": {
+                  "Phase": [
+                    0.0
+                  ],
+                  "Power": [
+                    1.4199999570846558
+                  ],
+                  "Speed": [
+                    2.2699999809265137
+                  ],
+                  "Strength": [
+                    15.0
+                  ],
+                  "ui_editor_properties_corner_weights": [
+                    1.0,
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  "ui_editor_properties_direction_weights": [
+                    1.0,
+                    0.20000000298023224
+                  ],
+                  "ui_editor_properties_phase": [
+                    2.759999990463257
+                  ],
+                  "ui_editor_properties_power": [
+                    0.9700000286102295
+                  ],
+                  "ui_editor_properties_speed": [
+                    1.6100000143051147
+                  ],
+                  "ui_editor_properties_strength": [
+                    6.679999828338623
+                  ]
+                },
+                "target": "",
+                "textures": []
+              }
+            ],
             "visible": true
           }
         ],
@@ -923,6 +1562,7 @@
         "effects": [
           {
             "fbo_count": 0,
+            "fbos": [],
             "material_count": 1,
             "materials": [
               {
@@ -939,6 +1579,50 @@
             ],
             "name": "ui_editor_effect_foliage_sway_title",
             "pass_count": 1,
+            "passes": [
+              {
+                "bind": [],
+                "combos": {},
+                "constantshadervalues": {
+                  "Phase": [
+                    0.0
+                  ],
+                  "Power": [
+                    1.4199999570846558
+                  ],
+                  "Speed": [
+                    2.2699999809265137
+                  ],
+                  "Strength": [
+                    15.0
+                  ],
+                  "ui_editor_properties_corner_weights": [
+                    1.0,
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  "ui_editor_properties_direction_weights": [
+                    1.0,
+                    0.20000000298023224
+                  ],
+                  "ui_editor_properties_phase": [
+                    3.940000057220459
+                  ],
+                  "ui_editor_properties_power": [
+                    1.2300000190734863
+                  ],
+                  "ui_editor_properties_speed": [
+                    2.809999942779541
+                  ],
+                  "ui_editor_properties_strength": [
+                    5.5
+                  ]
+                },
+                "target": "",
+                "textures": []
+              }
+            ],
             "visible": true
           }
         ],
@@ -1012,6 +1696,7 @@
         "effects": [
           {
             "fbo_count": 0,
+            "fbos": [],
             "material_count": 1,
             "materials": [
               {
@@ -1028,6 +1713,50 @@
             ],
             "name": "ui_editor_effect_foliage_sway_title",
             "pass_count": 1,
+            "passes": [
+              {
+                "bind": [],
+                "combos": {},
+                "constantshadervalues": {
+                  "Phase": [
+                    0.0
+                  ],
+                  "Power": [
+                    1.4199999570846558
+                  ],
+                  "Speed": [
+                    2.2699999809265137
+                  ],
+                  "Strength": [
+                    15.0
+                  ],
+                  "ui_editor_properties_corner_weights": [
+                    1.0,
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  "ui_editor_properties_direction_weights": [
+                    1.0,
+                    0.20000000298023224
+                  ],
+                  "ui_editor_properties_phase": [
+                    0.0
+                  ],
+                  "ui_editor_properties_power": [
+                    2.0
+                  ],
+                  "ui_editor_properties_speed": [
+                    1.4800000190734863
+                  ],
+                  "ui_editor_properties_strength": [
+                    6.679999828338623
+                  ]
+                },
+                "target": "",
+                "textures": []
+              }
+            ],
             "visible": true
           }
         ],
@@ -1101,6 +1830,7 @@
         "effects": [
           {
             "fbo_count": 0,
+            "fbos": [],
             "material_count": 1,
             "materials": [
               {
@@ -1117,6 +1847,50 @@
             ],
             "name": "ui_editor_effect_foliage_sway_title",
             "pass_count": 1,
+            "passes": [
+              {
+                "bind": [],
+                "combos": {},
+                "constantshadervalues": {
+                  "Phase": [
+                    0.0
+                  ],
+                  "Power": [
+                    1.4199999570846558
+                  ],
+                  "Speed": [
+                    2.2699999809265137
+                  ],
+                  "Strength": [
+                    15.0
+                  ],
+                  "ui_editor_properties_corner_weights": [
+                    1.0,
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  "ui_editor_properties_direction_weights": [
+                    1.0,
+                    0.20000000298023224
+                  ],
+                  "ui_editor_properties_phase": [
+                    6.28000020980835
+                  ],
+                  "ui_editor_properties_power": [
+                    1.340000033378601
+                  ],
+                  "ui_editor_properties_speed": [
+                    1.8700000047683716
+                  ],
+                  "ui_editor_properties_strength": [
+                    6.679999828338623
+                  ]
+                },
+                "target": "",
+                "textures": []
+              }
+            ],
             "visible": true
           }
         ],
@@ -1190,6 +1964,7 @@
         "effects": [
           {
             "fbo_count": 0,
+            "fbos": [],
             "material_count": 1,
             "materials": [
               {
@@ -1206,6 +1981,50 @@
             ],
             "name": "ui_editor_effect_foliage_sway_title",
             "pass_count": 1,
+            "passes": [
+              {
+                "bind": [],
+                "combos": {},
+                "constantshadervalues": {
+                  "Phase": [
+                    0.0
+                  ],
+                  "Power": [
+                    1.4199999570846558
+                  ],
+                  "Speed": [
+                    2.2699999809265137
+                  ],
+                  "Strength": [
+                    15.0
+                  ],
+                  "ui_editor_properties_corner_weights": [
+                    1.0,
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  "ui_editor_properties_direction_weights": [
+                    1.0,
+                    0.20000000298023224
+                  ],
+                  "ui_editor_properties_phase": [
+                    0.8399999737739563
+                  ],
+                  "ui_editor_properties_power": [
+                    1.600000023841858
+                  ],
+                  "ui_editor_properties_speed": [
+                    2.009999990463257
+                  ],
+                  "ui_editor_properties_strength": [
+                    6.679999828338623
+                  ]
+                },
+                "target": "",
+                "textures": []
+              }
+            ],
             "visible": true
           }
         ],
@@ -1279,6 +2098,7 @@
         "effects": [
           {
             "fbo_count": 0,
+            "fbos": [],
             "material_count": 1,
             "materials": [
               {
@@ -1295,6 +2115,50 @@
             ],
             "name": "ui_editor_effect_foliage_sway_title",
             "pass_count": 1,
+            "passes": [
+              {
+                "bind": [],
+                "combos": {},
+                "constantshadervalues": {
+                  "Phase": [
+                    0.0
+                  ],
+                  "Power": [
+                    1.4199999570846558
+                  ],
+                  "Speed": [
+                    2.2699999809265137
+                  ],
+                  "Strength": [
+                    15.0
+                  ],
+                  "ui_editor_properties_corner_weights": [
+                    1.0,
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  "ui_editor_properties_direction_weights": [
+                    1.0,
+                    0.20000000298023224
+                  ],
+                  "ui_editor_properties_phase": [
+                    2.009999990463257
+                  ],
+                  "ui_editor_properties_power": [
+                    0.9100000262260437
+                  ],
+                  "ui_editor_properties_speed": [
+                    1.2100000381469727
+                  ],
+                  "ui_editor_properties_strength": [
+                    6.679999828338623
+                  ]
+                },
+                "target": "",
+                "textures": []
+              }
+            ],
             "visible": true
           }
         ],
@@ -1466,6 +2330,7 @@
         "effects": [
           {
             "fbo_count": 0,
+            "fbos": [],
             "material_count": 1,
             "materials": [
               {
@@ -1482,6 +2347,50 @@
             ],
             "name": "ui_editor_effect_foliage_sway_title",
             "pass_count": 1,
+            "passes": [
+              {
+                "bind": [],
+                "combos": {},
+                "constantshadervalues": {
+                  "Phase": [
+                    0.0
+                  ],
+                  "Power": [
+                    1.4199999570846558
+                  ],
+                  "Speed": [
+                    2.2699999809265137
+                  ],
+                  "Strength": [
+                    15.0
+                  ],
+                  "ui_editor_properties_corner_weights": [
+                    1.0,
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  "ui_editor_properties_direction_weights": [
+                    1.0,
+                    0.20000000298023224
+                  ],
+                  "ui_editor_properties_phase": [
+                    0.33000001311302185
+                  ],
+                  "ui_editor_properties_power": [
+                    1.0
+                  ],
+                  "ui_editor_properties_speed": [
+                    2.4100000858306885
+                  ],
+                  "ui_editor_properties_strength": [
+                    6.679999828338623
+                  ]
+                },
+                "target": "",
+                "textures": []
+              }
+            ],
             "visible": true
           }
         ],
@@ -1574,6 +2483,7 @@
         "effects": [
           {
             "fbo_count": 0,
+            "fbos": [],
             "material_count": 1,
             "materials": [
               {
@@ -1590,6 +2500,50 @@
             ],
             "name": "ui_editor_effect_foliage_sway_title",
             "pass_count": 1,
+            "passes": [
+              {
+                "bind": [],
+                "combos": {},
+                "constantshadervalues": {
+                  "Phase": [
+                    0.0
+                  ],
+                  "Power": [
+                    1.4199999570846558
+                  ],
+                  "Speed": [
+                    2.2699999809265137
+                  ],
+                  "Strength": [
+                    15.0
+                  ],
+                  "ui_editor_properties_corner_weights": [
+                    1.0,
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  "ui_editor_properties_direction_weights": [
+                    1.0,
+                    0.20000000298023224
+                  ],
+                  "ui_editor_properties_phase": [
+                    0.0
+                  ],
+                  "ui_editor_properties_power": [
+                    0.7099999785423279
+                  ],
+                  "ui_editor_properties_speed": [
+                    1.7100000381469727
+                  ],
+                  "ui_editor_properties_strength": [
+                    5.010000228881836
+                  ]
+                },
+                "target": "",
+                "textures": []
+              }
+            ],
             "visible": true
           }
         ],
@@ -1663,6 +2617,7 @@
         "effects": [
           {
             "fbo_count": 0,
+            "fbos": [],
             "material_count": 1,
             "materials": [
               {
@@ -1679,6 +2634,50 @@
             ],
             "name": "ui_editor_effect_foliage_sway_title",
             "pass_count": 1,
+            "passes": [
+              {
+                "bind": [],
+                "combos": {},
+                "constantshadervalues": {
+                  "Phase": [
+                    0.0
+                  ],
+                  "Power": [
+                    1.4199999570846558
+                  ],
+                  "Speed": [
+                    2.2699999809265137
+                  ],
+                  "Strength": [
+                    15.0
+                  ],
+                  "ui_editor_properties_corner_weights": [
+                    1.0,
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  "ui_editor_properties_direction_weights": [
+                    1.0,
+                    0.20000000298023224
+                  ],
+                  "ui_editor_properties_phase": [
+                    0.0
+                  ],
+                  "ui_editor_properties_power": [
+                    1.0
+                  ],
+                  "ui_editor_properties_speed": [
+                    1.0
+                  ],
+                  "ui_editor_properties_strength": [
+                    15.010000228881836
+                  ]
+                },
+                "target": "",
+                "textures": []
+              }
+            ],
             "visible": true
           }
         ],
@@ -1752,6 +2751,7 @@
         "effects": [
           {
             "fbo_count": 0,
+            "fbos": [],
             "material_count": 1,
             "materials": [
               {
@@ -1768,6 +2768,50 @@
             ],
             "name": "ui_editor_effect_foliage_sway_title",
             "pass_count": 1,
+            "passes": [
+              {
+                "bind": [],
+                "combos": {},
+                "constantshadervalues": {
+                  "Phase": [
+                    0.0
+                  ],
+                  "Power": [
+                    1.4199999570846558
+                  ],
+                  "Speed": [
+                    2.2699999809265137
+                  ],
+                  "Strength": [
+                    15.0
+                  ],
+                  "ui_editor_properties_corner_weights": [
+                    1.0,
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  "ui_editor_properties_direction_weights": [
+                    1.0,
+                    0.20000000298023224
+                  ],
+                  "ui_editor_properties_phase": [
+                    0.0
+                  ],
+                  "ui_editor_properties_power": [
+                    1.0
+                  ],
+                  "ui_editor_properties_speed": [
+                    1.0
+                  ],
+                  "ui_editor_properties_strength": [
+                    25.010000228881836
+                  ]
+                },
+                "target": "",
+                "textures": []
+              }
+            ],
             "visible": true
           }
         ],
@@ -1841,6 +2885,7 @@
         "effects": [
           {
             "fbo_count": 0,
+            "fbos": [],
             "material_count": 1,
             "materials": [
               {
@@ -1857,6 +2902,50 @@
             ],
             "name": "ui_editor_effect_foliage_sway_title",
             "pass_count": 1,
+            "passes": [
+              {
+                "bind": [],
+                "combos": {},
+                "constantshadervalues": {
+                  "Phase": [
+                    0.0
+                  ],
+                  "Power": [
+                    1.4199999570846558
+                  ],
+                  "Speed": [
+                    2.2699999809265137
+                  ],
+                  "Strength": [
+                    15.0
+                  ],
+                  "ui_editor_properties_corner_weights": [
+                    1.0,
+                    1.0,
+                    0.0,
+                    0.0
+                  ],
+                  "ui_editor_properties_direction_weights": [
+                    1.0,
+                    0.20000000298023224
+                  ],
+                  "ui_editor_properties_phase": [
+                    4.860000133514404
+                  ],
+                  "ui_editor_properties_power": [
+                    1.7100000381469727
+                  ],
+                  "ui_editor_properties_speed": [
+                    2.6700000762939453
+                  ],
+                  "ui_editor_properties_strength": [
+                    5.0
+                  ]
+                },
+                "target": "",
+                "textures": []
+              }
+            ],
             "visible": true
           }
         ],

@@ -68,6 +68,7 @@
         "effects": [
           {
             "fbo_count": 0,
+            "fbos": [],
             "material_count": 1,
             "materials": [
               {
@@ -84,6 +85,25 @@
             ],
             "name": "ui_editor_effect_water_waves_title",
             "pass_count": 1,
+            "passes": [
+              {
+                "bind": [],
+                "combos": {},
+                "constantshadervalues": {
+                  "ui_editor_properties_scale": [
+                    40.0
+                  ],
+                  "ui_editor_properties_speed": [
+                    2.0
+                  ]
+                },
+                "target": "",
+                "textures": [
+                  "",
+                  "masks/waterwaves_mask_ee0d9bbc6d0516b8583c8fb3e841485c0b7ec4e8"
+                ]
+              }
+            ],
             "visible": true
           }
         ],

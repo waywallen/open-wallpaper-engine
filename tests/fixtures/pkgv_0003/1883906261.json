@@ -151,6 +151,7 @@
         "effects": [
           {
             "fbo_count": 0,
+            "fbos": [],
             "material_count": 1,
             "materials": [
               {
@@ -167,6 +168,18 @@
             ],
             "name": "ui_editor_effect_opacity_title",
             "pass_count": 1,
+            "passes": [
+              {
+                "bind": [],
+                "combos": {},
+                "constantshadervalues": {},
+                "target": "",
+                "textures": [
+                  "",
+                  "opacity_mask_bfe873d61a01ffd5c79b13338728a34a0670b910"
+                ]
+              }
+            ],
             "visible": true
           }
         ],

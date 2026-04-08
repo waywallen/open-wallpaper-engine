@@ -631,6 +631,7 @@
         "effects": [
           {
             "fbo_count": 0,
+            "fbos": [],
             "material_count": 1,
             "materials": [
               {
@@ -647,10 +648,39 @@
             ],
             "name": "ui_editor_effect_shake_title",
             "pass_count": 1,
+            "passes": [
+              {
+                "bind": [],
+                "combos": {},
+                "constantshadervalues": {
+                  "bounds": [
+                    0.0,
+                    1.0
+                  ],
+                  "friction": [
+                    1.0,
+                    1.0
+                  ],
+                  "speed": [
+                    0.5699999928474426
+                  ],
+                  "strength": [
+                    0.07000000029802322
+                  ]
+                },
+                "target": "",
+                "textures": [
+                  "",
+                  "masks/shake_mask_da11b219781480d1ff5bab0798ef7b436718b97b",
+                  "masks/shake_mask_eedb1a83e725dca411bf3044e8860f39b27d70a8"
+                ]
+              }
+            ],
             "visible": true
           },
           {
             "fbo_count": 0,
+            "fbos": [],
             "material_count": 1,
             "materials": [
               {
@@ -667,10 +697,50 @@
             ],
             "name": "ui_editor_effect_shake_title",
             "pass_count": 1,
+            "passes": [
+              {
+                "bind": [],
+                "combos": {},
+                "constantshadervalues": {
+                  "bounds": [
+                    0.0,
+                    1.0
+                  ],
+                  "friction": [
+                    1.0,
+                    1.0
+                  ],
+                  "speed": [
+                    1.0
+                  ],
+                  "strength": [
+                    0.10000000149011612
+                  ]
+                },
+                "target": "",
+                "textures": [
+                  "",
+                  "masks/shake_mask_681d95af21112ea41fc4cd51aa49d9c553ef1173",
+                  "masks/shake_mask_843377ec5689457129ad9ee2dd9c051f084db05d"
+                ]
+              }
+            ],
             "visible": true
           },
           {
             "fbo_count": 2,
+            "fbos": [
+              {
+                "format": "rgba_backbuffer",
+                "name": "_rt_HalfCompoBuffer1",
+                "scale": 2
+              },
+              {
+                "format": "rgba_backbuffer",
+                "name": "_rt_HalfCompoBuffer2",
+                "scale": 2
+              }
+            ],
             "material_count": 5,
             "materials": [
               {
@@ -733,10 +803,147 @@
             ],
             "name": "ui_editor_effect_godrays_title",
             "pass_count": 5,
+            "passes": [
+              {
+                "bind": [
+                  {
+                    "index": 0,
+                    "name": "previous"
+                  }
+                ],
+                "combos": {},
+                "constantshadervalues": {
+                  "noiseamount": [
+                    0.4300000071525574
+                  ],
+                  "noisescale": [
+                    8.960000038146973
+                  ],
+                  "noisesmoothness": [
+                    0.20000000298023224
+                  ],
+                  "noisespeed": [
+                    0.1599999964237213
+                  ],
+                  "raythreshold": [
+                    0.5
+                  ]
+                },
+                "target": "_rt_HalfCompoBuffer1",
+                "textures": [
+                  "",
+                  "masks/godrays_downsample2_mask_ee0d9bbc6d0516b8583c8fb3e841485c0b7ec4e8",
+                  "util/clouds_256"
+                ]
+              },
+              {
+                "bind": [
+                  {
+                    "index": 0,
+                    "name": "_rt_HalfCompoBuffer1"
+                  }
+                ],
+                "combos": {
+                  "SAMPLES": 1
+                },
+                "constantshadervalues": {
+                  "center": [
+                    0.5,
+                    0.5
+                  ],
+                  "color": [
+                    0.8666666746139526,
+                    0.6039215922355652,
+                    0.7529411911964417
+                  ],
+                  "rayintensity": [
+                    0.36000001430511475
+                  ],
+                  "raylength": [
+                    0.18000000715255737
+                  ]
+                },
+                "target": "_rt_HalfCompoBuffer2",
+                "textures": []
+              },
+              {
+                "bind": [
+                  {
+                    "index": 0,
+                    "name": "_rt_HalfCompoBuffer2"
+                  }
+                ],
+                "combos": {
+                  "KERNEL": 0
+                },
+                "constantshadervalues": {
+                  "blurscale": [
+                    1.0,
+                    1.0
+                  ]
+                },
+                "target": "_rt_HalfCompoBuffer1",
+                "textures": []
+              },
+              {
+                "bind": [
+                  {
+                    "index": 0,
+                    "name": "_rt_HalfCompoBuffer1"
+                  }
+                ],
+                "combos": {
+                  "KERNEL": 0,
+                  "VERTICAL": 1
+                },
+                "constantshadervalues": {
+                  "blurscale": [
+                    1.0,
+                    1.0
+                  ]
+                },
+                "target": "_rt_HalfCompoBuffer2",
+                "textures": []
+              },
+              {
+                "bind": [
+                  {
+                    "index": 0,
+                    "name": "_rt_HalfCompoBuffer2"
+                  },
+                  {
+                    "index": 1,
+                    "name": "previous"
+                  }
+                ],
+                "combos": {
+                  "BLENDMODE": 31,
+                  "COPYBG": 0
+                },
+                "constantshadervalues": {},
+                "target": "",
+                "textures": [
+                  "",
+                  "_rt_imageLayerComposite_5531_b"
+                ]
+              }
+            ],
             "visible": true
           },
           {
             "fbo_count": 2,
+            "fbos": [
+              {
+                "format": "rgba_backbuffer",
+                "name": "_rt_HalfCompoBuffer1",
+                "scale": 2
+              },
+              {
+                "format": "rgba_backbuffer",
+                "name": "_rt_HalfCompoBuffer2",
+                "scale": 2
+              }
+            ],
             "material_count": 5,
             "materials": [
               {
@@ -799,6 +1006,122 @@
             ],
             "name": "ui_editor_effect_shine_title",
             "pass_count": 5,
+            "passes": [
+              {
+                "bind": [
+                  {
+                    "index": 0,
+                    "name": "previous"
+                  }
+                ],
+                "combos": {},
+                "constantshadervalues": {
+                  "noiseamount": [
+                    1.0
+                  ],
+                  "noisescale": [
+                    10.0
+                  ],
+                  "noisespeed": [
+                    0.23000000417232513
+                  ],
+                  "raythreshold": [
+                    0.0
+                  ]
+                },
+                "target": "_rt_HalfCompoBuffer1",
+                "textures": [
+                  "",
+                  "masks/shine_downsample2_mask_719ebc4344a4231aae4016d2ad8cfefc434418f5",
+                  "util/clouds_256"
+                ]
+              },
+              {
+                "bind": [
+                  {
+                    "index": 0,
+                    "name": "_rt_HalfCompoBuffer1"
+                  }
+                ],
+                "combos": {},
+                "constantshadervalues": {
+                  "color": [
+                    1.0,
+                    1.0,
+                    1.0
+                  ],
+                  "direction": [
+                    0.0
+                  ],
+                  "rayintensity": [
+                    0.6399999856948853
+                  ],
+                  "raylength": [
+                    0.009999999776482582
+                  ],
+                  "speed": [
+                    0.44999998807907104
+                  ]
+                },
+                "target": "_rt_HalfCompoBuffer2",
+                "textures": []
+              },
+              {
+                "bind": [
+                  {
+                    "index": 0,
+                    "name": "_rt_HalfCompoBuffer2"
+                  }
+                ],
+                "combos": {},
+                "constantshadervalues": {
+                  "scale": [
+                    1.0299999713897705,
+                    1.0299999713897705
+                  ]
+                },
+                "target": "_rt_HalfCompoBuffer1",
+                "textures": []
+              },
+              {
+                "bind": [
+                  {
+                    "index": 0,
+                    "name": "_rt_HalfCompoBuffer1"
+                  }
+                ],
+                "combos": {
+                  "VERTICAL": 1
+                },
+                "constantshadervalues": {
+                  "scale": [
+                    1.0299999713897705,
+                    1.0299999713897705
+                  ]
+                },
+                "target": "_rt_HalfCompoBuffer2",
+                "textures": []
+              },
+              {
+                "bind": [
+                  {
+                    "index": 0,
+                    "name": "_rt_HalfCompoBuffer2"
+                  },
+                  {
+                    "index": 1,
+                    "name": "previous"
+                  }
+                ],
+                "combos": {},
+                "constantshadervalues": {},
+                "target": "",
+                "textures": [
+                  "",
+                  "_rt_imageLayerComposite_5531_a"
+                ]
+              }
+            ],
             "visible": true
           }
         ],

@@ -224,6 +224,7 @@
         "effects": [
           {
             "fbo_count": 0,
+            "fbos": [],
             "material_count": 1,
             "materials": [
               {
@@ -240,10 +241,46 @@
             ],
             "name": "ui_editor_effect_foliage_sway_title",
             "pass_count": 1,
+            "passes": [
+              {
+                "bind": [],
+                "combos": {},
+                "constantshadervalues": {
+                  "phase": [
+                    1.5499999523162842
+                  ],
+                  "power": [
+                    1.0
+                  ],
+                  "ratio": [
+                    0.30000001192092896
+                  ],
+                  "scale": [
+                    0.05000000074505806
+                  ],
+                  "scrolldirection": [
+                    0.03446910157799721
+                  ],
+                  "speeduv": [
+                    5.0
+                  ],
+                  "strength": [
+                    0.30000001192092896
+                  ]
+                },
+                "target": "",
+                "textures": [
+                  "",
+                  "masks/foliagesway_mask_acd08e1715af1803216ae6833bb0b11f8fe38d1a",
+                  ""
+                ]
+              }
+            ],
             "visible": true
           },
           {
             "fbo_count": 0,
+            "fbos": [],
             "material_count": 1,
             "materials": [
               {
@@ -260,6 +297,52 @@
             ],
             "name": "ui_editor_effect_pulse_title",
             "pass_count": 1,
+            "passes": [
+              {
+                "bind": [],
+                "combos": {},
+                "constantshadervalues": {
+                  "amount": [
+                    0.30000001192092896
+                  ],
+                  "bounds": [
+                    0.0,
+                    1.0
+                  ],
+                  "noiseamount": [
+                    0.30000001192092896
+                  ],
+                  "noisespeed": [
+                    0.09000000357627869
+                  ],
+                  "phase": [
+                    0.0
+                  ],
+                  "power": [
+                    1.0
+                  ],
+                  "speed": [
+                    1.0
+                  ],
+                  "tinthigh": [
+                    1.0,
+                    1.0,
+                    1.0
+                  ],
+                  "tintlow": [
+                    1.0,
+                    1.0,
+                    1.0
+                  ]
+                },
+                "target": "",
+                "textures": [
+                  "",
+                  "",
+                  "masks/pulse_mask_3e2af4216be2204934c8183f64ecefc79cf2213d"
+                ]
+              }
+            ],
             "visible": true
           }
         ],
@@ -324,6 +407,7 @@
         "effects": [
           {
             "fbo_count": 0,
+            "fbos": [],
             "material_count": 1,
             "materials": [
               {
@@ -340,6 +424,31 @@
             ],
             "name": "ui_editor_effect_water_waves_title",
             "pass_count": 1,
+            "passes": [
+              {
+                "bind": [],
+                "combos": {},
+                "constantshadervalues": {
+                  "direction": [
+                    1.9379701614379883
+                  ],
+                  "perspective": [
+                    0.0
+                  ],
+                  "scale": [
+                    2.0
+                  ],
+                  "speed": [
+                    1.9900000095367432
+                  ],
+                  "strength": [
+                    0.10999999940395355
+                  ]
+                },
+                "target": "",
+                "textures": []
+              }
+            ],
             "visible": true
           }
         ],
@@ -405,6 +514,7 @@
         "effects": [
           {
             "fbo_count": 0,
+            "fbos": [],
             "material_count": 1,
             "materials": [
               {
@@ -421,10 +531,39 @@
             ],
             "name": "ui_editor_effect_water_waves_title",
             "pass_count": 1,
+            "passes": [
+              {
+                "bind": [],
+                "combos": {},
+                "constantshadervalues": {
+                  "direction": [
+                    1.8295671939849854
+                  ],
+                  "perspective": [
+                    0.0
+                  ],
+                  "scale": [
+                    49.5099983215332
+                  ],
+                  "speed": [
+                    4.960000038146973
+                  ],
+                  "strength": [
+                    0.05999999865889549
+                  ]
+                },
+                "target": "",
+                "textures": [
+                  "",
+                  "masks/waterwaves_mask_5b7f22567a7f3cf1453a27a96f8638eab8df07c4"
+                ]
+              }
+            ],
             "visible": true
           },
           {
             "fbo_count": 0,
+            "fbos": [],
             "material_count": 1,
             "materials": [
               {
@@ -441,10 +580,39 @@
             ],
             "name": "ui_editor_effect_shake_title",
             "pass_count": 1,
+            "passes": [
+              {
+                "bind": [],
+                "combos": {},
+                "constantshadervalues": {
+                  "bounds": [
+                    0.0,
+                    1.0
+                  ],
+                  "friction": [
+                    1.0,
+                    1.0
+                  ],
+                  "speed": [
+                    2.0
+                  ],
+                  "strength": [
+                    0.15000000596046448
+                  ]
+                },
+                "target": "",
+                "textures": [
+                  "",
+                  "masks/shake_mask_a141de0469257ac32aa4ceb37d9f0badc4a4b344",
+                  ""
+                ]
+              }
+            ],
             "visible": true
           },
           {
             "fbo_count": 0,
+            "fbos": [],
             "material_count": 1,
             "materials": [
               {
@@ -461,10 +629,39 @@
             ],
             "name": "ui_editor_effect_shake_title",
             "pass_count": 1,
+            "passes": [
+              {
+                "bind": [],
+                "combos": {},
+                "constantshadervalues": {
+                  "bounds": [
+                    0.0,
+                    1.0
+                  ],
+                  "friction": [
+                    1.0,
+                    1.0
+                  ],
+                  "speed": [
+                    1.0
+                  ],
+                  "strength": [
+                    0.11999999731779099
+                  ]
+                },
+                "target": "",
+                "textures": [
+                  "",
+                  "masks/shake_mask_418348a6ad4c1d316bf89026095f1f0be5773902",
+                  ""
+                ]
+              }
+            ],
             "visible": true
           },
           {
             "fbo_count": 0,
+            "fbos": [],
             "material_count": 1,
             "materials": [
               {
@@ -481,6 +678,34 @@
             ],
             "name": "ui_editor_effect_shake_title",
             "pass_count": 1,
+            "passes": [
+              {
+                "bind": [],
+                "combos": {},
+                "constantshadervalues": {
+                  "bounds": [
+                    0.0,
+                    1.0
+                  ],
+                  "friction": [
+                    1.0,
+                    1.0
+                  ],
+                  "speed": [
+                    1.559999942779541
+                  ],
+                  "strength": [
+                    0.05999999865889549
+                  ]
+                },
+                "target": "",
+                "textures": [
+                  "",
+                  "masks/shake_mask_d5d44080bd9e0c71864e374b846e13372fab66b6",
+                  ""
+                ]
+              }
+            ],
             "visible": true
           }
         ],
@@ -545,6 +770,7 @@
         "effects": [
           {
             "fbo_count": 0,
+            "fbos": [],
             "material_count": 1,
             "materials": [
               {
@@ -561,10 +787,39 @@
             ],
             "name": "ui_editor_effect_shake_title",
             "pass_count": 1,
+            "passes": [
+              {
+                "bind": [],
+                "combos": {},
+                "constantshadervalues": {
+                  "bounds": [
+                    0.0,
+                    1.0
+                  ],
+                  "friction": [
+                    1.0,
+                    1.0
+                  ],
+                  "speed": [
+                    -2.0
+                  ],
+                  "strength": [
+                    0.11999999731779099
+                  ]
+                },
+                "target": "",
+                "textures": [
+                  "",
+                  "masks/shake_mask_cdef63a5af8d14fd1104cc825ee5d9c6b6bcfcae",
+                  ""
+                ]
+              }
+            ],
             "visible": true
           },
           {
             "fbo_count": 0,
+            "fbos": [],
             "material_count": 1,
             "materials": [
               {
@@ -581,10 +836,39 @@
             ],
             "name": "ui_editor_effect_shake_title",
             "pass_count": 1,
+            "passes": [
+              {
+                "bind": [],
+                "combos": {},
+                "constantshadervalues": {
+                  "bounds": [
+                    0.0,
+                    1.0
+                  ],
+                  "friction": [
+                    1.0,
+                    1.0
+                  ],
+                  "speed": [
+                    2.0
+                  ],
+                  "strength": [
+                    0.10000000149011612
+                  ]
+                },
+                "target": "",
+                "textures": [
+                  "",
+                  "masks/shake_mask_a141de0469257ac32aa4ceb37d9f0badc4a4b344",
+                  ""
+                ]
+              }
+            ],
             "visible": true
           },
           {
             "fbo_count": 0,
+            "fbos": [],
             "material_count": 1,
             "materials": [
               {
@@ -601,6 +885,34 @@
             ],
             "name": "ui_editor_effect_shake_title",
             "pass_count": 1,
+            "passes": [
+              {
+                "bind": [],
+                "combos": {},
+                "constantshadervalues": {
+                  "bounds": [
+                    0.0,
+                    1.0
+                  ],
+                  "friction": [
+                    1.0,
+                    1.0
+                  ],
+                  "speed": [
+                    1.0
+                  ],
+                  "strength": [
+                    0.11999999731779099
+                  ]
+                },
+                "target": "",
+                "textures": [
+                  "",
+                  "masks/shake_mask_418348a6ad4c1d316bf89026095f1f0be5773902",
+                  ""
+                ]
+              }
+            ],
             "visible": true
           }
         ],
@@ -665,6 +977,7 @@
         "effects": [
           {
             "fbo_count": 0,
+            "fbos": [],
             "material_count": 1,
             "materials": [
               {
@@ -681,10 +994,42 @@
             ],
             "name": "ui_editor_effect_shake_title",
             "pass_count": 1,
+            "passes": [
+              {
+                "bind": [],
+                "combos": {
+                  "DIRECTION": 1
+                },
+                "constantshadervalues": {
+                  "bounds": [
+                    0.9739999771118164,
+                    0.996999979019165
+                  ],
+                  "friction": [
+                    4.0,
+                    4.0
+                  ],
+                  "speed": [
+                    4.0
+                  ],
+                  "strength": [
+                    0.10999999940395355
+                  ]
+                },
+                "target": "",
+                "textures": [
+                  "",
+                  "masks/shake_mask_2a65f071a3e7a4b354eaa521f67829e659ed57a6",
+                  "",
+                  "masks/shake_mask_4ce50354c22011dd586f3ae800d5524e94003444"
+                ]
+              }
+            ],
             "visible": true
           },
           {
             "fbo_count": 0,
+            "fbos": [],
             "material_count": 1,
             "materials": [
               {
@@ -701,6 +1046,34 @@
             ],
             "name": "ui_editor_effect_shake_title",
             "pass_count": 1,
+            "passes": [
+              {
+                "bind": [],
+                "combos": {},
+                "constantshadervalues": {
+                  "bounds": [
+                    0.0,
+                    1.0
+                  ],
+                  "friction": [
+                    1.0,
+                    1.0
+                  ],
+                  "speed": [
+                    1.0
+                  ],
+                  "strength": [
+                    0.11999999731779099
+                  ]
+                },
+                "target": "",
+                "textures": [
+                  "",
+                  "masks/shake_mask_418348a6ad4c1d316bf89026095f1f0be5773902",
+                  ""
+                ]
+              }
+            ],
             "visible": true
           }
         ],
@@ -765,6 +1138,7 @@
         "effects": [
           {
             "fbo_count": 0,
+            "fbos": [],
             "material_count": 1,
             "materials": [
               {
@@ -781,10 +1155,27 @@
             ],
             "name": "ui_editor_effect_opacity_title",
             "pass_count": 1,
+            "passes": [
+              {
+                "bind": [],
+                "combos": {},
+                "constantshadervalues": {
+                  "alpha": [
+                    1.0
+                  ]
+                },
+                "target": "",
+                "textures": [
+                  "",
+                  "masks/opacity_mask_ee0d9bbc6d0516b8583c8fb3e841485c0b7ec4e8"
+                ]
+              }
+            ],
             "visible": true
           },
           {
             "fbo_count": 0,
+            "fbos": [],
             "material_count": 1,
             "materials": [
               {
@@ -801,6 +1192,34 @@
             ],
             "name": "ui_editor_effect_water_waves_title",
             "pass_count": 1,
+            "passes": [
+              {
+                "bind": [],
+                "combos": {},
+                "constantshadervalues": {
+                  "direction": [
+                    1.764007806777954
+                  ],
+                  "perspective": [
+                    0.0
+                  ],
+                  "scale": [
+                    50.0
+                  ],
+                  "speed": [
+                    3.7200000286102295
+                  ],
+                  "strength": [
+                    0.07000000029802322
+                  ]
+                },
+                "target": "",
+                "textures": [
+                  "",
+                  "masks/waterwaves_mask_ae650e25195a0da93c5dc9ee06748803d5f2aec7"
+                ]
+              }
+            ],
             "visible": true
           }
         ],
@@ -924,6 +1343,7 @@
         "effects": [
           {
             "fbo_count": 0,
+            "fbos": [],
             "material_count": 1,
             "materials": [
               {
@@ -940,6 +1360,22 @@
             ],
             "name": "ui_editor_effect_opacity_title",
             "pass_count": 1,
+            "passes": [
+              {
+                "bind": [],
+                "combos": {},
+                "constantshadervalues": {
+                  "alpha": [
+                    1.0
+                  ]
+                },
+                "target": "",
+                "textures": [
+                  "",
+                  "masks/opacity_mask_bdf9347f9faecefc5247a61f83280637fa93d6b6"
+                ]
+              }
+            ],
             "visible": true
           }
         ],
@@ -1004,6 +1440,7 @@
         "effects": [
           {
             "fbo_count": 0,
+            "fbos": [],
             "material_count": 1,
             "materials": [
               {
@@ -1020,6 +1457,22 @@
             ],
             "name": "ui_editor_effect_opacity_title",
             "pass_count": 1,
+            "passes": [
+              {
+                "bind": [],
+                "combos": {},
+                "constantshadervalues": {
+                  "alpha": [
+                    1.0
+                  ]
+                },
+                "target": "",
+                "textures": [
+                  "",
+                  "masks/opacity_mask_27d0d4415686a49e9840508217a51e5ea9de7d6e"
+                ]
+              }
+            ],
             "visible": true
           }
         ],
@@ -1453,6 +1906,7 @@
         "effects": [
           {
             "fbo_count": 0,
+            "fbos": [],
             "material_count": 1,
             "materials": [
               {
@@ -1469,10 +1923,39 @@
             ],
             "name": "ui_editor_effect_shake_title",
             "pass_count": 1,
+            "passes": [
+              {
+                "bind": [],
+                "combos": {},
+                "constantshadervalues": {
+                  "bounds": [
+                    0.0,
+                    1.0
+                  ],
+                  "friction": [
+                    1.0,
+                    1.0
+                  ],
+                  "speed": [
+                    2.0799999237060547
+                  ],
+                  "strength": [
+                    0.05000000074505806
+                  ]
+                },
+                "target": "",
+                "textures": [
+                  "",
+                  "masks/shake_mask_a56d3d8f7fe4f56b6dd4eb329ee1380bb91c5911",
+                  ""
+                ]
+              }
+            ],
             "visible": true
           },
           {
             "fbo_count": 0,
+            "fbos": [],
             "material_count": 1,
             "materials": [
               {
@@ -1489,10 +1972,57 @@
             ],
             "name": "ui_editor_effect_pulse_title",
             "pass_count": 1,
+            "passes": [
+              {
+                "bind": [],
+                "combos": {},
+                "constantshadervalues": {
+                  "amount": [
+                    0.12999999523162842
+                  ],
+                  "bounds": [
+                    0.0,
+                    1.0
+                  ],
+                  "noiseamount": [
+                    0.1899999976158142
+                  ],
+                  "noisespeed": [
+                    0.09000000357627869
+                  ],
+                  "phase": [
+                    0.0
+                  ],
+                  "power": [
+                    1.0
+                  ],
+                  "speed": [
+                    3.0
+                  ],
+                  "tinthigh": [
+                    1.0,
+                    0.6039215922355652,
+                    0.30980393290519714
+                  ],
+                  "tintlow": [
+                    1.0,
+                    1.0,
+                    1.0
+                  ]
+                },
+                "target": "",
+                "textures": [
+                  "",
+                  "",
+                  "masks/pulse_mask_9d6b1ecace5e7a99ef81677df536ad2cbefe0f29"
+                ]
+              }
+            ],
             "visible": true
           },
           {
             "fbo_count": 0,
+            "fbos": [],
             "material_count": 1,
             "materials": [
               {
@@ -1509,10 +2039,39 @@
             ],
             "name": "ui_editor_effect_water_waves_title",
             "pass_count": 1,
+            "passes": [
+              {
+                "bind": [],
+                "combos": {},
+                "constantshadervalues": {
+                  "direction": [
+                    1.6902252435684204
+                  ],
+                  "perspective": [
+                    0.0
+                  ],
+                  "scale": [
+                    50.0
+                  ],
+                  "speed": [
+                    3.700000047683716
+                  ],
+                  "strength": [
+                    0.07000000029802322
+                  ]
+                },
+                "target": "",
+                "textures": [
+                  "",
+                  "masks/waterwaves_mask_3af422fba24812cbea3ec7c6aae94fd403af0062"
+                ]
+              }
+            ],
             "visible": true
           },
           {
             "fbo_count": 0,
+            "fbos": [],
             "material_count": 1,
             "materials": [
               {
@@ -1529,10 +2088,39 @@
             ],
             "name": "ui_editor_effect_water_waves_title",
             "pass_count": 1,
+            "passes": [
+              {
+                "bind": [],
+                "combos": {},
+                "constantshadervalues": {
+                  "direction": [
+                    -1.7561442852020264
+                  ],
+                  "perspective": [
+                    0.0
+                  ],
+                  "scale": [
+                    50.0
+                  ],
+                  "speed": [
+                    3.700000047683716
+                  ],
+                  "strength": [
+                    0.07000000029802322
+                  ]
+                },
+                "target": "",
+                "textures": [
+                  "",
+                  "masks/waterwaves_mask_b508c7535f6837258d631fbbade1698434e3d69c"
+                ]
+              }
+            ],
             "visible": true
           },
           {
             "fbo_count": 0,
+            "fbos": [],
             "material_count": 1,
             "materials": [
               {
@@ -1549,10 +2137,39 @@
             ],
             "name": "ui_editor_effect_water_waves_title",
             "pass_count": 1,
+            "passes": [
+              {
+                "bind": [],
+                "combos": {},
+                "constantshadervalues": {
+                  "direction": [
+                    0.30970293283462524
+                  ],
+                  "perspective": [
+                    0.0
+                  ],
+                  "scale": [
+                    50.0
+                  ],
+                  "speed": [
+                    3.700000047683716
+                  ],
+                  "strength": [
+                    0.05000000074505806
+                  ]
+                },
+                "target": "",
+                "textures": [
+                  "",
+                  "masks/waterwaves_mask_3caa65bac5890df361822ba48204dac0236f4d21"
+                ]
+              }
+            ],
             "visible": true
           },
           {
             "fbo_count": 0,
+            "fbos": [],
             "material_count": 1,
             "materials": [
               {
@@ -1569,10 +2186,39 @@
             ],
             "name": "ui_editor_effect_shake_title",
             "pass_count": 1,
+            "passes": [
+              {
+                "bind": [],
+                "combos": {},
+                "constantshadervalues": {
+                  "bounds": [
+                    0.0,
+                    1.0
+                  ],
+                  "friction": [
+                    1.0,
+                    1.0
+                  ],
+                  "speed": [
+                    -1.5
+                  ],
+                  "strength": [
+                    0.07000000029802322
+                  ]
+                },
+                "target": "",
+                "textures": [
+                  "",
+                  "masks/shake_mask_45342117f296cf33d88b013161a95b4e759651c5",
+                  ""
+                ]
+              }
+            ],
             "visible": true
           },
           {
             "fbo_count": 0,
+            "fbos": [],
             "material_count": 1,
             "materials": [
               {
@@ -1589,10 +2235,39 @@
             ],
             "name": "ui_editor_effect_shake_title",
             "pass_count": 1,
+            "passes": [
+              {
+                "bind": [],
+                "combos": {},
+                "constantshadervalues": {
+                  "bounds": [
+                    0.0,
+                    1.0
+                  ],
+                  "friction": [
+                    1.0,
+                    1.0
+                  ],
+                  "speed": [
+                    1.5
+                  ],
+                  "strength": [
+                    0.10000000149011612
+                  ]
+                },
+                "target": "",
+                "textures": [
+                  "",
+                  "masks/shake_mask_dda18ae707c96078068844eee6e9dfcf26826de1",
+                  ""
+                ]
+              }
+            ],
             "visible": true
           },
           {
             "fbo_count": 0,
+            "fbos": [],
             "material_count": 1,
             "materials": [
               {
@@ -1609,10 +2284,39 @@
             ],
             "name": "ui_editor_effect_shake_title",
             "pass_count": 1,
+            "passes": [
+              {
+                "bind": [],
+                "combos": {},
+                "constantshadervalues": {
+                  "bounds": [
+                    0.0,
+                    1.0
+                  ],
+                  "friction": [
+                    1.0,
+                    1.0
+                  ],
+                  "speed": [
+                    1.559999942779541
+                  ],
+                  "strength": [
+                    0.05999999865889549
+                  ]
+                },
+                "target": "",
+                "textures": [
+                  "",
+                  "masks/shake_mask_d5d44080bd9e0c71864e374b846e13372fab66b6",
+                  ""
+                ]
+              }
+            ],
             "visible": true
           },
           {
             "fbo_count": 0,
+            "fbos": [],
             "material_count": 1,
             "materials": [
               {
@@ -1629,6 +2333,34 @@
             ],
             "name": "ui_editor_effect_shake_title",
             "pass_count": 1,
+            "passes": [
+              {
+                "bind": [],
+                "combos": {},
+                "constantshadervalues": {
+                  "bounds": [
+                    0.0,
+                    1.0
+                  ],
+                  "friction": [
+                    1.0,
+                    1.0
+                  ],
+                  "speed": [
+                    1.0
+                  ],
+                  "strength": [
+                    0.11999999731779099
+                  ]
+                },
+                "target": "",
+                "textures": [
+                  "",
+                  "masks/shake_mask_418348a6ad4c1d316bf89026095f1f0be5773902",
+                  ""
+                ]
+              }
+            ],
             "visible": true
           }
         ],
