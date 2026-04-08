@@ -1,0 +1,495 @@
+{
+  "pkg": {
+    "file_count": 40,
+    "has_scene_json": true,
+    "version": "PKGV0004"
+  },
+  "puppets": [],
+  "scene": {
+    "camera": {
+      "center": [
+        0.0,
+        0.0,
+        -1.0
+      ],
+      "eye": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "up": [
+        0.0,
+        1.0,
+        0.0
+      ]
+    },
+    "general": {
+      "ambientcolor": [
+        0.30000001192092896,
+        0.30000001192092896,
+        0.30000001192092896
+      ],
+      "cameraparallax": false,
+      "cameraparallaxamount": 0.5,
+      "cameraparallaxdelay": 0.10000000149011612,
+      "cameraparallaxmouseinfluence": 0.0,
+      "clearcolor": [
+        0.699999988079071,
+        0.699999988079071,
+        0.699999988079071
+      ],
+      "farz": 10000.0,
+      "fov": 50.0,
+      "nearz": 0.009999999776482582,
+      "skylightcolor": [
+        0.30000001192092896,
+        0.30000001192092896,
+        0.30000001192092896
+      ],
+      "zoom": 1.0
+    },
+    "is_ortho": true,
+    "object_count": 4,
+    "objects": [
+      {
+        "alignment_parsed": "center",
+        "alpha": 1.0,
+        "angles": "0.000 0.000 0.000",
+        "angles_parsed": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "brightness": 1.0,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "colorBlendMode": 0,
+        "effect_count": 3,
+        "effects": [
+          {
+            "fbo_count": 0,
+            "material_count": 1,
+            "materials": [
+              {
+                "blending": "normal",
+                "combos": {},
+                "constantshadervalues": {},
+                "cullmode": "nocull",
+                "depthtest": "disabled",
+                "depthwrite": "disabled",
+                "shader": "effects/waterripple",
+                "textures": [
+                  "",
+                  "effects/waterripplenormal"
+                ],
+                "use_puppet": false
+              }
+            ],
+            "name": "ui_editor_effect_water_ripple_title",
+            "pass_count": 1,
+            "visible": true
+          },
+          {
+            "fbo_count": 2,
+            "material_count": 4,
+            "materials": [
+              {
+                "blending": "normal",
+                "combos": {},
+                "constantshadervalues": {},
+                "cullmode": "nocull",
+                "depthtest": "disabled",
+                "depthwrite": "disabled",
+                "shader": "effects/blur_downsample4",
+                "textures": [],
+                "use_puppet": false
+              },
+              {
+                "blending": "normal",
+                "combos": {},
+                "constantshadervalues": {},
+                "cullmode": "nocull",
+                "depthtest": "disabled",
+                "depthwrite": "disabled",
+                "shader": "effects/blur_gaussian",
+                "textures": [],
+                "use_puppet": false
+              },
+              {
+                "blending": "normal",
+                "combos": {
+                  "VERTICAL": 1
+                },
+                "constantshadervalues": {},
+                "cullmode": "nocull",
+                "depthtest": "disabled",
+                "depthwrite": "disabled",
+                "shader": "effects/blur_gaussian",
+                "textures": [],
+                "use_puppet": false
+              },
+              {
+                "blending": "normal",
+                "combos": {},
+                "constantshadervalues": {},
+                "cullmode": "nocull",
+                "depthtest": "disabled",
+                "depthwrite": "disabled",
+                "shader": "effects/blur_combine",
+                "textures": [],
+                "use_puppet": false
+              }
+            ],
+            "name": "ui_editor_effect_blur_title",
+            "pass_count": 4,
+            "visible": true
+          },
+          {
+            "fbo_count": 0,
+            "material_count": 1,
+            "materials": [
+              {
+                "blending": "normal",
+                "combos": {},
+                "constantshadervalues": {},
+                "cullmode": "nocull",
+                "depthtest": "disabled",
+                "depthwrite": "disabled",
+                "shader": "effects/tint",
+                "textures": [],
+                "use_puppet": false
+              }
+            ],
+            "name": "ui_editor_effect_tint_title",
+            "pass_count": 1,
+            "visible": true
+          }
+        ],
+        "fullscreen": false,
+        "id": 61,
+        "image": "models/darksoulsbackground.json",
+        "kind": "image",
+        "material": {
+          "blending": "translucent",
+          "combos": {},
+          "constantshadervalues": {},
+          "cullmode": "nocull",
+          "depthtest": "disabled",
+          "depthwrite": "disabled",
+          "shader": "genericimage2",
+          "textures": [
+            "darksoulsbackground"
+          ],
+          "use_puppet": false
+        },
+        "name": "darksoulsbackground",
+        "nopadding": false,
+        "origin": "960.000 540.000 0.000",
+        "origin_parsed": [
+          960.0,
+          540.0,
+          0.0
+        ],
+        "parallaxDepth": "1.000 1.000",
+        "parsed": true,
+        "puppet": "",
+        "scale": "1.000 1.000 1.000",
+        "scale_parsed": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "size": "1920.000 1080.000",
+        "size_parsed": [
+          1920.0,
+          1080.0
+        ],
+        "visible": true,
+        "visible_parsed": true
+      },
+      {
+        "angles": "0.000 0.000 0.000",
+        "id": 349,
+        "kind": "particle",
+        "name": "new particle system",
+        "origin": "885.271 484.799 0.000",
+        "parallaxDepth": "1.000 1.000",
+        "scale": "1.000 1.000 1.000",
+        "visible": true
+      },
+      {
+        "alignment_parsed": "center",
+        "alpha": 1.0,
+        "angles": "0.000 0.000 0.000",
+        "angles_parsed": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "brightness": 1.0,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "colorBlendMode": 0,
+        "effect_count": 2,
+        "effects": [
+          {
+            "fbo_count": 0,
+            "material_count": 1,
+            "materials": [
+              {
+                "blending": "normal",
+                "combos": {},
+                "constantshadervalues": {},
+                "cullmode": "nocull",
+                "depthtest": "disabled",
+                "depthwrite": "disabled",
+                "shader": "effects/tint",
+                "textures": [],
+                "use_puppet": false
+              }
+            ],
+            "name": "ui_editor_effect_tint_title",
+            "pass_count": 1,
+            "visible": true
+          },
+          {
+            "fbo_count": 0,
+            "material_count": 1,
+            "materials": [
+              {
+                "blending": "normal",
+                "combos": {},
+                "constantshadervalues": {},
+                "cullmode": "nocull",
+                "depthtest": "disabled",
+                "depthwrite": "disabled",
+                "shader": "effects/waterwaves",
+                "textures": [],
+                "use_puppet": false
+              }
+            ],
+            "name": "ui_editor_effect_water_waves_title",
+            "pass_count": 1,
+            "visible": true
+          }
+        ],
+        "fullscreen": false,
+        "id": 645,
+        "image": "models/darksouls.json",
+        "kind": "image",
+        "material": {
+          "blending": "translucent",
+          "combos": {},
+          "constantshadervalues": {},
+          "cullmode": "nocull",
+          "depthtest": "disabled",
+          "depthwrite": "disabled",
+          "shader": "genericimage2",
+          "textures": [
+            "darksouls"
+          ],
+          "use_puppet": false
+        },
+        "name": "darksouls",
+        "nopadding": false,
+        "origin": "960.000 540.000 0.000",
+        "origin_parsed": [
+          960.0,
+          540.0,
+          0.0
+        ],
+        "parallaxDepth": "1.000 1.000",
+        "parsed": true,
+        "puppet": "",
+        "scale": "1.000 1.000 1.000",
+        "scale_parsed": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "size": "1920.000 1080.000",
+        "size_parsed": [
+          1920.0,
+          1080.0
+        ],
+        "visible": true,
+        "visible_parsed": true
+      },
+      {
+        "angles": "0.000 0.000 0.000",
+        "id": 862,
+        "kind": "image",
+        "name": "Ember",
+        "origin": "418.887 -6.430 0.000",
+        "parallaxDepth": "1.000 1.000",
+        "parsed": false,
+        "scale": "1.000 1.000 1.000",
+        "visible": true
+      }
+    ],
+    "ortho": {
+      "height": 1080,
+      "width": 1920
+    },
+    "parsed": true
+  },
+  "textures": [
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 4,
+      "height": 2048,
+      "image_type": -1,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 1080,
+      "map_width": 1920,
+      "min_filter": 0,
+      "mipmap_larger": true,
+      "mipmap_pow2": true,
+      "ok": true,
+      "path": "/materials/darksouls.tex",
+      "sprite_frames": 0,
+      "texb": 2,
+      "texi": 1,
+      "texv": 5,
+      "width": 2048,
+      "wrap_s": 0,
+      "wrap_t": 0
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 4,
+      "height": 2048,
+      "image_type": -1,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 1080,
+      "map_width": 1920,
+      "min_filter": 0,
+      "mipmap_larger": true,
+      "mipmap_pow2": true,
+      "ok": true,
+      "path": "/materials/darksoulsbackground.tex",
+      "sprite_frames": 0,
+      "texb": 2,
+      "texi": 1,
+      "texv": 5,
+      "width": 2048,
+      "wrap_s": 0,
+      "wrap_t": 0
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 4,
+      "height": 256,
+      "image_type": -1,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 256,
+      "map_width": 256,
+      "min_filter": 0,
+      "mipmap_larger": false,
+      "mipmap_pow2": true,
+      "ok": true,
+      "path": "/materials/effects/waterripplenormal.tex",
+      "sprite_frames": 0,
+      "texb": 2,
+      "texi": 1,
+      "texv": 5,
+      "width": 256,
+      "wrap_s": 1,
+      "wrap_t": 1
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 4,
+      "height": 512,
+      "image_type": -1,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 270,
+      "map_width": 480,
+      "min_filter": 0,
+      "mipmap_larger": true,
+      "mipmap_pow2": true,
+      "ok": true,
+      "path": "/materials/masks/blur_combine_mask_bdbea347ab7838b0661ae6af118d7d24d301b354.tex",
+      "sprite_frames": 0,
+      "texb": 2,
+      "texi": 1,
+      "texv": 5,
+      "width": 512,
+      "wrap_s": 0,
+      "wrap_t": 0
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 4,
+      "height": 1024,
+      "image_type": -1,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 540,
+      "map_width": 960,
+      "min_filter": 0,
+      "mipmap_larger": true,
+      "mipmap_pow2": true,
+      "ok": true,
+      "path": "/materials/masks/waterripple_mask_843377ec5689457129ad9ee2dd9c051f084db05d.tex",
+      "sprite_frames": 0,
+      "texb": 2,
+      "texi": 1,
+      "texv": 5,
+      "width": 1024,
+      "wrap_s": 0,
+      "wrap_t": 0
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 4,
+      "height": 1024,
+      "image_type": -1,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 540,
+      "map_width": 960,
+      "min_filter": 0,
+      "mipmap_larger": true,
+      "mipmap_pow2": true,
+      "ok": true,
+      "path": "/materials/masks/waterwaves_mask_ee0d9bbc6d0516b8583c8fb3e841485c0b7ec4e8.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 1024,
+      "wrap_s": 0,
+      "wrap_t": 0
+    }
+  ],
+  "workshop_dir": "1303867053"
+}

@@ -1,0 +1,779 @@
+{
+  "pkg": {
+    "file_count": 45,
+    "has_scene_json": true,
+    "version": "PKGV0014"
+  },
+  "puppets": [],
+  "scene": {
+    "camera": {
+      "center": [
+        0.0,
+        0.0,
+        -1.0
+      ],
+      "eye": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "up": [
+        0.0,
+        1.0,
+        0.0
+      ]
+    },
+    "general": {
+      "ambientcolor": [
+        0.30000001192092896,
+        0.30000001192092896,
+        0.30000001192092896
+      ],
+      "cameraparallax": false,
+      "cameraparallaxamount": 0.5,
+      "cameraparallaxdelay": 0.10000000149011612,
+      "cameraparallaxmouseinfluence": 0.0,
+      "clearcolor": [
+        0.699999988079071,
+        0.699999988079071,
+        0.699999988079071
+      ],
+      "farz": 10000.0,
+      "fov": 50.0,
+      "nearz": 0.009999999776482582,
+      "skylightcolor": [
+        0.30000001192092896,
+        0.30000001192092896,
+        0.30000001192092896
+      ],
+      "zoom": 1.0
+    },
+    "is_ortho": true,
+    "object_count": 16,
+    "objects": [
+      {
+        "angles": "0.00000 0.00000 0.00000",
+        "id": 62,
+        "kind": "sound",
+        "name": "280843_Coiin___Colour_My_World.mp3",
+        "origin": "0.00000 0.00000 0.00000",
+        "parallaxDepth": "1.00000 1.00000",
+        "scale": "1.00000 1.00000 1.00000",
+        "visible": true
+      },
+      {
+        "angles": "0.00000 0.00000 0.00000",
+        "id": 104,
+        "kind": "particle",
+        "name": "Sakura",
+        "origin": "2272.51172 707.03577 0.00000",
+        "parallaxDepth": "1.00000 1.00000",
+        "scale": "0.50000 0.50000 0.50000",
+        "visible": true
+      },
+      {
+        "angles": "0.00000 0.00000 0.00000",
+        "id": 110,
+        "kind": "particle",
+        "name": "Sakura",
+        "origin": "52.46498 493.76440 0.00000",
+        "parallaxDepth": "1.00000 1.00000",
+        "scale": "1.00000 1.00000 1.00000",
+        "visible": true
+      },
+      {
+        "alignment": "center",
+        "alignment_parsed": "center",
+        "alpha": 1.0,
+        "angles": "0.00000 0.00000 0.00000",
+        "angles_parsed": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "brightness": 1.0,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "colorBlendMode": 0,
+        "effect_count": 2,
+        "effects": [
+          {
+            "fbo_count": 0,
+            "material_count": 1,
+            "materials": [
+              {
+                "blending": "normal",
+                "combos": {},
+                "constantshadervalues": {},
+                "cullmode": "nocull",
+                "depthtest": "disabled",
+                "depthwrite": "disabled",
+                "shader": "effects/waterripple",
+                "textures": [
+                  "",
+                  "",
+                  "effects/waterripplenormal"
+                ],
+                "use_puppet": false
+              }
+            ],
+            "name": "ui_editor_effect_water_ripple_title",
+            "pass_count": 1,
+            "visible": true
+          },
+          {
+            "fbo_count": 0,
+            "material_count": 1,
+            "materials": [
+              {
+                "blending": "normal",
+                "combos": {},
+                "constantshadervalues": {},
+                "cullmode": "nocull",
+                "depthtest": "disabled",
+                "depthwrite": "disabled",
+                "shader": "effects/foliagesway",
+                "textures": [],
+                "use_puppet": false
+              }
+            ],
+            "name": "ui_editor_effect_foliage_sway_title",
+            "pass_count": 1,
+            "visible": true
+          }
+        ],
+        "fullscreen": false,
+        "id": 123,
+        "image": "models/62975519_p0.json",
+        "kind": "image",
+        "material": {
+          "blending": "translucent",
+          "combos": {
+            "VERSION": 2
+          },
+          "constantshadervalues": {},
+          "cullmode": "nocull",
+          "depthtest": "disabled",
+          "depthwrite": "disabled",
+          "shader": "genericimage2",
+          "textures": [
+            "62975519_p0"
+          ],
+          "use_puppet": false
+        },
+        "name": "62975519_p0",
+        "nopadding": false,
+        "origin": "1920.00000 1080.00000 0.00000",
+        "origin_parsed": [
+          1920.0,
+          1080.0,
+          0.0
+        ],
+        "parallaxDepth": "1.00000 1.00000",
+        "parsed": true,
+        "puppet": "",
+        "scale": "1.00000 1.00000 1.00000",
+        "scale_parsed": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "size": "3840.00000 2160.00000",
+        "size_parsed": [
+          3840.0,
+          2160.0
+        ],
+        "visible": true,
+        "visible_parsed": true
+      },
+      {
+        "alignment": "center",
+        "angles": "0.00000 0.00000 0.00000",
+        "id": 127,
+        "kind": "image",
+        "name": "Compose",
+        "origin": "1090.60986 497.24866 0.00000",
+        "parallaxDepth": "1.00000 1.00000",
+        "parsed": false,
+        "scale": "1.00000 1.00000 1.00000",
+        "size": "2200.00000 1000.00000",
+        "visible": true
+      },
+      {
+        "angles": "0.00000 -0.00000 1.56318",
+        "id": 136,
+        "kind": "particle",
+        "name": "Snow storm",
+        "origin": "3112.83765 30.06915 0.00000",
+        "parallaxDepth": "1.00000 1.00000",
+        "scale": "0.52112 1.12394 1.00000",
+        "visible": true
+      },
+      {
+        "alignment": "center",
+        "alignment_parsed": "center",
+        "alpha": 1.0,
+        "angles": "0.00000 0.00000 0.00000",
+        "angles_parsed": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "brightness": 1.0,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "colorBlendMode": 0,
+        "effect_count": 2,
+        "effects": [
+          {
+            "fbo_count": 0,
+            "material_count": 1,
+            "materials": [
+              {
+                "blending": "normal",
+                "combos": {},
+                "constantshadervalues": {},
+                "cullmode": "nocull",
+                "depthtest": "disabled",
+                "depthwrite": "disabled",
+                "shader": "effects/spin",
+                "textures": [],
+                "use_puppet": false
+              }
+            ],
+            "name": "ui_editor_effect_spin_title",
+            "pass_count": 1,
+            "visible": true
+          },
+          {
+            "fbo_count": 1,
+            "material_count": 2,
+            "materials": [
+              {
+                "blending": "normal",
+                "combos": {},
+                "constantshadervalues": {},
+                "cullmode": "nocull",
+                "depthtest": "disabled",
+                "depthwrite": "disabled",
+                "shader": "effects/blur_precise_gaussian",
+                "textures": [],
+                "use_puppet": false
+              },
+              {
+                "blending": "normal",
+                "combos": {
+                  "VERTICAL": 1
+                },
+                "constantshadervalues": {},
+                "cullmode": "nocull",
+                "depthtest": "disabled",
+                "depthwrite": "disabled",
+                "shader": "effects/blur_precise_gaussian",
+                "textures": [],
+                "use_puppet": false
+              }
+            ],
+            "name": "ui_editor_effect_blur_precise_title",
+            "pass_count": 2,
+            "visible": true
+          }
+        ],
+        "fullscreen": false,
+        "id": 266,
+        "image": "models/layer_01.json",
+        "kind": "image",
+        "material": {
+          "blending": "translucent",
+          "combos": {
+            "VERSION": 2
+          },
+          "constantshadervalues": {},
+          "cullmode": "nocull",
+          "depthtest": "disabled",
+          "depthwrite": "disabled",
+          "shader": "genericimage2",
+          "textures": [
+            "layer_01"
+          ],
+          "use_puppet": false
+        },
+        "name": "layer_01",
+        "nopadding": false,
+        "origin": "669.82092 1255.57324 0.00000",
+        "origin_parsed": [
+          669.8209228515625,
+          1255.5732421875,
+          0.0
+        ],
+        "parallaxDepth": "1.00000 1.00000",
+        "parsed": true,
+        "puppet": "",
+        "scale": "1.00000 1.00000 1.00000",
+        "scale_parsed": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "size": "754.00000 753.00000",
+        "size_parsed": [
+          754.0,
+          753.0
+        ],
+        "visible": true,
+        "visible_parsed": true
+      },
+      {
+        "angles": "0.00000 -0.00000 1.56318",
+        "id": 269,
+        "kind": "particle",
+        "name": "Snow storm",
+        "origin": "2527.16064 1032.31604 0.00000",
+        "parallaxDepth": "1.00000 1.00000",
+        "scale": "0.12227 0.32393 1.00000",
+        "visible": true
+      },
+      {
+        "angles": "0.00000 -0.00000 1.56318",
+        "id": 282,
+        "kind": "particle",
+        "name": "Snow storm",
+        "origin": "3572.42847 1056.97827 0.00000",
+        "parallaxDepth": "1.00000 1.00000",
+        "scale": "0.24200 0.45922 1.00000",
+        "visible": true
+      },
+      {
+        "alignment": "center",
+        "alignment_parsed": "center",
+        "alpha": 0.4399999976158142,
+        "angles": "0.00000 -0.00000 0.10121",
+        "angles_parsed": [
+          0.0,
+          -0.0,
+          0.10120999813079834
+        ],
+        "brightness": 1.0,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "colorBlendMode": 0,
+        "effect_count": 4,
+        "effects": [
+          {
+            "fbo_count": 0,
+            "material_count": 1,
+            "materials": [
+              {
+                "blending": "normal",
+                "combos": {},
+                "constantshadervalues": {},
+                "cullmode": "nocull",
+                "depthtest": "disabled",
+                "depthwrite": "disabled",
+                "shader": "effects/spin",
+                "textures": [],
+                "use_puppet": false
+              }
+            ],
+            "name": "ui_editor_effect_spin_title",
+            "pass_count": 1,
+            "visible": true
+          },
+          {
+            "fbo_count": 0,
+            "material_count": 1,
+            "materials": [
+              {
+                "blending": "normal",
+                "combos": {},
+                "constantshadervalues": {},
+                "cullmode": "nocull",
+                "depthtest": "disabled",
+                "depthwrite": "disabled",
+                "shader": "effects/tint",
+                "textures": [],
+                "use_puppet": false
+              }
+            ],
+            "name": "ui_editor_effect_tint_title",
+            "pass_count": 1,
+            "visible": true
+          },
+          {
+            "fbo_count": 1,
+            "material_count": 2,
+            "materials": [
+              {
+                "blending": "normal",
+                "combos": {},
+                "constantshadervalues": {},
+                "cullmode": "nocull",
+                "depthtest": "disabled",
+                "depthwrite": "disabled",
+                "shader": "effects/blur_precise_gaussian",
+                "textures": [],
+                "use_puppet": false
+              },
+              {
+                "blending": "normal",
+                "combos": {
+                  "VERTICAL": 1
+                },
+                "constantshadervalues": {},
+                "cullmode": "nocull",
+                "depthtest": "disabled",
+                "depthwrite": "disabled",
+                "shader": "effects/blur_precise_gaussian",
+                "textures": [],
+                "use_puppet": false
+              }
+            ],
+            "name": "ui_editor_effect_blur_precise_title",
+            "pass_count": 2,
+            "visible": true
+          },
+          {
+            "fbo_count": 0,
+            "material_count": 1,
+            "materials": [
+              {
+                "blending": "normal",
+                "combos": {},
+                "constantshadervalues": {},
+                "cullmode": "nocull",
+                "depthtest": "disabled",
+                "depthwrite": "disabled",
+                "shader": "effects/opacity",
+                "textures": [],
+                "use_puppet": false
+              }
+            ],
+            "name": "ui_editor_effect_opacity_title",
+            "pass_count": 1,
+            "visible": true
+          }
+        ],
+        "fullscreen": false,
+        "id": 286,
+        "image": "models/layer_01.json",
+        "kind": "image",
+        "material": {
+          "blending": "translucent",
+          "combos": {
+            "VERSION": 2
+          },
+          "constantshadervalues": {},
+          "cullmode": "nocull",
+          "depthtest": "disabled",
+          "depthwrite": "disabled",
+          "shader": "genericimage2",
+          "textures": [
+            "layer_01"
+          ],
+          "use_puppet": false
+        },
+        "name": "layer_01",
+        "nopadding": false,
+        "origin": "690.71576 1275.23108 0.00000",
+        "origin_parsed": [
+          690.7157592773438,
+          1275.2310791015625,
+          0.0
+        ],
+        "parallaxDepth": "1.00000 1.00000",
+        "parsed": true,
+        "puppet": "",
+        "scale": "1.00000 1.10305 1.00000",
+        "scale_parsed": [
+          1.0,
+          1.1030499935150146,
+          1.0
+        ],
+        "size": "754.00000 753.00000",
+        "size_parsed": [
+          754.0,
+          753.0
+        ],
+        "visible": true,
+        "visible_parsed": true
+      },
+      {
+        "angles": "0.00000 -0.00000 1.56318",
+        "id": 295,
+        "kind": "particle",
+        "name": "Snow storm",
+        "origin": "-39.91669 1789.80408 0.00000",
+        "parallaxDepth": "1.00000 1.00000",
+        "scale": "0.24200 0.45922 1.00000",
+        "visible": true
+      },
+      {
+        "angles": "0.00000 -0.00000 1.56318",
+        "id": 308,
+        "kind": "particle",
+        "name": "Snow storm",
+        "origin": "1066.41638 1786.24634 0.00000",
+        "parallaxDepth": "1.00000 1.00000",
+        "scale": "0.13235 0.35949 1.00000",
+        "visible": true
+      },
+      {
+        "angles": "0.00000 -0.00000 1.56318",
+        "id": 321,
+        "kind": "particle",
+        "name": "Snow storm",
+        "origin": "1697.57324 1275.40796 0.00000",
+        "parallaxDepth": "1.00000 1.00000",
+        "scale": "0.24200 0.45922 1.00000",
+        "visible": true
+      },
+      {
+        "angles": "0.00000 0.00000 0.00000",
+        "id": 439,
+        "kind": "particle",
+        "name": "Sakura",
+        "origin": "119.62994 891.47876 0.00000",
+        "parallaxDepth": "1.00000 1.00000",
+        "scale": "0.50000 0.50000 0.50000",
+        "visible": true
+      },
+      {
+        "angles": "0.00000 0.00000 0.00000",
+        "id": 445,
+        "kind": "particle",
+        "name": "Sakura",
+        "origin": "916.01044 868.63184 0.00000",
+        "parallaxDepth": "1.00000 1.00000",
+        "scale": "0.50000 0.50000 0.50000",
+        "visible": true
+      },
+      {
+        "angles": "0.00000 0.00000 0.00000",
+        "id": 451,
+        "kind": "particle",
+        "name": "Sakura",
+        "origin": "1487.07263 702.39447 0.00000",
+        "parallaxDepth": "1.00000 1.00000",
+        "scale": "0.70000 0.70000 0.70000",
+        "visible": true
+      }
+    ],
+    "ortho": {
+      "height": 2160,
+      "width": 3840
+    },
+    "parsed": true
+  },
+  "textures": [
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 4,
+      "height": 4096,
+      "image_type": 2,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 2160,
+      "map_width": 3840,
+      "min_filter": 0,
+      "mipmap_larger": false,
+      "mipmap_pow2": false,
+      "ok": true,
+      "path": "/materials/62975519_p0.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 4096,
+      "wrap_s": 0,
+      "wrap_t": 0
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 4,
+      "height": 256,
+      "image_type": -1,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 256,
+      "map_width": 256,
+      "min_filter": 0,
+      "mipmap_larger": false,
+      "mipmap_pow2": true,
+      "ok": true,
+      "path": "/materials/effects/waterripplenormal.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 256,
+      "wrap_s": 1,
+      "wrap_t": 1
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 4,
+      "height": 1024,
+      "image_type": 13,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 753,
+      "map_width": 754,
+      "min_filter": 0,
+      "mipmap_larger": false,
+      "mipmap_pow2": false,
+      "ok": true,
+      "path": "/materials/layer_01.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 1024,
+      "wrap_s": 0,
+      "wrap_t": 0
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 6,
+      "height": 650,
+      "image_type": -1,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 650,
+      "map_width": 1500,
+      "min_filter": 0,
+      "mipmap_larger": false,
+      "mipmap_pow2": false,
+      "ok": true,
+      "path": "/materials/masks/foliagesway_mask_5506dc3e.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 1500,
+      "wrap_s": 0,
+      "wrap_t": 0
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 6,
+      "height": 1080,
+      "image_type": -1,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 1080,
+      "map_width": 1920,
+      "min_filter": 0,
+      "mipmap_larger": false,
+      "mipmap_pow2": false,
+      "ok": true,
+      "path": "/materials/masks/foliagesway_mask_80e0ff4a.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 1920,
+      "wrap_s": 0,
+      "wrap_t": 0
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 6,
+      "height": 376,
+      "image_type": -1,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 376,
+      "map_width": 377,
+      "min_filter": 0,
+      "mipmap_larger": false,
+      "mipmap_pow2": false,
+      "ok": true,
+      "path": "/materials/masks/opacity_mask_1979b3c4.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 377,
+      "wrap_s": 0,
+      "wrap_t": 0
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 6,
+      "height": 376,
+      "image_type": -1,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 376,
+      "map_width": 377,
+      "min_filter": 0,
+      "mipmap_larger": false,
+      "mipmap_pow2": false,
+      "ok": true,
+      "path": "/materials/masks/spin_mask_4ba8383a.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 377,
+      "wrap_s": 0,
+      "wrap_t": 0
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 6,
+      "height": 1080,
+      "image_type": -1,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 1080,
+      "map_width": 1920,
+      "min_filter": 0,
+      "mipmap_larger": false,
+      "mipmap_pow2": false,
+      "ok": true,
+      "path": "/materials/masks/waterripple_mask_10f9359b.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 1920,
+      "wrap_s": 0,
+      "wrap_t": 0
+    }
+  ],
+  "workshop_dir": "1721043273"
+}

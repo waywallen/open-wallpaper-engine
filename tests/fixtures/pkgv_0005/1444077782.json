@@ -1,0 +1,1616 @@
+{
+  "pkg": {
+    "file_count": 87,
+    "has_scene_json": true,
+    "version": "PKGV0005"
+  },
+  "puppets": [],
+  "scene": {
+    "camera": {
+      "center": [
+        0.0,
+        0.0,
+        -1.0
+      ],
+      "eye": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "up": [
+        0.0,
+        1.0,
+        0.0
+      ]
+    },
+    "general": {
+      "ambientcolor": [
+        0.30000001192092896,
+        0.30000001192092896,
+        0.30000001192092896
+      ],
+      "cameraparallax": false,
+      "cameraparallaxamount": 0.5,
+      "cameraparallaxdelay": 0.0,
+      "cameraparallaxmouseinfluence": -0.029999999329447746,
+      "clearcolor": [
+        0.699999988079071,
+        0.699999988079071,
+        0.699999988079071
+      ],
+      "farz": 10000.0,
+      "fov": 50.0,
+      "nearz": 0.009999999776482582,
+      "skylightcolor": [
+        0.30000001192092896,
+        0.30000001192092896,
+        0.30000001192092896
+      ],
+      "zoom": 1.0
+    },
+    "is_ortho": true,
+    "object_count": 69,
+    "objects": [
+      {
+        "alignment_parsed": "center",
+        "alpha": 1.0,
+        "angles": "0.000 0.000 0.000",
+        "angles_parsed": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "brightness": 1.0,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "colorBlendMode": 0,
+        "effect_count": 0,
+        "effects": [],
+        "fullscreen": false,
+        "id": 12,
+        "image": "models/wallhalla-NNvMypobhwJb.json",
+        "kind": "image",
+        "material": {
+          "blending": "translucent",
+          "combos": {},
+          "constantshadervalues": {},
+          "cullmode": "nocull",
+          "depthtest": "disabled",
+          "depthwrite": "disabled",
+          "shader": "genericimage2",
+          "textures": [
+            "wallhalla-NNvMypobhwJb"
+          ],
+          "use_puppet": false
+        },
+        "name": "wallhalla-NNvMypobhwJb",
+        "nopadding": false,
+        "origin": "1280.000 800.000 0.000",
+        "origin_parsed": [
+          1280.0,
+          800.0,
+          0.0
+        ],
+        "parallaxDepth": "1.000 1.000",
+        "parsed": true,
+        "puppet": "",
+        "scale": "1.000 1.000 1.000",
+        "scale_parsed": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "size": "2560.000 1600.000",
+        "size_parsed": [
+          2560.0,
+          1600.0
+        ],
+        "visible": true,
+        "visible_parsed": true
+      },
+      {
+        "angles": "0.000 0.000 -0.077",
+        "id": 19,
+        "kind": "image",
+        "name": "Rain perspective",
+        "origin": "1337.113 886.816 0.000",
+        "parallaxDepth": "1.000 1.000",
+        "parsed": false,
+        "scale": "1.000 1.000 1.000",
+        "visible": true
+      },
+      {
+        "angles": "0.000 0.000 -0.077",
+        "id": 148,
+        "kind": "image",
+        "name": "Rain perspective",
+        "origin": "1317.022 1333.733 0.000",
+        "parallaxDepth": "1.000 1.000",
+        "parsed": false,
+        "scale": "1.000 1.000 1.000",
+        "visible": true
+      },
+      {
+        "angles": "0.000 0.000 -0.077",
+        "id": 203,
+        "kind": "image",
+        "name": "Rain perspective",
+        "origin": "1279.654 1643.888 0.000",
+        "parallaxDepth": "1.000 1.000",
+        "parsed": false,
+        "scale": "1.000 1.000 1.000",
+        "visible": true
+      },
+      {
+        "angles": "0.281 0.000 0.000",
+        "id": 207,
+        "kind": "particle",
+        "name": "new particle system",
+        "origin": "6.210 44.718 0.000",
+        "parallaxDepth": "1.000 1.000",
+        "scale": "1.000 0.200 1.000",
+        "visible": true
+      },
+      {
+        "alignment_parsed": "center",
+        "alpha": 1.0,
+        "angles": "0.000 0.000 0.000",
+        "angles_parsed": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "brightness": 1.0,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "colorBlendMode": 9,
+        "effect_count": 1,
+        "effects": [
+          {
+            "fbo_count": 0,
+            "material_count": 1,
+            "materials": [
+              {
+                "blending": "normal",
+                "combos": {},
+                "constantshadervalues": {},
+                "cullmode": "nocull",
+                "depthtest": "disabled",
+                "depthwrite": "disabled",
+                "shader": "effects/opacity",
+                "textures": [],
+                "use_puppet": false
+              }
+            ],
+            "name": "ui_editor_effect_opacity_title",
+            "pass_count": 1,
+            "visible": true
+          }
+        ],
+        "fullscreen": false,
+        "id": 300,
+        "image": "models/20180720153036.json",
+        "kind": "image",
+        "material": {
+          "blending": "translucent",
+          "combos": {
+            "spritesheet": 1
+          },
+          "constantshadervalues": {},
+          "cullmode": "nocull",
+          "depthtest": "disabled",
+          "depthwrite": "disabled",
+          "shader": "genericimage2",
+          "textures": [
+            "20180720153036"
+          ],
+          "use_puppet": false
+        },
+        "name": "20180720153036",
+        "nopadding": true,
+        "origin": "1926.121 137.715 0.000",
+        "origin_parsed": [
+          1926.1209716796875,
+          137.71499633789063,
+          0.0
+        ],
+        "parallaxDepth": "1.000 1.000",
+        "parsed": true,
+        "puppet": "",
+        "scale": "6.100 2.800 1.000",
+        "scale_parsed": [
+          6.099999904632568,
+          2.799999952316284,
+          1.0
+        ],
+        "size": "316.000 214.000",
+        "size_parsed": [
+          316.0,
+          214.0
+        ],
+        "visible": true,
+        "visible_parsed": true
+      },
+      {
+        "angles": "0.000 0.000 0.000",
+        "id": 384,
+        "kind": "particle",
+        "name": "new particle system",
+        "origin": "131.859 105.007 0.000",
+        "parallaxDepth": "1.000 1.000",
+        "scale": "0.600 0.600 1.000",
+        "visible": true
+      },
+      {
+        "alignment_parsed": "center",
+        "alpha": 1.0,
+        "angles": "0.000 0.000 0.000",
+        "angles_parsed": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "brightness": 1.0,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "colorBlendMode": 0,
+        "effect_count": 3,
+        "effects": [
+          {
+            "fbo_count": 0,
+            "material_count": 1,
+            "materials": [
+              {
+                "blending": "normal",
+                "combos": {},
+                "constantshadervalues": {},
+                "cullmode": "nocull",
+                "depthtest": "disabled",
+                "depthwrite": "disabled",
+                "shader": "effects/waterripple",
+                "textures": [
+                  "",
+                  "",
+                  "effects/waterripplenormal"
+                ],
+                "use_puppet": false
+              }
+            ],
+            "name": "ui_editor_effect_water_ripple_title",
+            "pass_count": 1,
+            "visible": true
+          },
+          {
+            "fbo_count": 0,
+            "material_count": 1,
+            "materials": [
+              {
+                "blending": "normal",
+                "combos": {},
+                "constantshadervalues": {},
+                "cullmode": "nocull",
+                "depthtest": "disabled",
+                "depthwrite": "disabled",
+                "shader": "effects/waterripple",
+                "textures": [
+                  "",
+                  "",
+                  "effects/waterripplenormal"
+                ],
+                "use_puppet": false
+              }
+            ],
+            "name": "ui_editor_effect_water_ripple_title",
+            "pass_count": 1,
+            "visible": true
+          },
+          {
+            "fbo_count": 0,
+            "material_count": 1,
+            "materials": [
+              {
+                "blending": "normal",
+                "combos": {},
+                "constantshadervalues": {},
+                "cullmode": "nocull",
+                "depthtest": "disabled",
+                "depthwrite": "disabled",
+                "shader": "effects/pulse",
+                "textures": [],
+                "use_puppet": false
+              }
+            ],
+            "name": "ui_editor_effect_pulse_title",
+            "pass_count": 1,
+            "visible": true
+          }
+        ],
+        "fullscreen": false,
+        "id": 692,
+        "image": "models/wallhalla-NNvMypobhwJb.json",
+        "kind": "image",
+        "material": {
+          "blending": "translucent",
+          "combos": {},
+          "constantshadervalues": {},
+          "cullmode": "nocull",
+          "depthtest": "disabled",
+          "depthwrite": "disabled",
+          "shader": "genericimage2",
+          "textures": [
+            "wallhalla-NNvMypobhwJb"
+          ],
+          "use_puppet": false
+        },
+        "name": "wallhalla-NNvMypobhwJb",
+        "nopadding": false,
+        "origin": "1280.000 800.000 0.000",
+        "origin_parsed": [
+          1280.0,
+          800.0,
+          0.0
+        ],
+        "parallaxDepth": "1.000 1.000",
+        "parsed": true,
+        "puppet": "",
+        "scale": "1.000 1.000 1.000",
+        "scale_parsed": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "size": "2560.000 1600.000",
+        "size_parsed": [
+          2560.0,
+          1600.0
+        ],
+        "visible": true,
+        "visible_parsed": true
+      },
+      {
+        "angles": "0.000 0.000 -0.117",
+        "id": 765,
+        "kind": "image",
+        "name": "Rain downpour",
+        "origin": "873.594 1484.681 0.000",
+        "parallaxDepth": "1.000 1.000",
+        "parsed": false,
+        "scale": "1.000 1.000 1.000",
+        "visible": true
+      },
+      {
+        "angles": "0.000 0.000 -0.073",
+        "id": 771,
+        "kind": "image",
+        "name": "Rain downpour",
+        "origin": "1877.052 1528.429 0.000",
+        "parallaxDepth": "1.000 1.000",
+        "parsed": false,
+        "scale": "1.000 1.000 1.000",
+        "visible": true
+      },
+      {
+        "alignment_parsed": "center",
+        "alpha": 1.0,
+        "angles": "0.000 0.000 0.000",
+        "angles_parsed": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "brightness": 1.0,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "colorBlendMode": 6,
+        "effect_count": 1,
+        "effects": [
+          {
+            "fbo_count": 0,
+            "material_count": 1,
+            "materials": [
+              {
+                "blending": "normal",
+                "combos": {},
+                "constantshadervalues": {},
+                "cullmode": "nocull",
+                "depthtest": "disabled",
+                "depthwrite": "disabled",
+                "shader": "effects/opacity",
+                "textures": [],
+                "use_puppet": false
+              }
+            ],
+            "name": "ui_editor_effect_opacity_title",
+            "pass_count": 1,
+            "visible": true
+          }
+        ],
+        "fullscreen": false,
+        "id": 1328,
+        "image": "models/20180720153036.json",
+        "kind": "image",
+        "material": {
+          "blending": "translucent",
+          "combos": {
+            "spritesheet": 1
+          },
+          "constantshadervalues": {},
+          "cullmode": "nocull",
+          "depthtest": "disabled",
+          "depthwrite": "disabled",
+          "shader": "genericimage2",
+          "textures": [
+            "20180720153036"
+          ],
+          "use_puppet": false
+        },
+        "name": "20180720153036",
+        "nopadding": true,
+        "origin": "632.922 139.771 0.000",
+        "origin_parsed": [
+          632.9219970703125,
+          139.77099609375,
+          0.0
+        ],
+        "parallaxDepth": "1.000 1.000",
+        "parsed": true,
+        "puppet": "",
+        "scale": "-6.926 2.800 1.000",
+        "scale_parsed": [
+          -6.926000118255615,
+          2.799999952316284,
+          1.0
+        ],
+        "size": "316.000 214.000",
+        "size_parsed": [
+          316.0,
+          214.0
+        ],
+        "visible": true,
+        "visible_parsed": true
+      },
+      {
+        "id": 1380,
+        "kind": "image",
+        "name": "Fullscreen",
+        "parallaxDepth": "1.000 1.000",
+        "parsed": false,
+        "visible": true
+      },
+      {
+        "id": 1475,
+        "kind": "image",
+        "name": "Fullscreen",
+        "parallaxDepth": "1.000 1.000",
+        "parsed": false,
+        "visible": true
+      },
+      {
+        "angles": "0.000 0.000 0.000",
+        "id": 1651,
+        "kind": "image",
+        "name": "Fog 1",
+        "origin": "1248.155 544.498 0.000",
+        "parallaxDepth": "1.000 1.000",
+        "parsed": false,
+        "scale": "1.000 1.000 1.000",
+        "visible": true
+      },
+      {
+        "angles": "0.000 0.000 0.000",
+        "id": 1699,
+        "kind": "particle",
+        "name": "new particle system",
+        "origin": "591.062 138.038 0.000",
+        "parallaxDepth": "1.000 1.000",
+        "scale": "0.600 0.600 1.000",
+        "visible": true
+      },
+      {
+        "angles": "0.000 0.000 0.000",
+        "id": 1710,
+        "kind": "image",
+        "name": "Smoke cloud",
+        "origin": "444.124 617.984 0.000",
+        "parallaxDepth": "1.000 1.000",
+        "parsed": false,
+        "scale": "1.000 1.000 1.000",
+        "visible": true
+      },
+      {
+        "angles": "0.000 0.000 0.000",
+        "id": 1714,
+        "kind": "particle",
+        "name": "new particle system",
+        "origin": "1151.061 163.473 0.000",
+        "parallaxDepth": "1.000 1.000",
+        "scale": "0.600 0.600 1.000",
+        "visible": true
+      },
+      {
+        "angles": "0.000 0.000 0.000",
+        "id": 1722,
+        "kind": "particle",
+        "name": "new particle system",
+        "origin": "1689.503 165.526 0.000",
+        "parallaxDepth": "1.000 1.000",
+        "scale": "0.600 0.600 1.000",
+        "visible": true
+      },
+      {
+        "angles": "0.000 0.000 0.000",
+        "id": 1736,
+        "kind": "particle",
+        "name": "new particle system",
+        "origin": "2258.371 202.896 0.000",
+        "parallaxDepth": "1.000 1.000",
+        "scale": "0.600 0.600 1.000",
+        "visible": true
+      },
+      {
+        "angles": "0.000 0.000 0.000",
+        "id": 1791,
+        "kind": "image",
+        "name": "Smoke cloud",
+        "origin": "2328.021 691.574 0.000",
+        "parallaxDepth": "1.000 1.000",
+        "parsed": false,
+        "scale": "1.000 1.000 1.000",
+        "visible": true
+      },
+      {
+        "id": 1795,
+        "kind": "image",
+        "name": "Fullscreen",
+        "parallaxDepth": "1.000 1.000",
+        "parsed": false,
+        "visible": true
+      },
+      {
+        "angles": "0.281 0.000 0.000",
+        "id": 1975,
+        "kind": "particle",
+        "name": "new particle system",
+        "origin": "1174.178 346.302 0.000",
+        "parallaxDepth": "1.000 1.000",
+        "scale": "0.400 0.100 1.000",
+        "visible": true
+      },
+      {
+        "angles": "0.281 0.000 0.000",
+        "id": 1992,
+        "kind": "particle",
+        "name": "new particle system",
+        "origin": "1963.907 383.514 0.000",
+        "parallaxDepth": "1.000 1.000",
+        "scale": "0.400 0.100 1.000",
+        "visible": true
+      },
+      {
+        "angles": "0.000 0.000 0.000",
+        "id": 1995,
+        "kind": "sound",
+        "name": "68f154dea6f21c43e87eae0a4254313b.mp3",
+        "origin": "0.000 0.000 0.000",
+        "parallaxDepth": "1.000 1.000",
+        "scale": "1.000 1.000 1.000",
+        "visible": true
+      },
+      {
+        "angles": "0.281 0.000 0.000",
+        "id": 2010,
+        "kind": "particle",
+        "name": "new particle system",
+        "origin": "474.298 378.874 0.000",
+        "parallaxDepth": "1.000 1.000",
+        "scale": "0.400 0.100 1.000",
+        "visible": true
+      },
+      {
+        "alignment_parsed": "center",
+        "alpha": 1.0,
+        "angles": "0.000 0.000 0.000",
+        "angles_parsed": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "brightness": 1.0,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "colorBlendMode": 9,
+        "effect_count": 1,
+        "effects": [
+          {
+            "fbo_count": 0,
+            "material_count": 1,
+            "materials": [
+              {
+                "blending": "normal",
+                "combos": {},
+                "constantshadervalues": {},
+                "cullmode": "nocull",
+                "depthtest": "disabled",
+                "depthwrite": "disabled",
+                "shader": "effects/opacity",
+                "textures": [],
+                "use_puppet": false
+              }
+            ],
+            "name": "ui_editor_effect_opacity_title",
+            "pass_count": 1,
+            "visible": true
+          }
+        ],
+        "fullscreen": false,
+        "id": 2106,
+        "image": "models/20180720153036.json",
+        "kind": "image",
+        "material": {
+          "blending": "translucent",
+          "combos": {
+            "spritesheet": 1
+          },
+          "constantshadervalues": {},
+          "cullmode": "nocull",
+          "depthtest": "disabled",
+          "depthwrite": "disabled",
+          "shader": "genericimage2",
+          "textures": [
+            "20180720153036"
+          ],
+          "use_puppet": false
+        },
+        "name": "20180720153036",
+        "nopadding": true,
+        "origin": "1986.936 338.030 0.000",
+        "origin_parsed": [
+          1986.93603515625,
+          338.0299987792969,
+          0.0
+        ],
+        "parallaxDepth": "1.000 1.000",
+        "parsed": true,
+        "puppet": "",
+        "scale": "4.900 1.700 1.000",
+        "scale_parsed": [
+          4.900000095367432,
+          1.7000000476837158,
+          1.0
+        ],
+        "size": "316.000 214.000",
+        "size_parsed": [
+          316.0,
+          214.0
+        ],
+        "visible": true,
+        "visible_parsed": true
+      },
+      {
+        "angles": "0.000 0.000 0.000",
+        "id": 2135,
+        "kind": "image",
+        "name": "Magic pulse",
+        "origin": "421.725 168.660 0.000",
+        "parallaxDepth": "1.000 1.000",
+        "parsed": false,
+        "scale": "0.300 0.100 1.000",
+        "visible": true
+      },
+      {
+        "angles": "0.000 0.000 0.000",
+        "id": 2139,
+        "kind": "image",
+        "name": "Magic pulse",
+        "origin": "910.181 103.563 0.000",
+        "parallaxDepth": "1.000 1.000",
+        "parsed": false,
+        "scale": "0.300 0.100 1.000",
+        "visible": true
+      },
+      {
+        "angles": "0.000 0.000 0.000",
+        "id": 2140,
+        "kind": "image",
+        "name": "Magic pulse",
+        "origin": "1283.276 97.345 0.000",
+        "parallaxDepth": "1.000 1.000",
+        "parsed": false,
+        "scale": "0.300 0.100 1.000",
+        "visible": true
+      },
+      {
+        "angles": "0.000 0.000 0.000",
+        "id": 2230,
+        "kind": "image",
+        "name": "Magic pulse",
+        "origin": "598.286 253.124 0.000",
+        "parallaxDepth": "1.000 1.000",
+        "parsed": false,
+        "scale": "0.300 0.100 1.000",
+        "visible": true
+      },
+      {
+        "angles": "0.000 0.000 0.000",
+        "id": 2250,
+        "kind": "image",
+        "name": "Magic pulse",
+        "origin": "268.908 255.320 0.000",
+        "parallaxDepth": "1.000 1.000",
+        "parsed": false,
+        "scale": "0.300 0.100 1.000",
+        "visible": true
+      },
+      {
+        "angles": "0.000 0.000 0.000",
+        "id": 2251,
+        "kind": "image",
+        "name": "Magic pulse",
+        "origin": "978.169 209.207 0.000",
+        "parallaxDepth": "1.000 1.000",
+        "parsed": false,
+        "scale": "0.300 0.100 1.000",
+        "visible": true
+      },
+      {
+        "angles": "0.000 0.000 0.000",
+        "id": 2265,
+        "kind": "image",
+        "name": "Magic pulse",
+        "origin": "1511.762 193.836 0.000",
+        "parallaxDepth": "1.000 1.000",
+        "parsed": false,
+        "scale": "0.300 0.100 1.000",
+        "visible": true
+      },
+      {
+        "angles": "0.000 0.000 0.000",
+        "id": 2273,
+        "kind": "image",
+        "name": "Magic pulse",
+        "origin": "1757.698 198.228 0.000",
+        "parallaxDepth": "1.000 1.000",
+        "parsed": false,
+        "scale": "0.300 0.100 1.000",
+        "visible": true
+      },
+      {
+        "angles": "0.000 0.000 0.000",
+        "id": 2280,
+        "kind": "image",
+        "name": "Magic pulse",
+        "origin": "2073.901 182.857 0.000",
+        "parallaxDepth": "1.000 1.000",
+        "parsed": false,
+        "scale": "0.300 0.100 1.000",
+        "visible": true
+      },
+      {
+        "angles": "0.000 0.000 0.000",
+        "id": 2288,
+        "kind": "image",
+        "name": "Magic pulse",
+        "origin": "2300.074 187.249 0.000",
+        "parallaxDepth": "1.000 1.000",
+        "parsed": false,
+        "scale": "0.300 0.100 1.000",
+        "visible": true
+      },
+      {
+        "angles": "0.000 0.000 0.000",
+        "id": 2295,
+        "kind": "image",
+        "name": "Magic pulse",
+        "origin": "672.945 325.587 0.000",
+        "parallaxDepth": "1.000 1.000",
+        "parsed": false,
+        "scale": "0.300 0.056 1.000",
+        "visible": true
+      },
+      {
+        "angles": "0.000 0.000 0.000",
+        "id": 2309,
+        "kind": "image",
+        "name": "Magic pulse",
+        "origin": "1019.890 351.937 0.000",
+        "parallaxDepth": "1.000 1.000",
+        "parsed": false,
+        "scale": "0.300 -0.032 1.000",
+        "visible": true
+      },
+      {
+        "alignment_parsed": "center",
+        "alpha": 1.0,
+        "angles": "0.000 0.000 0.000",
+        "angles_parsed": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "brightness": 1.0,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "colorBlendMode": 9,
+        "effect_count": 1,
+        "effects": [
+          {
+            "fbo_count": 0,
+            "material_count": 1,
+            "materials": [
+              {
+                "blending": "normal",
+                "combos": {},
+                "constantshadervalues": {},
+                "cullmode": "nocull",
+                "depthtest": "disabled",
+                "depthwrite": "disabled",
+                "shader": "effects/opacity",
+                "textures": [],
+                "use_puppet": false
+              }
+            ],
+            "name": "ui_editor_effect_opacity_title",
+            "pass_count": 1,
+            "visible": true
+          }
+        ],
+        "fullscreen": false,
+        "id": 2317,
+        "image": "models/20180720153036.json",
+        "kind": "image",
+        "material": {
+          "blending": "translucent",
+          "combos": {
+            "spritesheet": 1
+          },
+          "constantshadervalues": {},
+          "cullmode": "nocull",
+          "depthtest": "disabled",
+          "depthwrite": "disabled",
+          "shader": "genericimage2",
+          "textures": [
+            "20180720153036"
+          ],
+          "use_puppet": false
+        },
+        "name": "20180720153036",
+        "nopadding": true,
+        "origin": "215.281 369.806 0.000",
+        "origin_parsed": [
+          215.281005859375,
+          369.8059997558594,
+          0.0
+        ],
+        "parallaxDepth": "1.000 1.000",
+        "parsed": true,
+        "puppet": "",
+        "scale": "4.900 1.700 1.000",
+        "scale_parsed": [
+          4.900000095367432,
+          1.7000000476837158,
+          1.0
+        ],
+        "size": "316.000 214.000",
+        "size_parsed": [
+          316.0,
+          214.0
+        ],
+        "visible": true,
+        "visible_parsed": true
+      },
+      {
+        "angles": "0.000 0.000 0.000",
+        "id": 2323,
+        "kind": "image",
+        "name": "Magic pulse",
+        "origin": "1259.238 349.741 0.000",
+        "parallaxDepth": "1.000 1.000",
+        "parsed": false,
+        "scale": "0.300 -0.054 1.000",
+        "visible": true
+      },
+      {
+        "alignment_parsed": "center",
+        "alpha": 1.0,
+        "angles": "0.000 0.000 0.000",
+        "angles_parsed": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "brightness": 1.0,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "colorBlendMode": 9,
+        "effect_count": 1,
+        "effects": [
+          {
+            "fbo_count": 0,
+            "material_count": 1,
+            "materials": [
+              {
+                "blending": "normal",
+                "combos": {},
+                "constantshadervalues": {},
+                "cullmode": "nocull",
+                "depthtest": "disabled",
+                "depthwrite": "disabled",
+                "shader": "effects/opacity",
+                "textures": [],
+                "use_puppet": false
+              }
+            ],
+            "name": "ui_editor_effect_opacity_title",
+            "pass_count": 1,
+            "visible": true
+          }
+        ],
+        "fullscreen": false,
+        "id": 2357,
+        "image": "models/20180720153036.json",
+        "kind": "image",
+        "material": {
+          "blending": "translucent",
+          "combos": {
+            "spritesheet": 1
+          },
+          "constantshadervalues": {},
+          "cullmode": "nocull",
+          "depthtest": "disabled",
+          "depthwrite": "disabled",
+          "shader": "genericimage2",
+          "textures": [
+            "20180720153036"
+          ],
+          "use_puppet": false
+        },
+        "name": "20180720153036",
+        "nopadding": true,
+        "origin": "1128.710 392.852 0.000",
+        "origin_parsed": [
+          1128.7099609375,
+          392.85198974609375,
+          0.0
+        ],
+        "parallaxDepth": "1.000 1.000",
+        "parsed": true,
+        "puppet": "",
+        "scale": "4.900 1.700 1.000",
+        "scale_parsed": [
+          4.900000095367432,
+          1.7000000476837158,
+          1.0
+        ],
+        "size": "316.000 214.000",
+        "size_parsed": [
+          316.0,
+          214.0
+        ],
+        "visible": true,
+        "visible_parsed": true
+      },
+      {
+        "id": 2375,
+        "kind": "image",
+        "name": "Fullscreen",
+        "parallaxDepth": "1.000 1.000",
+        "parsed": false,
+        "visible": true
+      },
+      {
+        "angles": "0.000 0.000 0.000",
+        "id": 2489,
+        "kind": "particle",
+        "name": "new particle system",
+        "origin": "902.858 1083.582 0.000",
+        "parallaxDepth": "1.000 1.000",
+        "scale": "2.000 2.000 1.000",
+        "visible": true
+      },
+      {
+        "angles": "0.000 0.000 0.000",
+        "id": 3472,
+        "kind": "image",
+        "name": "Magic pulse",
+        "origin": "684.250 173.011 0.000",
+        "parallaxDepth": "1.000 1.000",
+        "parsed": false,
+        "scale": "0.300 0.100 1.000",
+        "visible": true
+      },
+      {
+        "angles": "0.000 0.000 0.000",
+        "id": 3473,
+        "kind": "image",
+        "name": "Magic pulse",
+        "origin": "147.597 120.796 0.000",
+        "parallaxDepth": "1.000 1.000",
+        "parsed": false,
+        "scale": "0.300 0.100 1.000",
+        "visible": true
+      },
+      {
+        "angles": "0.000 0.000 0.000",
+        "id": 3474,
+        "kind": "image",
+        "name": "Magic pulse",
+        "origin": "930.821 91.788 0.000",
+        "parallaxDepth": "1.000 1.000",
+        "parsed": false,
+        "scale": "0.300 0.100 1.000",
+        "visible": true
+      },
+      {
+        "angles": "0.000 0.000 0.000",
+        "id": 3475,
+        "kind": "image",
+        "name": "Magic pulse",
+        "origin": "1470.041 77.456 0.000",
+        "parallaxDepth": "1.000 1.000",
+        "parsed": false,
+        "scale": "0.300 0.100 1.000",
+        "visible": true
+      },
+      {
+        "angles": "0.000 0.000 0.000",
+        "id": 3476,
+        "kind": "image",
+        "name": "Magic pulse",
+        "origin": "1903.715 105.014 0.000",
+        "parallaxDepth": "1.000 1.000",
+        "parsed": false,
+        "scale": "0.300 0.100 1.000",
+        "visible": true
+      },
+      {
+        "angles": "0.000 0.000 0.000",
+        "id": 3477,
+        "kind": "image",
+        "name": "Magic pulse",
+        "origin": "2050.207 178.985 0.000",
+        "parallaxDepth": "1.000 1.000",
+        "parsed": false,
+        "scale": "0.300 0.100 1.000",
+        "visible": true
+      },
+      {
+        "angles": "0.281 0.000 0.000",
+        "id": 3562,
+        "kind": "particle",
+        "name": "new particle system",
+        "origin": "307.799 33.338 0.000",
+        "parallaxDepth": "1.000 1.000",
+        "scale": "1.000 0.200 1.000",
+        "visible": true
+      },
+      {
+        "angles": "0.281 0.000 0.000",
+        "id": 3566,
+        "kind": "particle",
+        "name": "new particle system",
+        "origin": "1021.618 -62.566 0.000",
+        "parallaxDepth": "1.000 1.000",
+        "scale": "1.000 0.200 1.000",
+        "visible": true
+      },
+      {
+        "angles": "0.281 0.000 0.000",
+        "id": 3570,
+        "kind": "particle",
+        "name": "new particle system",
+        "origin": "1962.617 -37.046 0.000",
+        "parallaxDepth": "1.000 1.000",
+        "scale": "1.000 0.200 1.000",
+        "visible": true
+      },
+      {
+        "angles": "0.281 0.000 0.000",
+        "id": 3574,
+        "kind": "particle",
+        "name": "new particle system",
+        "origin": "2074.701 394.391 0.000",
+        "parallaxDepth": "1.000 1.000",
+        "scale": "0.400 0.100 1.000",
+        "visible": true
+      },
+      {
+        "angles": "0.281 0.000 0.000",
+        "id": 3578,
+        "kind": "particle",
+        "name": "new particle system",
+        "origin": "1574.990 390.770 0.000",
+        "parallaxDepth": "1.000 1.000",
+        "scale": "0.400 0.100 1.000",
+        "visible": true
+      },
+      {
+        "angles": "0.281 0.000 0.000",
+        "id": 3582,
+        "kind": "particle",
+        "name": "new particle system",
+        "origin": "1147.701 381.717 0.000",
+        "parallaxDepth": "1.000 1.000",
+        "scale": "0.400 0.100 1.000",
+        "visible": true
+      },
+      {
+        "angles": "0.281 0.000 0.000",
+        "id": 3586,
+        "kind": "particle",
+        "name": "new particle system",
+        "origin": "698.686 369.043 0.000",
+        "parallaxDepth": "1.000 1.000",
+        "scale": "0.400 0.100 1.000",
+        "visible": true
+      },
+      {
+        "angles": "0.281 0.000 0.000",
+        "id": 3590,
+        "kind": "particle",
+        "name": "new particle system",
+        "origin": "322.092 385.338 0.000",
+        "parallaxDepth": "1.000 1.000",
+        "scale": "0.400 0.100 1.000",
+        "visible": true
+      },
+      {
+        "angles": "0.000 0.000 3.142",
+        "id": 3642,
+        "kind": "particle",
+        "name": "new particle system",
+        "origin": "342.812 207.511 0.000",
+        "parallaxDepth": "1.000 1.000",
+        "scale": "0.700 0.500 1.000",
+        "visible": true
+      },
+      {
+        "angles": "0.000 0.000 0.000",
+        "id": 3936,
+        "kind": "particle",
+        "name": "new particle system",
+        "origin": "2314.025 979.909 0.000",
+        "parallaxDepth": "1.000 1.000",
+        "scale": "2.000 2.000 1.000",
+        "visible": true
+      },
+      {
+        "angles": "0.000 0.000 3.142",
+        "id": 4340,
+        "kind": "particle",
+        "name": "new particle system",
+        "origin": "960.355 212.767 0.000",
+        "parallaxDepth": "1.000 1.000",
+        "scale": "0.700 0.500 1.000",
+        "visible": true
+      },
+      {
+        "angles": "0.000 0.000 3.142",
+        "id": 4344,
+        "kind": "particle",
+        "name": "new particle system",
+        "origin": "1517.457 241.673 0.000",
+        "parallaxDepth": "1.000 1.000",
+        "scale": "0.700 0.500 1.000",
+        "visible": true
+      },
+      {
+        "angles": "0.000 0.000 3.142",
+        "id": 4348,
+        "kind": "particle",
+        "name": "new particle system",
+        "origin": "2208.580 210.139 0.000",
+        "parallaxDepth": "1.000 1.000",
+        "scale": "0.700 0.500 1.000",
+        "visible": true
+      },
+      {
+        "angles": "0.000 0.000 0.000",
+        "id": 4460,
+        "kind": "image",
+        "name": "Compose",
+        "origin": "1201.324 84.768 0.000",
+        "parallaxDepth": "1.000 1.000",
+        "parsed": false,
+        "scale": "1.600 1.100 1.000",
+        "size": "1920.000 512.000",
+        "visible": true
+      },
+      {
+        "angles": "0.000 0.000 0.000",
+        "id": 4484,
+        "kind": "image",
+        "name": "Compose",
+        "origin": "1263.985 1976.601 0.000",
+        "parallaxDepth": "1.000 1.000",
+        "parsed": false,
+        "scale": "5.700 5.700 1.000",
+        "size": "512.000 512.000",
+        "visible": true
+      },
+      {
+        "angles": "0.000 0.000 -0.166",
+        "id": 4494,
+        "kind": "image",
+        "name": "Rain downpour",
+        "origin": "462.236 1156.707 0.000",
+        "parallaxDepth": "1.000 1.000",
+        "parsed": false,
+        "scale": "1.000 1.000 1.000",
+        "visible": true
+      },
+      {
+        "angles": "0.000 0.000 -0.172",
+        "id": 4498,
+        "kind": "image",
+        "name": "Rain downpour",
+        "origin": "873.594 1484.681 0.000",
+        "parallaxDepth": "1.000 1.000",
+        "parsed": false,
+        "scale": "1.000 1.000 1.000",
+        "visible": true
+      },
+      {
+        "angles": "0.000 0.000 0.335",
+        "id": 4594,
+        "kind": "image",
+        "name": "Light shafts 0",
+        "origin": "1148.880 1117.801 0.000",
+        "parallaxDepth": "1.000 1.000",
+        "parsed": false,
+        "scale": "0.900 2.900 1.000",
+        "visible": true
+      },
+      {
+        "angles": "0.000 0.000 0.000",
+        "id": 4648,
+        "kind": "image",
+        "name": "Fireworks 1",
+        "origin": "1476.971 1087.031 0.000",
+        "parallaxDepth": "1.000 1.000",
+        "parsed": false,
+        "scale": "0.700 0.700 1.000",
+        "visible": true
+      },
+      {
+        "angles": "0.000 0.000 0.000",
+        "id": 5914,
+        "kind": "image",
+        "name": "Fireworks 2",
+        "origin": "1216.802 1183.566 0.000",
+        "parallaxDepth": "1.000 1.000",
+        "parsed": false,
+        "scale": "0.700 0.700 1.000",
+        "visible": true
+      }
+    ],
+    "ortho": {
+      "height": 1600,
+      "width": 2560
+    },
+    "parsed": true
+  },
+  "textures": [
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 4,
+      "height": 214,
+      "image_type": -1,
+      "is_sprite": true,
+      "mag_filter": 1,
+      "map_height": 214,
+      "map_width": 316,
+      "min_filter": 1,
+      "mipmap_larger": false,
+      "mipmap_pow2": true,
+      "ok": true,
+      "path": "/materials/20180720153036.tex",
+      "sprite_frames": 23,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 316,
+      "wrap_s": 0,
+      "wrap_t": 0
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 4,
+      "height": 256,
+      "image_type": -1,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 256,
+      "map_width": 256,
+      "min_filter": 0,
+      "mipmap_larger": false,
+      "mipmap_pow2": true,
+      "ok": true,
+      "path": "/materials/effects/waterripplenormal.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 256,
+      "wrap_s": 1,
+      "wrap_t": 1
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 4,
+      "height": 1024,
+      "image_type": -1,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 800,
+      "map_width": 1280,
+      "min_filter": 0,
+      "mipmap_larger": true,
+      "mipmap_pow2": true,
+      "ok": true,
+      "path": "/materials/masks/blur_combine_mask_9dd5d51336e7dd59ea097c0ee19b0d37627ef6c3.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 2048,
+      "wrap_s": 0,
+      "wrap_t": 0
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 4,
+      "height": 256,
+      "image_type": -1,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 214,
+      "map_width": 316,
+      "min_filter": 0,
+      "mipmap_larger": true,
+      "mipmap_pow2": true,
+      "ok": true,
+      "path": "/materials/masks/opacity_mask_1a2257adb44ee124e459745b3d42146f9981bfb0.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 512,
+      "wrap_s": 0,
+      "wrap_t": 0
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 4,
+      "height": 256,
+      "image_type": -1,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 256,
+      "map_width": 960,
+      "min_filter": 0,
+      "mipmap_larger": true,
+      "mipmap_pow2": true,
+      "ok": true,
+      "path": "/materials/masks/opacity_mask_4634fabc1d3678c7a3a2b07a4ecc186d0a2b87ec.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 1024,
+      "wrap_s": 0,
+      "wrap_t": 0
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 4,
+      "height": 256,
+      "image_type": -1,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 214,
+      "map_width": 316,
+      "min_filter": 0,
+      "mipmap_larger": true,
+      "mipmap_pow2": true,
+      "ok": true,
+      "path": "/materials/masks/opacity_mask_681d95af21112ea41fc4cd51aa49d9c553ef1173.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 512,
+      "wrap_s": 0,
+      "wrap_t": 0
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 4,
+      "height": 256,
+      "image_type": -1,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 214,
+      "map_width": 316,
+      "min_filter": 0,
+      "mipmap_larger": true,
+      "mipmap_pow2": true,
+      "ok": true,
+      "path": "/materials/masks/opacity_mask_843377ec5689457129ad9ee2dd9c051f084db05d.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 512,
+      "wrap_s": 0,
+      "wrap_t": 0
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 4,
+      "height": 512,
+      "image_type": -1,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 512,
+      "map_width": 512,
+      "min_filter": 0,
+      "mipmap_larger": false,
+      "mipmap_pow2": true,
+      "ok": true,
+      "path": "/materials/masks/opacity_mask_8ff97d22524664401c8075a30102ed266251d85e.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 512,
+      "wrap_s": 0,
+      "wrap_t": 0
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 4,
+      "height": 1024,
+      "image_type": -1,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 800,
+      "map_width": 1280,
+      "min_filter": 0,
+      "mipmap_larger": true,
+      "mipmap_pow2": true,
+      "ok": true,
+      "path": "/materials/masks/pulse_mask_0cd327c709f6bf57b601c59f35ef676d09638ae6.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 2048,
+      "wrap_s": 0,
+      "wrap_t": 0
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 4,
+      "height": 1024,
+      "image_type": -1,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 800,
+      "map_width": 1280,
+      "min_filter": 0,
+      "mipmap_larger": true,
+      "mipmap_pow2": true,
+      "ok": true,
+      "path": "/materials/masks/waterripple_mask_52eb9f701b38beef68e7b0b9e466e66b92052cd9.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 2048,
+      "wrap_s": 0,
+      "wrap_t": 0
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 4,
+      "height": 1024,
+      "image_type": -1,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 800,
+      "map_width": 1280,
+      "min_filter": 0,
+      "mipmap_larger": true,
+      "mipmap_pow2": true,
+      "ok": true,
+      "path": "/materials/masks/waterripple_mask_e56f99a6e1d7ea692694d3efd76a9427c028223d.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 2048,
+      "wrap_s": 0,
+      "wrap_t": 0
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 4,
+      "height": 2048,
+      "image_type": 2,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 1600,
+      "map_width": 2560,
+      "min_filter": 0,
+      "mipmap_larger": false,
+      "mipmap_pow2": false,
+      "ok": true,
+      "path": "/materials/wallhalla-NNvMypobhwJb.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 4096,
+      "wrap_s": 0,
+      "wrap_t": 0
+    }
+  ],
+  "workshop_dir": "1444077782"
+}

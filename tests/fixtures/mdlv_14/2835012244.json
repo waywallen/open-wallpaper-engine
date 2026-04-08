@@ -321,7 +321,6 @@
         "effects": [
           {
             "fbo_count": 0,
-            "id": 277,
             "material_count": 1,
             "materials": [
               {
@@ -342,7 +341,6 @@
           },
           {
             "fbo_count": 0,
-            "id": 295,
             "material_count": 1,
             "materials": [
               {

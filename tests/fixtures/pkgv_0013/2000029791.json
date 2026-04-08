@@ -1,0 +1,736 @@
+{
+  "pkg": {
+    "file_count": 53,
+    "has_scene_json": true,
+    "version": "PKGV0013"
+  },
+  "puppets": [],
+  "scene": {
+    "camera": {
+      "center": [
+        -161.1666717529297,
+        79.12293243408203,
+        -1.0
+      ],
+      "eye": [
+        -161.1666717529297,
+        79.12293243408203,
+        0.0
+      ],
+      "up": [
+        0.0,
+        1.0,
+        0.0
+      ]
+    },
+    "general": {
+      "ambientcolor": [
+        0.30000001192092896,
+        0.30000001192092896,
+        0.30000001192092896
+      ],
+      "cameraparallax": false,
+      "cameraparallaxamount": 1.6100000143051147,
+      "cameraparallaxdelay": 0.10000000149011612,
+      "cameraparallaxmouseinfluence": 0.0,
+      "clearcolor": [
+        0.699999988079071,
+        0.699999988079071,
+        0.699999988079071
+      ],
+      "farz": 11.0,
+      "fov": 18.030000686645508,
+      "nearz": 0.009999999776482582,
+      "skylightcolor": [
+        0.30000001192092896,
+        0.30000001192092896,
+        0.30000001192092896
+      ],
+      "zoom": 1.0
+    },
+    "is_ortho": true,
+    "object_count": 26,
+    "objects": [
+      {
+        "angles": "0.00000 0.00000 0.00000",
+        "id": 106,
+        "kind": "image",
+        "name": "Fireflies",
+        "origin": "850.68811 874.69537 0.00000",
+        "parallaxDepth": "1.00000 1.00000",
+        "parsed": false,
+        "scale": "1.62601 1.62601 1.00000",
+        "visible": true
+      },
+      {
+        "angles": "0.00000 0.00000 0.00000",
+        "id": 469,
+        "kind": "image",
+        "name": "Fireflies",
+        "origin": "235.61536 886.48163 0.00000",
+        "parallaxDepth": "1.00000 1.00000",
+        "parsed": false,
+        "scale": "0.34774 0.34774 0.21386",
+        "visible": true
+      },
+      {
+        "angles": "0.00000 0.00000 0.00000",
+        "id": 868,
+        "kind": "image",
+        "name": "Fireflies",
+        "origin": "3560.63843 955.53516 0.00000",
+        "parallaxDepth": "1.00000 1.00000",
+        "parsed": false,
+        "scale": "0.49409 0.49409 0.30387",
+        "visible": true
+      },
+      {
+        "angles": "0.00000 0.00000 0.00000",
+        "id": 1042,
+        "kind": "image",
+        "name": "Fireflies",
+        "origin": "2986.37842 905.26324 0.00000",
+        "parallaxDepth": "1.00000 1.00000",
+        "parsed": false,
+        "scale": "0.61725 0.61725 0.37961",
+        "visible": true
+      },
+      {
+        "angles": "0.00000 0.00000 0.00000",
+        "id": 1710,
+        "kind": "image",
+        "name": "Fireflies",
+        "origin": "839.49078 890.82373 0.00000",
+        "parallaxDepth": "1.00000 1.00000",
+        "parsed": false,
+        "scale": "0.82967 0.72117 0.44352",
+        "visible": true
+      },
+      {
+        "angles": "-0.00000 -0.00000 -0.61158",
+        "id": 2165,
+        "kind": "particle",
+        "name": "Stars",
+        "origin": "3035.38403 1719.97205 0.00000",
+        "parallaxDepth": "1.00000 1.00000",
+        "scale": "-0.10525 0.11545 0.07084",
+        "visible": true
+      },
+      {
+        "angles": "0.00000 0.00000 0.00000",
+        "id": 2483,
+        "kind": "particle",
+        "name": "Shooting star",
+        "origin": "1988.80859 1894.81165 0.00000",
+        "parallaxDepth": "1.00000 1.00000",
+        "scale": "0.69490 0.69490 1.00000",
+        "visible": true
+      },
+      {
+        "angles": "0.00000 -0.00000 0.36317",
+        "id": 2534,
+        "kind": "particle",
+        "name": "Stars",
+        "origin": "3097.62256 1852.56714 0.00000",
+        "parallaxDepth": "1.00000 1.00000",
+        "scale": "-0.11129 0.06811 0.07084",
+        "visible": true
+      },
+      {
+        "angles": "0.00000 0.00000 0.00000",
+        "id": 2918,
+        "kind": "particle",
+        "name": "Shooting star",
+        "origin": "869.64563 1815.41199 0.00000",
+        "parallaxDepth": "1.00000 1.00000",
+        "scale": "0.69490 0.69490 1.00000",
+        "visible": true
+      },
+      {
+        "angles": "0.00000 0.00000 0.00000",
+        "id": 3211,
+        "kind": "particle",
+        "name": "Stars",
+        "origin": "1469.74451 1908.56702 0.00000",
+        "parallaxDepth": "1.00000 1.00000",
+        "scale": "0.46086 0.27410 0.06900",
+        "visible": true
+      },
+      {
+        "angles": "-0.00000 -0.00000 -1.17235",
+        "id": 3319,
+        "kind": "particle",
+        "name": "Stars",
+        "origin": "1672.72461 1899.81775 0.00000",
+        "parallaxDepth": "1.00000 1.00000",
+        "scale": "0.30718 0.11545 0.07084",
+        "visible": true
+      },
+      {
+        "angles": "-0.00000 -0.00000 -0.25132",
+        "id": 3405,
+        "kind": "particle",
+        "name": "Stars",
+        "origin": "1463.06018 1704.94055 0.00000",
+        "parallaxDepth": "1.00000 1.00000",
+        "scale": "-0.28957 0.11545 0.07084",
+        "visible": true
+      },
+      {
+        "angles": "-0.00000 -0.00000 -0.00373",
+        "id": 3558,
+        "kind": "particle",
+        "name": "Stars",
+        "origin": "2153.48730 2172.36890 0.00000",
+        "parallaxDepth": "1.00000 1.00000",
+        "scale": "0.62502 0.17316 0.06900",
+        "visible": true
+      },
+      {
+        "angles": "0.00000 0.00000 0.00000",
+        "id": 3609,
+        "kind": "sound",
+        "name": "Endless Love (The Myth OST) - Jackie Chan ft. Kim Hee Seon PIANO COVER AN COONG PIANO.mp3",
+        "origin": "0.00000 0.00000 0.00000",
+        "parallaxDepth": "1.00000 1.00000",
+        "scale": "1.00000 1.00000 1.00000",
+        "visible": true
+      },
+      {
+        "angles": "-0.00000 -0.00000 -0.61158",
+        "id": 3649,
+        "kind": "particle",
+        "name": "Stars",
+        "origin": "2727.79980 1874.21545 0.00000",
+        "parallaxDepth": "1.00000 1.00000",
+        "scale": "-0.34599 0.11545 0.07084",
+        "visible": true
+      },
+      {
+        "angles": "0.00000 -0.00000 0.58005",
+        "id": 3733,
+        "kind": "particle",
+        "name": "Stars",
+        "origin": "3463.57520 1872.55103 0.00000",
+        "parallaxDepth": "1.00000 1.00000",
+        "scale": "-0.42975 0.11545 0.07084",
+        "visible": true
+      },
+      {
+        "angles": "-0.00000 -0.00000 -0.12171",
+        "id": 3853,
+        "kind": "particle",
+        "name": "Stars",
+        "origin": "125.73637 1918.63306 0.00000",
+        "parallaxDepth": "1.00000 1.00000",
+        "scale": "-0.34599 0.24101 0.07084",
+        "visible": true
+      },
+      {
+        "angles": "-0.00000 -0.00000 -0.84490",
+        "id": 3902,
+        "kind": "particle",
+        "name": "Stars",
+        "origin": "-184.86734 2259.97925 0.00000",
+        "parallaxDepth": "1.00000 1.00000",
+        "scale": "-0.34599 0.22453 0.07084",
+        "visible": true
+      },
+      {
+        "angles": "0.00000 0.00000 0.00000",
+        "id": 4078,
+        "kind": "image",
+        "name": "Fireflies",
+        "origin": "3152.76538 1005.16589 0.00000",
+        "parallaxDepth": "1.00000 1.00000",
+        "parsed": false,
+        "scale": "2.21116 2.21116 1.35987",
+        "visible": true
+      },
+      {
+        "angles": "0.00000 0.00000 0.00000",
+        "id": 4199,
+        "kind": "image",
+        "name": "Fireflies",
+        "origin": "1679.30920 916.86456 0.00000",
+        "parallaxDepth": "1.00000 1.00000",
+        "parsed": false,
+        "scale": "0.49409 0.49409 0.30387",
+        "visible": true
+      },
+      {
+        "angles": "0.00000 0.00000 0.00000",
+        "id": 4370,
+        "kind": "image",
+        "name": "Fireflies",
+        "origin": "2583.83447 931.62360 0.00000",
+        "parallaxDepth": "1.00000 1.00000",
+        "parsed": false,
+        "scale": "0.54205 0.54205 0.33336",
+        "visible": true
+      },
+      {
+        "angles": "0.00000 0.00000 0.00000",
+        "id": 4782,
+        "kind": "image",
+        "name": "Fireflies",
+        "origin": "695.79700 532.64496 0.00000",
+        "parallaxDepth": "1.00000 1.00000",
+        "parsed": false,
+        "scale": "1.77282 1.77282 1.09029",
+        "visible": true
+      },
+      {
+        "alignment": "center",
+        "alignment_parsed": "center",
+        "alpha": 1.0,
+        "angles": "0.00000 0.00000 0.00000",
+        "angles_parsed": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "brightness": 1.0,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "colorBlendMode": 0,
+        "effect_count": 4,
+        "effects": [
+          {
+            "fbo_count": 0,
+            "material_count": 1,
+            "materials": [
+              {
+                "blending": "normal",
+                "combos": {},
+                "constantshadervalues": {},
+                "cullmode": "nocull",
+                "depthtest": "disabled",
+                "depthwrite": "disabled",
+                "shader": "effects/shake",
+                "textures": [],
+                "use_puppet": false
+              }
+            ],
+            "name": "ui_editor_effect_shake_title",
+            "pass_count": 1,
+            "visible": true
+          },
+          {
+            "fbo_count": 0,
+            "material_count": 1,
+            "materials": [
+              {
+                "blending": "normal",
+                "combos": {},
+                "constantshadervalues": {},
+                "cullmode": "nocull",
+                "depthtest": "disabled",
+                "depthwrite": "disabled",
+                "shader": "effects/shake",
+                "textures": [],
+                "use_puppet": false
+              }
+            ],
+            "name": "ui_editor_effect_shake_title",
+            "pass_count": 1,
+            "visible": true
+          },
+          {
+            "fbo_count": 2,
+            "material_count": 5,
+            "materials": [
+              {
+                "blending": "normal",
+                "combos": {},
+                "constantshadervalues": {},
+                "cullmode": "nocull",
+                "depthtest": "disabled",
+                "depthwrite": "disabled",
+                "shader": "effects/godrays_downsample2",
+                "textures": [],
+                "use_puppet": false
+              },
+              {
+                "blending": "normal",
+                "combos": {},
+                "constantshadervalues": {},
+                "cullmode": "nocull",
+                "depthtest": "disabled",
+                "depthwrite": "disabled",
+                "shader": "effects/godrays_cast",
+                "textures": [],
+                "use_puppet": false
+              },
+              {
+                "blending": "normal",
+                "combos": {},
+                "constantshadervalues": {},
+                "cullmode": "nocull",
+                "depthtest": "disabled",
+                "depthwrite": "disabled",
+                "shader": "effects/godrays_gaussian",
+                "textures": [],
+                "use_puppet": false
+              },
+              {
+                "blending": "normal",
+                "combos": {
+                  "VERTICAL": 1
+                },
+                "constantshadervalues": {},
+                "cullmode": "nocull",
+                "depthtest": "disabled",
+                "depthwrite": "disabled",
+                "shader": "effects/godrays_gaussian",
+                "textures": [],
+                "use_puppet": false
+              },
+              {
+                "blending": "normal",
+                "combos": {},
+                "constantshadervalues": {},
+                "cullmode": "nocull",
+                "depthtest": "disabled",
+                "depthwrite": "disabled",
+                "shader": "effects/godrays_combine",
+                "textures": [],
+                "use_puppet": false
+              }
+            ],
+            "name": "ui_editor_effect_godrays_title",
+            "pass_count": 5,
+            "visible": true
+          },
+          {
+            "fbo_count": 2,
+            "material_count": 5,
+            "materials": [
+              {
+                "blending": "normal",
+                "combos": {},
+                "constantshadervalues": {},
+                "cullmode": "nocull",
+                "depthtest": "disabled",
+                "depthwrite": "disabled",
+                "shader": "effects/shine_downsample2",
+                "textures": [],
+                "use_puppet": false
+              },
+              {
+                "blending": "normal",
+                "combos": {},
+                "constantshadervalues": {},
+                "cullmode": "nocull",
+                "depthtest": "disabled",
+                "depthwrite": "disabled",
+                "shader": "effects/shine_cast",
+                "textures": [],
+                "use_puppet": false
+              },
+              {
+                "blending": "normal",
+                "combos": {},
+                "constantshadervalues": {},
+                "cullmode": "nocull",
+                "depthtest": "disabled",
+                "depthwrite": "disabled",
+                "shader": "effects/shine_gaussian",
+                "textures": [],
+                "use_puppet": false
+              },
+              {
+                "blending": "normal",
+                "combos": {
+                  "VERTICAL": 1
+                },
+                "constantshadervalues": {},
+                "cullmode": "nocull",
+                "depthtest": "disabled",
+                "depthwrite": "disabled",
+                "shader": "effects/shine_gaussian",
+                "textures": [],
+                "use_puppet": false
+              },
+              {
+                "blending": "normal",
+                "combos": {},
+                "constantshadervalues": {},
+                "cullmode": "nocull",
+                "depthtest": "disabled",
+                "depthwrite": "disabled",
+                "shader": "effects/shine_combine",
+                "textures": [],
+                "use_puppet": false
+              }
+            ],
+            "name": "ui_editor_effect_shine_title",
+            "pass_count": 5,
+            "visible": true
+          }
+        ],
+        "fullscreen": false,
+        "id": 5531,
+        "image": "models/everlasting summer.json",
+        "kind": "image",
+        "material": {
+          "blending": "translucent",
+          "combos": {
+            "version": 2
+          },
+          "constantshadervalues": {},
+          "cullmode": "nocull",
+          "depthtest": "disabled",
+          "depthwrite": "disabled",
+          "shader": "genericimage2",
+          "textures": [
+            "everlasting summer"
+          ],
+          "use_puppet": false
+        },
+        "name": "everlasting summer",
+        "nopadding": false,
+        "origin": "1933.54187 1083.49243 0.00000",
+        "origin_parsed": [
+          1933.5418701171875,
+          1083.492431640625,
+          0.0
+        ],
+        "parallaxDepth": "1.00000 1.00000",
+        "parsed": true,
+        "puppet": "",
+        "scale": "1.02840 1.02840 0.45860",
+        "scale_parsed": [
+          1.02839994430542,
+          1.02839994430542,
+          0.4586000144481659
+        ],
+        "size": "3840.00000 2160.00000",
+        "size_parsed": [
+          3840.0,
+          2160.0
+        ],
+        "visible": true,
+        "visible_parsed": true
+      },
+      {
+        "angles": "0.00000 0.00000 0.00000",
+        "id": 8271,
+        "kind": "particle",
+        "name": "Stars",
+        "origin": "3232.07837 2127.20703 0.00000",
+        "parallaxDepth": "1.00000 1.00000",
+        "scale": "0.56042 0.56042 0.06900",
+        "visible": true
+      },
+      {
+        "angles": "0.00000 0.00000 0.00000",
+        "id": 11557,
+        "kind": "image",
+        "name": "Fireflies",
+        "origin": "3280.18677 575.56348 0.00000",
+        "parallaxDepth": "1.00000 1.00000",
+        "parsed": false,
+        "scale": "1.62601 1.62601 1.00000",
+        "visible": true
+      },
+      {
+        "angles": "0.00000 0.00000 0.00000",
+        "id": 12507,
+        "kind": "image",
+        "name": "Fireflies",
+        "origin": "2314.35400 897.90784 0.00000",
+        "parallaxDepth": "1.00000 1.00000",
+        "parsed": false,
+        "scale": "0.25692 0.25692 0.15801",
+        "visible": true
+      }
+    ],
+    "ortho": {
+      "height": 2160,
+      "width": 3840
+    },
+    "parsed": true
+  },
+  "textures": [
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 4,
+      "height": 4096,
+      "image_type": 2,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 2160,
+      "map_width": 3840,
+      "min_filter": 0,
+      "mipmap_larger": false,
+      "mipmap_pow2": false,
+      "ok": true,
+      "path": "/materials/everlasting summer.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 4096,
+      "wrap_s": 0,
+      "wrap_t": 0
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 4,
+      "height": 2048,
+      "image_type": 13,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 1080,
+      "map_width": 1920,
+      "min_filter": 0,
+      "mipmap_larger": false,
+      "mipmap_pow2": false,
+      "ok": true,
+      "path": "/materials/masks/godrays_downsample2_mask_ee0d9bbc6d0516b8583c8fb3e841485c0b7ec4e8.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 2048,
+      "wrap_s": 0,
+      "wrap_t": 0
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 4,
+      "height": 1024,
+      "image_type": 13,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 540,
+      "map_width": 960,
+      "min_filter": 0,
+      "mipmap_larger": false,
+      "mipmap_pow2": false,
+      "ok": true,
+      "path": "/materials/masks/shake_mask_681d95af21112ea41fc4cd51aa49d9c553ef1173.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 1024,
+      "wrap_s": 0,
+      "wrap_t": 0
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 4,
+      "height": 1024,
+      "image_type": -1,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 540,
+      "map_width": 960,
+      "min_filter": 0,
+      "mipmap_larger": true,
+      "mipmap_pow2": true,
+      "ok": true,
+      "path": "/materials/masks/shake_mask_843377ec5689457129ad9ee2dd9c051f084db05d.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 1024,
+      "wrap_s": 0,
+      "wrap_t": 0
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 4,
+      "height": 1024,
+      "image_type": -1,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 540,
+      "map_width": 960,
+      "min_filter": 0,
+      "mipmap_larger": true,
+      "mipmap_pow2": true,
+      "ok": true,
+      "path": "/materials/masks/shake_mask_da11b219781480d1ff5bab0798ef7b436718b97b.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 1024,
+      "wrap_s": 0,
+      "wrap_t": 0
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 4,
+      "height": 1024,
+      "image_type": -1,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 540,
+      "map_width": 960,
+      "min_filter": 0,
+      "mipmap_larger": true,
+      "mipmap_pow2": true,
+      "ok": true,
+      "path": "/materials/masks/shake_mask_eedb1a83e725dca411bf3044e8860f39b27d70a8.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 1024,
+      "wrap_s": 0,
+      "wrap_t": 0
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 4,
+      "height": 2048,
+      "image_type": 13,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 1080,
+      "map_width": 1920,
+      "min_filter": 0,
+      "mipmap_larger": false,
+      "mipmap_pow2": false,
+      "ok": true,
+      "path": "/materials/masks/shine_downsample2_mask_719ebc4344a4231aae4016d2ad8cfefc434418f5.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 2048,
+      "wrap_s": 0,
+      "wrap_t": 0
+    }
+  ],
+  "workshop_dir": "2000029791"
+}

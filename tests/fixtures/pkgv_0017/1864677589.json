@@ -72,7 +72,6 @@
         "effects": [
           {
             "fbo_count": 0,
-            "id": 113,
             "material_count": 1,
             "materials": [
               {
@@ -93,7 +92,6 @@
           },
           {
             "fbo_count": 0,
-            "id": 101,
             "material_count": 1,
             "materials": [
               {
@@ -114,7 +112,6 @@
           },
           {
             "fbo_count": 0,
-            "id": 181,
             "material_count": 1,
             "materials": [
               {
@@ -258,7 +255,6 @@
         "effects": [
           {
             "fbo_count": 0,
-            "id": 230,
             "material_count": 1,
             "materials": [
               {
@@ -532,7 +528,6 @@
         "effects": [
           {
             "fbo_count": 0,
-            "id": 47,
             "material_count": 1,
             "materials": [
               {
@@ -1275,7 +1270,6 @@
         "effects": [
           {
             "fbo_count": 0,
-            "id": 136,
             "material_count": 1,
             "materials": [
               {
@@ -1362,7 +1356,6 @@
         "effects": [
           {
             "fbo_count": 0,
-            "id": 95,
             "material_count": 1,
             "materials": [
               {
@@ -1445,7 +1438,6 @@
         "effects": [
           {
             "fbo_count": 0,
-            "id": 110,
             "material_count": 1,
             "materials": [
               {
@@ -2790,7 +2782,6 @@
         "effects": [
           {
             "fbo_count": 0,
-            "id": 215,
             "material_count": 1,
             "materials": [
               {
@@ -2873,7 +2864,6 @@
         "effects": [
           {
             "fbo_count": 0,
-            "id": 223,
             "material_count": 1,
             "materials": [
               {
@@ -2956,7 +2946,6 @@
         "effects": [
           {
             "fbo_count": 0,
-            "id": 104,
             "material_count": 1,
             "materials": [
               {
@@ -3102,7 +3091,6 @@
         "effects": [
           {
             "fbo_count": 0,
-            "id": 73,
             "material_count": 1,
             "materials": [
               {

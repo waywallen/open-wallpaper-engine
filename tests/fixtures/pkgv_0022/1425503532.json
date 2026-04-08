@@ -1,0 +1,270 @@
+{
+  "pkg": {
+    "file_count": 34,
+    "has_scene_json": true,
+    "version": "PKGV0022"
+  },
+  "puppets": [],
+  "scene": {
+    "camera": {
+      "center": [
+        0.0,
+        0.0,
+        -1.0
+      ],
+      "eye": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "up": [
+        0.0,
+        1.0,
+        0.0
+      ]
+    },
+    "general": {
+      "ambientcolor": [
+        0.30000001192092896,
+        0.30000001192092896,
+        0.30000001192092896
+      ],
+      "cameraparallax": false,
+      "cameraparallaxamount": 0.5,
+      "cameraparallaxdelay": 0.10000000149011612,
+      "cameraparallaxmouseinfluence": 0.0,
+      "clearcolor": [
+        0.0823500007390976,
+        0.09019999951124191,
+        0.10980000346899033
+      ],
+      "farz": 10000.0,
+      "fov": 50.0,
+      "nearz": 0.009999999776482582,
+      "skylightcolor": [
+        0.30000001192092896,
+        0.30000001192092896,
+        0.30000001192092896
+      ],
+      "zoom": 1.0
+    },
+    "is_ortho": true,
+    "object_count": 4,
+    "objects": [
+      {
+        "id": 12,
+        "kind": "particle",
+        "name": "ghost1",
+        "origin": "960.00000 540.00000 0.00000",
+        "visible": true
+      },
+      {
+        "alignment_parsed": "center",
+        "alpha": 1.0,
+        "angles_parsed": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "brightness": 1.0,
+        "color": [
+          0.09803999960422516,
+          0.09019999951124191,
+          0.1725499927997589
+        ],
+        "colorBlendMode": 0,
+        "effect_count": 0,
+        "effects": [],
+        "fullscreen": false,
+        "id": 179,
+        "image": "models/pacmanpattern.json",
+        "kind": "image",
+        "material": {
+          "blending": "translucent",
+          "combos": {
+            "VERSION": 2
+          },
+          "constantshadervalues": {},
+          "cullmode": "nocull",
+          "depthtest": "disabled",
+          "depthwrite": "disabled",
+          "shader": "genericimage2",
+          "textures": [
+            "pacmanpattern"
+          ],
+          "use_puppet": false
+        },
+        "name": "pacmanpattern",
+        "nopadding": false,
+        "origin": "960.00000 540.00000 0.00000",
+        "origin_parsed": [
+          960.0,
+          540.0,
+          0.0
+        ],
+        "parsed": true,
+        "puppet": "",
+        "scale": "1.92300 1.13200 1.00000",
+        "scale_parsed": [
+          1.9229999780654907,
+          1.1319999694824219,
+          1.0
+        ],
+        "size": "1024.00000 1024.00000",
+        "size_parsed": [
+          1024.0,
+          1024.0
+        ],
+        "visible": true,
+        "visible_parsed": true
+      },
+      {
+        "id": 192,
+        "kind": "particle",
+        "name": "ghost2",
+        "origin": "960.00000 540.00000 0.00000",
+        "visible": true
+      },
+      {
+        "id": 239,
+        "kind": "particle",
+        "name": "pacman",
+        "origin": "474.22501 540.00000 0.00000",
+        "visible": true
+      }
+    ],
+    "ortho": {
+      "height": 1080,
+      "width": 1920
+    },
+    "parsed": true
+  },
+  "textures": [
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 4,
+      "height": 1024,
+      "image_type": 13,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 1024,
+      "map_width": 1024,
+      "min_filter": 0,
+      "mipmap_larger": false,
+      "mipmap_pow2": true,
+      "ok": true,
+      "path": "/materials/pacmanpattern.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 1024,
+      "wrap_s": 0,
+      "wrap_t": 0
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 4,
+      "height": 64,
+      "image_type": -1,
+      "is_sprite": true,
+      "mag_filter": 1,
+      "map_height": 64,
+      "map_width": 64,
+      "min_filter": 1,
+      "mipmap_larger": false,
+      "mipmap_pow2": true,
+      "ok": true,
+      "path": "/materials/particle/ghost_body.tex",
+      "sprite_frames": 3,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 64,
+      "wrap_s": 0,
+      "wrap_t": 0
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 4,
+      "height": 32,
+      "image_type": -1,
+      "is_sprite": false,
+      "mag_filter": 1,
+      "map_height": 32,
+      "map_width": 32,
+      "min_filter": 1,
+      "mipmap_larger": false,
+      "mipmap_pow2": true,
+      "ok": true,
+      "path": "/materials/particle/ghost_eyes.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 32,
+      "wrap_s": 0,
+      "wrap_t": 0
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 4,
+      "height": 512,
+      "image_type": -1,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 512,
+      "map_width": 128,
+      "min_filter": 0,
+      "mipmap_larger": false,
+      "mipmap_pow2": true,
+      "ok": true,
+      "path": "/materials/particle/ghosttrail.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 128,
+      "wrap_s": 0,
+      "wrap_t": 0
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 4,
+      "height": 32,
+      "image_type": -1,
+      "is_sprite": true,
+      "mag_filter": 1,
+      "map_height": 32,
+      "map_width": 64,
+      "min_filter": 1,
+      "mipmap_larger": false,
+      "mipmap_pow2": true,
+      "ok": true,
+      "path": "/materials/particle/pacman.tex",
+      "sprite_frames": 2,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 64,
+      "wrap_s": 1,
+      "wrap_t": 1
+    }
+  ],
+  "workshop_dir": "1425503532"
+}

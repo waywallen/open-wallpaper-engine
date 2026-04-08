@@ -237,16 +237,19 @@ json dump_image_object(const json& obj, wallpaper::fs::VFS& vfs) {
     out["puppet"]         = img.puppet;
     out["material"]       = dump_material(img.material);
     out["effect_count"]   = static_cast<int>(img.effects.size());
-    json effs             = json::array();
+    // WPImageEffect::id and ::version are left uninitialised by the
+    // parser when the source json omits them, so dumping their raw
+    // value produces stack garbage. Skip them — what we really care
+    // about is the structural shape (name + sub-counts + materials).
+    json effs = json::array();
     for (const auto& e : img.effects) {
         json je;
-        je["id"]            = e.id;
-        je["name"]          = e.name;
-        je["visible"]       = e.visible;
+        je["name"]           = e.name;
+        je["visible"]        = e.visible;
         je["material_count"] = static_cast<int>(e.materials.size());
-        je["pass_count"]    = static_cast<int>(e.passes.size());
-        je["fbo_count"]     = static_cast<int>(e.fbos.size());
-        json mats           = json::array();
+        je["pass_count"]     = static_cast<int>(e.passes.size());
+        je["fbo_count"]      = static_cast<int>(e.fbos.size());
+        json mats            = json::array();
         for (const auto& mm : e.materials) mats.push_back(dump_material(mm));
         je["materials"] = std::move(mats);
         effs.push_back(std::move(je));

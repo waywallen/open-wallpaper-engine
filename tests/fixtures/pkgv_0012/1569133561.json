@@ -1,0 +1,240 @@
+{
+  "pkg": {
+    "file_count": 19,
+    "has_scene_json": true,
+    "version": "PKGV0012"
+  },
+  "puppets": [],
+  "scene": {
+    "camera": {
+      "center": [
+        0.0,
+        0.0,
+        -1.0
+      ],
+      "eye": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "up": [
+        0.0,
+        1.0,
+        0.0
+      ]
+    },
+    "general": {
+      "ambientcolor": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "cameraparallax": false,
+      "cameraparallaxamount": 0.5,
+      "cameraparallaxdelay": 0.10000000149011612,
+      "cameraparallaxmouseinfluence": 0.0,
+      "clearcolor": [
+        0.699999988079071,
+        0.699999988079071,
+        0.699999988079071
+      ],
+      "farz": 10000.0,
+      "fov": 50.0,
+      "nearz": 0.009999999776482582,
+      "skylightcolor": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "zoom": 1.0
+    },
+    "is_ortho": true,
+    "object_count": 5,
+    "objects": [
+      {
+        "alignment": "center",
+        "alignment_parsed": "center",
+        "alpha": 1.0,
+        "angles": "0.00000 0.00000 0.00000",
+        "angles_parsed": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "brightness": 1.0,
+        "color": [
+          1.0,
+          1.0,
+          1.0
+        ],
+        "colorBlendMode": 0,
+        "effect_count": 1,
+        "effects": [
+          {
+            "fbo_count": 0,
+            "material_count": 1,
+            "materials": [
+              {
+                "blending": "normal",
+                "combos": {},
+                "constantshadervalues": {},
+                "cullmode": "nocull",
+                "depthtest": "disabled",
+                "depthwrite": "disabled",
+                "shader": "effects/pulse",
+                "textures": [],
+                "use_puppet": false
+              }
+            ],
+            "name": "ui_editor_effect_pulse_title",
+            "pass_count": 1,
+            "visible": true
+          }
+        ],
+        "fullscreen": false,
+        "id": 20,
+        "image": "models/wallhaven-659660.json",
+        "kind": "image",
+        "material": {
+          "blending": "translucent",
+          "combos": {},
+          "constantshadervalues": {},
+          "cullmode": "nocull",
+          "depthtest": "disabled",
+          "depthwrite": "disabled",
+          "shader": "genericimage2",
+          "textures": [
+            "wallhaven-659660"
+          ],
+          "use_puppet": false
+        },
+        "name": "wallhaven-659660",
+        "nopadding": false,
+        "origin": "960.00000 545.73700 0.00000",
+        "origin_parsed": [
+          960.0,
+          545.7369995117188,
+          0.0
+        ],
+        "parallaxDepth": "1.00000 1.00000",
+        "parsed": true,
+        "puppet": "",
+        "scale": "1.00000 1.06300 1.00000",
+        "scale_parsed": [
+          1.0,
+          1.062999963760376,
+          1.0
+        ],
+        "size": "1920.00000 1041.00000",
+        "size_parsed": [
+          1920.0,
+          1041.0
+        ],
+        "visible": true,
+        "visible_parsed": true
+      },
+      {
+        "angles": "0.00000 0.00000 0.00000",
+        "id": 41,
+        "kind": "image",
+        "name": "Torch",
+        "origin": "731.38098 328.64499 0.00000",
+        "parallaxDepth": "1.00000 1.00000",
+        "parsed": false,
+        "scale": "0.24700 0.38100 1.00000",
+        "visible": true
+      },
+      {
+        "angles": "0.00000 0.00000 0.00000",
+        "id": 211,
+        "kind": "image",
+        "name": "Shooting star",
+        "origin": "637.76202 879.23602 0.00000",
+        "parallaxDepth": "1.00000 1.00000",
+        "parsed": false,
+        "scale": "1.87000 1.53000 1.00000",
+        "visible": true
+      },
+      {
+        "angles": "0.00000 0.00000 0.00000",
+        "id": 354,
+        "kind": "image",
+        "name": "Shooting star",
+        "origin": "1569.97302 592.07001 0.00000",
+        "parallaxDepth": "1.00000 1.00000",
+        "parsed": false,
+        "scale": "1.00000 1.00000 1.00000",
+        "visible": true
+      },
+      {
+        "angles": "0.00000 -0.00000 0.01900",
+        "id": 497,
+        "kind": "image",
+        "name": "Fog 1",
+        "origin": "1398.10205 108.02100 0.00000",
+        "parallaxDepth": "1.00000 1.00000",
+        "parsed": false,
+        "scale": "0.77400 0.44800 1.00000",
+        "visible": true
+      }
+    ],
+    "ortho": {
+      "height": 1080,
+      "width": 1920
+    },
+    "parsed": true
+  },
+  "textures": [
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 4,
+      "height": 1024,
+      "image_type": -1,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 520,
+      "map_width": 960,
+      "min_filter": 0,
+      "mipmap_larger": true,
+      "mipmap_pow2": true,
+      "ok": true,
+      "path": "/materials/masks/pulse_mask_a040c5e032380220bdbbaa86d467fe9f5c6bab33.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 1024,
+      "wrap_s": 0,
+      "wrap_t": 0
+    },
+    {
+      "compo1": 0,
+      "compo2": 0,
+      "compo3": 0,
+      "count": 1,
+      "format": 4,
+      "height": 2048,
+      "image_type": 2,
+      "is_sprite": false,
+      "mag_filter": 0,
+      "map_height": 1041,
+      "map_width": 1920,
+      "min_filter": 0,
+      "mipmap_larger": false,
+      "mipmap_pow2": false,
+      "ok": true,
+      "path": "/materials/wallhaven-659660.tex",
+      "sprite_frames": 0,
+      "texb": 3,
+      "texi": 1,
+      "texv": 5,
+      "width": 2048,
+      "wrap_s": 0,
+      "wrap_t": 0
+    }
+  ],
+  "workshop_dir": "1569133561"
+}
