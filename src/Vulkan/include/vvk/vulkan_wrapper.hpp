@@ -172,7 +172,9 @@ struct DeviceDispatch : InstanceDispatch {
     PFN_vkGetEventStatus                      vkGetEventStatus {};
     PFN_vkGetFenceStatus                      vkGetFenceStatus {};
     PFN_vkGetImageMemoryRequirements          vkGetImageMemoryRequirements {};
+    PFN_vkGetImageSubresourceLayout           vkGetImageSubresourceLayout {};
     PFN_vkGetMemoryFdKHR                      vkGetMemoryFdKHR {};
+    PFN_vkGetImageDrmFormatModifierPropertiesEXT vkGetImageDrmFormatModifierPropertiesEXT {};
     PFN_vkGetPipelineExecutablePropertiesKHR  vkGetPipelineExecutablePropertiesKHR {};
     PFN_vkGetPipelineExecutableStatisticsKHR  vkGetPipelineExecutableStatisticsKHR {};
     PFN_vkGetQueryPoolResults                 vkGetQueryPoolResults {};
@@ -479,6 +481,12 @@ public:
     Queue GetQueue(uint32_t family_index) const noexcept;
 
     VkMemoryRequirements GetImageMemoryRequirements(VkImage image) const noexcept;
+
+    VkSubresourceLayout GetImageSubresourceLayout(VkImage                    image,
+                                                  const VkImageSubresource& subresource) const noexcept;
+
+    VkResult GetImageDrmFormatModifierPropertiesEXT(
+        VkImage image, VkImageDrmFormatModifierPropertiesEXT* props) const noexcept;
 
     VkResult AllocateMemory(const VkMemoryAllocateInfo& ai, DeviceMemory&) const noexcept;
 

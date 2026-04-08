@@ -15,6 +15,14 @@ link_libraries(Eigen3::Eigen)
 add_subdirectory(third_party)
 add_subdirectory(src)
 
+# waywallen-renderer: renderer host subprocess that speaks the IPC
+# protocol to the Rust waywallen daemon. Opt-in so consumers that just
+# want the scene renderer library are unaffected.
+option(BUILD_WAYWALLEN_HOST "Build the waywallen-renderer host executable" ON)
+if(BUILD_WAYWALLEN_HOST)
+    add_subdirectory(host)
+endif()
+
 if(BUILD_QML)
     find_package(Qt6 COMPONENTS Gui Quick Qml REQUIRED)
 

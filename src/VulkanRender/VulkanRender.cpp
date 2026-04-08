@@ -133,6 +133,14 @@ bool VulkanRender::Impl::init(RenderInitInfo info) {
                            return Extension { true, s.c_str() };
                        });
         device_exts.push_back({ true, VK_KHR_SWAPCHAIN_EXTENSION_NAME });
+    } else {
+        // Iteration 1a: offscreen FDs are real Linux DMA-BUFs so they can be
+        // imported by arbitrary external consumers. These extensions are
+        // strictly required on the offscreen path; if a driver lacks them
+        // we fail fast in Device::CheckGPU.
+        device_exts.push_back({ true, VK_EXT_EXTERNAL_MEMORY_DMA_BUF_EXTENSION_NAME });
+        device_exts.push_back({ true, VK_EXT_IMAGE_DRM_FORMAT_MODIFIER_EXTENSION_NAME });
+        device_exts.push_back({ true, VK_EXT_QUEUE_FAMILY_FOREIGN_EXTENSION_NAME });
     }
 
     std::vector<InstanceLayer> inst_layers;

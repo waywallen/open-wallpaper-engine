@@ -59,6 +59,16 @@ struct ExImageParameters : NoCopy {
     uint           mipmap_level { 1 };
     int            fd { 0 };
 
+    // DMA-BUF import metadata populated by CreateExImage in iteration 1a.
+    // drm_fourcc is the DRM format code (e.g. DRM_FORMAT_ABGR8888 = 0x34324241).
+    // drm_modifier is DRM_FORMAT_MOD_LINEAR (0) today; an OPTIMAL-tiled path
+    // would store the modifier chosen via vkGetImageDrmFormatModifierPropertiesEXT.
+    // plane0_offset / plane0_stride come from vkGetImageSubresourceLayout.
+    uint32_t drm_fourcc { 0 };
+    uint64_t drm_modifier { 0 };
+    uint64_t plane0_offset { 0 };
+    uint32_t plane0_stride { 0 };
+
     ExImageParameters();
     ~ExImageParameters();
     ExImageParameters(ExImageParameters&& o) noexcept;

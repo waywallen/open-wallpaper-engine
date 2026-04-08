@@ -153,6 +153,19 @@ std::optional<vvk::DeviceMemory> AllocateMemory(const vvk::Device& device, vvk::
     return std::nullopt;
 }
 
+// DRM fourcc codes we emit. We currently only render R8G8B8A8_UNORM and
+// B8G8R8A8_UNORM into the ExSwapchain, so those are the only mappings.
+// Vulkan component order X-Y-Z-W maps to the *first-byte-in-memory* ordering
+// used by DRM fourccs ('AB24' = little-endian 'AB24' bytes = A, B, 2, 4 →
+// DRM_FORMAT_ABGR8888).
+static uint32_t VkFormatToDrmFourcc(VkFormat fmt) {
+    switch (fmt) {
+    case VK_FORMAT_R8G8B8A8_UNORM: return 0x34324241u; // DRM_FORMAT_ABGR8888
+    case VK_FORMAT_B8G8R8A8_UNORM: return 0x34324152u; // DRM_FORMAT_ARGB8888
+    default:                      return 0u;
+    }
+}
+
 std::optional<ExImageParameters> CreateExImage(uint32_t width, uint32_t height, VkFormat format,
                                                VkImageTiling       tiling,
                                                VkSamplerCreateInfo sampler_info,
@@ -160,30 +173,43 @@ std::optional<ExImageParameters> CreateExImage(uint32_t width, uint32_t height, 
                                                const vvk::PhysicalDevice& gpu) {
     ExImageParameters image;
     do {
+        // Iteration 1a: switch the external handle type from OPAQUE_FD to
+        // real Linux DMA-BUF so the FD is importable outside this Vulkan
+        // instance. The OPTIMAL code path would additionally use
+        // VK_IMAGE_TILING_DRM_FORMAT_MODIFIER_EXT and pick a modifier from
+        // a queried list; we keep LINEAR-only for now so that consumers
+        // can mmap the buffer directly (the iteration 4 milestone).
+        if (tiling != VK_IMAGE_TILING_LINEAR) {
+            LOG_INFO(
+                "[ex-image] OPTIMAL tiling requested; downgrading to LINEAR "
+                "because the DRM-format-modifier path is not yet wired up");
+            tiling = VK_IMAGE_TILING_LINEAR;
+        }
+
         VkExternalMemoryImageCreateInfo ex_info {
             .sType       = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO,
             .pNext       = NULL,
-            .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT
+            .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT,
         };
-        VkExportMemoryAllocateInfo ex_mem_info { .sType =
-                                                     VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO,
-                                                 .pNext = NULL,
-                                                 .handleTypes =
-                                                     VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT };
-        VkImageCreateInfo          info {
-                     .sType       = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
-                     .pNext       = &ex_info,
-                     .imageType   = VK_IMAGE_TYPE_2D,
-                     .format      = format,
-                     .extent      = VkExtent3D { .width = width, .height = height, .depth = 1 },
-                     .mipLevels   = 1,
-                     .arrayLayers = 1,
-                     .samples     = VK_SAMPLE_COUNT_1_BIT,
-                     .tiling      = tiling,
-                     .usage       = usage,
-                     .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
-                     .queueFamilyIndexCount = 0,
-                     .initialLayout         = VK_IMAGE_LAYOUT_UNDEFINED,
+        VkExportMemoryAllocateInfo ex_mem_info {
+            .sType       = VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO,
+            .pNext       = NULL,
+            .handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT,
+        };
+        VkImageCreateInfo info {
+            .sType       = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
+            .pNext       = &ex_info,
+            .imageType   = VK_IMAGE_TYPE_2D,
+            .format      = format,
+            .extent      = VkExtent3D { .width = width, .height = height, .depth = 1 },
+            .mipLevels   = 1,
+            .arrayLayers = 1,
+            .samples     = VK_SAMPLE_COUNT_1_BIT,
+            .tiling      = tiling,
+            .usage       = usage,
+            .sharingMode = VK_SHARING_MODE_EXCLUSIVE,
+            .queueFamilyIndexCount = 0,
+            .initialLayout         = VK_IMAGE_LAYOUT_UNDEFINED,
         };
         image.extent = info.extent;
 
@@ -219,6 +245,21 @@ std::optional<ExImageParameters> CreateExImage(uint32_t width, uint32_t height, 
         }
         VVK_CHECK_ACT(break, device.CreateSampler(sampler_info, image.sampler));
         VVK_CHECK_ACT(break, image.mem.GetMemoryFdKHR(&image.fd));
+
+        // Populate the DRM metadata so VulkanExSwapchain → ExHandle (and
+        // eventually the waywallen-host process) can forward it to external
+        // consumers without re-querying Vulkan.
+        VkImageSubresource subres {
+            .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT,
+            .mipLevel   = 0,
+            .arrayLayer = 0,
+        };
+        VkSubresourceLayout layout =
+            device.GetImageSubresourceLayout(*image.handle, subres);
+        image.plane0_offset = layout.offset;
+        image.plane0_stride = static_cast<uint32_t>(layout.rowPitch);
+        image.drm_modifier  = 0; // DRM_FORMAT_MOD_LINEAR
+        image.drm_fourcc    = VkFormatToDrmFourcc(format);
 
         return image;
 

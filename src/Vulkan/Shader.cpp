@@ -14,7 +14,7 @@
 #include "Core/StringHelper.hpp"
 #include "Utils/Sha.hpp"
 #include "Core/MapSet.hpp"
-#include <SPIRV-Reflect/spirv_reflect.h>
+#include <spirv_reflect.h>
 
 using namespace wallpaper;
 using namespace wallpaper::vulkan;

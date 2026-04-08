@@ -10,6 +10,7 @@ PUBLIC
     wpUtils
 PRIVATE
     wpFs
+    miniaudio
 )
 target_include_directories(${LIB_NAME} PUBLIC include PRIVATE include/Audio)
 target_compile_options(${LIB_NAME} PRIVATE ${warn_opts})

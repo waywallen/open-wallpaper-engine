@@ -1,4 +1,5 @@
 #pragma once
+#include <array>
 #include <atomic>
 #include "Core/NoCopyMove.hpp"
 
@@ -20,6 +21,17 @@ public:
         dirty().exchange(true);
     }
     T* getInprogress() { return inprogress(); }
+
+    // Snapshot the three slot pointers. At construction time each atomic
+    // points at a distinct backing slot, so this lets a host program
+    // enumerate all three handles up front (e.g. to send their FDs in a
+    // single IPC `BindBuffers` message) without waiting for frames to
+    // cycle through the ring. The pointers returned are stable for the
+    // lifetime of the swapchain even though which one is "ready" at any
+    // moment shifts around.
+    std::array<T*, 3> snapshot_all_slots() {
+        return { presented().load(), ready().load(), inprogress().load() };
+    }
 
     virtual uint width() const  = 0;
     virtual uint height() const = 0;

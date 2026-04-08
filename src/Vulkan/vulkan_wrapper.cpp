@@ -153,7 +153,9 @@ bool Load(VkDevice device, DeviceDispatch& dld) noexcept {
     X(vkGetEventStatus);
     X(vkGetFenceStatus);
     X(vkGetImageMemoryRequirements);
+    X(vkGetImageSubresourceLayout);
     X(vkGetMemoryFdKHR);
+    X(vkGetImageDrmFormatModifierPropertiesEXT);
     X(vkGetQueryPoolResults);
     X(vkGetPipelineExecutablePropertiesKHR);
     X(vkGetPipelineExecutableStatisticsKHR);
@@ -330,6 +332,19 @@ VkMemoryRequirements Device::GetImageMemoryRequirements(VkImage image) const noe
     VkMemoryRequirements requirements;
     dld->vkGetImageMemoryRequirements(handle, image, &requirements);
     return requirements;
+}
+
+VkSubresourceLayout
+Device::GetImageSubresourceLayout(VkImage                   image,
+                                  const VkImageSubresource& subresource) const noexcept {
+    VkSubresourceLayout layout {};
+    dld->vkGetImageSubresourceLayout(handle, image, &subresource, &layout);
+    return layout;
+}
+
+VkResult Device::GetImageDrmFormatModifierPropertiesEXT(
+    VkImage image, VkImageDrmFormatModifierPropertiesEXT* props) const noexcept {
+    return dld->vkGetImageDrmFormatModifierPropertiesEXT(handle, image, props);
 }
 
 VkResult Device::AllocateMemory(const VkMemoryAllocateInfo& ai, DeviceMemory& mem) const noexcept {
@@ -546,11 +561,14 @@ VkResult CommandPool::Allocate(std::size_t num_buffers, VkCommandBufferLevel lev
 }
 
 VkResult DeviceMemory::GetMemoryFdKHR(int* fd) const {
+    // Iteration 1a: memory is exported as a real Linux DMA-BUF so that the
+    // FD is importable by any consumer that can parse DRM format modifiers,
+    // not just another Vulkan instance on the identical driver build.
     const VkMemoryGetFdInfoKHR get_fd_info {
         .sType      = VK_STRUCTURE_TYPE_MEMORY_GET_FD_INFO_KHR,
         .pNext      = nullptr,
         .memory     = handle,
-        .handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT_KHR,
+        .handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT,
     };
     return dld->vkGetMemoryFdKHR(owner, &get_fd_info, fd);
 }
