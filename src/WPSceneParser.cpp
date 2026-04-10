@@ -964,6 +964,13 @@ void ParseParticleObj(ParseContext& context, wpscene::WPParticleObject& wppartob
     shaderInfo.baseConstSvs["g_OrientationForward"] = std::array { 0.0f, 0.0f, 1.0f };
     shaderInfo.baseConstSvs["g_ViewUp"]             = std::array { 0.0f, 1.0f, 0.0f };
     shaderInfo.baseConstSvs["g_ViewRight"]          = std::array { 1.0f, 0.0f, 0.0f };
+	shaderInfo.baseConstSvs["g_EyePosition"]        = std::array {
+		static_cast<float>(context.ortho_w) / 2.0f,
+		static_cast<float>(context.ortho_h) / 2.0f,
+		1000.0f,
+	};
+ 
+
 
     u32 maxcount = particle_obj.maxcount;
     maxcount     = std::min(maxcount, 20000u);
