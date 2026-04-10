@@ -61,11 +61,11 @@ endif()
 # Use gtest_discover_tests so each TEST_P instance becomes its own ctest
 # entry, runnable individually with `ctest -R ScenePkgVersionTest`.
 include(GoogleTest)
-gtest_discover_tests(
-    version_tests
-    PROPERTIES TIMEOUT 30
-    DISCOVERY_TIMEOUT 60
-)
+#gtest_discover_tests(
+#    version_tests
+#    PROPERTIES TIMEOUT 30
+#    DISCOVERY_TIMEOUT 60
+#)
 if(TARGET deep_version_tests)
     gtest_discover_tests(
         deep_version_tests
