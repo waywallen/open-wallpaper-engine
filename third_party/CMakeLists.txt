@@ -70,6 +70,17 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(glslang)
 
 # ------------------------------------------------------------------
+# rstd
+# ------------------------------------------------------------------
+FetchContent_Declare(
+    rstd
+    GIT_REPOSITORY https://github.com/hypengw/rstd.git
+    GIT_TAG        2ace236467a4e6aba8d29fc31a12d78f9483dcc4
+    GIT_SHALLOW    TRUE
+)
+FetchContent_MakeAvailable(rstd)
+
+# ------------------------------------------------------------------
 # miniaudio (single-header)
 #
 # Sources in src/Audio/ include it as `<miniaudio/miniaudio.h>`, so
