@@ -75,7 +75,7 @@ FetchContent_MakeAvailable(glslang)
 FetchContent_Declare(
     rstd
     GIT_REPOSITORY https://github.com/hypengw/rstd.git
-    GIT_TAG        2ace236467a4e6aba8d29fc31a12d78f9483dcc4
+    GIT_TAG        2528b1cdb76624df9e01c97a7ab23dbd905afe3a
     GIT_SHALLOW    TRUE
 )
 FetchContent_MakeAvailable(rstd)
