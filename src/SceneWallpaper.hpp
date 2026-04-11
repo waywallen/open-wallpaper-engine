@@ -46,6 +46,12 @@ public:
 
     ExSwapchain* exSwapchain() const;
 
+    // Ownership-transfer getter for the dma_fence sync_file fd that
+    // was exported after the most recent completed offscreen frame.
+    // Returns -1 if no frame has completed since the last call (or
+    // export failed). The caller MUST close() the returned fd.
+    int takeLastFrameSyncFd();
+
 private:
     bool m_inited { false };
 

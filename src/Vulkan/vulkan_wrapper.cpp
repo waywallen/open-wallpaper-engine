@@ -155,6 +155,7 @@ bool Load(VkDevice device, DeviceDispatch& dld) noexcept {
     X(vkGetImageMemoryRequirements);
     X(vkGetImageSubresourceLayout);
     X(vkGetMemoryFdKHR);
+    X(vkGetSemaphoreFdKHR);
     X(vkGetImageDrmFormatModifierPropertiesEXT);
     X(vkGetQueryPoolResults);
     X(vkGetPipelineExecutablePropertiesKHR);
@@ -406,6 +407,11 @@ VkResult Device::CreateSemaphore(const VkSemaphoreCreateInfo& ci, Semaphore& sm)
     VkResult    res = dld->vkCreateSemaphore(handle, &ci, nullptr, &object);
     if (res == VK_SUCCESS) sm = Semaphore(object, handle, *dld);
     return res;
+}
+
+VkResult Device::GetSemaphoreFdKHR(const VkSemaphoreGetFdInfoKHR& gi, int* fd) const noexcept {
+    if (!dld->vkGetSemaphoreFdKHR) return VK_ERROR_EXTENSION_NOT_PRESENT;
+    return dld->vkGetSemaphoreFdKHR(handle, &gi, fd);
 }
 
 VkResult Device::CreateImage(const VkImageCreateInfo& ci, Image& img) const noexcept {

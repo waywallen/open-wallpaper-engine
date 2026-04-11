@@ -157,6 +157,7 @@ public:
     }
 
     ExSwapchain* exSwapchain() const { return m_render->exSwapchain(); }
+    int          takeLastFrameSyncFd() { return m_render->takeLastFrameSyncFd(); }
 
     bool renderInited() const { return m_render->inited(); }
 
@@ -300,6 +301,10 @@ BASIC_TYPE(Int32, int32_t);
 BASIC_TYPE(Float, float);
 BASIC_TYPE(String, std::string);
 BASIC_TYPE(Object, std::shared_ptr<void>);
+
+int SceneWallpaper::takeLastFrameSyncFd() {
+    return m_main_handler->renderHandler()->takeLastFrameSyncFd();
+}
 
 ExSwapchain* SceneWallpaper::exSwapchain() const {
     return m_main_handler->renderHandler()->exSwapchain();

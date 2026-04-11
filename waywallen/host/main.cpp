@@ -105,12 +105,13 @@ uint64_t now_ns() {
         std::chrono::duration_cast<std::chrono::nanoseconds>(now).count());
 }
 
-// Create a signaled eventfd to use as a placeholder acquire sync_fd on
-// frame_ready. TODO: export a real dma_fence sync_file from the
-// SceneWallpaper render queue via VK_KHR_external_semaphore_fd. For
-// now a pre-signaled eventfd satisfies the wire contract (one fd per
-// frame_ready) and display clients just no-op the wait.
-int make_signaled_eventfd() {
+// Pre-signaled eventfd fallback used only when VulkanRender fails to
+// export a real sync_fd for a given frame (e.g. if the extension
+// silently no-op'd on an older driver). Display clients that import
+// an eventfd as a sync_file will effectively no-op the wait, which
+// races with rendering but keeps the pipeline moving until the root
+// cause is diagnosed.
+int make_signaled_eventfd_fallback() {
     int fd = eventfd(0, EFD_CLOEXEC);
     if (fd < 0) return -1;
     const uint64_t one = 1;
@@ -184,11 +185,23 @@ static void send_bind_buffers_locked(HostState& s, wallpaper::ExSwapchain* ex) {
 }
 
 static void send_frame_ready_locked(HostState& s, wallpaper::ExHandle* frame) {
-    int sync_fd = make_signaled_eventfd();
+    // Preferred path: the VulkanRender render loop exported a real
+    // dma_fence sync_file via VK_KHR_external_semaphore_fd after this
+    // frame's vkQueueSubmit completed. Fall back to a pre-signaled
+    // eventfd only if export failed, which should not happen on any
+    // driver that supports the extension.
+    int sync_fd = s.wp ? s.wp->takeLastFrameSyncFd() : -1;
     if (sync_fd < 0) {
-        std::fprintf(stderr, "waywallen-renderer: eventfd failed: %s\n", std::strerror(errno));
-        s.shutdown.store(true, std::memory_order_release);
-        return;
+        sync_fd = make_signaled_eventfd_fallback();
+        if (sync_fd < 0) {
+            std::fprintf(stderr,
+                         "waywallen-renderer: sync_fd fallback failed: %s\n",
+                         std::strerror(errno));
+            s.shutdown.store(true, std::memory_order_release);
+            return;
+        }
+        std::fprintf(stderr,
+                     "waywallen-renderer: warn: using eventfd fallback sync_fd\n");
     }
 
     ww_evt_frame_ready_t fr {};

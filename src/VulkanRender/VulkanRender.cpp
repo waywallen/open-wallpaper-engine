@@ -21,9 +21,11 @@
 
 #include "Core/ArrayHelper.hpp"
 
+#include <atomic>
 #include <cassert>
-#include <vector>
 #include <cstdint>
+#include <unistd.h>
+#include <vector>
 
 #if ENABLE_RENDERDOC_API
 #    include "RenderDoc.h"
@@ -90,6 +92,12 @@ struct VulkanRender::Impl {
     std::unique_ptr<VulkanExSwapchain> m_ex_swapchain;
     RenderingResources                 m_rendering_resources;
 
+    // Exported dma_fence sync_file fd for the most recently completed
+    // offscreen frame. Written by drawFrameOffscreen(), consumed by
+    // takeLastFrameSyncFd() (called from the host's redraw callback).
+    // -1 means no frame has been exported yet. Ownership: the taker.
+    std::atomic<int> m_last_sync_fd { -1 };
+
     std::vector<VulkanPass*> m_passes;
 };
 
@@ -97,6 +105,10 @@ VulkanRender::VulkanRender(): pImpl(std::make_unique<Impl>()) {}
 VulkanRender::~VulkanRender() {};
 
 bool VulkanRender::inited() const { return pImpl->m_inited; }
+
+int VulkanRender::takeLastFrameSyncFd() {
+    return pImpl->m_last_sync_fd.exchange(-1, std::memory_order_acq_rel);
+}
 
 bool VulkanRender::init(RenderInitInfo info) { return pImpl->init(info); }
 void VulkanRender::destroy() { pImpl->destroy(); }
@@ -278,6 +290,25 @@ bool VulkanRender::Impl::CreateRenderingResource(RenderingResources& rr) {
         VVK_CHECK_BOOL_RE(m_device->handle().CreateSemaphore(ci, rr.sem_swap_wait_image));
     }
 
+    // Exportable SYNC_FD semaphore used by the waywallen-renderer host
+    // to ship a dma_fence sync_file to display clients on each
+    // FrameReady event. Created in both offscreen and surface modes —
+    // only the offscreen drawFrame path currently signals it, but
+    // having it always present keeps the lifetime simple.
+    {
+        VkExportSemaphoreCreateInfo export_info {
+            .sType       = VK_STRUCTURE_TYPE_EXPORT_SEMAPHORE_CREATE_INFO,
+            .pNext       = nullptr,
+            .handleTypes = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_SYNC_FD_BIT_KHR,
+        };
+        VkSemaphoreCreateInfo ci {
+            .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
+            .pNext = &export_info,
+            .flags = 0,
+        };
+        VVK_CHECK_BOOL_RE(m_device->handle().CreateSemaphore(ci, rr.sem_export));
+    }
+
     rr.vertex_buf = m_vertex_buf.get();
     rr.dyn_buf    = m_dyn_buf.get();
     return true;
@@ -393,15 +424,36 @@ void VulkanRender::Impl::drawFrameOffscreen() {
     (void)rr.command.End();
 
     VkSubmitInfo sub_info {
-        .sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-        .pNext              = nullptr,
-        .commandBufferCount = 1,
-        .pCommandBuffers    = rr.command.address(),
+        .sType                = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+        .pNext                = nullptr,
+        .commandBufferCount   = 1,
+        .pCommandBuffers      = rr.command.address(),
+        .signalSemaphoreCount = 1,
+        .pSignalSemaphores    = rr.sem_export.address(),
     };
     VVK_CHECK_VOID_RE(m_device->graphics_queue().handle.Submit(sub_info, *rr.fence_frame));
 
     VVK_CHECK_VOID_RE(rr.fence_frame.Wait(vk_wait_time));
     VVK_CHECK_VOID_RE(rr.fence_frame.Reset());
+
+    // Export the signaled semaphore as a dma_fence sync_file fd. The
+    // export resets the semaphore's payload, so the next submit can
+    // signal it again. Stored in an atomic slot that the host reads in
+    // send_frame_ready_locked via takeLastFrameSyncFd().
+    {
+        int fd = -1;
+        VkSemaphoreGetFdInfoKHR gi {
+            .sType      = VK_STRUCTURE_TYPE_SEMAPHORE_GET_FD_INFO_KHR,
+            .pNext      = nullptr,
+            .semaphore  = *rr.sem_export,
+            .handleType = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_SYNC_FD_BIT_KHR,
+        };
+        if (m_device->handle().GetSemaphoreFdKHR(gi, &fd) == VK_SUCCESS && fd >= 0) {
+            int old = m_last_sync_fd.exchange(fd, std::memory_order_acq_rel);
+            if (old >= 0) ::close(old);
+        }
+    }
+
     m_ex_swapchain->renderFrame();
 }
 

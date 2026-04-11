@@ -34,6 +34,12 @@ public:
     ExSwapchain* exSwapchain() const;
     bool inited() const;
 
+    // Transfer ownership of the most recent frame's exported dma_fence
+    // sync_file fd. Returns -1 if no frame has been rendered since the
+    // last call (or export failed). Caller owns the returned fd and
+    // must close() it. Thread-safe.
+    int takeLastFrameSyncFd();
+
 private:
     struct Impl;
     std::unique_ptr<Impl> pImpl;
