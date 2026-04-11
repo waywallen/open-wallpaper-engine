@@ -20,7 +20,7 @@ struct ExHandle {
     // DMA-BUF import metadata, populated by VulkanExSwapchain from the
     // backing ExImageParameters at swapchain construction time. These
     // fields are what the waywallen-renderer host forwards to the daemon
-    // in the IPC `BindBuffers` message (see host/proto.hpp).
+    // in the IPC `bind_buffers` event via waywallen-bridge.
     //
     // drm_fourcc:     DRM format code, e.g. DRM_FORMAT_ABGR8888.
     // drm_modifier:   DRM_FORMAT_MOD_LINEAR (0) today; other modifiers

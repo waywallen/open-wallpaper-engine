@@ -1,0 +1,12 @@
+# wescene-renderer — Wallpaper Engine scene (.pkg) renderer for waywallen.
+#
+# Installed to <prefix>/share/waywallen/renderers/wescene.toml by the
+# open-wallpaper-engine CMake install step. The waywallen daemon scans
+# that directory at startup and will spawn `waywallen-renderer` for any
+# wallpaper with wp_type = "scene".
+
+[renderer]
+name = "wescene-renderer"
+bin = "waywallen-renderer"
+types = ["scene"]
+priority = 100

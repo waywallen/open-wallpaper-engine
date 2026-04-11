@@ -33,11 +33,11 @@ if(BUILD_TESTING)
 endif()
 
 # waywallen-renderer: renderer host subprocess that speaks the IPC
-# protocol to the Rust waywallen daemon. Opt-in so consumers that just
-# want the scene renderer library are unaffected.
+# protocol to the Rust waywallen daemon via waywallen-bridge. Opt-in so
+# consumers that just want the scene renderer library are unaffected.
 option(BUILD_WAYWALLEN_HOST "Build the waywallen-renderer host executable" ON)
 if(BUILD_WAYWALLEN_HOST)
-    add_subdirectory(host)
+    add_subdirectory(waywallen/host)
 endif()
 
 if(BUILD_QML)
