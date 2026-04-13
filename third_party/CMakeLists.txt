@@ -72,13 +72,13 @@ FetchContent_MakeAvailable(glslang)
 # ------------------------------------------------------------------
 # rstd
 # ------------------------------------------------------------------
-FetchContent_Declare(
-    rstd
-    GIT_REPOSITORY https://github.com/hypengw/rstd.git
-    GIT_TAG        2528b1cdb76624df9e01c97a7ab23dbd905afe3a
-    GIT_SHALLOW    TRUE
-)
-FetchContent_MakeAvailable(rstd)
+#FetchContent_Declare(
+#    rstd
+#    GIT_REPOSITORY https://github.com/hypengw/rstd.git
+#    GIT_TAG        2528b1cdb76624df9e01c97a7ab23dbd905afe3a
+#    GIT_SHALLOW    TRUE
+#)
+#FetchContent_MakeAvailable(rstd)
 
 # ------------------------------------------------------------------
 # miniaudio (single-header)

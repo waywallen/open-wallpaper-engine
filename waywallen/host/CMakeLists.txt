@@ -1,12 +1,23 @@
-# waywallen-renderer — wescene (Wallpaper Engine scene) host subprocess.
+# waywallen-renderer ��� wescene (Wallpaper Engine scene) host subprocess.
 # Spawned by the Rust waywallen daemon for wallpapers of type "scene".
-#
-# Requires waywallen-bridge (IPC library) installed and discoverable
-# via find_package. Developers can point CMake at a sibling checkout
-# with `-Dwaywallen-bridge_DIR=/path/to/waywallen-bridge/build` or
-# `-DCMAKE_PREFIX_PATH=/path/to/bridge/install`.
 
-find_package(waywallen-bridge CONFIG REQUIRED)
+include(FetchContent)
+
+FetchContent_Declare(
+    waywallen-bridge
+    GIT_REPOSITORY https://github.com/waywallen/waywallen-bridge.git
+    GIT_TAG        main
+)
+FetchContent_GetProperties(waywallen-bridge)
+if(NOT waywallen-bridge_POPULATED)
+    FetchContent_Populate(waywallen-bridge)
+
+    # Suppress bridge's install() rules when consumed as a subdirectory.
+    set(_save_skip_install ${CMAKE_SKIP_INSTALL_RULES})
+    set(CMAKE_SKIP_INSTALL_RULES ON)
+    add_subdirectory(${waywallen-bridge_SOURCE_DIR} ${waywallen-bridge_BINARY_DIR} EXCLUDE_FROM_ALL)
+    set(CMAKE_SKIP_INSTALL_RULES ${_save_skip_install})
+endif()
 
 add_executable(waywallen-renderer
     main.cpp
