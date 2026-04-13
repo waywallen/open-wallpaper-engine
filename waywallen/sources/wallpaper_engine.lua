@@ -20,6 +20,7 @@ function M.scan(ctx)
         local candidates = {
             home .. "/.steam/steam/steamapps/workshop/content/431960",
             home .. "/.local/share/Steam/steamapps/workshop/content/431960",
+            home .. "/.var/app/com.valvesoftware.Steam/data/Steam/steamapps/workshop/content/431960",
         }
         for _, path in ipairs(candidates) do
             if ctx.file_exists(path) then
