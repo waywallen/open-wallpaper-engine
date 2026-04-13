@@ -7,6 +7,6 @@
 
 [renderer]
 name = "wescene-renderer"
-bin = "waywallen-renderer"
+bin = "../../../bin/waywallen-renderer"
 types = ["scene"]
 priority = 100
