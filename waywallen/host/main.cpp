@@ -25,6 +25,8 @@
 #include "SceneWallpaperSurface.hpp"
 #include "Swapchain/ExSwapchain.hpp"
 
+#include <argparse/argparse.hpp>
+
 #include <atomic>
 #include <chrono>
 #include <csignal>
@@ -49,53 +51,75 @@ struct Options {
     uint32_t    height { 720 };
     std::string initial_scene;
     std::string initial_assets;
+    std::string workshop_id;
     uint32_t    initial_fps { 30 };
-    // Test-pattern mode bypasses scene loading: sends bind_buffers as
-    // soon as the ExSwapchain is up, then pumps the ring on a host-owned
-    // timer, emitting frame_ready per tick. Pixels are whatever the
-    // driver left in the allocation — not meaningful, but it exercises
-    // the full wire without needing a Wallpaper Engine assets dir.
-    bool test_pattern { false };
+    bool        test_pattern { false };
 };
 
 void die(const std::string& msg) {
-    std::fprintf(stderr, "waywallen-renderer: %s\n", msg.c_str());
+    std::fprintf(stderr, "waywallen-wescene-renderer: %s\n", msg.c_str());
     std::exit(1);
 }
 
 Options parse_args(int argc, char** argv) {
-    Options o;
-    for (int i = 1; i < argc; i++) {
-        std::string a = argv[i];
-        auto        next = [&]() -> std::string {
-            if (i + 1 >= argc) die("missing value for " + a);
-            return argv[++i];
-        };
-        if (a == "--ipc") {
-            o.ipc_path = next();
-        } else if (a == "--width") {
-            o.width = static_cast<uint32_t>(std::stoul(next()));
-        } else if (a == "--height") {
-            o.height = static_cast<uint32_t>(std::stoul(next()));
-        } else if (a == "--scene") {
-            o.initial_scene = next();
-        } else if (a == "--assets") {
-            o.initial_assets = next();
-        } else if (a == "--fps") {
-            o.initial_fps = static_cast<uint32_t>(std::stoul(next()));
-        } else if (a == "--test-pattern") {
-            o.test_pattern = true;
-        } else if (a == "--help" || a == "-h") {
-            std::printf(
-                "usage: waywallen-renderer --ipc PATH [--width W] [--height H]\n"
-                "                          [--scene PKG] [--assets DIR] [--fps N]\n"
-                "                          [--test-pattern]\n");
-            std::exit(0);
-        } else {
-            die("unknown argument: " + a);
-        }
+    argparse::ArgumentParser program("waywallen-wescene-renderer");
+
+    program.add_argument("--ipc")
+        .required()
+        .help("Unix-domain socket path for daemon IPC");
+
+    program.add_argument("--width")
+        .default_value(1280u)
+        .help("render width")
+        .scan<'u', uint32_t>();
+
+    program.add_argument("--height")
+        .default_value(720u)
+        .help("render height")
+        .scan<'u', uint32_t>();
+
+    program.add_argument("--scene")
+        .default_value(std::string())
+        .help("initial scene pkg path");
+
+    program.add_argument("--assets")
+        .default_value(std::string())
+        .help("initial assets directory");
+
+    program.add_argument("--workshop_id")
+        .default_value(std::string())
+        .help("Workshop item ID (forwarded from source plugin metadata)");
+
+    program.add_argument("--fps")
+        .default_value(30u)
+        .help("target frames per second")
+        .scan<'u', uint32_t>();
+
+    program.add_argument("--test-pattern")
+        .default_value(false)
+        .implicit_value(true)
+        .help("bypass scene loading; pump test frames");
+
+    // Capture any unknown args forwarded from daemon metadata.
+    program.add_argument("remaining").remaining();
+
+    try {
+        program.parse_args(argc, argv);
+    } catch (const std::runtime_error& err) {
+        std::cerr << err.what() << std::endl;
+        std::cerr << program;
+        std::exit(1);
     }
-    if (o.ipc_path.empty()) die("--ipc is required");
+
+    Options o;
+    o.ipc_path      = program.get<std::string>("--ipc");
+    o.width         = program.get<uint32_t>("--width");
+    o.height        = program.get<uint32_t>("--height");
+    o.initial_scene = program.get<std::string>("--scene");
+    o.initial_assets = program.get<std::string>("--assets");
+    o.workshop_id   = program.get<std::string>("--workshop_id");
+    o.initial_fps   = program.get<uint32_t>("--fps");
+    o.test_pattern  = program.get<bool>("--test-pattern");
     return o;
 }
 
@@ -177,7 +201,7 @@ static void send_bind_buffers_locked(HostState& s, wallpaper::ExSwapchain* ex) {
     int fds[3] = { by_id[0]->fd, by_id[1]->fd, by_id[2]->fd };
     int rc = ww_bridge_send_bind_buffers(s.sock, &bb, fds);
     if (rc != 0) {
-        std::fprintf(stderr, "waywallen-renderer: send bind_buffers failed: %d\n", rc);
+        std::fprintf(stderr, "waywallen-wescene-renderer: send bind_buffers failed: %d\n", rc);
         s.shutdown.store(true, std::memory_order_release);
         return;
     }
@@ -195,13 +219,13 @@ static void send_frame_ready_locked(HostState& s, wallpaper::ExHandle* frame) {
         sync_fd = make_signaled_eventfd_fallback();
         if (sync_fd < 0) {
             std::fprintf(stderr,
-                         "waywallen-renderer: sync_fd fallback failed: %s\n",
+                         "waywallen-wescene-renderer: sync_fd fallback failed: %s\n",
                          std::strerror(errno));
             s.shutdown.store(true, std::memory_order_release);
             return;
         }
         std::fprintf(stderr,
-                     "waywallen-renderer: warn: using eventfd fallback sync_fd\n");
+                     "waywallen-wescene-renderer: warn: using eventfd fallback sync_fd\n");
     }
 
     ww_evt_frame_ready_t fr {};
@@ -214,7 +238,7 @@ static void send_frame_ready_locked(HostState& s, wallpaper::ExHandle* frame) {
     // failure our fd is still ours to close. Either way, close it.
     close(sync_fd);
     if (rc != 0) {
-        std::fprintf(stderr, "waywallen-renderer: send frame_ready failed: %d\n", rc);
+        std::fprintf(stderr, "waywallen-wescene-renderer: send frame_ready failed: %d\n", rc);
         s.shutdown.store(true, std::memory_order_release);
     }
 }
@@ -278,7 +302,7 @@ static void apply_control(HostState& s, const ww_bridge_control_t& msg) {
         s.shutdown.store(true, std::memory_order_release);
         break;
     default:
-        std::fprintf(stderr, "waywallen-renderer: unknown control op %d\n", msg.op);
+        std::fprintf(stderr, "waywallen-wescene-renderer: unknown control op %d\n", msg.op);
         break;
     }
 }
@@ -290,7 +314,7 @@ static void ipc_reader_loop(HostState& s) {
         if (rc != 0) {
             if (!s.shutdown.load(std::memory_order_acquire)) {
                 std::fprintf(stderr,
-                             "waywallen-renderer: recv_control failed: %d\n", rc);
+                             "waywallen-wescene-renderer: recv_control failed: %d\n", rc);
             }
             s.shutdown.store(true, std::memory_order_release);
             return;

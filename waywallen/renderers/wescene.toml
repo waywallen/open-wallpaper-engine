@@ -2,11 +2,11 @@
 #
 # Installed to <prefix>/share/waywallen/renderers/wescene.toml by the
 # open-wallpaper-engine CMake install step. The waywallen daemon scans
-# that directory at startup and will spawn `waywallen-renderer` for any
+# that directory at startup and will spawn `waywallen-wescene-renderer` for any
 # wallpaper with wp_type = "scene".
 
 [renderer]
 name = "wescene-renderer"
-bin = "../../../bin/waywallen-renderer"
+bin = "../../../bin/waywallen-wescene-renderer"
 types = ["scene"]
 priority = 100

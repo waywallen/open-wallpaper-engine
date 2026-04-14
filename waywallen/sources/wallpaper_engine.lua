@@ -35,6 +35,15 @@ function M.scan(ctx)
         return entries
     end
 
+    -- Derive WE installation assets dir from workshop path.
+    -- workshop_dir = .../steamapps/workshop/content/431960
+    -- we_assets    = .../steamapps/common/wallpaper_engine/assets
+    local steamapps = workshop_dir:match("(.*/steamapps)/workshop/content/%d+$")
+    local we_assets = steamapps and (steamapps .. "/common/wallpaper_engine/assets") or ""
+    if we_assets == "" or not ctx.file_exists(we_assets) then
+        ctx.log("wallpaper_engine: WE assets dir not found, shaders may be missing")
+    end
+
     local dirs = ctx.list_dirs(workshop_dir)
     for _, dir in ipairs(dirs) do
         local pkg_path = dir .. "/scene.pkg"
@@ -84,7 +93,7 @@ function M.scan(ctx)
                 preview = preview,
                 metadata = {
                     scene = resource,
-                    assets = workshop_dir,
+                    assets = we_assets,
                     workshop_id = workshop_id,
                 },
             })
