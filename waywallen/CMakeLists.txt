@@ -3,21 +3,7 @@
 
 include(FetchContent)
 
-FetchContent_Declare(
-    waywallen-bridge
-    GIT_REPOSITORY https://github.com/waywallen/waywallen-bridge.git
-    GIT_TAG        main
-)
-FetchContent_GetProperties(waywallen-bridge)
-if(NOT waywallen-bridge_POPULATED)
-    FetchContent_Populate(waywallen-bridge)
-
-    # Suppress bridge's install() rules when consumed as a subdirectory.
-    set(_save_skip_install ${CMAKE_SKIP_INSTALL_RULES})
-    set(CMAKE_SKIP_INSTALL_RULES ON)
-    add_subdirectory(${waywallen-bridge_SOURCE_DIR} ${waywallen-bridge_BINARY_DIR} EXCLUDE_FROM_ALL)
-    set(CMAKE_SKIP_INSTALL_RULES ${_save_skip_install})
-endif()
+find_package(waywallen-bridge REQUIRED)
 
 add_executable(waywallen-wescene-renderer
     main.cpp
@@ -48,13 +34,13 @@ install(TARGETS waywallen-wescene-renderer
 )
 
 install(DIRECTORY
-    ${CMAKE_CURRENT_SOURCE_DIR}/../sources/
+    ${CMAKE_CURRENT_SOURCE_DIR}/sources/
     DESTINATION share/waywallen/sources
     FILES_MATCHING PATTERN "*.lua"
 )
 
 install(DIRECTORY
-    ${CMAKE_CURRENT_SOURCE_DIR}/../renderers/
+    ${CMAKE_CURRENT_SOURCE_DIR}/renderers/
     DESTINATION share/waywallen/renderers
     FILES_MATCHING PATTERN "*.toml"
 )
