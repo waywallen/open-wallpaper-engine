@@ -26,9 +26,11 @@ link_libraries(Eigen3::Eigen)
 add_subdirectory(src)
 
 
-# Test suite — opt-in via BUILD_TESTING (default ON via CTest module).
-include(CTest)
-if(BUILD_TESTING)
+# Test suite — gated by BUILD_TESTS (default ON). Include CTest so
+# gtest_discover_tests / add_test inside tests/ register with ctest.
+option(BUILD_TESTS "Build the wescene-renderer test suite" ON)
+if(BUILD_TESTS)
+    include(CTest)
     add_subdirectory(tests)
 endif()
 
