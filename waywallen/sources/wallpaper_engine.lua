@@ -3,8 +3,8 @@ local M = {}
 function M.info()
     return {
         name = "wallpaper_engine",
-        types = {"scene"},
-        version = "0.1.0",
+        types = {"scene", "video"},
+        version = "0.2.0",
     }
 end
 
@@ -44,63 +44,109 @@ function M.scan(ctx)
         ctx.log("wallpaper_engine: WE assets dir not found, shaders may be missing")
     end
 
+    local video_exts = {mp4 = true, webm = true, mkv = true, avi = true, mov = true}
+
     local dirs = ctx.list_dirs(workshop_dir)
     for _, dir in ipairs(dirs) do
-        local pkg_path = dir .. "/scene.pkg"
-        local json_path = dir .. "/scene.json"
+        local workshop_id = ctx.basename(dir) or dir
+        local name = "Workshop " .. workshop_id
 
-        -- A valid WE scene has either scene.pkg or scene.json
-        if ctx.file_exists(pkg_path) or ctx.file_exists(json_path) then
-            local workshop_id = ctx.basename(dir) or dir
-            local name = "Workshop " .. workshop_id
+        -- Parse project.json first to determine wallpaper type.
+        local project = nil
+        local project_path = dir .. "/project.json"
+        if ctx.file_exists(project_path) then
+            local content = ctx.read_file(project_path)
+            if content then
+                project = ctx.json_parse(content)
+            end
+        end
 
-            -- Try to read project.json for the real title
-            local project_path = dir .. "/project.json"
-            if ctx.file_exists(project_path) then
-                local content = ctx.read_file(project_path)
-                if content then
-                    local project = ctx.json_parse(content)
-                    if project and project.title then
-                        name = project.title
+        local project_type = project and project.type and string.lower(project.type) or nil
+        if project and project.title then
+            name = project.title
+        end
+
+        local wp_type = nil
+        local resource = nil
+
+        if project_type == "video" then
+            -- Resolve the video file referenced by project.json.
+            local file = project and project.file
+            if file and ctx.file_exists(dir .. "/" .. file) then
+                wp_type = "video"
+                resource = dir .. "/" .. file
+            else
+                -- Fallback: first video file in the directory.
+                local pkg_dir_files = ctx.glob(dir .. "/*.*")
+                for _, path in ipairs(pkg_dir_files) do
+                    local ext = ctx.extension(path)
+                    if ext and video_exts[string.lower(ext)] then
+                        wp_type = "video"
+                        resource = path
+                        break
+                    end
+                end
+            end
+        else
+            -- Scene wallpaper (default). Prefer scene.pkg, fall back to scene.json.
+            local pkg_path = dir .. "/scene.pkg"
+            local json_path = dir .. "/scene.json"
+            if ctx.file_exists(pkg_path) then
+                wp_type = "scene"
+                resource = pkg_path
+            elseif ctx.file_exists(json_path) then
+                wp_type = "scene"
+                resource = json_path
+            end
+        end
+
+        if wp_type and resource then
+            -- Look for preview image
+            local preview = nil
+            if project and project.preview then
+                local p = dir .. "/" .. project.preview
+                if ctx.file_exists(p) then
+                    preview = p
+                end
+            end
+            if not preview then
+                local preview_candidates = {
+                    dir .. "/preview.jpg",
+                    dir .. "/preview.png",
+                    dir .. "/preview.gif",
+                }
+                for _, p in ipairs(preview_candidates) do
+                    if ctx.file_exists(p) then
+                        preview = p
+                        break
                     end
                 end
             end
 
-            local resource = pkg_path
-            if not ctx.file_exists(pkg_path) then
-                resource = json_path
-            end
-
-            -- Look for preview image
-            local preview = nil
-            local preview_candidates = {
-                dir .. "/preview.jpg",
-                dir .. "/preview.png",
-                dir .. "/preview.gif",
+            local metadata = {
+                workshop_id = workshop_id,
             }
-            for _, p in ipairs(preview_candidates) do
-                if ctx.file_exists(p) then
-                    preview = p
-                    break
-                end
+            if wp_type == "scene" then
+                metadata.scene = resource
+                metadata.assets = we_assets
+            else
+                -- waywallen-mpv reads `video` / `path` from metadata.
+                metadata.video = resource
+                metadata.path = resource
             end
 
             table.insert(entries, {
                 id = workshop_id,
                 name = name,
-                wp_type = "scene",
+                wp_type = wp_type,
                 resource = resource,
                 preview = preview,
-                metadata = {
-                    scene = resource,
-                    assets = we_assets,
-                    workshop_id = workshop_id,
-                },
+                metadata = metadata,
             })
         end
     end
 
-    ctx.log("wallpaper_engine: found " .. #entries .. " scenes in " .. workshop_dir)
+    ctx.log("wallpaper_engine: found " .. #entries .. " wallpapers in " .. workshop_dir)
     return entries
 end
 

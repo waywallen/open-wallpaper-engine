@@ -31,7 +31,7 @@ target_compile_options(waywallen-wescene-renderer PRIVATE
 # Install the binary and the companion plugin manifests so the
 # daemon can discover the renderer + its Lua sources at runtime.
 install(TARGETS waywallen-wescene-renderer
-    RUNTIME DESTINATION bin
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
 )
 
 install(DIRECTORY
