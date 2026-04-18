@@ -3,7 +3,8 @@ set(CMAKE_POLICY_DEFAULT_CMP0077 NEW)
 
 # ------------------------------------------------------------------
 # Locally vendored deps still living under third_party/
-# (glad, argparse, effolkronium, vog, stb_image.h, vk_mem_alloc.h)
+# (glad, effolkronium, vog, stb_image.h, vk_mem_alloc.h)
+# argparse moved to FetchContent via deps.json.
 # ------------------------------------------------------------------
 add_subdirectory(glad)
 
@@ -28,6 +29,9 @@ set(ENABLE_SPVREMAPPER      OFF CACHE INTERNAL "")
 set(ENABLE_GLSLANG_JS       OFF CACHE INTERNAL "")
 set(ENABLE_HLSL             OFF CACHE INTERNAL "")
 set(ENABLE_OPT              OFF CACHE INTERNAL "")
+set(ARGPARSE_INSTALL        OFF CACHE INTERNAL "")
+set(ARGPARSE_BUILD_TESTS    OFF CACHE INTERNAL "")
+set(ARGPARSE_BUILD_SAMPLES  OFF CACHE INTERNAL "")
 
 fetchdeps(${CMAKE_SOURCE_DIR}/deps.json)
 

@@ -32,9 +32,10 @@ add_executable(${PROJECT_NAME}
     glfwviewer.cpp
 )
 target_link_libraries(${PROJECT_NAME}
-    PUBLIC 
+    PUBLIC
         ${GLFW_LIBRARIES}
         wescene-renderer
+        argparse::argparse
 )
 
 if(BUILD_QML)
@@ -50,8 +51,9 @@ if(BUILD_QML)
         pkg.qrc
     )
     target_link_libraries(${PROJECT_NAME}-qml
-        PUBLIC 
+        PUBLIC
         wescene-renderer-qml
+        argparse::argparse
     )
     set(CMAKE_AUTOMOC OFF) 
     set(CMAKE_AUTORCC OFF) 

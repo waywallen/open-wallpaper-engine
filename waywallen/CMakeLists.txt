@@ -21,6 +21,7 @@ target_link_libraries(waywallen-wescene-renderer
     PRIVATE
         wescene-renderer
         waywallen::bridge
+        argparse::argparse
 )
 
 target_compile_options(waywallen-wescene-renderer PRIVATE
