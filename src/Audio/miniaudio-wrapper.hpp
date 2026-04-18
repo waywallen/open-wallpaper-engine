@@ -18,12 +18,12 @@
 #define MA_NO_COREAUDIO
 #define MA_NO_ENCODING
 #define STB_VORBIS_HEADER_ONLY
-#include <miniaudio/extras/stb_vorbis.c> /* Enables Vorbis decoding. */
+#include <extras/stb_vorbis.c> /* Enables Vorbis decoding. */
 #define MINIAUDIO_IMPLEMENTATION
-#include <miniaudio/miniaudio.h>
+#include <miniaudio.h>
 /* stb_vorbis implementation must come after the implementation of miniaudio. */
 #undef STB_VORBIS_HEADER_ONLY
-#include <miniaudio/extras/stb_vorbis.c> /* Enables Vorbis decoding. */
+#include <extras/stb_vorbis.c> /* Enables Vorbis decoding. */
 
 namespace miniaudio
 {

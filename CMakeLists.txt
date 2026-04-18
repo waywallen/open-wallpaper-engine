@@ -20,11 +20,11 @@ find_package(PkgConfig REQUIRED)
 
 
 include_directories(SYSTEM third_party)
+add_subdirectory(third_party)
 
 link_libraries(Eigen3::Eigen)
-
-add_subdirectory(third_party)
 add_subdirectory(src)
+
 
 # Test suite — opt-in via BUILD_TESTING (default ON via CTest module).
 include(CTest)

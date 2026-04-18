@@ -8,97 +8,35 @@ set(CMAKE_POLICY_DEFAULT_CMP0077 NEW)
 add_subdirectory(glad)
 
 # ------------------------------------------------------------------
-# Eigen (header only)
+# JSON-driven FetchContent for eigen, nlohmann_json, spirv_reflect,
+# glslang, miniaudio. To enable the flatpak-aware dependency provider,
+# pass:
+#   -DCMAKE_PROJECT_TOP_LEVEL_INCLUDES=cmake/FetchDepsProvider.cmake
 # ------------------------------------------------------------------
-FetchContent_Declare(
-    eigen
-    GIT_REPOSITORY https://gitlab.com/libeigen/eigen.git
-    GIT_TAG        3.4.0
-    GIT_SHALLOW    TRUE
-    # Skip add_subdirectory: we only need Eigen's headers and the full
-    # Eigen CMake project brings in a lot of unrelated targets.
-    SOURCE_SUBDIR  cmake-noop
-)
-FetchContent_MakeAvailable(eigen)
-add_library(eigen INTERFACE)
-add_library(Eigen3::Eigen ALIAS eigen)
-target_include_directories(eigen SYSTEM INTERFACE ${eigen_SOURCE_DIR})
+include(${CMAKE_SOURCE_DIR}/cmake/FetchDeps.cmake)
 
-# ------------------------------------------------------------------
-# nlohmann_json
-# ------------------------------------------------------------------
-set(JSON_BuildTests OFF CACHE INTERNAL "")
-set(JSON_Install    OFF CACHE INTERNAL "")
-FetchContent_Declare(
-    nlohmann_json
-    GIT_REPOSITORY https://github.com/nlohmann/json.git
-    GIT_TAG        v3.11.3
-    GIT_SHALLOW    TRUE
-)
-FetchContent_MakeAvailable(nlohmann_json)
-
-# ------------------------------------------------------------------
-# SPIRV-Reflect (produces target `spirv-reflect-static`)
-# ------------------------------------------------------------------
+# Cache vars consumed by nested add_subdirectory calls inside fetchdeps().
+set(JSON_BuildTests         OFF CACHE INTERNAL "")
+set(JSON_Install            OFF CACHE INTERNAL "")
 set(SPIRV_REFLECT_STATIC_LIB  ON  CACHE INTERNAL "")
 set(SPIRV_REFLECT_EXECUTABLE  OFF CACHE INTERNAL "")
 set(SPIRV_REFLECT_BUILD_TESTS OFF CACHE INTERNAL "")
 set(SPIRV_REFLECT_EXAMPLES    OFF CACHE INTERNAL "")
-FetchContent_Declare(
-    spirv_reflect
-    GIT_REPOSITORY https://github.com/KhronosGroup/SPIRV-Reflect.git
-    GIT_TAG        vulkan-sdk-1.3.290.0
-    GIT_SHALLOW    TRUE
-)
-FetchContent_MakeAvailable(spirv_reflect)
-
-# ------------------------------------------------------------------
-# glslang (produces target `glslang`)
-# ------------------------------------------------------------------
-set(SKIP_GLSLANG_INSTALL   ON  CACHE INTERNAL "")
+set(SKIP_GLSLANG_INSTALL    ON  CACHE INTERNAL "")
 set(ENABLE_GLSLANG_BINARIES OFF CACHE INTERNAL "")
-set(ENABLE_SPVREMAPPER     OFF CACHE INTERNAL "")
-set(ENABLE_GLSLANG_JS      OFF CACHE INTERNAL "")
-set(ENABLE_HLSL            OFF CACHE INTERNAL "")
-set(ENABLE_OPT             OFF CACHE INTERNAL "")
-FetchContent_Declare(
-    glslang
-    GIT_REPOSITORY https://github.com/KhronosGroup/glslang.git
-    GIT_TAG        15.3.0
-    GIT_SHALLOW    TRUE
-)
-FetchContent_MakeAvailable(glslang)
+set(ENABLE_SPVREMAPPER      OFF CACHE INTERNAL "")
+set(ENABLE_GLSLANG_JS       OFF CACHE INTERNAL "")
+set(ENABLE_HLSL             OFF CACHE INTERNAL "")
+set(ENABLE_OPT              OFF CACHE INTERNAL "")
 
-# ------------------------------------------------------------------
-# rstd
-# ------------------------------------------------------------------
-#FetchContent_Declare(
-#    rstd
-#    GIT_REPOSITORY https://github.com/hypengw/rstd.git
-#    GIT_TAG        2528b1cdb76624df9e01c97a7ab23dbd905afe3a
-#    GIT_SHALLOW    TRUE
-#)
-#FetchContent_MakeAvailable(rstd)
+fetchdeps(${CMAKE_SOURCE_DIR}/deps.json)
 
-# ------------------------------------------------------------------
-# miniaudio (single-header)
-#
-# Sources in src/Audio/ include it as `<miniaudio/miniaudio.h>`, so
-# we populate into a `miniaudio/` subdirectory and expose the parent
-# path on an INTERFACE target which downstream libs link against.
-# ------------------------------------------------------------------
-FetchContent_Declare(
-    miniaudio
-    GIT_REPOSITORY https://github.com/mackron/miniaudio.git
-    GIT_TAG        0.11.21
-    GIT_SHALLOW    TRUE
-    SOURCE_DIR     ${CMAKE_CURRENT_BINARY_DIR}/miniaudio-root/miniaudio
-    # miniaudio is a single-header library with no CMakeLists.txt;
-    # setting SOURCE_SUBDIR to a nonexistent path makes
-    # FetchContent_MakeAvailable populate without add_subdirectory.
-    SOURCE_SUBDIR  cmake-noop
-)
-FetchContent_MakeAvailable(miniaudio)
+# Post-fetch setup for eigen (header-only, source_subdir=cmake-noop).
+add_library(eigen INTERFACE)
+add_library(Eigen3::Eigen ALIAS eigen)
+target_include_directories(eigen SYSTEM INTERFACE ${eigen_SOURCE_DIR})
+
+# Post-fetch setup for miniaudio (single-header, source_subdir=cmake-noop).
+# Consumers include as <miniaudio.h> / <extras/stb_vorbis.c>.
 add_library(miniaudio INTERFACE)
-target_include_directories(miniaudio SYSTEM INTERFACE
-    ${CMAKE_CURRENT_BINARY_DIR}/miniaudio-root)
+target_include_directories(miniaudio SYSTEM INTERFACE ${miniaudio_SOURCE_DIR})
