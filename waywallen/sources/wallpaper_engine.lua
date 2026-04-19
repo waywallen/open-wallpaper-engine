@@ -123,6 +123,12 @@ function M.scan(ctx)
                 end
             end
 
+            -- Metadata is forwarded to the renderer subprocess as
+            -- `--<key> <value>` flags, so it must contain ONLY keys the
+            -- renderer recognises. Project-level scalars like
+            -- `contentrating` / `visibility` / `approved` / `version`
+            -- would cause the renderer to reject its CLI on spawn and
+            -- belong on `item` columns instead (once those exist).
             local metadata = {
                 workshop_id = workshop_id,
             }
@@ -133,16 +139,6 @@ function M.scan(ctx)
                 -- waywallen-mpv reads `video` / `path` from metadata.
                 metadata.video = resource
                 metadata.path = resource
-            end
-            -- Flat project.json scalars go into the metadata bag so the
-            -- daemon can surface them without promoting a DB column
-            -- each. Lua drops keys whose value is nil, so absent keys
-            -- self-filter.
-            if project then
-                if project.contentrating then metadata.contentrating = project.contentrating end
-                if project.visibility then metadata.visibility = project.visibility end
-                if project.approved ~= nil then metadata.approved = tostring(project.approved) end
-                if project.version ~= nil then metadata.project_version = tostring(project.version) end
             end
 
             table.insert(entries, {
