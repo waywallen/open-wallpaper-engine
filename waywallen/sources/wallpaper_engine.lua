@@ -134,6 +134,16 @@ function M.scan(ctx)
                 metadata.video = resource
                 metadata.path = resource
             end
+            -- Flat project.json scalars go into the metadata bag so the
+            -- daemon can surface them without promoting a DB column
+            -- each. Lua drops keys whose value is nil, so absent keys
+            -- self-filter.
+            if project then
+                if project.contentrating then metadata.contentrating = project.contentrating end
+                if project.visibility then metadata.visibility = project.visibility end
+                if project.approved ~= nil then metadata.approved = tostring(project.approved) end
+                if project.version ~= nil then metadata.project_version = tostring(project.version) end
+            end
 
             table.insert(entries, {
                 id = workshop_id,
@@ -141,6 +151,10 @@ function M.scan(ctx)
                 wp_type = wp_type,
                 resource = resource,
                 preview = preview,
+                library_root = workshop_dir,
+                description = project and project.description or nil,
+                tags = (project and project.tags) or {},
+                external_id = workshop_id,
                 metadata = metadata,
             })
         end
