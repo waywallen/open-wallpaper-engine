@@ -7,6 +7,16 @@ if(CMAKE_VERSION VERSION_LESS_EQUAL "4.3.0")
         "Use CMake 4.3.1 or newer.")
 endif()
 
+if(CMAKE_VERSION VERSION_GREATER_EQUAL "4.4.0" AND NOT WAYWALLEN_ALLOW_UNTESTED_CMAKE)
+    message(FATAL_ERROR
+        "CMake ${CMAKE_VERSION} is not supported. "
+        "With CMake 4.4 and newer, Clang 22 crashes while loading the wescene.pkg.parse BMI "
+        "(\"malformed or corrupted precompiled file: 'declaration ID out-of-range for AST file'\") "
+        "when compiling the cross-target consumers of wescene.scene_wallpaper. "
+        "Use CMake >=4.3.1 <4.4, as pinned in environment.yml, "
+        "or pass -DWAYWALLEN_ALLOW_UNTESTED_CMAKE=ON to bypass this check.")
+endif()
+
 set(OWE_PLUGIN_VERSION 0.2.0)
 set(OWE_WAYWALLEN_PLUGIN_ID org.waywallen.open-wallpaper-engine)
 set(OWE_WAYWALLEN_PLUGIN_UPDATE_URL
