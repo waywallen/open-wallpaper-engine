@@ -467,6 +467,7 @@ struct HostState {
     u32 height {};
 
     rstd::sync::atomic::Atomic<bool> shutdown { false };
+    rstd::sync::atomic::Atomic<bool> first_frame { false };
     rstd::sync::atomic::Atomic<bool> paused { false };
     rstd::sync::atomic::Atomic<bool> muted { false };
     rstd::sync::atomic::Atomic<bool> settings_enable_audio { true };
@@ -1000,11 +1001,12 @@ int run(int argc, char** argv) {
                       diagnostic.message);
         }
     });
-    if (env_flag_enabled("OWE_DUMP_PREPARED_PASSES")) {
-        wp.setOnFirstFrame([&wp] {
+    wp.setOnFirstFrame([&host, &wp] {
+        host.first_frame.store(true, rstd::sync::atomic::Ordering::Release);
+        if (env_flag_enabled("OWE_DUMP_PREPARED_PASSES")) {
             wp.requestPreparedPassDiagnostics(log_prepared_pass_diagnostics);
-        });
-    }
+        }
+    });
 
     owe::SceneWallpaperConfig wp_config;
     wp_config.source_pkg_path = opts.initial_scene;
@@ -1170,8 +1172,30 @@ int run(int argc, char** argv) {
     auto reader_handle = rstd::move(reader).unwrap_unchecked();
 
     // Idle until shutdown; the reader thread dispatches live controls.
+    // First-frame watchdog: a definitive scene load/prepare failure
+    // (e.g. a missing texture aborts the resource plan) surfaces only
+    // as "no frame ever produced". Report bind_failed to the daemon
+    // before its own 15s no-frame timeout fires. Ticks are 100ms.
+    constexpr uint32_t kFirstFrameTimeoutTicks = 120; // ~12s
+    uint32_t           idle_ticks              = 0;
+    bool               bind_failed_sent        = false;
     while (! host.shutdown.load(rstd::sync::atomic::Ordering::Acquire)) {
         rstd::thread::sleep(rstd::time::Duration::from_millis(u64(100)));
+        if (bind_failed_sent || host.first_frame.load(rstd::sync::atomic::Ordering::Acquire)) {
+            continue;
+        }
+        if (++idle_ticks < kFirstFrameTimeoutTicks) continue;
+        bind_failed_sent = true;
+        std::string message =
+            "scene load/prepare failed: no frame produced within 12s: " + opts.initial_scene;
+        waywallen_bind_failure_t failure {
+            .format  = {},
+            .kind    = WAYWALLEN_BUFFER_ALLOCATION_FAILURE_KIND_OTHER,
+            .message = message.data(),
+        };
+        if (int rc = session->sendBindFailed(failure); rc != 0) {
+            rstd_warn("waywallen-wescene-renderer: send bind_failed failed ({})", rc);
+        }
     }
 
     ::shutdown(host.sock, SHUT_RD);
