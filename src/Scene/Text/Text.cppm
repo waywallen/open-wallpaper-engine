@@ -244,6 +244,13 @@ struct TextLayoutStyle {
 
     std::string halign; // "left" / "right" / contains-substring; default = center
     float       padding { 0.0f };
+
+    // Text-flow limits from the layer (`maxwidth` / `maxrows`, gated by
+    // `limitwidth` / `limitrows`). `wrap_width` is in the same pixel space
+    // as the glyph advances; 0 means no wrapping, 0 rows means no limit.
+    float         wrap_width { 0.0f };
+    std::uint32_t max_rows { 0 };
+    bool          row_limit_ellipsis { false };
 };
 
 struct TextLayoutMetrics {

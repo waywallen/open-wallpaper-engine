@@ -791,7 +791,13 @@ namespace
 struct TextLineRunGI {
     std::vector<const GlyphInfo*> glyphs;
     float                         width { 0.0f };
+    // Glyph index just past the last break opportunity on this line, i.e.
+    // where the word currently being filled starts. 0 means the line holds
+    // one unbroken word.
+    std::size_t word_start { 0 };
 };
+
+bool IsBreakSpace(std::uint32_t cp) noexcept { return cp == ' ' || cp == '\t'; }
 
 bool ContainsSubstring(std::string_view s, std::string_view what) noexcept {
     return s.find(what) != std::string::npos;
@@ -941,7 +947,11 @@ void TextLayouter::SetText(std::string_view utf8) {
     im.current_text = std::move(next_text);
     auto codepoints = DecodeUtf8(im.current_text);
 
-    // Split into lines and look up pre-rasterised glyph metrics.
+    // Split into lines and look up pre-rasterised glyph metrics. A layer with
+    // `limitwidth` also wraps on word boundaries once a line would grow past
+    // `maxwidth`; a word that does not fit on a line of its own is broken
+    // where it runs out of room.
+    const float                wrap = im.style.wrap_width;
     std::vector<TextLineRunGI> lines;
     lines.emplace_back();
     std::size_t total_glyph_quads = 0;
@@ -961,9 +971,66 @@ void TextLayouter::SetText(std::string_view utf8) {
             }
             continue;
         }
-        lines.back().glyphs.push_back(gi);
-        lines.back().width += gi->advance_x;
+        if (wrap > 0.0f && ! lines.back().glyphs.empty() &&
+            lines.back().width + gi->advance_x > wrap) {
+            if (IsBreakSpace(cp)) {
+                // The break falls on the space itself; drop it rather than
+                // carry it to the head of the next line.
+                lines.emplace_back();
+                continue;
+            }
+            auto&             line  = lines.back();
+            const std::size_t start = line.word_start;
+            if (start > 0 && start < line.glyphs.size()) {
+                TextLineRunGI next;
+                next.glyphs.assign(line.glyphs.begin() + static_cast<std::ptrdiff_t>(start),
+                                   line.glyphs.end());
+                for (const auto* moved : next.glyphs) next.width += moved->advance_x;
+                line.glyphs.resize(start);
+                line.width -= next.width;
+                // The space that ended the word stays behind; it is invisible
+                // but would still count towards the finished line's width.
+                while (! line.glyphs.empty() && line.glyphs.back()->pixel_w == 0 &&
+                       line.glyphs.back()->pixel_h == 0) {
+                    line.width -= line.glyphs.back()->advance_x;
+                    line.glyphs.pop_back();
+                }
+                line.word_start = 0;
+                lines.push_back(std::move(next));
+            } else {
+                lines.emplace_back();
+            }
+        }
+        auto& line = lines.back();
+        line.glyphs.push_back(gi);
+        line.width += gi->advance_x;
+        if (IsBreakSpace(cp)) line.word_start = line.glyphs.size();
         if (gi->pixel_w != 0 && gi->pixel_h != 0) ++total_glyph_quads;
+    }
+
+    // `maxrows` drops whatever did not fit; `limituseellipsis` marks the cut
+    // by replacing the tail of the last kept row with an ellipsis.
+    if (im.style.max_rows > 0 && lines.size() > im.style.max_rows) {
+        if (im.style.row_limit_ellipsis) {
+            const auto* dot = im.face->Lookup('.');
+            if (dot != nullptr) {
+                auto& last = lines[im.style.max_rows - 1];
+                while (! last.glyphs.empty() &&
+                       (wrap > 0.0f && last.width + 3.0f * dot->advance_x > wrap)) {
+                    last.width -= last.glyphs.back()->advance_x;
+                    last.glyphs.pop_back();
+                }
+                for (int i = 0; i < 3; ++i) {
+                    last.glyphs.push_back(dot);
+                    last.width += dot->advance_x;
+                }
+            }
+        }
+        lines.resize(im.style.max_rows);
+        total_glyph_quads = 0;
+        for (const auto& line : lines)
+            for (const auto* gi : line.glyphs)
+                if (gi->pixel_w != 0 && gi->pixel_h != 0) ++total_glyph_quads;
     }
 
     bool        has_bg      = im.style.opaquebackground;
@@ -989,6 +1056,10 @@ void TextLayouter::SetText(std::string_view utf8) {
     float text_w = 0.0f;
     for (auto& l : lines)
         if (l.width > text_w) text_w = l.width;
+    // A wrapping layer aligns its lines inside the maxwidth box rather than
+    // against the longest line, so a message shorter than the box still
+    // starts at the left edge of a left-aligned layer.
+    if (wrap > 0.0f) text_w = std::max(text_w, wrap);
     float text_h =
         fm.ascender - fm.descender + static_cast<float>(lines.size() - 1) * fm.line_height;
     im.last_text_w          = text_w;
@@ -1142,7 +1213,10 @@ void TextLayouter::SetText(std::string_view utf8) {
         if (emitted_glyphs >= total_glyph_quads) break;
     }
 
-    if (have_glyph_bounds) {
+    // A wrapping layer keeps its maxwidth box as the source rectangle: the
+    // lines are already placed inside that box, and shrinking the source to
+    // the ink would re-centre them and lose the alignment again.
+    if (have_glyph_bounds && wrap <= 0.0f) {
         im.last_source_w               = std::max(1.0f, glyph_max_x - glyph_min_x);
         im.last_source_h               = std::max(1.0f, glyph_max_y - glyph_min_y);
         im.last_source_center_x        = 0.5f * (glyph_min_x + glyph_max_x);

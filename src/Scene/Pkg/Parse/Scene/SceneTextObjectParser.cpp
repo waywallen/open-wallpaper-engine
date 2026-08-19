@@ -433,6 +433,9 @@ void ParseTextObjImpl(SceneParseContext& context, wpscene::TextObject& obj) {
     style.background_brightness = obj.backgroundbrightness;
     style.halign                = obj.horizontalalign.empty() ? obj.alignment : obj.horizontalalign;
     style.padding               = rstd::as_cast<float>(obj.padding);
+    if (obj.limitwidth && obj.maxwidth > 0.0f) style.wrap_width = obj.maxwidth;
+    if (obj.limitrows && obj.maxrows > u32()) style.max_rows = obj.maxrows.to_primitive();
+    style.row_limit_ellipsis = obj.limituseellipsis;
 
     auto align_or_default = [](std::string      value,
                                std::string_view fallback,
@@ -504,8 +507,13 @@ void ParseTextObjImpl(SceneParseContext& context, wpscene::TextObject& obj) {
     layer_node->SetReflected(obj.reflected);
     layer_node->ID() = obj.id;
 
-    const float                    object_w = obj.size[0] > 0.0f ? obj.size[0] : text_bbox_w;
-    const float                    object_h = obj.size[1] > 0.0f ? obj.size[1] : text_bbox_h;
+    // A layer that limits its width lays its text out inside a maxwidth box.
+    // The authored `size` only measures the text the layer shipped with, which
+    // on a scripted layer is a placeholder ("..." in workshop 3425253832), so
+    // on its own it clips every longer message the script writes.
+    const float limit_w  = style.wrap_width > 0.0f ? style.wrap_width + 2.0f * style.padding : 0.0f;
+    const float object_w = std::max(obj.size[0] > 0.0f ? obj.size[0] : text_bbox_w, limit_w);
+    const float object_h = obj.size[1] > 0.0f ? obj.size[1] : text_bbox_h;
     const text::TextGeometryPolicy geometry_policy {
         .frame_width        = object_w,
         .frame_height       = object_h,
