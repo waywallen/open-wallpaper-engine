@@ -370,6 +370,21 @@ Json ScriptInitialValueForField(std::string_view field, const Json& value) {
 namespace owe
 {
 
+// Markers live on the animation, the callback lives on the script, and the
+// two are joined by the field name they hang off. One timeline can also
+// drive sibling fields (`options.children`) — those scripts hear it too.
+void WireAnimationEventSources(script::JsRuntime& runtime, script::FieldScript& script,
+                               const wpscene::FieldBindings& fb, std::string_view field) {
+    for (const auto& [animated_field, curve] : fb.animations) {
+        if (curve.options.events.empty()) continue;
+        bool drives_field = animated_field == field;
+        for (const auto& child : curve.options.children) {
+            if (child == field) drives_field = true;
+        }
+        if (drives_field) runtime.AddAnimationEventSource(script, ToSceneAnimationCurve(curve));
+    }
+}
+
 void WireFieldScripts(SceneParseContext& context, const Arc<SceneNode>& node_sp,
                       const wpscene::FieldBindings&                   fb,
                       std::function<void(const script::ScriptValue&)> origin_apply,
@@ -419,6 +434,7 @@ void WireFieldScripts(SceneParseContext& context, const Arc<SceneNode>& node_sp,
         auto        initial_value = ScriptInitialValueForField(field, sb.initial_value);
         auto*       fs = rt.MakeFieldScript(sb.source, sha, kind, props, initial_value, node);
         if (! fs) continue;
+        WireAnimationEventSources(rt, *fs, fb, field);
         SetScriptInitializationOrder(context, *fs, node);
         TrackRegisteredAssets(context, fs);
         if (! has_actuator) continue;

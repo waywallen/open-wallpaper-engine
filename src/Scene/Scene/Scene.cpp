@@ -169,16 +169,27 @@ struct AnimationFrame {
     bool  wraps { false };
 };
 
-AnimationFrame animation_frame(const SceneAnimationCurve& curve, double runtime) {
-    float fps         = curve.fps > 0.0f ? curve.fps : 30.0f;
-    float frame       = static_cast<float>(runtime) * fps;
-    i32   end         = curve.length;
-    auto  absorb_last = [&end](slice<SceneAnimationKey> keys) {
+// Last frame of the timeline: the authored length, stretched to cover a
+// keyframe that sits past it.
+i32 curve_end(const SceneAnimationCurve& curve) {
+    i32  end         = curve.length;
+    auto absorb_last = [&end](slice<SceneAnimationKey> keys) {
         if (! keys.is_empty()) end = std::max(end, keys[keys.len() - usize(1)].frame);
     };
     absorb_last(curve.c0.as_slice());
     absorb_last(curve.c1.as_slice());
     absorb_last(curve.c2.as_slice());
+    return end;
+}
+
+bool curve_loops(const SceneAnimationCurve& curve) {
+    return curve.wraploop || curve.mode == "loop"_str || curve.mode == "repeat"_str;
+}
+
+AnimationFrame animation_frame(const SceneAnimationCurve& curve, double runtime) {
+    float fps   = curve.fps > 0.0f ? curve.fps : 30.0f;
+    float frame = static_cast<float>(runtime) * fps;
+    i32   end   = curve_end(curve);
     if (end <= i32()) return { .current = frame, .end = end };
 
     const float ef = rstd::as_cast<float>(end);
@@ -189,8 +200,7 @@ AnimationFrame animation_frame(const SceneAnimationCurve& curve, double runtime)
         return { .current = m <= ef ? m : (period - m), .end = end };
     }
 
-    bool loop = curve.wraploop || curve.mode == "loop"_str || curve.mode == "repeat"_str;
-    if (loop) {
+    if (curve_loops(curve)) {
         frame = std::fmod(frame, ef);
         if (frame < 0.0f) frame += ef;
         return { .current = frame, .end = end, .wraps = curve.wraploop };
@@ -964,6 +974,88 @@ Eigen::Vector3f SceneAnimationCurve::EvaluateVec3(const Eigen::Vector3f& base,
         value.z() =
             relative ? base.z() + eval_axis(c2.as_slice(), frame) : eval_axis(c2.as_slice(), frame);
     return value;
+}
+
+SceneAnimationEventCursor::SceneAnimationEventCursor(const SceneAnimationCurve& curve) {
+    if (curve.events.is_empty() || curve.startpaused) return;
+    m_fps    = curve.fps > 0.0f ? curve.fps : 30.0f;
+    m_end    = rstd::as_cast<float>(curve_end(curve));
+    m_loop   = curve_loops(curve);
+    m_mirror = curve.mode == "mirror"_str;
+    if (m_end <= 0.0f) {
+        m_loop   = false;
+        m_mirror = false;
+    }
+    for (usize index {}; index < curve.events.len(); ++index) {
+        const auto& event = curve.events[index];
+        if (m_end > 0.0f && rstd::as_cast<float>(event.frame) > m_end) continue;
+        m_events.push(SceneAnimationEvent { .frame = std::max(event.frame, i32()),
+                                            .name  = event.name.clone() });
+    }
+}
+
+namespace
+{
+// First time at or after `after` at which a playhead of the given period
+// reaches `at`. `None` when it never does again.
+Option<double> next_pass(double at, double after, double period) {
+    if (period <= 0.0) return at > after ? Some(at) : None();
+    double turns = std::floor((after - at) / period) + 1.0;
+    if (turns < 0.0) turns = 0.0;
+    double pass = at + turns * period;
+    while (pass <= after) pass += period;
+    return Some(pass);
+}
+} // namespace
+
+void SceneAnimationEventCursor::Advance(double runtime, Vec<ref<str>>& out) {
+    if (m_events.is_empty()) return;
+    const double now = runtime * static_cast<double>(m_fps);
+    if (! m_primed) {
+        // Start half a frame short of zero so markers sitting on frame 0
+        // fire on the first tick instead of being skipped.
+        m_previous = -0.5;
+        m_primed   = true;
+    }
+    // A restarted scene rewinds the clock; pick the playhead back up there.
+    if (now < m_previous) m_previous = now - 0.5;
+
+    const double end    = static_cast<double>(m_end);
+    const double period = m_mirror ? 2.0 * end : end;
+
+    struct Pass {
+        double   at { 0.0 };
+        ref<str> name;
+    };
+    Vec<Pass> passed;
+    for (usize index {}; index < m_events.len(); ++index) {
+        const auto&    event = m_events[index];
+        const double   frame = static_cast<double>(event.frame.to_primitive());
+        Option<double> pass  = None();
+        if (! m_loop && ! m_mirror) {
+            pass = next_pass(frame, m_previous, 0.0);
+        } else {
+            pass = next_pass(frame, m_previous, period);
+            if (m_mirror && frame > 0.0 && frame < end) {
+                // The playhead passes an interior marker twice per period:
+                // once going up, once coming back down.
+                auto back = next_pass(period - frame, m_previous, period);
+                if (back.is_some() && (pass.is_none() || *back < *pass)) pass = back;
+            }
+        }
+        if (pass.is_none() || *pass > now) continue;
+        passed.push(Pass { .at = *pass, .name = event.name.as_str() });
+    }
+    m_previous = now;
+    if (passed.is_empty()) return;
+    rstd::slice_::sort_unstable_by(passed.as_mut_slice().as_mut_ref(),
+                                   [](const Pass& left, const Pass& right) {
+                                       return left.at < right.at;
+                                   });
+    for (usize index {}; index < passed.len(); ++index) {
+        ref<str> name = passed[index].name;
+        out.push(rstd::move(name));
+    }
 }
 
 void SceneNode::TickFieldAnimations(double runtime) {

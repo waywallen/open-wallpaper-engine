@@ -44,6 +44,15 @@ struct AnimKeyframe {
     AnimKeyframeTangent back;
 };
 
+// One timeline marker. The editor drops these on an animation and the
+// wallpaper reacts to them from the layer's `animationEvent(event, value)`
+// export — that is the only way a scene script learns where a timeline
+// currently is.
+struct AnimEvent {
+    i32         frame { 0 };
+    std::string name;
+};
+
 struct AnimOptions {
     float       fps { 30.0f };
     i32         length { 0 };
@@ -54,9 +63,11 @@ struct AnimOptions {
     // `smoothing` may be null/int/float in the corpus; kept as raw json
     // until a renderer consumer needs it.
     owe::Json smoothing;
-    owe::Json children; // array of nested anim refs
-    owe::Json events;   // array of marker objects
-    owe::Json parent;   // object describing parent anim
+    owe::Json parent; // object describing parent anim
+    // Sibling fields driven by the same timeline (`[{"key": "origin"}]`).
+    // Their scripts see this animation's markers too.
+    std::vector<std::string> children;
+    std::vector<AnimEvent>   events;
 };
 
 struct AnimCurve : rstd::DefaultInClass<AnimCurve, rstd::clone::Clone> {
@@ -73,6 +84,7 @@ struct AnimCurve : rstd::DefaultInClass<AnimCurve, rstd::clone::Clone> {
 bool ParseAnimKeyframeTangent(const owe::Json&, AnimKeyframeTangent&);
 bool ParseAnimKeyframe(const owe::Json&, AnimKeyframe&);
 bool ParseAnimAxis(const owe::Json&, std::vector<AnimKeyframe>&);
+bool ParseAnimEvent(const owe::Json&, AnimEvent&);
 bool ParseAnimOptions(const owe::Json&, AnimOptions&);
 bool ParseAnimCurve(const owe::Json&, AnimCurve&);
 

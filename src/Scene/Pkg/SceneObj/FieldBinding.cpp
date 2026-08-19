@@ -41,6 +41,13 @@ bool ParseAnimAxis(const owe::Json& json, std::vector<AnimKeyframe>& out) {
     return true;
 }
 
+bool ParseAnimEvent(const owe::Json& json, AnimEvent& out) {
+    if (! json.is_object()) return false;
+    owe::GetJsonValue(json, "frame", out.frame, false);
+    owe::GetJsonValue(json, "name", out.name, false);
+    return ! out.name.empty();
+}
+
 bool ParseAnimOptions(const owe::Json& json, AnimOptions& out) {
     if (! json.is_object()) return false;
     owe::GetJsonValue(json, "fps", out.fps, false);
@@ -50,9 +57,24 @@ bool ParseAnimOptions(const owe::Json& json, AnimOptions& out) {
     owe::GetJsonValue(json, "startpaused", out.startpaused, false);
     owe::GetJsonValue(json, "wraploop", out.wraploop, false);
     if (auto value = json.get("smoothing"_str); value.is_some()) out.smoothing = (*value)->clone();
-    if (auto value = json.get("children"_str); value.is_some()) out.children = (*value)->clone();
-    if (auto value = json.get("events"_str); value.is_some()) out.events = (*value)->clone();
     if (auto value = json.get("parent"_str); value.is_some()) out.parent = (*value)->clone();
+    if (auto value = json.get("children"_str); value.is_some()) {
+        if (auto array = (*value)->as_array(); array.is_some()) {
+            for (const auto& entry : **array) {
+                std::string key;
+                if (owe::GetJsonValue(entry, "key", key, false) && ! key.empty())
+                    out.children.push_back(std::move(key));
+            }
+        }
+    }
+    if (auto value = json.get("events"_str); value.is_some()) {
+        if (auto array = (*value)->as_array(); array.is_some()) {
+            for (const auto& entry : **array) {
+                AnimEvent event;
+                if (ParseAnimEvent(entry, event)) out.events.push_back(std::move(event));
+            }
+        }
+    }
     return true;
 }
 
@@ -79,9 +101,9 @@ auto AnimCurve::clone() const -> AnimCurve {
     result.options.startpaused = options.startpaused;
     result.options.wraploop    = options.wraploop;
     result.options.smoothing   = options.smoothing.clone();
-    result.options.children    = options.children.clone();
-    result.options.events      = options.events.clone();
     result.options.parent      = options.parent.clone();
+    result.options.children    = options.children;
+    result.options.events      = options.events;
     result.relative            = relative;
     return result;
 }
