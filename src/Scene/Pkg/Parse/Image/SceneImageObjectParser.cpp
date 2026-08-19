@@ -666,7 +666,7 @@ void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj
         const bool passthrough_can_composite_final =
             isPassthrough || ! parse_geometry.requires_source_draw;
         for (const auto& wpeffobj : wpimgobj.effects) {
-            if (! wpeffobj.visible && wpeffobj.visible_user.empty()) {
+            if (! wpeffobj.visible && ! wpeffobj.visible_can_change()) {
                 continue;
             }
             std::shared_ptr<SceneImageEffect> imgEffect = std::make_shared<SceneImageEffect>();
@@ -677,6 +677,7 @@ void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj
                 imgEffect->visible_user_binding =
                     ToSceneUserVisibilityBinding(wpeffobj.visible_user);
             }
+            WireImageEffectVisibilityScript(context, spImgNode.as_ptr(), wpeffobj, effect_id);
 
             const std::string inRT { effect_composite };
 
@@ -1166,7 +1167,7 @@ void ParseShapeObj(SceneParseContext& context, wpscene::ShapeObject& shape_obj) 
     const wpscene::ImageEffect* first_effect { nullptr };
     const wpscene::ImageEffect* last_effect { nullptr };
     for (const auto& effect : shape_obj.effects) {
-        if (! effect.visible && effect.visible_user.empty()) continue;
+        if (! effect.visible && ! effect.visible_can_change()) continue;
         if (first_effect == nullptr) first_effect = &effect;
         last_effect = &effect;
     }
