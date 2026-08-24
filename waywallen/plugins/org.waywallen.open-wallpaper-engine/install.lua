@@ -25,6 +25,7 @@ local web_block = lito.render_template({
 lito.install({
     files = {
         { source = "main.lua", destination = plugin_path("main.lua") },
+        { source = "i18n/ru.po", destination = plugin_path("i18n/ru.po") },
         { source = "i18n/zh-CN.po", destination = plugin_path("i18n/zh-CN.po") },
         { source = "wallpaper_engine/api.lua", destination = plugin_path("wallpaper_engine/api.lua") },
         { source = "wallpaper_engine/auth.lua", destination = plugin_path("wallpaper_engine/auth.lua") },

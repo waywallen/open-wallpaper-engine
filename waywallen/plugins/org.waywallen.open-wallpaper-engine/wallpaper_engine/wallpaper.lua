@@ -125,13 +125,13 @@ local PROPERTY_KEY_MAP = {
 }
 
 local ENABLE_AUDIO_PROPERTY = {
-    text = "Enable audio",
+    text = tr("Enable audio"),
     type = "bool",
     value = true,
 }
 
 local PLAYBACK_SPEED_PROPERTY = {
-    text = "Playback speed",
+    text = tr("Playback speed"),
     type = "slider",
     min = 10,
     max = 400,

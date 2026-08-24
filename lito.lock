@@ -2,7 +2,7 @@ version = 1
 
 [[packages]]
 name = "owe-audio"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
   "owe-core",
   "rstd-std",
@@ -10,7 +10,7 @@ dependencies = [
 
 [[packages]]
 name = "owe-core"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
   "rstd-argparse",
   "rstd-cppstd",
@@ -25,7 +25,7 @@ source = "git+https://gitlab.com/libeigen/eigen.git#bc3b39870ecb690a623a3f49149a
 
 [[packages]]
 name = "owe-scene"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
   "owe-audio",
   "owe-core",
@@ -47,7 +47,7 @@ source = "git+https://github.com/quickjs-ng/quickjs.git#3c051980ab7e783dfbfb1c70
 
 [[packages]]
 name = "owe-sceneviewer"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
   "owe-core",
   "owe-scene",
@@ -57,7 +57,7 @@ dependencies = [
 
 [[packages]]
 name = "owe-tests"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
   "owe-audio",
   "owe-core",
@@ -77,7 +77,7 @@ dependencies = [
 
 [[packages]]
 name = "owe-types"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
   "owe-core",
   "rstd-cppstd",
@@ -86,7 +86,7 @@ dependencies = [
 
 [[packages]]
 name = "owe-utils"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
   "owe-core",
   "owe-types",
@@ -97,7 +97,7 @@ dependencies = [
 
 [[packages]]
 name = "owe-viewer-common"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
   "owe-audio",
   "owe-core",
@@ -109,7 +109,7 @@ dependencies = [
 
 [[packages]]
 name = "owe-vulkan"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
   "owe-core",
   "owe-types",
@@ -128,7 +128,7 @@ source = "git+https://github.com/KhronosGroup/glslang.git#275822a6261ee689aadb1d
 
 [[packages]]
 name = "owe-waywallen-plugin"
-version = "0.2.7"
+version = "0.2.8"
 runtime-dependencies = [
   "owe-waywallen-scene-renderer",
   "owe-waywallen-web-renderer",
@@ -136,7 +136,7 @@ runtime-dependencies = [
 
 [[packages]]
 name = "owe-waywallen-producer"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
   "owe-audio",
   "rstd-cppstd",
@@ -146,7 +146,7 @@ dependencies = [
 
 [[packages]]
 name = "owe-waywallen-scene-renderer"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
   "owe-core",
   "owe-scene",
@@ -160,7 +160,7 @@ dependencies = [
 
 [[packages]]
 name = "owe-waywallen-web-renderer"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
   "owe-audio",
   "owe-core",
@@ -175,7 +175,7 @@ dependencies = [
 
 [[packages]]
 name = "owe-web"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
   "owe-core",
   "rstd-cppstd",
@@ -200,7 +200,7 @@ architectures = [
 
 [[packages]]
 name = "owe-webviewer"
-version = "0.2.7"
+version = "0.2.8"
 dependencies = [
   "owe-audio",
   "owe-core",

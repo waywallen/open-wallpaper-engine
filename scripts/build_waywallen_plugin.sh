@@ -191,7 +191,7 @@ for binary in "$scene_bin" "$web_bin"; do
     llvm-objcopy --strip-unneeded "$BUNDLE_DIR/$binary"
     llvm-objcopy --add-gnu-debuglink="$SYMBOLS_DIR/$binary.debug" "$BUNDLE_DIR/$binary"
 done
-symbols_path="$DIST_DIR/$PLUGIN_ID-$plugin_version-$system_name-$host_arch-debug-symbols.zip"
+symbols_path="$DIST_DIR/debug-symbols-$system_name-$host_arch.zip"
 cmake -E chdir "$BUNDLE_DIR" cmake -E tar cf "$package_path" --format=zip .
 cmake -E chdir "$SYMBOLS_DIR" cmake -E tar cf "$symbols_path" --format=zip .
 
