@@ -319,9 +319,15 @@ equal(info.capabilities.discover.filters[1].id, "type", "type filter")
 equal(info.capabilities.discover.filters[1].type, "multi_select", "type filter control")
 equal(info.capabilities.discover.filters[2].id, "content_rating", "content rating filter")
 equal(info.capabilities.discover.filters[2].type, "multi_select", "content rating control")
-equal(info.capabilities.discover.filters[2].values[1], "Everyone", "everyone value")
-equal(info.capabilities.discover.filters[2].values[2], "Questionable", "questionable value")
-equal(info.capabilities.discover.filters[2].values[3], "Mature", "mature value")
+equal(info.capabilities.discover.filters[2].options[1].value, "Everyone", "everyone value")
+equal(info.capabilities.discover.filters[2].options[2].value, "Questionable", "questionable value")
+equal(info.capabilities.discover.filters[2].options[3].value, "Mature", "mature value")
+for _, filter in ipairs(info.capabilities.discover.filters) do
+    for _, option in ipairs(filter.options) do
+        equal(option.label, option.value,
+            filter.id .. " option label preserves the Steam filter value")
+    end
+end
 equal(info.status[1].group, "steam_account", "Steam account status group")
 equal(info.status[1].group_label, "Steam account", "Steam account status group label")
 equal(info.actions[1].label, "Log in to Steam", "Steam login label")

@@ -1,11 +1,11 @@
 msgid ""
-msgstr "Project-Id-Version: org.waywallen.open-wallpaper-engine 0.2.6\nLanguage: zh-CN\nMIME-Version: 1.0\nContent-Type: text/plain; charset=UTF-8\nContent-Transfer-Encoding: 8bit\n"
+msgstr "Project-Id-Version: org.waywallen.open-wallpaper-engine 0.2.6\nPO-Revision-Date: 2026-08-28 19:37+0300\nLast-Translator: hypengw <hypengwip@gmail.com>\nLanguage-Team: Chinese\nLanguage: zh-CN\nMIME-Version: 1.0\nContent-Type: text/plain; charset=UTF-8\nContent-Transfer-Encoding: 8bit\n"
 
 #: plugin.toml
 msgid "Audio"
 msgstr "音频"
 
-#: wallpaper_engine/api.lua:41
+#: wallpaper_engine/api.lua:45
 msgid "Content rating"
 msgstr "内容分级"
 
@@ -21,7 +21,7 @@ msgstr "调试"
 msgid "Decoding"
 msgstr "解码"
 
-#: wallpaper_engine/api.lua:44
+#: wallpaper_engine/api.lua:52
 msgid "Defaults to Everyone when nothing is selected. Mature includes NSFW wallpapers."
 msgstr "未选择时默认为 Everyone。Mature 包含 NSFW 壁纸。"
 
@@ -33,7 +33,7 @@ msgstr "启用音频"
 msgid "Frame rate"
 msgstr "帧率"
 
-#: wallpaper_engine/api.lua:64
+#: wallpaper_engine/api.lua:72
 msgid "Genre"
 msgstr "题材"
 
@@ -49,7 +49,7 @@ msgstr "登录 Steam"
 msgid "MSAA"
 msgstr "MSAA"
 
-#: wallpaper_engine/api.lua:48
+#: wallpaper_engine/api.lua:56
 msgid "Miscellaneous"
 msgstr "其他"
 
@@ -73,7 +73,7 @@ msgstr "渲染节点"
 msgid "Rendering"
 msgstr "渲染"
 
-#: plugin.toml wallpaper_engine/api.lua:96
+#: plugin.toml wallpaper_engine/api.lua:104
 msgid "Resolution"
 msgstr "分辨率"
 
