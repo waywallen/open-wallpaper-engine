@@ -2418,6 +2418,56 @@ void MergeShaderAnnotations(ShaderInfo& target, const ShaderInfo& source) {
 
 } // namespace
 
+Combos ShaderParser::ResolveShaderCombos(const ShaderInfo& info, const Combos& input_combos) {
+    Combos                                  resolved = input_combos;
+    Map<std::string, const wpscene::Combo*> definitions;
+    Map<std::string, bool>                  active;
+
+    for (const auto& combo : info.combo_defs) {
+        auto name         = rstd::cppstd::to_string(combo.combo.as_str());
+        definitions[name] = &combo;
+        active[name]      = true;
+        if (! resolved.contains(name)) {
+            resolved[name] = std::to_string(combo.default_.to_primitive());
+        }
+    }
+
+    bool changed = true;
+    while (changed) {
+        changed = false;
+        for (const auto& [name, combo] : definitions) {
+            if (! active[name]) continue;
+            auto requirements = combo->require.iter();
+            for (auto item = requirements.next(); item.is_some(); item = requirements.next()) {
+                auto require_name_value = item->template get<0>();
+                auto require_value      = item->template get<1>();
+                auto require_name       = rstd::cppstd::to_string(require_name_value->as_str());
+                auto value              = resolved.find(require_name);
+                auto dependency         = active.find(require_name);
+                if (value == resolved.end() ||
+                    value->second != std::to_string(require_value->to_primitive()) ||
+                    (dependency != active.end() && ! dependency->second)) {
+                    active[name] = false;
+                    changed      = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    // Saved materials retain values for hidden editor controls. Compile hidden combos at their
+    // declared defaults; leave a zero default undefined so shader-side aliases can define it.
+    for (const auto& [name, combo] : definitions) {
+        if (active[name]) continue;
+        if (combo->default_ == i32()) {
+            resolved.erase(name);
+        } else {
+            resolved[name] = std::to_string(combo->default_.to_primitive());
+        }
+    }
+    return resolved;
+}
+
 std::string ShaderParser::PreShaderSrc(fs::VFS& vfs, const std::string& src,
                                        ShaderInfo*                       pShaderInfo,
                                        const std::vector<ShaderTexInfo>& texinfos,
@@ -3147,17 +3197,17 @@ ShaderParser::CompileSceneShaderVariant(const SceneShaderVariantDesc& desc, fs::
         unit.src = ShaderParser::PreShaderSrc(vfs, unit.src, &result.info, result.tex_info, cache);
     }
 
-    for (const auto& [key, value] : desc.resolved_combos) {
-        result.info.combos[key] = value;
-    }
+    Combos input_combos = result.info.combos;
+    for (const auto& [key, value] : desc.resolved_combos) input_combos[key] = value;
+    for (const auto& [key, value] : desc.input_combos) input_combos[key] = value;
     for (const auto& [key, value] : combos_override) {
-        result.info.combos[key]          = value;
-        result.variant.input_combos[key] = value;
+        input_combos[key] = value;
     }
-    if (has_geometry_stage &&
-        ! result.info.combos.contains(rstd::cppstd::to_string(WE_CB_GS_ENABLED))) {
-        result.info.combos[rstd::cppstd::to_string(WE_CB_GS_ENABLED)] = "1";
+    if (has_geometry_stage && ! input_combos.contains(rstd::cppstd::to_string(WE_CB_GS_ENABLED))) {
+        input_combos[rstd::cppstd::to_string(WE_CB_GS_ENABLED)] = "1";
     }
+    result.info.combos          = ResolveShaderCombos(result.info, input_combos);
+    result.variant.input_combos = rstd::move(input_combos);
     MergeVariantFallbackMetadata(result.info, desc);
 
     result.variant.resolved_combos         = result.info.combos;
@@ -3251,19 +3301,6 @@ CompileMaterialShaderResult ShaderParser::CompileMaterialShader(const Json&     
         r.tex_info.push_back({ ! t.empty() });
     }
 
-    // Combos: material's int combos -> string, then override wins.
-    // Inject defaults that ParseImageObj always sets.
-    for (const auto& kv : mat.combos) {
-        r.info.combos[kv.first] = std::to_string(kv.second.to_primitive());
-    }
-    for (const auto& kv : combos_override) {
-        r.info.combos[kv.first] = kv.second;
-    }
-    if (r.info.combos.find(rstd::cppstd::as_string_view(WE_CB_BLENDMODE)) == r.info.combos.end())
-        r.info.combos[rstd::cppstd::to_string(WE_CB_BLENDMODE)] = "0";
-    if (r.info.combos.find(rstd::cppstd::as_string_view(WE_CB_BONECOUNT)) == r.info.combos.end())
-        r.info.combos[rstd::cppstd::to_string(WE_CB_BONECOUNT)] = "1";
-
     std::vector<ShaderUnit> units;
     units.push_back({ ShaderType::VERTEX, std::move(vert_src), {} });
     if (! geom_src.empty()) {
@@ -3275,6 +3312,17 @@ CompileMaterialShaderResult ShaderParser::CompileMaterialShader(const Json&     
     for (auto& u : units) {
         u.src = ShaderParser::PreShaderSrc(vfs, u.src, &r.info, r.tex_info, cache);
     }
+
+    Combos input_combos = r.info.combos;
+    for (const auto& kv : mat.combos) {
+        input_combos[kv.first] = std::to_string(kv.second.to_primitive());
+    }
+    for (const auto& kv : combos_override) input_combos[kv.first] = kv.second;
+    if (! input_combos.contains(rstd::cppstd::to_string(WE_CB_BLENDMODE)))
+        input_combos[rstd::cppstd::to_string(WE_CB_BLENDMODE)] = "0";
+    if (! input_combos.contains(rstd::cppstd::to_string(WE_CB_BONECOUNT)))
+        input_combos[rstd::cppstd::to_string(WE_CB_BONECOUNT)] = "1";
+    r.info.combos = ResolveShaderCombos(r.info, input_combos);
 
     const bool ok = ShaderParser::CompileToSpv(scene_id,
                                                std::span<ShaderUnit>(units.data(), units.size()),

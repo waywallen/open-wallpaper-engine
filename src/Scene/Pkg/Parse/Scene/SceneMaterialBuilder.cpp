@@ -141,14 +141,6 @@ SceneShaderTextureCompileInfo ToSceneShaderTextureCompileInfo(const ShaderTexInf
     };
 }
 
-owe::Map<std::string, std::string> MaterialCombosToShaderCombos(const wpscene::Material& material) {
-    owe::Map<std::string, std::string> combos;
-    for (const auto& [key, value] : material.combos) {
-        combos[key] = std::to_string(value.to_primitive());
-    }
-    return combos;
-}
-
 bool IsLegacyAtmosphereMaterial(const wpscene::Material& material) {
     return material.shader == "workshop/2839476907/effects/atmosphere";
 }
@@ -236,16 +228,15 @@ std::vector<SceneShaderDefaultTexture> ToSceneShaderDefaultTextures(const Shader
     return out;
 }
 
-SceneShaderVariantDesc
-MakeSceneShaderVariantDesc(std::string_view scene_id, const wpscene::Material& material,
-                           const ShaderInfo& info, std::span<const ShaderUnit> units,
-                           std::span<const std::string>   source_keys,
-                           std::span<const std::string>   stage_sources,
-                           std::span<const ShaderTexInfo> texinfos, bool geometry_shader_enabled) {
+SceneShaderVariantDesc MakeSceneShaderVariantDesc(
+    std::string_view scene_id, const wpscene::Material& material, const ShaderInfo& info,
+    const Combos& input_combos, std::span<const ShaderUnit> units,
+    std::span<const std::string> source_keys, std::span<const std::string> stage_sources,
+    std::span<const ShaderTexInfo> texinfos, bool geometry_shader_enabled) {
     SceneShaderVariantDesc desc;
     desc.scene_id                = std::string(scene_id);
     desc.shader_name             = material.shader;
-    desc.input_combos            = MaterialCombosToShaderCombos(material);
+    desc.input_combos            = input_combos;
     desc.resolved_combos         = info.combos;
     desc.uniform_aliases         = info.alias;
     desc.default_uniforms        = info.svs;
@@ -480,10 +471,13 @@ auto BuildMaterial(fs::VFS& vfs, ShaderCache& shader_cache,
         }
     }
 
+    auto input_combos          = shader_info_ref.combos;
+    shader_info_ref.combos     = ShaderParser::ResolveShaderCombos(shader_info_ref, input_combos);
     auto scene_id              = as_string_view(scene.SceneId());
     auto variant_desc          = MakeSceneShaderVariantDesc(scene_id,
                                                             wpmat,
                                                             shader_info_ref,
+                                                            input_combos,
                                                             sd_units,
                                                             sd_source_keys,
                                                             sd_original_sources,

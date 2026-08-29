@@ -196,6 +196,8 @@ public:
 
     static std::string PreShaderHeader(const std::string& src, const Combos& combos, ShaderType);
 
+    static Combos ResolveShaderCombos(const ShaderInfo&, const Combos& input_combos);
+
     static bool CompileToSpv(std::string_view         scene_id, std::span<ShaderUnit>,
                              std::vector<ShaderCode>& spvs, ShaderInfo*,
                              std::span<const ShaderTexInfo>, ShaderCache* cache = nullptr);

@@ -1351,3 +1351,59 @@ void main() {
     EXPECT_TRUE(result.variant.stages[1].uniforms.contains("g_Brightness"));
     EXPECT_NE(result.variant.stages[1].code_hash, rstd::usize());
 }
+
+TEST(ShaderParser, CompileSceneShaderVariantResolvesRequiredComboDefaults) {
+    owe::SceneShaderVariantDesc desc;
+    desc.scene_id     = "required-combo-test";
+    desc.shader_name  = "required-combo-test";
+    desc.input_combos = {
+        { "HATCH", "0" },       { "LINE_COUNT", "3" },      { "LINE_STYLE2", "8" },
+        { "LINE_STYLE3", "3" }, { "SHAPE_VARIATION", "0" },
+    };
+    desc.stages.push_back(owe::SceneShaderVariantStage {
+        .stage      = owe::ShaderType::VERTEX,
+        .source_key = "/assets/shaders/required-combo-test.vert",
+        .source     = R"(
+attribute vec3 a_Position;
+void main() {
+    gl_Position = vec4(a_Position, 1.0);
+}
+)",
+    });
+    desc.stages.push_back(owe::SceneShaderVariantStage {
+        .stage      = owe::ShaderType::FRAGMENT,
+        .source_key = "/assets/shaders/required-combo-test.frag",
+        .source     = R"(
+// [COMBO] {"combo":"HATCH","default":0}
+// [COMBO] {"combo":"LINE_COUNT","default":1,"require":{"HATCH":0}}
+// [COMBO] {"combo":"LINE_STYLE2","default":0,"require":{"HATCH":0,"LINE_COUNT":2}}
+// [COMBO] {"combo":"LINE_STYLE3","default":0,"require":{"HATCH":0,"LINE_COUNT":3}}
+// [COMBO] {"combo":"SHAPE_VARIATION","default":1,"require":{"HATCH":1}}
+#if LINE_COUNT == 3
+#define LINE_STYLE2 LINE_STYLE3
+#endif
+float selection() {
+#if SHAPE_VARIATION == 1
+    return 1.0;
+#endif
+}
+void main() {
+#if LINE_STYLE2 == 3
+    gl_FragColor = vec4(selection());
+#else
+    gl_FragColor = vec4(0.0);
+#endif
+}
+)",
+    });
+
+    owe::fs::VFS vfs;
+    const auto   result = owe::ShaderParser::CompileSceneShaderVariant(desc, vfs);
+
+    ASSERT_TRUE(result.ok) << result.error;
+    EXPECT_FALSE(result.variant.resolved_combos.contains("LINE_STYLE2"));
+    EXPECT_EQ(result.variant.resolved_combos.at("LINE_STYLE3"), "3");
+    EXPECT_EQ(result.variant.resolved_combos.at("SHAPE_VARIATION"), "1");
+    EXPECT_EQ(result.variant.input_combos.at("LINE_STYLE2"), "8");
+    EXPECT_EQ(result.variant.input_combos.at("SHAPE_VARIATION"), "0");
+}
