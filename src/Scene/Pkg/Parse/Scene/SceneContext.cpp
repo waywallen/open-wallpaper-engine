@@ -7,6 +7,8 @@ using namespace rstd::prelude;
 void owe::SetUniformConfig(SceneParseContext& context, const Arc<SceneNode>& node,
                            UniformNodeConfigDraft config) {
     config.configured = true;
+    context.uniform_state->RegisterNodeParallaxContract(
+        *node, config.object_id, config.parallax_depth);
     for (auto& entry : context.uniform_configs) {
         if (entry.node.as_ptr() != node.as_ptr()) continue;
         entry.config = rstd::move(config);

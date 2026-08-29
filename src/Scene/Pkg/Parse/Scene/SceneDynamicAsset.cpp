@@ -176,7 +176,10 @@ Option<Arc<SceneNode>> InstantiateResolvedAsset(SceneParseContext& context, Scen
             (*context.script_scene)
                 ->runtime()
                 .CloneImageAlignmentBinding((**prototype).node.as_ptr(), node.as_ptr());
-        SetUniformConfig(context, node, (**prototype).uniform_config.Clone());
+        SetUniformConfig(
+            context,
+            node,
+            (**prototype).uniform_config.CloneForRuntimeLayer(context.NextSyntheticObjectId()));
         return attach(rstd::move(node));
     } else if (AssetEndsWith(asset, ".mdl"_str)) {
         auto prototype = context.dynamic_model_prototypes.get(asset);
@@ -184,7 +187,8 @@ Option<Arc<SceneNode>> InstantiateResolvedAsset(SceneParseContext& context, Scen
         auto source = (**prototype).deref();
         auto node   = CloneRegisteredNode(*context.scene, source, asset);
         if (auto config = FindUniformConfig(context, *source); config != nullptr)
-            SetUniformConfig(context, node, config->Clone());
+            SetUniformConfig(
+                context, node, config->CloneForRuntimeLayer(context.NextSyntheticObjectId()));
         return attach(rstd::move(node));
     } else if (AssetEndsWith(asset, ".json"_str)) {
         auto prototype = context.dynamic_particle_prototypes.get(asset);

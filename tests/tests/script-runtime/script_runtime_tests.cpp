@@ -4,6 +4,7 @@ import rstd.cppstd;
 import rstd;
 import eigen;
 import wescene.json;
+import wescene.pkg.parse;
 import wescene.types;
 import wescene.scene;
 import wescene.script;
@@ -615,6 +616,75 @@ TEST(ScriptNodeSoftMutation, ImageAlignmentDispatchesRegisteredSetter) {
     EXPECT_EQ(target, &node);
     rt.TickAll();
     EXPECT_EQ(LastScalar(fs), 1.0);
+}
+
+TEST(ScriptNodeSoftMutation, ParallaxDepthDispatchesRegisteredAccessors) {
+    owe::SceneNode  node;
+    JsRuntime       rt;
+    Vec2Value       depth { .x = 1.0, .y = 1.0 };
+    owe::SceneNode* target { nullptr };
+    rt.SetNodeParallaxDepthAccessors(
+        JsRuntime::NodeParallaxDepthGetter::make([&depth](owe::SceneNode*) -> Option<Vec2Value> {
+            return Some(depth);
+        }),
+        JsRuntime::NodeParallaxDepthSetter::make(
+            [&depth, &target](owe::SceneNode* node, Vec2Value value) {
+                target = node;
+                depth  = value;
+            }));
+
+    auto* fs = rt.MakeFieldScript(
+        R"JS(
+            thisLayer.parallaxDepth = new Vec2(0.25, 0.75);
+            export function update() {
+                return thisLayer.parallaxDepth.x + thisLayer.parallaxDepth.y;
+            }
+        )JS",
+        "test/parallax_depth_write",
+        FieldKind::Scalar,
+        owe::MakeObject(),
+        owe::IntoJson(0),
+        &node);
+    ASSERT_NE(fs, nullptr);
+
+    EXPECT_EQ(target, &node);
+    EXPECT_DOUBLE_EQ(depth.x, 0.25);
+    EXPECT_DOUBLE_EQ(depth.y, 0.75);
+    rt.TickAll();
+    EXPECT_EQ(LastScalar(fs), 1.0);
+}
+
+TEST(ScriptNodeSoftMutation, RuntimeLayersKeepIndependentPendingParallaxDepth) {
+    auto state  = Arc<owe::UniformSceneState>::make(Arc<owe::AudioResponseDemand>::make());
+    auto first  = Arc<owe::SceneNode>::make();
+    auto writer = Arc<owe::SceneNode>::make();
+    auto second = Arc<owe::SceneNode>::make();
+    state->RegisterNodeParallaxContract(*first, i32(-1), { 1.0f, 1.0f });
+    state->RegisterNodeParallaxContract(*writer, i32(-1), { 1.0f, 1.0f });
+    state->RegisterNodeParallaxContract(*second, i32(-2), { 1.0f, 1.0f });
+    EXPECT_TRUE(state->SetNodeParallaxDepth(*first, { 0.0f, 0.0f }));
+
+    auto first_depth  = state->NodeParallaxDepth(*first);
+    auto writer_depth = state->NodeParallaxDepth(*writer);
+    auto second_depth = state->NodeParallaxDepth(*second);
+    ASSERT_TRUE(first_depth.is_some());
+    ASSERT_TRUE(writer_depth.is_some());
+    ASSERT_TRUE(second_depth.is_some());
+    EXPECT_FLOAT_EQ((*first_depth)[usize()], 0.0f);
+    EXPECT_FLOAT_EQ((*first_depth)[usize(1)], 0.0f);
+    EXPECT_FLOAT_EQ((*writer_depth)[usize()], 0.0f);
+    EXPECT_FLOAT_EQ((*writer_depth)[usize(1)], 0.0f);
+    EXPECT_FLOAT_EQ((*second_depth)[usize()], 1.0f);
+    EXPECT_FLOAT_EQ((*second_depth)[usize(1)], 1.0f);
+
+    auto camera =
+        Arc<owe::SceneCamera>::make(owe::SceneCamera::MakeOrthographic(1920, 1080, -1.0, 1.0));
+    auto cameras           = Arc<owe::UniformCameraResolver>::make(rstd::move(camera));
+    auto first_state       = Arc<owe::UniformNodeState>::make(first.clone(), cameras.clone());
+    first_state->object_id = i32(-1);
+    state->SetNodeState({ .index = u32(1), .generation = u32(1) }, first_state.clone());
+    EXPECT_FLOAT_EQ(first_state->parallax_depth[usize()], 0.0f);
+    EXPECT_FLOAT_EQ(first_state->parallax_depth[usize(1)], 0.0f);
 }
 
 TEST(ScriptNodeSoftMutation, ImageAlignmentBindingClonesForDynamicLayer) {

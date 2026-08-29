@@ -501,7 +501,9 @@ struct EngineHostState {
         JsRuntime::NodeOriginGetter getter;
         JsRuntime::NodeOriginSetter setter;
     };
-    HashMap<owe::SceneNode*, NodeOriginHooks> node_origin_hooks;
+    HashMap<owe::SceneNode*, NodeOriginHooks>  node_origin_hooks;
+    Option<JsRuntime::NodeParallaxDepthGetter> node_parallax_depth_getter;
+    Option<JsRuntime::NodeParallaxDepthSetter> node_parallax_depth_setter;
     struct ImageAlignmentHook {
         String                          alignment;
         JsRuntime::ImageAlignmentSetter setter;
@@ -1940,6 +1942,16 @@ inline bool ReadXYZ(JSContext* ctx, JSValueConst v, double& x, double& y, double
     return ok;
 }
 
+inline bool ReadXY(JSContext* ctx, JSValueConst value, double& x, double& y) {
+    if (! JS_IsObject(value)) return false;
+    JSValue    js_x = JS_GetPropertyStr(ctx, value, "x");
+    JSValue    js_y = JS_GetPropertyStr(ctx, value, "y");
+    const bool ok   = JS_ToFloat64(ctx, &x, js_x) == 0 && JS_ToFloat64(ctx, &y, js_y) == 0;
+    JS_FreeValue(ctx, js_x);
+    JS_FreeValue(ctx, js_y);
+    return ok;
+}
+
 Option<ShaderValue> ReadShaderValue(JSContext* ctx, JSValueConst value) {
     if (JS_IsNumber(value)) {
         double number {};
@@ -2045,6 +2057,28 @@ JSValue NodeSetAngles(JSContext* ctx, JSValueConst this_val, JSValueConst val) {
     double x = 0, y = 0, z = 0;
     if (! ReadXYZ(ctx, val, x, y, z)) return JS_UNDEFINED;
     n->SetRotation({ float(x * kDegToRad), float(y * kDegToRad), float(z * kDegToRad) });
+    return JS_UNDEFINED;
+}
+
+JSValue NodeGetParallaxDepth(JSContext* ctx, JSValueConst this_val) {
+    auto* node = GetLayerNode(this_val);
+    auto* host = static_cast<EngineHostState*>(JS_GetContextOpaque(ctx));
+    if (node == nullptr || host == nullptr || host->node_parallax_depth_getter.is_none())
+        return MakeVec2Value(ctx, 0.0, 0.0);
+    auto depth = (**host->node_parallax_depth_getter)(node);
+    if (depth.is_none()) return MakeVec2Value(ctx, 0.0, 0.0);
+    return MakeVec2Value(ctx, depth->x, depth->y);
+}
+
+JSValue NodeSetParallaxDepth(JSContext* ctx, JSValueConst this_val, JSValueConst value) {
+    auto* node = GetLayerNode(this_val);
+    auto* host = static_cast<EngineHostState*>(JS_GetContextOpaque(ctx));
+    if (node == nullptr || host == nullptr || host->node_parallax_depth_setter.is_none())
+        return JS_UNDEFINED;
+    double x {};
+    double y {};
+    if (! ReadXY(ctx, value, x, y)) return JS_UNDEFINED;
+    (**host->node_parallax_depth_setter)(node, Vec2Value { .x = x, .y = y });
     return JS_UNDEFINED;
 }
 
@@ -2953,6 +2987,7 @@ const JSCFunctionListEntry s_layer_proto_funcs[] = {
     JS_CGETSET_DEF("origin", NodeGetOrigin, NodeSetOrigin),
     JS_CGETSET_DEF("scale", NodeGetScale, NodeSetScale),
     JS_CGETSET_DEF("angles", NodeGetAngles, NodeSetAngles),
+    JS_CGETSET_DEF("parallaxDepth", NodeGetParallaxDepth, NodeSetParallaxDepth),
     JS_CGETSET_DEF("size", NodeGetSize, NodeSetIgnore),
     JS_CGETSET_DEF("visible", NodeGetVisible, NodeSetVisible),
     JS_CGETSET_DEF("alpha", NodeGetAlpha, NodeSetAlpha),
@@ -3497,6 +3532,12 @@ void JsRuntime::RegisterNodeOriginAccessors(owe::SceneNode* node, NodeOriginGett
         node,
         EngineHostState::NodeOriginHooks { .getter = rstd::move(getter),
                                            .setter = rstd::move(setter) });
+}
+
+void JsRuntime::SetNodeParallaxDepthAccessors(NodeParallaxDepthGetter getter,
+                                              NodeParallaxDepthSetter setter) {
+    m_impl->host.node_parallax_depth_getter = Some(rstd::move(getter));
+    m_impl->host.node_parallax_depth_setter = Some(rstd::move(setter));
 }
 
 void JsRuntime::RegisterImageAlignmentSetter(owe::SceneNode* node, ref<str> alignment,

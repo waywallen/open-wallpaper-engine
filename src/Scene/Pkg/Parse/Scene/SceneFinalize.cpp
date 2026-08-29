@@ -238,6 +238,7 @@ void FinalizeUniformSources(SceneParseContext& context) {
                  global_base_uniforms = context.global_base_uniforms,
                  ortho_w              = context.ortho_w,
                  ortho_h              = context.ortho_h,
+                 next_object_id       = context.next_synthetic_object_id,
                  uniform_state        = context.uniform_state.clone(),
                  camera_resolver      = camera_resolver.clone()](
                     SceneNode*                  owner,
@@ -247,17 +248,22 @@ void FinalizeUniformSources(SceneParseContext& context) {
                                             : scene_ptr->RootMut().as_raw_ptr();
 
                     auto instantiate = [&](ref<str> asset) -> Option<Arc<SceneNode>> {
+                        auto allocate_object_id = [&]() {
+                            auto id        = next_object_id;
+                            next_object_id = next_object_id.checked_sub(i32(1)).unwrap();
+                            return id;
+                        };
                         if (auto prototype = image_prototypes.get(asset); prototype.is_some()) {
                             auto node =
                                 CloneRegisteredNode(*scene_ptr, (**prototype).node.deref(), asset);
                             runtime->CloneImageAlignmentBinding((**prototype).node.as_ptr(),
                                                                 node.as_ptr());
                             scene_ptr->AttachRuntimeNode(*parent, node.clone());
-                            if (! RegisterUniformNodeSources(*scene_ptr,
-                                                             uniform_state,
-                                                             camera_resolver,
-                                                             node,
-                                                             (**prototype).uniform_config)) {
+                            auto config =
+                                (**prototype)
+                                    .uniform_config.CloneForRuntimeLayer(allocate_object_id());
+                            if (! RegisterUniformNodeSources(
+                                    *scene_ptr, uniform_state, camera_resolver, node, config)) {
                                 rstd_error("registered image asset '{}' has no runtime resource id",
                                            asset);
                                 return None();
@@ -274,7 +280,7 @@ void FinalizeUniformSources(SceneParseContext& context) {
                         }
 
                         auto particle    = (**prototype).Clone();
-                        particle.id      = i32(-1);
+                        particle.id      = allocate_object_id();
                         particle.name    = rstd::cppstd::to_string(asset);
                         particle.origin  = { 0.0f, 0.0f, 0.0f };
                         particle.scale   = { 1.0f, 1.0f, 1.0f };
@@ -408,6 +414,22 @@ Box<Scene> FinalizeScene(SceneParseContext& context) {
             runtime.RegisterInitialLayerConfig((*(**node).node).as_ptr(), (**config).clone());
         }
         runtime.SetScene(context.scene.get());
+        auto parallax_state = CopyableArcHold(context.uniform_state.clone());
+        runtime.SetNodeParallaxDepthAccessors(
+            script::JsRuntime::NodeParallaxDepthGetter::make(
+                [parallax_state](SceneNode* node) mutable -> Option<script::Vec2Value> {
+                    if (node == nullptr) return None();
+                    auto depth = parallax_state.value->NodeParallaxDepth(*node);
+                    if (depth.is_none()) return None();
+                    return Some(
+                        script::Vec2Value { .x = (*depth)[usize()], .y = (*depth)[usize(1)] });
+                }),
+            script::JsRuntime::NodeParallaxDepthSetter::make(
+                [parallax_state](SceneNode* node, script::Vec2Value depth) mutable {
+                    if (node == nullptr) return;
+                    (void)parallax_state.value->SetNodeParallaxDepth(
+                        *node, { static_cast<float>(depth.x), static_cast<float>(depth.y) });
+                }));
         runtime.SetLayerFactory(script::JsRuntime::LayerFactory::make(
             [&context](SceneNode*                  owner,
                        script::LayerAssetReference request) -> Option<Arc<SceneNode>> {

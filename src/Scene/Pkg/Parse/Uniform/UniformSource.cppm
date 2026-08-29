@@ -156,6 +156,7 @@ struct UniformNodeConfigDraft {
     array<float, 2>         effect_projection_size { 0.0f, 0.0f };
 
     auto Clone() const -> UniformNodeConfigDraft;
+    auto CloneForRuntimeLayer(i32 owner) const -> UniformNodeConfigDraft;
     void SetParallaxContract(array<float, 2> depth, i32 owner = i32());
 };
 
@@ -203,9 +204,12 @@ public:
         : m_audio_demand(rstd::move(demand)) {}
 
     void SetNodeState(SceneNodeId, Arc<UniformNodeState>);
+    void RegisterNodeParallaxContract(const SceneNode&, i32, array<float, 2>);
     bool SetEffectProjectionSize(SceneNodeId, array<float, 2>);
     bool SetObjectParallaxDepth(i32, array<float, 2>);
+    bool SetNodeParallaxDepth(const SceneNode&, array<float, 2>);
     bool ApplyObjectParallaxDepth(i32, const Json&);
+    auto NodeParallaxDepth(const SceneNode&) const -> Option<array<float, 2>>;
     auto FindNodeState(const SceneNode*) const -> const UniformNodeState*;
     auto ComputeParallaxOffset(const UniformNodeState&, const SceneCamera&,
                                SceneRenderViewKind) const -> array<float, 2>;
@@ -237,6 +241,8 @@ private:
     HashMap<const SceneNode*, Arc<UniformNodeState>> m_nodes_by_address;
     HashMap<i32, Vec<Arc<UniformNodeState>>>         m_nodes_by_object;
     HashMap<i32, array<float, 2>>                    m_object_parallax_depths;
+    HashMap<const SceneNode*, i32>                   m_parallax_owners;
+    HashMap<const SceneNode*, array<float, 2>>       m_node_parallax_depths;
 
     auto LogicalParallaxState(const UniformNodeState&) const -> const UniformNodeState*;
     auto ParentParallaxState(const UniformNodeState&) const -> const UniformNodeState*;

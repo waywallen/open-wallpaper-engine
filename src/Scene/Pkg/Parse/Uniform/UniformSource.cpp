@@ -215,6 +215,12 @@ auto UniformNodeConfigDraft::Clone() const -> UniformNodeConfigDraft {
     return result;
 }
 
+auto UniformNodeConfigDraft::CloneForRuntimeLayer(i32 owner) const -> UniformNodeConfigDraft {
+    auto result      = Clone();
+    result.object_id = owner;
+    return result;
+}
+
 void UniformCameraResolver::Add(String name, Arc<SceneCamera> camera) {
     (void)m_cameras.insert(rstd::move(name), rstd::move(camera));
 }
@@ -230,6 +236,7 @@ auto UniformCameraResolver::Resolve(const SceneNode& node) const -> Option<mut_r
 }
 
 void UniformSceneState::SetNodeState(SceneNodeId id, Arc<UniformNodeState> state) {
+    RegisterNodeParallaxContract(*state->node, state->object_id, state->parallax_depth);
     (void)m_nodes_by_address.insert(rstd::addressof(*state->node), state.clone());
     if (state->object_id != i32()) {
         if (auto current = m_object_parallax_depths.get(state->object_id); current.is_some()) {
@@ -241,8 +248,22 @@ void UniformSceneState::SetNodeState(SceneNodeId id, Arc<UniformNodeState> state
             owners = m_nodes_by_object.get_mut(state->object_id);
         }
         (*owners)->push(state.clone());
+    } else if (auto current = m_node_parallax_depths.get(state->node.as_ptr()); current.is_some()) {
+        state->parallax_depth = **current;
     }
     (void)m_nodes.insert(Key(id), rstd::move(state));
+}
+
+void UniformSceneState::RegisterNodeParallaxContract(const SceneNode& node, i32 object_id,
+                                                     array<float, 2> depth) {
+    (void)m_parallax_owners.insert(rstd::addressof(node), object_id);
+    if (object_id != i32()) {
+        if (! m_object_parallax_depths.contains_key(object_id))
+            (void)m_object_parallax_depths.insert(object_id, depth);
+        return;
+    }
+    if (! m_node_parallax_depths.contains_key(rstd::addressof(node)))
+        (void)m_node_parallax_depths.insert(rstd::addressof(node), depth);
 }
 
 bool UniformSceneState::SetEffectProjectionSize(SceneNodeId id, rstd::array<float, 2> size) {
@@ -269,6 +290,20 @@ bool UniformSceneState::SetObjectParallaxDepth(i32 object_id, array<float, 2> de
     return true;
 }
 
+bool UniformSceneState::SetNodeParallaxDepth(const SceneNode& node, array<float, 2> depth) {
+    auto owner = m_parallax_owners.get(rstd::addressof(node));
+    if (owner.is_some() && **owner != i32()) return SetObjectParallaxDepth(**owner, depth);
+
+    if (auto current = m_node_parallax_depths.get_mut(rstd::addressof(node)); current.is_some()) {
+        **current = depth;
+    } else {
+        (void)m_node_parallax_depths.insert(rstd::addressof(node), depth);
+    }
+    auto state = m_nodes_by_address.get(rstd::addressof(node));
+    if (state.is_some()) (**state)->parallax_depth = depth;
+    return owner.is_some() || state.is_some();
+}
+
 bool UniformSceneState::ApplyObjectParallaxDepth(i32 object_id, const Json& property) {
     const auto&     value = SceneUserPropertyPayload(property);
     array<float, 2> depth {};
@@ -277,6 +312,19 @@ bool UniformSceneState::ApplyObjectParallaxDepth(i32 object_id, const Json& prop
     auto scalar = UserScalar(property);
     if (scalar.is_none()) return false;
     return SetObjectParallaxDepth(object_id, { *scalar, *scalar });
+}
+
+auto UniformSceneState::NodeParallaxDepth(const SceneNode& node) const -> Option<array<float, 2>> {
+    auto owner = m_parallax_owners.get(rstd::addressof(node));
+    if (owner.is_some() && **owner != i32()) {
+        auto depth = m_object_parallax_depths.get(**owner);
+        if (depth.is_some())
+            return Some(array<float, 2> { (**depth)[usize()], (**depth)[usize(1)] });
+    }
+    auto depth = m_node_parallax_depths.get(rstd::addressof(node));
+    if (depth.is_some()) return Some(array<float, 2> { (**depth)[usize()], (**depth)[usize(1)] });
+    auto state = m_nodes_by_address.get(rstd::addressof(node));
+    return state.is_some() ? Some((**state)->parallax_depth) : None();
 }
 
 auto UniformSceneState::FindNodeState(const SceneNode* node) const -> const UniformNodeState* {

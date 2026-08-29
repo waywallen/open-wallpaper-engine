@@ -215,6 +215,10 @@ public:
     using NodeOriginSetter = Arc<dyn<FnMut<void(Vec3Value)>>>;
     void RegisterNodeOriginAccessors(owe::SceneNode* node, NodeOriginGetter getter,
                                      NodeOriginSetter setter);
+    using NodeParallaxDepthGetter = Arc<dyn<FnMut<Option<Vec2Value>(owe::SceneNode*)>>>;
+    using NodeParallaxDepthSetter = Arc<dyn<FnMut<void(owe::SceneNode*, Vec2Value)>>>;
+    void SetNodeParallaxDepthAccessors(NodeParallaxDepthGetter getter,
+                                       NodeParallaxDepthSetter setter);
     using ImageAlignmentSetter = Arc<dyn<FnMut<void(owe::SceneNode*, ref<str>)>>>;
     void RegisterImageAlignmentSetter(owe::SceneNode* node, ref<str> alignment,
                                       ImageAlignmentSetter setter);
