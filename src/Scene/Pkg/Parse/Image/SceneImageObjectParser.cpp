@@ -264,9 +264,10 @@ void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj
 
     // mesh
     SceneMesh             effct_final_mesh {};
-    auto                  spMesh                  = std::make_shared<SceneMesh>();
-    auto&                 mesh                    = *spMesh;
-    const array<float, 2> mapRate                 = Texture0UvScale(material, wpimgobj.nopadding);
+    auto                  spMesh  = std::make_shared<SceneMesh>();
+    auto&                 mesh    = *spMesh;
+    const array<float, 2> mapRate = Texture0UvScale(material, wpimgobj.nopadding);
+    const bool            source_uses_framebuffer_space = hasEffect && wpimgobj.composite_layer;
     const Vector3f        source_alignment_offset = hasEffect ? Vector3f::Zero() : alignment_offset;
     auto                  add_puppet_mask_submeshes = [&](SceneMesh& target, u32 first_mask_slot) {
         if (! puppet_has_masks || primary_puppet_mesh == nullptr) return;
@@ -356,6 +357,10 @@ void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj
         }
     }
     if (puppet.is_none()) {
+        if (source_uses_framebuffer_space) {
+            mesh.SetGeometryTransform(
+                Affine3d(Translation3d(alignment_offset.cast<double>())).matrix());
+        }
         GenCardMesh(mesh, { geometry_size[0], geometry_size[1] }, mapRate, source_alignment_offset);
         if (parse_geometry.final_mesh.is_some()) {
             effct_final_mesh.ChangeMeshDataFrom(**parse_geometry.final_mesh);
@@ -1111,23 +1116,33 @@ void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj
     const Matrix4d alignment_base_transform =
         image_effect_layer ? image_effect_layer->FinalMesh().GeometryTransform()
                            : spImgNode->GeometryTransform();
+    const Matrix4d source_alignment_base_transform = spMesh->GeometryTransform();
     RegisterImageAlignmentBinding(
         context,
         spImgNode.as_ptr(),
         rstd::cppstd::as_str(wpimgobj.alignment).unwrap(),
-        SceneParseContext::ImageAlignmentSetter::make(
-            [image_effect_layer, alignment_base_transform, alignment_offset, geometry_size](
-                SceneNode* node, ref<str> alignment) {
-                const Vector3f delta =
-                    AlignmentOffset(alignment, { geometry_size[0], geometry_size[1] }) -
-                    alignment_offset;
-                Matrix4d transform = alignment_base_transform *
-                                     Affine3d(Translation3d(delta.cast<double>())).matrix();
-                if (image_effect_layer)
-                    image_effect_layer->FinalMesh().SetGeometryTransform(rstd::move(transform));
-                else if (node)
-                    node->SetGeometryTransform(rstd::move(transform));
-            }));
+        SceneParseContext::ImageAlignmentSetter::make([image_effect_layer,
+                                                       source_uses_framebuffer_space,
+                                                       source_mesh = spMesh,
+                                                       alignment_base_transform,
+                                                       source_alignment_base_transform,
+                                                       alignment_offset,
+                                                       geometry_size](
+                                                          SceneNode* node, ref<str> alignment) {
+            const Vector3f delta =
+                AlignmentOffset(alignment, { geometry_size[0], geometry_size[1] }) -
+                alignment_offset;
+            const Matrix4d alignment_delta = Affine3d(Translation3d(delta.cast<double>())).matrix();
+            Matrix4d       transform       = alignment_base_transform * alignment_delta;
+            if (image_effect_layer)
+                image_effect_layer->FinalMesh().SetGeometryTransform(rstd::move(transform));
+            else if (node)
+                node->SetGeometryTransform(rstd::move(transform));
+            if (source_uses_framebuffer_space) {
+                source_mesh->SetGeometryTransform(source_alignment_base_transform *
+                                                  alignment_delta);
+            }
+        }));
 
     AssignNodeFieldAnimations(context, *spImgNode.as_ptr(), wpimgobj.field_bindings);
     WireFieldScripts(context, spImgNode, wpimgobj.field_bindings);
