@@ -34,6 +34,10 @@ visibility = "public"
 workspace = true
 visibility = "public"
 
+[dependencies.rstd-log]
+workspace = true
+visibility = "private"
+
 [dependencies.vvk]
 workspace = true
 visibility = "public"

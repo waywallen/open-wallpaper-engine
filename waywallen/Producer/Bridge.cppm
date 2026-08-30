@@ -1,5 +1,7 @@
 module;
 
+#include <rstd/macro.hpp>
+
 #include <waywallen-bridge/bridge.h>
 #include <waywallen-bridge/drm_fourcc.h>
 #include <waywallen-bridge/pool.h>
@@ -47,7 +49,9 @@ enum : uint32_t
 export module waywallen.bridge;
 
 export import vvk;
+import rstd;
 import rstd.cppstd;
+import rstd.log;
 
 export inline constexpr uint32_t WW_BRIDGE_SUPPORTED_PROTOCOL_VERSION =
     OWE_WW_BRIDGE_SUPPORTED_PROTOCOL_VERSION;
@@ -88,6 +92,7 @@ export using ::WW_EVT_IN_REQUEST_FRAME;
 export using ::WW_EVT_IN_AUDIO_WINDOW;
 export using ::WW_EVT_IN_EVENT_SUBSCRIPTIONS_APPLIED;
 export using ::WW_EVT_IN_SETTING_CHANGED;
+export using ::WW_EVT_IN_SET_LOG_LEVEL;
 export using ::WW_EVT_IN_SHUTDOWN;
 export using ::WW_EVT_IN_UNMUTE;
 export using ::WAYWALLEN_EVENT_SUBSCRIPTION_STATUS_APPLIED;
@@ -166,12 +171,58 @@ export using ::waywallen_event_subscription_result_t;
 export using ::waywallen_event_subscription_t;
 export using ::waywallen_bind_failure_t;
 export using ::waywallen_init_rejection_t;
+export using ::waywallen_log_level_t;
 export using ::waywallen_mpris_snapshot_t;
 export using ::waywallen_pointer_axis_t;
 export using ::waywallen_pointer_button_t;
 export using ::waywallen_pointer_motion_t;
 export using ::waywallen_renderer_init_free;
 export using ::waywallen_renderer_init_t;
+
+export inline void ww_renderer_log_set_level(waywallen_log_level_t level) {
+    using rstd::log::LevelFilter;
+    switch (level) {
+    case WAYWALLEN_LOG_LEVEL_OFF: rstd::log::set_max_level(LevelFilter::Off); break;
+    case WAYWALLEN_LOG_LEVEL_ERROR: rstd::log::set_max_level(LevelFilter::Error); break;
+    case WAYWALLEN_LOG_LEVEL_WARN: rstd::log::set_max_level(LevelFilter::Warn); break;
+    case WAYWALLEN_LOG_LEVEL_INFO: rstd::log::set_max_level(LevelFilter::Info); break;
+    case WAYWALLEN_LOG_LEVEL_DEBUG: rstd::log::set_max_level(LevelFilter::Debug); break;
+    case WAYWALLEN_LOG_LEVEL_TRACE: rstd::log::set_max_level(LevelFilter::Trace); break;
+    }
+}
+
+export inline void ww_renderer_log_init() {
+    using namespace rstd::literals;
+    static rstd::log::EnvLogger logger("trace"_str);
+    rstd::log::set_logger(logger);
+    rstd::log::set_max_level(rstd::log::LevelFilter::Trace);
+
+    auto initial = rstd::log::LevelFilter::Info;
+    if (auto value = rstd::env::var("WW_LOG"_str); value.is_some()) {
+        auto parsed = rstd::log::parse_level_filter(value->as_str());
+        if (parsed.is_some()) {
+            initial = parsed.unwrap_unchecked();
+        } else {
+            rstd_warn("invalid WW_LOG value '{}'; using info", value->as_str());
+        }
+    }
+    rstd::log::set_max_level(initial);
+
+    ww_bridge_set_log_callback(
+        [](ww_bridge_log_level_t level, const char* msg, void*) {
+            constexpr rstd::log::Level levels[4] = {
+                rstd::log::Level::Debug,
+                rstd::log::Level::Info,
+                rstd::log::Level::Warn,
+                rstd::log::Level::Error,
+            };
+            auto lvl =
+                levels[static_cast<unsigned>(level) <= 3u ? static_cast<unsigned>(level) : 3u];
+            auto args = rstd::fmt::Arguments::make("{}", msg);
+            rstd::log::log(rstd::log::Record { rstd::log::Metadata { lvl, {} }, args });
+        },
+        nullptr);
+}
 
 export inline uint32_t ww_resolution_short_edge(int32_t r) {
     switch (r) {
