@@ -19,14 +19,8 @@ import wescene.script;
 
 using namespace rstd::prelude;
 using namespace rstd::literals;
-using rstd::collections::HashMap;
-using rstd::collections::HashSet;
 using rstd::cppstd::as_str;
-using rstd::cppstd::as_string_view;
-using rstd::slice_::sort_unstable_by;
 using rstd::sync::Arc;
-using namespace owe;
-using namespace Eigen;
 
 namespace owe
 {
@@ -45,16 +39,19 @@ void BuildBloomPostProcess(SceneParseContext& context, fs::VFS& vfs,
         rt.bind.scale  = inv_scale;
         scene.RegisterRenderTarget(String::make(as_str(name).unwrap()), rstd::move(rt));
     };
-    declare_rt("_rt_bloom_mip1", g.hdr ? 0.5f : 0.25f);
-    declare_rt("_rt_bloom_mip2", 0.25f);
+    declare_rt("_rt_bloom_mip1", 0.25f);
+    declare_rt("_rt_bloom_mip2", 0.125f);
+    declare_rt("_rt_bloom_mip3", 0.125f);
     declare_rt("_rt_bloom_combine", 1.0f);
 
     EffectRenderTargets render_targets;
     auto                default_target = String::make(SpecTex_Default);
     (void)render_targets.insert(String::make("previous"_str), default_target.clone());
     (void)render_targets.insert(String::make("_rt_default"_str), rstd::move(default_target));
-    for (auto name : array<ref<str>, 3> {
-             "_rt_bloom_mip1"_str, "_rt_bloom_mip2"_str, "_rt_bloom_combine"_str }) {
+    for (auto name : array<ref<str>, 4> { "_rt_bloom_mip1"_str,
+                                          "_rt_bloom_mip2"_str,
+                                          "_rt_bloom_mip3"_str,
+                                          "_rt_bloom_combine"_str }) {
         (void)render_targets.insert(String::make(name), String::make(name));
     }
 
@@ -65,8 +62,7 @@ void BuildBloomPostProcess(SceneParseContext& context, fs::VFS& vfs,
                         std::vector<wpscene::MaterialPassBindItem>
                                                                 binds,
                         std::string                             output_rt,
-                        std::function<void(wpscene::Material&)> mutate         = nullptr,
-                        std::function<void(ShaderInfo&)>        configure_info = nullptr) -> bool {
+                        std::function<void(wpscene::Material&)> mutate = nullptr) -> bool {
         std::string material_path { "/assets/" };
         material_path.append(mat_relpath);
         auto loaded = ReadJsonFile(vfs, material_path);
@@ -85,7 +81,6 @@ void BuildBloomPostProcess(SceneParseContext& context, fs::VFS& vfs,
 
         ShaderInfo wpShaderInfo;
         wpShaderInfo.baseConstSvs = context.global_base_uniforms;
-        if (configure_info) configure_info(wpShaderInfo);
 
         auto                   pp_node = Arc<SceneNode>::make();
         SceneMaterial          material;
@@ -129,101 +124,35 @@ void BuildBloomPostProcess(SceneParseContext& context, fs::VFS& vfs,
         return true;
     };
 
-    if (g.hdr) {
-        auto hdr_offsets = [](float source_scale) {
-            float x = 1.0f / (1920.0f * source_scale);
-            float y = 1.0f / (1080.0f * source_scale);
-            return std::array { x, y, -x, -y };
-        };
-        auto set_render_var = [](ShaderInfo& info, std::array<float, 4> value) {
-            info.baseConstSvs[rstd::cppstd::to_string(G_RENDERVAR0)] = value;
-        };
-        float threshold = g.bloomhdrthreshold;
-        float knee      = threshold * g.bloomhdrfeather;
-        float scatter   = g.bloomhdrscatter > 0.0f ? g.bloomhdrscatter : 1.0f;
+    // Scene HDR is authoring metadata, not an output capability. Wallpaper Engine uses
+    // this LDR chain for SDR output even when the scene has HDR authoring enabled.
+    if (! add_pass("materials/util/downsample_quarter_bloom.json",
+                   { { "previous", i32() } },
+                   "_rt_bloom_mip1",
+                   [&](wpscene::Material& m) {
+                       m.constantshadervalues["bloomstrength"]  = { g.bloomstrength };
+                       m.constantshadervalues["bloomthreshold"] = { g.bloomthreshold };
+                       m.constantshadervalues["bloomtint"]      = {
+                           g.bloomtint[0],
+                           g.bloomtint[1],
+                           g.bloomtint[2],
+                       };
+                   }))
+        return;
 
-        if (! add_pass(
-                "materials/util/hdr_downsample_bloom.json",
-                { { "previous", i32() } },
-                "_rt_bloom_mip1",
-                [&](wpscene::Material& m) {
-                    m.constantshadervalues["bloomstrength"] = { g.bloomhdrstrength };
-                    m.constantshadervalues["blend"]         = {
-                        threshold,
-                        threshold - knee,
-                        2.0f * knee,
-                        knee > 0.0f ? 0.25f / knee : 0.0f,
-                    };
-                    m.constantshadervalues["bloomtint"] = {
-                        g.bloomtint[0],
-                        g.bloomtint[1],
-                        g.bloomtint[2],
-                    };
-                },
-                [&](ShaderInfo& info) {
-                    set_render_var(info, hdr_offsets(1.0f));
-                }))
-            return;
+    if (! add_pass("materials/util/downsample_eighth_blur_v.json",
+                   { { "_rt_bloom_mip1", i32() } },
+                   "_rt_bloom_mip2"))
+        return;
 
-        if (! add_pass("materials/util/hdr_downsample.json",
-                       { { "_rt_bloom_mip1", i32() } },
-                       "_rt_bloom_mip2",
-                       nullptr,
-                       [&](ShaderInfo& info) {
-                           set_render_var(info, hdr_offsets(0.5f));
-                       }))
-            return;
+    if (! add_pass(
+            "materials/util/blur_h_bloom.json", { { "_rt_bloom_mip2", i32() } }, "_rt_bloom_mip3"))
+        return;
 
-        if (! add_pass(
-                "materials/util/hdr_upsample.json",
-                { { "_rt_bloom_mip2", i32() } },
-                "_rt_bloom_mip1",
-                [&](wpscene::Material& m) {
-                    m.constantshadervalues["scatter"] = { scatter };
-                },
-                [&](ShaderInfo& info) {
-                    set_render_var(info, hdr_offsets(0.25f));
-                }))
-            return;
-
-        if (! add_pass("materials/util/combine_hdr_upsample_linear.json",
-                       { { "previous", i32() }, { "_rt_bloom_mip1", i32(1) } },
-                       "_rt_bloom_combine",
-                       nullptr,
-                       [&](ShaderInfo& info) {
-                           set_render_var(info, { 1.0f, 0.0f, 0.0f, 0.0f });
-                       }))
-            return;
-    } else {
-        if (! add_pass("materials/util/downsample_quarter_bloom.json",
-                       { { "previous", i32() } },
-                       "_rt_bloom_mip1",
-                       [&](wpscene::Material& m) {
-                           m.constantshadervalues["bloomstrength"]  = { g.bloomstrength };
-                           m.constantshadervalues["bloomthreshold"] = { g.bloomthreshold };
-                           m.constantshadervalues["bloomtint"]      = {
-                               g.bloomtint[0],
-                               g.bloomtint[1],
-                               g.bloomtint[2],
-                           };
-                       }))
-            return;
-
-        if (! add_pass("materials/util/downsample_eighth_blur_v.json",
-                       { { "_rt_bloom_mip1", i32() } },
-                       "_rt_bloom_mip2"))
-            return;
-
-        if (! add_pass("materials/util/blur_h_bloom.json",
-                       { { "_rt_bloom_mip2", i32() } },
-                       "_rt_bloom_mip1"))
-            return;
-
-        if (! add_pass("materials/util/combine_ldr.json",
-                       { { "previous", i32() }, { "_rt_bloom_mip1", i32(1) } },
-                       "_rt_bloom_combine"))
-            return;
-    }
+    if (! add_pass("materials/util/combine_ldr.json",
+                   { { "previous", i32() }, { "_rt_bloom_mip3", i32(1) } },
+                   "_rt_bloom_combine"))
+        return;
 
     pp->steps.push(ScenePostProcessStep::Copy(ScenePostProcessCopy {
         .src = "_rt_bloom_combine",
