@@ -329,9 +329,8 @@ void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj
                 mesh, { geometry_size[0], geometry_size[1] }, mapRate, source_alignment_offset);
             if (primary_puppet_mesh != nullptr) {
                 effct_final_mesh.Submeshes().emplace_back();
-                MdlParser::GenMeshFromMdl(effct_final_mesh.Submeshes().back(),
-                                          *primary_puppet_mesh,
-                                          { mapRate[usize()], mapRate[usize(1)] });
+                MdlParser::GenMeshFromMdl(
+                    effct_final_mesh.Submeshes().back(), *primary_puppet_mesh, { 1.0f, 1.0f });
             }
             if (has_bones) add_puppet_mask_submeshes(effct_final_mesh, u32(1));
 
