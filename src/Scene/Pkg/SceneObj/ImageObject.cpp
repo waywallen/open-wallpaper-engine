@@ -305,6 +305,11 @@ bool ImageObject::FromJson(const owe::Json& json, fs::VFS& vfs, SceneVersion v) 
     owe::GetJsonValue(json, "id", id, false);
     owe::GetJsonValue(json, "colorBlendMode", colorBlendMode, false);
     ReadParallaxDepth(json, parallaxDepth, parallaxDepthAuthored);
+    if (! parallaxDepthAuthored && composite_layer) {
+        // WE gives composite containers the regular layer depth when the field is omitted.
+        parallaxDepth         = { 1.0f, 1.0f };
+        parallaxDepthAuthored = true;
+    }
     if (! fullscreen) {
         owe::GetJsonValue(json, "origin", origin);
         owe::GetJsonValue(json, "angles", angles);

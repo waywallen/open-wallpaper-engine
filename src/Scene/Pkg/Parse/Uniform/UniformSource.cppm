@@ -132,8 +132,8 @@ inline auto TextureTexelOutput(std::size_t index) -> UniformOutputId {
 
 struct UniformCameraParallax {
     bool  enable { false };
-    float amount { 0.5f };
-    float delay { 0.1f };
+    float amount { 0.0f };
+    float delay { 0.0f };
     float mouse_influence { 0.0f };
 };
 
@@ -147,7 +147,9 @@ struct UniformCameraShake {
 struct UniformNodeConfigDraft {
     bool                    configured { false };
     i32                     object_id { 0 };
-    array<float, 2>         parallax_depth { 1.0f, 1.0f };
+    array<float, 2>         parallax_depth { 0.0f, 0.0f };
+    bool                    parallax_depth_authored { false };
+    bool                    propagate_parallax_to_children { true };
     bool                    ride_parent_parallax { false };
     bool                    use_camera_eye_position { false };
     Option<array<float, 3>> eye_position_override;
@@ -157,7 +159,10 @@ struct UniformNodeConfigDraft {
 
     auto Clone() const -> UniformNodeConfigDraft;
     auto CloneForRuntimeLayer(i32 owner) const -> UniformNodeConfigDraft;
-    void SetParallaxContract(array<float, 2> depth, i32 owner = i32());
+    void SetParallaxContract(array<float, 2> depth,
+                             i32             owner       = i32(),
+                             bool            authored    = false,
+                             bool            propagate_to_children = true);
 };
 
 class UniformCameraResolver {
@@ -180,7 +185,9 @@ struct UniformNodeState {
     Arc<SceneNode>             node;
     Arc<UniformCameraResolver> camera_resolver;
     i32                        object_id { 0 };
-    array<float, 2>            parallax_depth { 1.0f, 1.0f };
+    array<float, 2>            parallax_depth { 0.0f, 0.0f };
+    bool                       parallax_depth_authored { false };
+    bool                       propagate_parallax_to_children { true };
     bool                       ride_parent_parallax { false };
     bool                       use_camera_eye_position { false };
     Option<array<float, 3>>    eye_position_override;
@@ -204,7 +211,7 @@ public:
         : m_audio_demand(rstd::move(demand)) {}
 
     void SetNodeState(SceneNodeId, Arc<UniformNodeState>);
-    void RegisterNodeParallaxContract(const SceneNode&, i32, array<float, 2>);
+    void RegisterNodeParallaxContract(const SceneNode&, i32, array<float, 2>, bool authored);
     bool SetEffectProjectionSize(SceneNodeId, array<float, 2>);
     bool SetObjectParallaxDepth(i32, array<float, 2>);
     bool SetNodeParallaxDepth(const SceneNode&, array<float, 2>);
@@ -222,6 +229,10 @@ public:
     array<float, 2>              Ortho() const noexcept { return m_ortho; }
 
     void SetOrtho(float width, float height) { m_ortho = { width, height }; }
+    void SetLayerParallaxPolicy(bool enabled, bool orthographic_implicit) {
+        m_layer_parallax_enabled          = enabled;
+        m_orthographic_implicit_parallax  = orthographic_implicit;
+    }
     void SetPointerInput(double, double);
     void SetAudioSpectrum(const scene_audio::Buffers&);
     void Advance(const SceneFrame&);
@@ -250,6 +261,8 @@ private:
     UniformFrameInputs       m_inputs;
     UniformCameraParallax    m_camera_parallax;
     UniformCameraShake       m_camera_shake;
+    bool                     m_layer_parallax_enabled { false };
+    bool                     m_orthographic_implicit_parallax { false };
     array<float, 2>          m_ortho { 1920.0f, 1080.0f };
     array<float, 2>          m_pointer_input { 0.5f, 0.5f };
     Arc<AudioResponseDemand> m_audio_demand;

@@ -16,8 +16,10 @@ export namespace owe
 namespace wpscene
 {
 
-// Omitted parallaxDepth uses 1.0. Child layers follow the unparented ancestor.
-inline constexpr std::array<float, 2> kDefaultParallaxDepth { 1.0f, 1.0f };
+// Omitted parallaxDepth is stored as 0.0. Orthographic scenes resolve omitted layers to
+// kImplicitOrthographicParallaxDepth at runtime when layer parallax is enabled.
+inline constexpr std::array<float, 2> kDefaultParallaxDepth { 0.0f, 0.0f };
+inline constexpr std::array<float, 2> kImplicitOrthographicParallaxDepth { 1.0f, 1.0f };
 
 inline bool JsonHasParallaxDepth(const owe::Json& json) {
     auto member = json.get("parallaxDepth"_str);
@@ -32,6 +34,10 @@ inline void ReadParallaxDepth(const owe::Json& json, std::array<float, 2>& depth
 
 inline bool IsZeroParallaxDepth(const std::array<float, 2>& depth) {
     return depth[0] * depth[0] + depth[1] * depth[1] <= 1e-12f;
+}
+
+inline bool IsZeroParallaxDepth(const rstd::array<float, 2>& depth) {
+    return depth[usize()] * depth[usize()] + depth[usize(1)] * depth[usize(1)] <= 1e-12f;
 }
 
 // pkg container version (the "PKGV00xx" stamp at the head of scene.pkg).
@@ -95,8 +101,8 @@ public:
     bool                 camerafade { false };
     bool                 camerapreview { false };
     bool                 cameraparallax { false };
-    float                cameraparallaxamount { 0.5f };
-    float                cameraparallaxdelay { 0.1f };
+    float                cameraparallaxamount { 0.0f };
+    float                cameraparallaxdelay { 0.0f };
     float                cameraparallaxmouseinfluence { 0.0f };
     bool                 isOrtho { false };
     Orthogonalprojection orthogonalprojection { i32(1920), i32(1080) };

@@ -194,20 +194,25 @@ auto BindEntries(mut_ref<dyn<UniformBindingSink>>            sink,
 
 } // namespace
 
-void UniformNodeConfigDraft::SetParallaxContract(array<float, 2> depth, i32 owner) {
-    object_id      = owner;
-    parallax_depth = depth;
+void UniformNodeConfigDraft::SetParallaxContract(array<float, 2> depth, i32 owner, bool authored,
+                                                 bool propagate_to_children) {
+    object_id                       = owner;
+    parallax_depth                  = depth;
+    parallax_depth_authored         = authored;
+    propagate_parallax_to_children  = propagate_to_children;
 }
 
 auto UniformNodeConfigDraft::Clone() const -> UniformNodeConfigDraft {
     UniformNodeConfigDraft result {
-        .configured              = configured,
-        .object_id               = object_id,
-        .parallax_depth          = parallax_depth,
-        .ride_parent_parallax    = ride_parent_parallax,
-        .use_camera_eye_position = use_camera_eye_position,
-        .eye_position_override   = eye_position_override,
-        .vertices_in_world_space = vertices_in_world_space,
+        .configured                     = configured,
+        .object_id                      = object_id,
+        .parallax_depth                 = parallax_depth,
+        .parallax_depth_authored        = parallax_depth_authored,
+        .propagate_parallax_to_children = propagate_parallax_to_children,
+        .ride_parent_parallax           = ride_parent_parallax,
+        .use_camera_eye_position        = use_camera_eye_position,
+        .eye_position_override          = eye_position_override,
+        .vertices_in_world_space        = vertices_in_world_space,
         .effect_projection_node =
             effect_projection_node.is_some() ? Some((*effect_projection_node).clone()) : None(),
         .effect_projection_size = effect_projection_size,
@@ -236,7 +241,10 @@ auto UniformCameraResolver::Resolve(const SceneNode& node) const -> Option<mut_r
 }
 
 void UniformSceneState::SetNodeState(SceneNodeId id, Arc<UniformNodeState> state) {
-    RegisterNodeParallaxContract(*state->node, state->object_id, state->parallax_depth);
+    RegisterNodeParallaxContract(*state->node,
+                                 state->object_id,
+                                 state->parallax_depth,
+                                 state->parallax_depth_authored);
     (void)m_nodes_by_address.insert(rstd::addressof(*state->node), state.clone());
     if (state->object_id != i32()) {
         if (auto current = m_object_parallax_depths.get(state->object_id); current.is_some()) {
@@ -255,8 +263,9 @@ void UniformSceneState::SetNodeState(SceneNodeId id, Arc<UniformNodeState> state
 }
 
 void UniformSceneState::RegisterNodeParallaxContract(const SceneNode& node, i32 object_id,
-                                                     array<float, 2> depth) {
+                                                     array<float, 2> depth, bool authored) {
     (void)m_parallax_owners.insert(rstd::addressof(node), object_id);
+    if (! authored) return;
     if (object_id != i32()) {
         if (! m_object_parallax_depths.contains_key(object_id))
             (void)m_object_parallax_depths.insert(object_id, depth);
@@ -285,7 +294,8 @@ bool UniformSceneState::SetObjectParallaxDepth(i32 object_id, array<float, 2> de
     // A logical layer may own a world node, private effect writers, and a detached final writer.
     // Updating the owner group atomically keeps every pass on the same depth revision.
     for (usize index {}; index < (*states)->len(); ++index) {
-        (**states)[index]->parallax_depth = depth;
+        (**states)[index]->parallax_depth         = depth;
+        (**states)[index]->parallax_depth_authored = true;
     }
     return true;
 }
@@ -300,7 +310,10 @@ bool UniformSceneState::SetNodeParallaxDepth(const SceneNode& node, array<float,
         (void)m_node_parallax_depths.insert(rstd::addressof(node), depth);
     }
     auto state = m_nodes_by_address.get(rstd::addressof(node));
-    if (state.is_some()) (**state)->parallax_depth = depth;
+    if (state.is_some()) {
+        (**state)->parallax_depth         = depth;
+        (**state)->parallax_depth_authored = true;
+    }
     return owner.is_some() || state.is_some();
 }
 
@@ -372,13 +385,17 @@ auto UniformSceneState::LogicalParallaxState(const UniformNodeState& state) cons
         }
     }
 
-    // Child layers share the unparented ancestor's parallaxDepth.
+    if (current->parallax_depth_authored) return current;
+
+    // Unauthored layers inherit from the nearest authored ancestor.
     auto remaining = m_nodes.len();
-    while (current != nullptr && remaining != usize()) {
-        auto* next = ParentParallaxState(*current);
-        if (next == nullptr) break;
+    while (remaining != usize()) {
+        auto* parent = ParentParallaxState(*current);
+        if (parent == nullptr) break;
         --remaining;
-        current = next;
+        if (! parent->propagate_parallax_to_children) break;
+        current = parent;
+        if (current->parallax_depth_authored) return current;
     }
     return current;
 }
@@ -395,9 +412,22 @@ auto UniformSceneState::ComputeParallaxOffset(const UniformNodeState& state,
                                               const SceneCamera&      camera,
                                               SceneRenderViewKind     view) const
     -> rstd::array<float, 2> {
+    if (! m_layer_parallax_enabled) return { 0.0f, 0.0f };
+
     const auto* source = LogicalParallaxState(state);
+
+    array<float, 2> depth_values;
+    if (source->parallax_depth_authored) {
+        depth_values = source->parallax_depth;
+        if (wpscene::IsZeroParallaxDepth(depth_values)) return { 0.0f, 0.0f };
+    } else if (m_orthographic_implicit_parallax) {
+        depth_values = { wpscene::kImplicitOrthographicParallaxDepth[0],
+                         wpscene::kImplicitOrthographicParallaxDepth[1] };
+    } else {
+        return { 0.0f, 0.0f };
+    }
+
     source->node->UpdateTrans();
-    const array<float, 2> depth_values = source->parallax_depth;
     const Vector3f node_position       = source->node->ModelTrans().block<3, 1>(0, 3).cast<float>();
     const Vector2f depth { depth_values[usize(0)], depth_values[usize(1)] };
     const auto     ortho_values = Ortho();

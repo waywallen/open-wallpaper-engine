@@ -295,10 +295,13 @@ struct ProcessOpts {
 
 SceneParseContext BuildContext(fs::VFS&, ref<str> scene_id, const wpscene::SceneMetadata&,
                                array<i32, 2>                ortho_extent,
+                               bool                         any_authored_parallax,
                                Option<ref<rstd::json::Map>> user_properties    = None(),
                                Option<rstd::path::PathBuf>  shader_cache_dir   = None(),
                                GeometryShaderLimits         geometry_limits    = {},
                                bool                         directional_shadow = false);
+
+bool SceneHasAuthoredParallaxDepth(slice<SceneObjectVar> objects);
 
 void IndexSceneDocument(SceneParseContext&, ref<wpscene::SceneDocument>, slice<SceneObjectVar>);
 void ProcessContainers(SceneParseContext&, mut_ref<SceneObjectVar[]>);

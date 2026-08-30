@@ -221,7 +221,9 @@ void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj
     ApplyUserTextureBindings(context, image_wpmat);
     {
         svData.SetParallaxContract({ wpimgobj.parallaxDepth[0], wpimgobj.parallaxDepth[1] },
-                                   wpimgobj.id);
+                                   wpimgobj.id,
+                                   wpimgobj.parallaxDepthAuthored,
+                                   ! wpimgobj.disablepropagation);
         if (! hasEffect && puppet.is_some() && has_bones) {
             MdlParser::AddPuppetShaderInfo(shaderInfo, **puppet);
         }
@@ -809,7 +811,9 @@ void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj
                 SceneMaterial          material;
                 UniformNodeConfigDraft svData;
                 svData.SetParallaxContract({ wpimgobj.parallaxDepth[0], wpimgobj.parallaxDepth[1] },
-                                           wpimgobj.id);
+                                           wpimgobj.id,
+                                           wpimgobj.parallaxDepthAuthored,
+                                           ! wpimgobj.disablepropagation);
                 SceneShaderValueAnimationMap final_quad_shader_values;
                 auto effect_result = BuildMaterial(vfs,
                                                    *context.shader_cache,
@@ -981,7 +985,10 @@ void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj
                 SceneMaterial          material;
                 UniformNodeConfigDraft uniform_config;
                 uniform_config.SetParallaxContract(
-                    { wpimgobj.parallaxDepth[0], wpimgobj.parallaxDepth[1] }, wpimgobj.id);
+                    { wpimgobj.parallaxDepth[0], wpimgobj.parallaxDepth[1] },
+                    wpimgobj.id,
+                    wpimgobj.parallaxDepthAuthored,
+                    ! wpimgobj.disablepropagation);
                 auto material_result = BuildMaterial(vfs,
                                                      *context.shader_cache,
                                                      context.shader_environment,
@@ -1060,7 +1067,10 @@ void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj
                     SceneMaterial          finalMaterial;
                     UniformNodeConfigDraft finalSvData;
                     finalSvData.SetParallaxContract(
-                        { wpimgobj.parallaxDepth[0], wpimgobj.parallaxDepth[1] }, wpimgobj.id);
+                        { wpimgobj.parallaxDepth[0], wpimgobj.parallaxDepth[1] },
+                        wpimgobj.id,
+                        wpimgobj.parallaxDepthAuthored,
+                        ! wpimgobj.disablepropagation);
                     auto final_result = BuildMaterial(vfs,
                                                       *context.shader_cache,
                                                       context.shader_environment,

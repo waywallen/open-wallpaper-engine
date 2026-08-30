@@ -256,7 +256,9 @@ void ParseTextObjImpl(SceneParseContext& context, wpscene::TextObject& obj) {
             node->SetVisibleUserBinding(ToSceneUserVisibilityBinding(obj.visible_user));
 
         UniformNodeConfigDraft uniform_config;
-        uniform_config.SetParallaxContract({ obj.parallaxDepth[0], obj.parallaxDepth[1] }, obj.id);
+        uniform_config.SetParallaxContract({ obj.parallaxDepth[0], obj.parallaxDepth[1] },
+                                             obj.id,
+                                             obj.parallaxDepthAuthored);
         SetUniformConfig(context, node, rstd::move(uniform_config));
         RegisterNodeRef(context,
                         obj.id,
@@ -524,7 +526,9 @@ void ParseTextObjImpl(SceneParseContext& context, wpscene::TextObject& obj) {
     std::string                         link_output;
     if (direct_text) {
         UniformNodeConfigDraft text_sv;
-        text_sv.SetParallaxContract({ obj.parallaxDepth[0], obj.parallaxDepth[1] }, obj.id);
+        text_sv.SetParallaxContract({ obj.parallaxDepth[0], obj.parallaxDepth[1] },
+                                    obj.id,
+                                    obj.parallaxDepthAuthored);
         SetUniformConfig(context, sp_node, rstd::move(text_sv));
     } else {
         context.text_uniform_configs.push(SceneParseContext::TextUniformConfigDraft {
@@ -626,7 +630,9 @@ void ParseTextObjImpl(SceneParseContext& context, wpscene::TextObject& obj) {
         }
 
         UniformNodeConfigDraft compose_sv;
-        compose_sv.SetParallaxContract({ obj.parallaxDepth[0], obj.parallaxDepth[1] }, obj.id);
+        compose_sv.SetParallaxContract({ obj.parallaxDepth[0], obj.parallaxDepth[1] },
+                                       obj.id,
+                                       obj.parallaxDepthAuthored);
 
         ShaderValueMap effect_base = NeutralColorUniforms(context.global_base_uniforms);
 
@@ -790,7 +796,9 @@ void ParseTextObjImpl(SceneParseContext& context, wpscene::TextObject& obj) {
 
                     SceneMaterial          mat;
                     UniformNodeConfigDraft sv;
-                    sv.SetParallaxContract({ obj.parallaxDepth[0], obj.parallaxDepth[1] }, obj.id);
+                    sv.SetParallaxContract({ obj.parallaxDepth[0], obj.parallaxDepth[1] },
+                                           obj.id,
+                                           obj.parallaxDepthAuthored);
                     sv.effect_projection_node = Some(layer_node.clone());
                     sv.effect_projection_size = { initial_geometry.effect_frame_width,
                                                   initial_geometry.effect_frame_height };
@@ -903,7 +911,9 @@ void ParseTextObjImpl(SceneParseContext& context, wpscene::TextObject& obj) {
         auto loaded = load_passthrough_material(has_text_effect ? effect_final : composite);
         if (loaded.is_none()) return;
         compose_sv = std::move(loaded->sv);
-        compose_sv.SetParallaxContract({ obj.parallaxDepth[0], obj.parallaxDepth[1] }, obj.id);
+        compose_sv.SetParallaxContract({ obj.parallaxDepth[0], obj.parallaxDepth[1] },
+                                       obj.id,
+                                       obj.parallaxDepthAuthored);
         compose_mesh->AddMaterial(std::move(loaded->material));
         RegisterMaterialBindings(
             scene, compose_mesh->MaterialSlots().front(), loaded->source, loaded->shader_info);

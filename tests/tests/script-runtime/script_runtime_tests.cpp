@@ -659,9 +659,9 @@ TEST(ScriptNodeSoftMutation, RuntimeLayersKeepIndependentPendingParallaxDepth) {
     auto first  = Arc<owe::SceneNode>::make();
     auto writer = Arc<owe::SceneNode>::make();
     auto second = Arc<owe::SceneNode>::make();
-    state->RegisterNodeParallaxContract(*first, i32(-1), { 1.0f, 1.0f });
-    state->RegisterNodeParallaxContract(*writer, i32(-1), { 1.0f, 1.0f });
-    state->RegisterNodeParallaxContract(*second, i32(-2), { 1.0f, 1.0f });
+    state->RegisterNodeParallaxContract(*first, i32(-1), { 1.0f, 1.0f }, true);
+    state->RegisterNodeParallaxContract(*writer, i32(-1), { 1.0f, 1.0f }, true);
+    state->RegisterNodeParallaxContract(*second, i32(-2), { 1.0f, 1.0f }, true);
     EXPECT_TRUE(state->SetNodeParallaxDepth(*first, { 0.0f, 0.0f }));
 
     auto first_depth  = state->NodeParallaxDepth(*first);

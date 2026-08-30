@@ -51,11 +51,13 @@ auto owe::SceneParser::Parse(ref<str> scene_id, ref<wpscene::SceneDocument> docu
     }
 
     auto context_span = SceneLoadSpan(options.load_bench, &SceneLoadProbeIds::parse_context);
+    const bool any_authored_parallax = SceneHasAuthoredParallaxDepth(objects.as_slice());
     auto context =
         BuildContext(vfs_owner,
                      scene_id,
                      metadata,
                      ResolveOrthoProjectionExtent(metadata, objects.as_slice()),
+                     any_authored_parallax,
                      options.user_properties,
                      rstd::move(options.shader_cache_dir),
                      GeometryShaderLimits {
