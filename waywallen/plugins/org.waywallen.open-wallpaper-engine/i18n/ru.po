@@ -5,7 +5,7 @@ msgstr "Project-Id-Version: org.waywallen.open-wallpaper-engine 0.2.8\nPO-Revisi
 msgid "Audio"
 msgstr "Звук"
 
-#: wallpaper_engine/api.lua:41
+#: wallpaper_engine/api.lua:45
 msgid "Content rating"
 msgstr "Возрастной рейтинг"
 
@@ -21,7 +21,7 @@ msgstr "Отладка"
 msgid "Decoding"
 msgstr "Декодирование"
 
-#: wallpaper_engine/api.lua:44
+#: wallpaper_engine/api.lua:52
 msgid "Defaults to Everyone when nothing is selected. Mature includes NSFW wallpapers."
 msgstr "Если ничего не выбрано, по умолчанию отображаются обои категории «Для всех». Категория «Для взрослых» включает NSFW-обои."
 
@@ -33,7 +33,7 @@ msgstr "Включить звук"
 msgid "Frame rate"
 msgstr "Частота кадров"
 
-#: wallpaper_engine/api.lua:64
+#: wallpaper_engine/api.lua:72
 msgid "Genre"
 msgstr "Жанр"
 
@@ -49,7 +49,7 @@ msgstr "Войти в Steam"
 msgid "MSAA"
 msgstr "MSAA"
 
-#: wallpaper_engine/api.lua:48
+#: wallpaper_engine/api.lua:56
 msgid "Miscellaneous"
 msgstr "Разное"
 
@@ -73,7 +73,7 @@ msgstr "Узел рендеринга"
 msgid "Rendering"
 msgstr "Рендеринг"
 
-#: plugin.toml wallpaper_engine/api.lua:96
+#: plugin.toml wallpaper_engine/api.lua:104
 msgid "Resolution"
 msgstr "Разрешение"
 
