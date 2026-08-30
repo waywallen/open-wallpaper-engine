@@ -61,8 +61,8 @@ bool SourceWritesLayerText(std::string_view src) {
 }
 
 bool FieldBindingsWriteLayerText(const wpscene::FieldBindings& fb) {
-    for (const auto& [_, sb] : fb.scripts) {
-        if (SourceWritesLayerText(sb.source)) return true;
+    for (const auto& binding : fb.Entries()) {
+        if (binding.script.is_some() && SourceWritesLayerText(binding.script->source)) return true;
     }
     return false;
 }
@@ -91,7 +91,9 @@ bool SceneWritesLayerText(slice<SceneObjectVar> scene_objs) {
 
 bool SceneHasScripts(slice<SceneObjectVar> scene_objs) {
     for (usize index {}; index < scene_objs.len(); ++index) {
-        if (! SceneObjectFieldBindings(scene_objs[index]).scripts.empty()) return true;
+        for (const auto& binding : SceneObjectFieldBindings(scene_objs[index]).Entries()) {
+            if (binding.script.is_some()) return true;
+        }
     }
     return false;
 }
@@ -314,8 +316,8 @@ bool IsFractionSliderProperty(const SceneParseContext& context, const Json& bind
 }
 
 Json ScriptPropertiesForField(const SceneParseContext& context, std::string_view field,
-                              const wpscene::ScriptBinding& binding) {
-    Json props = binding.properties.clone();
+                              const Json& properties, const wpscene::ScriptBinding& binding) {
+    Json props = properties.clone();
     if (field != "scale" || binding.source.find("/10000") == std::string::npos ||
         ! props.is_object())
         return props;
@@ -379,45 +381,32 @@ Json ScriptInitialValueForField(std::string_view field, const Json& value) {
 namespace owe
 {
 
-// Markers live on the animation, the callback lives on the script, and the
-// two are joined by the field name they hang off. One timeline can also
-// drive sibling fields (`options.children`) — those scripts hear it too.
-void WireAnimationEventSources(script::JsRuntime& runtime, script::FieldScript& script,
-                               const wpscene::FieldBindings& fb, std::string_view field) {
-    for (const auto& [animated_field, curve] : fb.animations) {
-        if (curve.options.events.empty()) continue;
-        bool drives_field = animated_field == field;
-        for (const auto& child : curve.options.children) {
-            if (child == field) drives_field = true;
-        }
-        if (drives_field) runtime.AddAnimationEventSource(script, ToSceneAnimationCurve(curve));
-    }
-}
-
 void WireFieldScripts(SceneParseContext& context, const Arc<SceneNode>& node_sp,
                       const wpscene::FieldBindings&                   fb,
                       std::function<void(const script::ScriptValue&)> origin_apply,
                       std::function<void(const script::ScriptValue&)> scale_apply) {
     SceneNode* node = node_sp.as_ptr();
 
-    auto parallax_user = fb.users.find("parallaxDepth");
-    if (parallax_user != fb.users.end() && node->ID() != i32() &&
+    auto parallax_binding = fb.Get("parallaxDepth"_str);
+    if (parallax_binding.is_some() && (**parallax_binding).user.is_some() && node->ID() != i32() &&
         ! context.parallax_depth_user_binding_ids.contains(node->ID())) {
         context.parallax_depth_user_binding_ids.insert(node->ID());
         auto state = CopyableArcHold(context.uniform_state.clone());
         context.scene->RegisterUserPropertyBinding(
-            String::make(as_str(parallax_user->second).unwrap()),
+            (**parallax_binding).user->clone(),
             Box<dyn<FnMut<void(ref<Json>)>>>::make(
                 [state, object_id = node->ID()](ref<Json> property) mutable {
                     (void)state.value->ApplyObjectParallaxDepth(object_id, *property);
                 }));
     }
-    if (fb.scripts.empty()) return;
     auto& ss = EnsureScriptScene(context);
     auto& rt = ss.runtime();
 
-    for (const auto& [field, sb] : fb.scripts) {
-        script::NodeTransformTarget tgt = script::NodeTransformTarget::Translate;
+    for (const auto& binding : fb.Entries()) {
+        if (binding.script.is_none()) continue;
+        const auto&                 sb    = *binding.script;
+        auto                        field = rstd::cppstd::as_string_view(binding.field.as_str());
+        script::NodeTransformTarget tgt   = script::NodeTransformTarget::Translate;
         script::FieldKind           kind;
         bool                        has_actuator = true;
         bool                        is_alpha     = false;
@@ -455,12 +444,20 @@ void WireFieldScripts(SceneParseContext& context, const Arc<SceneNode>& node_sp,
             // text/rate/intensity/... are wired elsewhere or not yet supported.
             continue;
         }
-        std::string sha           = utils::genSha1(std::span<const char>(sb.source));
-        auto        props         = ScriptPropertiesForField(context, field, sb);
-        auto        initial_value = ScriptInitialValueForField(field, sb.initial_value);
-        auto*       fs = rt.MakeFieldScript(sb.source, sha, kind, props, initial_value, node);
+        std::string sha = utils::genSha1(std::span<const char>(sb.source));
+        auto props      = ScriptPropertiesForField(context, field, binding.ScriptProperties(), sb);
+        auto initial_value = ScriptInitialValueForField(field, sb.initial_value);
+        Option<Arc<SceneAnimationPlayback>> animation;
+        if (binding.animation.is_some())
+            animation = Some(ResolveAnimationTrack(context, binding).playback.clone());
+        auto* fs = rt.MakeFieldScript(sb.source,
+                                      sha,
+                                      kind,
+                                      props,
+                                      initial_value,
+                                      script::ScriptBindingContext::ForLayer(
+                                          node, binding.field.as_str(), rstd::move(animation)));
         if (! fs) continue;
-        WireAnimationEventSources(rt, *fs, fb, field);
         SetScriptInitializationOrder(context, *fs, node);
         TrackRegisteredAssets(context, fs);
         if (! has_actuator) continue;
@@ -493,14 +490,27 @@ void WireFieldScripts(SceneParseContext& context, const Arc<SceneNode>& node_sp,
 // handled by Scene::SetImageEffectRuntimeVisible.
 void WireImageEffectVisibilityScript(SceneParseContext& context, SceneNode* node,
                                      const wpscene::ImageEffect& effect, SceneEffectId effect_id) {
-    const auto* sb = effect.visible_script();
-    if (sb == nullptr || ! effect_id.Valid()) return;
+    const auto* binding = effect.visible_binding();
+    if (binding == nullptr || binding->script.is_none() || ! effect_id.Valid()) return;
+    const auto& sb = *binding->script;
 
-    auto&       ss  = EnsureScriptScene(context);
-    auto&       rt  = ss.runtime();
-    std::string sha = utils::genSha1(std::span<const char>(sb->source));
-    auto*       fs  = rt.MakeFieldScript(
-        sb->source, sha, script::FieldKind::Bool, sb->properties, sb->initial_value, node);
+    auto&                               ss  = EnsureScriptScene(context);
+    auto&                               rt  = ss.runtime();
+    std::string                         sha = utils::genSha1(std::span<const char>(sb.source));
+    Option<Arc<SceneAnimationPlayback>> animation;
+    if (binding->animation.is_some()) {
+        auto track = ResolveAnimationTrack(context, *binding);
+        node->RegisterAnimation(track.playback.clone());
+        animation = Some(rstd::move(track.playback));
+    }
+    auto* fs =
+        rt.MakeFieldScript(sb.source,
+                           sha,
+                           script::FieldKind::Bool,
+                           binding->ScriptProperties(),
+                           sb.initial_value,
+                           script::ScriptBindingContext::ForEffect(
+                               node, { .id = effect_id }, "visible"_str, rstd::move(animation)));
     if (! fs) return;
     SetScriptInitializationOrder(context, *fs, node);
     TrackRegisteredAssets(context, fs);
@@ -515,13 +525,14 @@ void WireImageEffectVisibilityScript(SceneParseContext& context, SceneNode* node
 }
 
 void WireCameraShakeScripts(SceneParseContext& context, const wpscene::FieldBindings& fb) {
-    if (fb.scripts.empty()) return;
-
     auto& ss = EnsureScriptScene(context);
     auto& rt = ss.runtime();
 
-    for (const auto& [field, sb] : fb.scripts) {
-        script::FieldKind kind = script::FieldKind::Scalar;
+    for (const auto& binding : fb.Entries()) {
+        if (binding.script.is_none()) continue;
+        const auto&       sb    = *binding.script;
+        auto              field = rstd::cppstd::as_string_view(binding.field.as_str());
+        script::FieldKind kind  = script::FieldKind::Scalar;
         if (field == "camerashake") {
             kind = script::FieldKind::Bool;
         } else if (field != "camerashakeamplitude" && field != "camerashakespeed" &&
@@ -529,23 +540,37 @@ void WireCameraShakeScripts(SceneParseContext& context, const wpscene::FieldBind
             continue;
         }
 
-        std::string sha = utils::genSha1(std::span<const char>(sb.source));
-        auto*       fs  = rt.MakeFieldScript(sb.source, sha, kind, sb.properties, sb.initial_value);
+        std::string                         sha = utils::genSha1(std::span<const char>(sb.source));
+        Option<Arc<SceneAnimationPlayback>> animation;
+        if (binding.animation.is_some()) {
+            auto track = ResolveAnimationTrack(context, binding);
+            if (context.global_camera_node.is_some())
+                (**context.global_camera_node).RegisterAnimation(track.playback.clone());
+            animation = Some(rstd::move(track.playback));
+        }
+        auto* fs = rt.MakeFieldScript(sb.source,
+                                      sha,
+                                      kind,
+                                      binding.ScriptProperties(),
+                                      sb.initial_value,
+                                      script::ScriptBindingContext::ForLayer(
+                                          nullptr, binding.field.as_str(), rstd::move(animation)));
         if (! fs) continue;
         TrackRegisteredAssets(context, fs);
 
         auto state = mut_ref<UniformSceneState>::from_raw_parts(context.uniform_state.as_ptr());
-        ss.AddActuator({ fs, [state, field](const script::ScriptValue& value) mutable {
+        auto field_name = rstd::cppstd::to_string(binding.field.as_str());
+        ss.AddActuator({ fs, [state, field_name](const script::ScriptValue& value) mutable {
                             auto scalar = ScriptValueAsFloat(value);
                             if (! scalar) return;
                             auto& shake = state->CameraShake();
-                            if (field == "camerashake")
+                            if (field_name == "camerashake")
                                 shake.enable = *scalar >= 0.5f;
-                            else if (field == "camerashakeamplitude")
+                            else if (field_name == "camerashakeamplitude")
                                 shake.amplitude = *scalar;
-                            else if (field == "camerashakespeed")
+                            else if (field_name == "camerashakespeed")
                                 shake.speed = *scalar;
-                            else if (field == "camerashakeroughness")
+                            else if (field_name == "camerashakeroughness")
                                 shake.roughness = *scalar;
                         } });
     }
@@ -556,12 +581,14 @@ void WireCameraFieldScripts(SceneParseContext& context, const Arc<SceneNode>& no
                             const wpscene::FieldBindings& fb, const Vector3f& translate_bias,
                             const Vector3f& rotation_bias) {
     SceneNode* node = node_sp.as_ptr();
-    if (fb.scripts.empty()) return;
-    auto& ss = EnsureScriptScene(context);
-    auto& rt = ss.runtime();
+    auto&      ss   = EnsureScriptScene(context);
+    auto&      rt   = ss.runtime();
 
-    for (const auto& [field, sb] : fb.scripts) {
-        script::FieldKind kind = script::FieldKind::Vec3;
+    for (const auto& binding : fb.Entries()) {
+        if (binding.script.is_none()) continue;
+        const auto&       sb    = *binding.script;
+        auto              field = rstd::cppstd::as_string_view(binding.field.as_str());
+        script::FieldKind kind  = script::FieldKind::Vec3;
         if (field == "visible") {
             kind = script::FieldKind::Bool;
         } else if (field != "origin" && field != "angles") {
@@ -570,7 +597,14 @@ void WireCameraFieldScripts(SceneParseContext& context, const Arc<SceneNode>& no
 
         std::string sha           = utils::genSha1(std::span<const char>(sb.source));
         auto        initial_value = ScriptInitialValueForField(field, sb.initial_value);
-        auto* fs = rt.MakeFieldScript(sb.source, sha, kind, sb.properties, initial_value, node);
+        auto*       fs            = rt.MakeFieldScript(
+            sb.source,
+            sha,
+            kind,
+            binding.ScriptProperties(),
+            initial_value,
+            script::ScriptBindingContext::ForLayer(
+                node, binding.field.as_str(), node->FieldAnimation(binding.field.as_str())));
         if (! fs) continue;
         SetScriptInitializationOrder(context, *fs, node);
         TrackRegisteredAssets(context, fs);

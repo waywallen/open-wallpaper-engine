@@ -432,17 +432,15 @@ MakeAttrSet(std::initializer_list<VertexAttrSpec> specs) {
 // ============================================================================
 
 struct SceneAnimationCurve;
+struct SceneAnimationTrack;
+class SceneAnimationPlayback;
+class SceneNode;
 
 struct SceneShaderValueAnimation {
     ShaderValue                      base;
-    Option<Arc<SceneAnimationCurve>> curve;
+    Option<Arc<SceneAnimationTrack>> track;
 
-    auto Clone() const -> SceneShaderValueAnimation {
-        return {
-            .base  = base,
-            .curve = curve.is_some() ? Some((*curve).clone()) : None(),
-        };
-    }
+    auto Share() const -> SceneShaderValueAnimation;
 };
 
 using SceneShaderValueAnimationMap = BTreeMap<String, SceneShaderValueAnimation>;
@@ -757,8 +755,10 @@ public:
         ++customShader.value_version;
         if (customShader.value_version == u64()) customShader.value_version = u64(1);
     }
-    bool SetShaderValueAnimation(String uniform_name, Arc<SceneAnimationCurve> curve);
-    bool TickShaderValueAnimations(double runtime);
+    bool SetShaderValueAnimation(String uniform_name, Arc<SceneAnimationTrack> track);
+    auto ShaderValueAnimation(ref<str> uniform_name) const -> Option<Arc<SceneAnimationPlayback>>;
+    void RegisterAnimations(SceneNode&) const;
+    bool TickShaderValueAnimations();
     bool SetShaderVariant(std::shared_ptr<SceneShader> shader, SceneShaderVariantDesc variant) {
         if (! shader || ! variant.Valid()) return false;
         SceneMaterialDirtyFlags flags =
@@ -1030,6 +1030,7 @@ public:
         }
         return clone;
     }
+    void RegisterAnimations(SceneNode&) const;
 
     const std::vector<DrawRange>& DrawRanges() const {
         static const std::vector<DrawRange> kEmpty;
@@ -1207,6 +1208,7 @@ private:
 struct SceneAnimationKey {
     i32   frame {};
     float value { 0.0f };
+    bool  step { false };
     bool  front_enabled { false };
     float front_x { 0.0f };
     float front_y { 0.0f };
@@ -1219,50 +1221,146 @@ struct SceneAnimationKey {
 // wallpaper's `animationEvent(event, value)` export reacts to.
 struct SceneAnimationEvent {
     i32    frame {};
+    usize  order {};
     String name;
 };
 
-struct SceneAnimationCurve {
-    Vec<SceneAnimationKey>   c0;
-    Vec<SceneAnimationKey>   c1;
-    Vec<SceneAnimationKey>   c2;
-    Vec<SceneAnimationEvent> events;
-    float                    fps { 30.0f };
-    i32                      length {};
-    String                   mode;
-    bool                     wraploop { false };
-    bool                     relative { false };
-    bool                     startpaused { false };
+class SceneAnimationPlayback;
 
-    bool            Empty() const;
-    float           EvaluateScalar(float base, double runtime) const;
-    Eigen::Vector3f EvaluateVec3(const Eigen::Vector3f& base, double runtime) const;
+struct SceneAnimationSample {
+    float current { 0.0f };
+    i32   end {};
+    bool  wraps { false };
 };
 
-// Playhead that reports which of a curve's markers were passed since the
-// previous tick. It runs on the same frame clock the curve is evaluated
-// on, so a marker fires on the frame the curve actually reaches it —
-// including once per pass under `loop`, and once per direction under
-// `mirror`. Markers of a `startpaused` timeline stay silent: nothing
-// advances that playhead until named playback control exists.
-class SceneAnimationEventCursor {
+struct SceneAnimationCurve {
+    Vec<SceneAnimationKey> c0;
+    Vec<SceneAnimationKey> c1;
+    Vec<SceneAnimationKey> c2;
+    bool                   relative { false };
+
+    bool            Empty() const;
+    i32             EndFrame() const;
+    float           EvaluateScalar(float base, const SceneAnimationSample& sample) const;
+    Eigen::Vector3f EvaluateVec3(const Eigen::Vector3f&      base,
+                                 const SceneAnimationSample& sample) const;
+};
+
+struct SceneAnimationClipSpec {
+    Vec<SceneAnimationEvent> events;
+    String                   name;
+    String                   mode;
+    float                    fps { 30.0f };
+    i32                      end {};
+    bool                     wraploop { false };
+};
+
+class SceneAnimationClip {
 public:
-    explicit SceneAnimationEventCursor(const SceneAnimationCurve& curve);
+    explicit SceneAnimationClip(SceneAnimationClipSpec spec)
+        : m_events(rstd::move(spec.events)),
+          m_name(rstd::move(spec.name)),
+          m_mode(rstd::move(spec.mode)),
+          m_fps(spec.fps),
+          m_end(spec.end),
+          m_wraploop(spec.wraploop) {}
 
-    bool Empty() const { return m_events.is_empty(); }
-
-    // Move the playhead to `runtime` and append every marker passed on the
-    // way, in the order they were passed.
-    void Advance(double runtime, Vec<ref<str>>& out);
+    auto     Events() const noexcept -> slice<SceneAnimationEvent> { return m_events.as_slice(); }
+    ref<str> Name() const noexcept { return m_name.as_str(); }
+    ref<str> Mode() const noexcept { return m_mode.as_str(); }
+    float    Fps() const noexcept { return m_fps; }
+    i32      End() const noexcept { return m_end; }
+    bool     WrapLoop() const noexcept { return m_wraploop; }
 
 private:
     Vec<SceneAnimationEvent> m_events;
+    String                   m_name;
+    String                   m_mode;
     float                    m_fps { 30.0f };
-    float                    m_end { 0.0f };
-    bool                     m_loop { false };
-    bool                     m_mirror { false };
-    bool                     m_primed { false };
-    double                   m_previous { 0.0 };
+    i32                      m_end {};
+    bool                     m_wraploop { false };
+};
+
+class SceneAnimationPlayback : NoCopy, NoMove {
+public:
+    SceneAnimationPlayback(Arc<SceneAnimationClip> clip, bool start_paused = false);
+
+    void Advance(double runtime, Vec<SceneAnimationEvent>& passed);
+    void Play();
+    void Pause();
+    void Stop();
+    void SetFrame(i32 frame);
+    void SetRate(float rate);
+
+    bool     IsPlaying() const { return m_playing; }
+    i32      Frame() const;
+    i32      FrameCount() const { return m_clip->End(); }
+    float    Fps() const { return m_clip->Fps(); }
+    float    Rate() const { return m_rate; }
+    bool     StartsPaused() const { return m_start_paused; }
+    double   Duration() const;
+    double   PositionSeconds() const { return m_position_seconds; }
+    ref<str> Name() const { return m_clip->Name(); }
+    auto     Sample() const -> SceneAnimationSample;
+    auto     Clip() const -> Arc<SceneAnimationClip> { return m_clip.clone(); }
+
+private:
+    Arc<SceneAnimationClip> m_clip;
+    float                   m_rate { 1.0f };
+    bool                    m_loop { false };
+    bool                    m_mirror { false };
+    bool                    m_playing { true };
+    bool                    m_start_paused { false };
+    Option<double>          m_last_runtime;
+    double                  m_position_seconds { 0.0 };
+    double                  m_previous_frame { -0.5 };
+};
+
+struct SceneAnimationTrack {
+    Arc<SceneAnimationCurve>    curve;
+    Arc<SceneAnimationPlayback> playback;
+
+    bool            Empty() const { return curve->Empty(); }
+    float           EvaluateScalar(float base) const;
+    Eigen::Vector3f EvaluateVec3(const Eigen::Vector3f& base) const;
+    auto            Share() const -> SceneAnimationTrack {
+        return { .curve = curve.clone(), .playback = playback.clone() };
+    }
+};
+
+enum class SceneNodeAnimationTarget
+{
+    Origin,
+    Scale,
+    Rotation,
+    Alpha,
+};
+
+struct SceneNodeFieldAnimation {
+    String                   field;
+    SceneNodeAnimationTarget target { SceneNodeAnimationTarget::Origin };
+    SceneAnimationTrack      track;
+    Eigen::Vector3f          vector_base { Eigen::Vector3f::Zero() };
+    float                    scalar_base { 0.0f };
+};
+
+struct SceneAnimationEventDispatch {
+    SceneNode*          node { nullptr };
+    SceneAnimationEvent event;
+};
+
+class SceneAnimationSet {
+public:
+    void Register(Arc<SceneAnimationPlayback> playback);
+    void Register(String property, Arc<SceneAnimationPlayback> playback);
+    auto ForProperty(ref<str> property) const -> Option<Arc<SceneAnimationPlayback>>;
+    auto Named(ref<str> name) const -> Option<Arc<SceneAnimationPlayback>>;
+    void Advance(SceneNode& owner, double runtime, Vec<SceneAnimationEventDispatch>& events);
+
+private:
+    HashMap<String, Arc<SceneAnimationPlayback>> m_properties;
+    HashMap<String, Arc<SceneAnimationPlayback>> m_names;
+    Vec<Arc<SceneAnimationPlayback>>             m_players;
 };
 
 struct SceneCameraLookAtKey {
@@ -1275,6 +1373,29 @@ struct SceneCameraLookAtKey {
 struct SceneCameraLookAtTrack {
     float                     duration { 0.0f };
     Vec<SceneCameraLookAtKey> keys;
+};
+
+enum class SceneCameraPathQueueMode
+{
+    Sequential,
+    Random,
+};
+
+struct SceneCameraPathClip {
+    i32                              id {};
+    float                            fps { 30.0f };
+    i32                              length {};
+    Option<Arc<SceneAnimationCurve>> eye;
+    Option<Arc<SceneAnimationCurve>> center;
+    Option<Arc<SceneAnimationCurve>> up;
+    Option<Arc<SceneAnimationCurve>> fov;
+    Option<Arc<SceneAnimationCurve>> zoom;
+
+    double Duration() const {
+        return fps > 0.0f && length > i32()
+                   ? static_cast<double>(length.to_primitive()) / static_cast<double>(fps)
+                   : 0.0;
+    }
 };
 
 class SceneCameraPath : NoCopy, NoMove {
@@ -1301,16 +1422,32 @@ public:
     Eigen::Vector3f             default_up { Eigen::Vector3f::UnitY() };
     float                       lookat_fps { 1.0f };
     Vec<SceneCameraLookAtTrack> lookat_tracks;
-    SceneAnimationCurve         origin_curve;
-    SceneAnimationCurve         rotation_curve;
-    SceneAnimationCurve         zoom_curve;
-    SceneAnimationCurve         fov_curve;
+    SceneCameraPathQueueMode    queue_mode { SceneCameraPathQueueMode::Sequential };
+    Vec<SceneCameraPathClip>    queue;
+    Option<SceneAnimationTrack> origin_track;
+    Option<SceneAnimationTrack> rotation_track;
+    Option<SceneAnimationTrack> zoom_track;
+    Option<SceneAnimationTrack> fov_track;
     SceneUserVisibilityBinding  visible_user_binding;
 
     void CaptureViewport();
-    void SetEnabled(bool value) { enabled = value; }
+    void SetEnabled(bool value);
     bool Tick(double runtime);
     bool ApplyDefault();
+
+private:
+    void ResetQueue();
+    bool TickQueue(double runtime);
+    void SelectQueueClip(bool initial);
+    void CaptureQueueBase();
+    bool ApplyQueueClip(float frame);
+
+    Option<double>        queue_last_runtime;
+    usize                 queue_index {};
+    double                queue_elapsed {};
+    SceneCameraTransforms queue_base;
+    float                 queue_base_fov { 50.0f };
+    float                 queue_base_zoom { 1.0f };
 };
 
 class SceneSoundControl {
@@ -1525,20 +1662,15 @@ public:
         m_user_alpha       = v;
         m_alpha_overridden = true;
     }
-    void SetOriginAnimation(SceneAnimationCurve curve) {
-        m_origin_base  = m_translate;
-        m_origin_curve = Some(rstd::move(curve));
-    }
-    void SetScaleAnimation(SceneAnimationCurve curve) {
-        m_scale_base  = m_scale;
-        m_scale_curve = Some(rstd::move(curve));
-    }
-    void SetRotationAnimation(SceneAnimationCurve curve) {
-        m_rotation_base  = m_rotation;
-        m_rotation_curve = Some(rstd::move(curve));
-    }
-    void SetAlphaAnimation(SceneAnimationCurve curve) { m_alpha_curve = Some(rstd::move(curve)); }
-    void TickFieldAnimations(double runtime);
+    void SetOriginAnimation(SceneAnimationTrack track);
+    void SetScaleAnimation(SceneAnimationTrack track);
+    void SetRotationAnimation(SceneAnimationTrack track);
+    void SetAlphaAnimation(SceneAnimationTrack track);
+    void RegisterAnimation(Arc<SceneAnimationPlayback> playback);
+    void BindFieldAnimation(String field, Arc<SceneAnimationPlayback> playback);
+    auto FieldAnimation(ref<str> field) const -> Option<Arc<SceneAnimationPlayback>>;
+    auto NamedAnimation(ref<str> name) const -> Option<Arc<SceneAnimationPlayback>>;
+    void TickFieldAnimations(double runtime, Vec<SceneAnimationEventDispatch>& events);
     void SetAlphaSource(SceneNode* node) { m_alpha_source = node; }
 
     ref<str> VisibleUserKey() const { return m_visible_user_binding.key.as_str(); }
@@ -1728,6 +1860,8 @@ private:
     friend class Scene;
 
     void MarkTransDirty();
+    void SetFieldAnimation(String field, SceneNodeAnimationTarget target, SceneAnimationTrack track,
+                           Eigen::Vector3f vector_base, float scalar_base);
 
     SceneNodeId              m_identity;
     Option<WallpaperLayerId> m_wallpaper_identity;
@@ -1751,13 +1885,8 @@ private:
     float                                  m_user_alpha { 1.0f };
     bool                                   m_alpha_overridden { false };
     SceneNode*                             m_alpha_source { nullptr };
-    Eigen::Vector3f                        m_origin_base { 0.0f, 0.0f, 0.0f };
-    Eigen::Vector3f                        m_scale_base { 1.0f, 1.0f, 1.0f };
-    Eigen::Vector3f                        m_rotation_base { 0.0f, 0.0f, 0.0f };
-    Option<SceneAnimationCurve>            m_origin_curve;
-    Option<SceneAnimationCurve>            m_scale_curve;
-    Option<SceneAnimationCurve>            m_rotation_curve;
-    Option<SceneAnimationCurve>            m_alpha_curve;
+    Vec<SceneNodeFieldAnimation>           m_field_animation_tracks;
+    SceneAnimationSet                      m_animations;
     float                                  m_brightness { 1.0f };
     bool                                   m_brightness_overridden { false };
     Eigen::Vector3f                        m_color { 1.0f, 1.0f, 1.0f };
@@ -2707,6 +2836,7 @@ public:
 
     void PassFrameTime(double delta) { m_runtime.Advance(f64(delta)); }
     void TickNodeFieldAnimations();
+    auto ConsumeAnimationEvents() -> Vec<SceneAnimationEventDispatch>;
     void RegisterTransformUpdater(Box<dyn<FnMut<void(f64)>>> updater);
     void TickTransformUpdaters();
 
@@ -2838,6 +2968,7 @@ private:
     HashMap<rstd::uint64_t, WallpaperLayerId>    m_node_link_sources;
     Vec<SceneUserPropertyDiagnostic>             m_user_property_diagnostics;
     HashMap<String, SceneRenderTargetDirtyEvent> m_render_target_dirty_events;
+    Vec<SceneAnimationEventDispatch>             m_animation_events;
 
     // User-hidden layers and static identity layers share the same graph-elision
     // result while retaining their independent reasons.

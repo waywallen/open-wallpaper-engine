@@ -147,9 +147,9 @@ void SceneNodeLayer::ResolveEffect(const SceneMesh& default_mesh, std::string_vi
             final_output->final_quad_shader_values.iter().for_each([&](auto entry) {
                 auto [name, value] = entry;
                 material.SetShaderValue(rstd::cppstd::to_string(name->as_str()), value->base);
-                if (value->curve.is_some() && ! (**value->curve).Empty()) {
+                if (value->track.is_some() && ! (**value->track).Empty()) {
                     (void)material.customShader.valueAnimations.insert(name->clone(),
-                                                                       value->Clone());
+                                                                       value->Share());
                 } else {
                     (void)material.customShader.valueAnimations.remove(name->as_str());
                 }

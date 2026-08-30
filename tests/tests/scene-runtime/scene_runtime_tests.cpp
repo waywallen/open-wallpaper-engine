@@ -754,6 +754,48 @@ TEST(SceneCameraPath, UserBindingMutatesRegisteredArc) {
     EXPECT_TRUE(path->enabled);
 }
 
+TEST(SceneCameraPath, SequentialQueueSamplesClipAndHoldsEmptyClip) {
+    auto camera = Arc<owe::SceneCamera>::make(
+        owe::SceneCamera::MakePerspective(16.0 / 9.0, 0.01, 1000.0, 45.0));
+    camera->SetLookAt({ 0.0, 0.0, 5.0 }, { 0.0, 0.0, 0.0 }, { 0.0, 1.0, 0.0 });
+    camera->Update();
+
+    auto eye = Arc<owe::SceneAnimationCurve>::make();
+    eye->c2.push({ .frame = i32(), .value = 5.0f });
+    eye->c2.push({ .frame = i32(30), .value = 7.0f });
+    auto fov = Arc<owe::SceneAnimationCurve>::make();
+    fov->c0.push({ .frame = i32(), .value = 45.0f });
+    fov->c0.push({ .frame = i32(30), .value = 60.0f });
+
+    owe::SceneCameraPath path;
+    path.camera      = Some(camera.clone());
+    path.perspective = true;
+    path.CaptureViewport();
+    path.queue.push(owe::SceneCameraPathClip {
+        .fps    = 30.0f,
+        .length = i32(30),
+        .eye    = Some(rstd::move(eye)),
+        .fov    = Some(rstd::move(fov)),
+    });
+    path.queue.push(owe::SceneCameraPathClip { .fps = 30.0f, .length = i32(30) });
+
+    ASSERT_TRUE(path.Tick(0.0));
+    EXPECT_DOUBLE_EQ(camera->Transforms().eye.z(), 5.0);
+    EXPECT_DOUBLE_EQ(camera->Fov(), 45.0);
+
+    ASSERT_TRUE(path.Tick(0.5));
+    EXPECT_DOUBLE_EQ(camera->Transforms().eye.z(), 6.0);
+    EXPECT_DOUBLE_EQ(camera->Fov(), 52.5);
+
+    ASSERT_TRUE(path.Tick(1.0));
+    EXPECT_DOUBLE_EQ(camera->Transforms().eye.z(), 7.0);
+    EXPECT_DOUBLE_EQ(camera->Fov(), 60.0);
+
+    ASSERT_TRUE(path.Tick(1.5));
+    EXPECT_DOUBLE_EQ(camera->Transforms().eye.z(), 7.0);
+    EXPECT_DOUBLE_EQ(camera->Fov(), 60.0);
+}
+
 TEST(UniformSourceRuntimeAlpha, Color4UsesBaseColorAndRuntimeAlpha) {
     owe::Scene scene;
     auto       node = Arc<owe::SceneNode>::make();

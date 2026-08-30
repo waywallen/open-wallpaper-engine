@@ -600,7 +600,6 @@ void ParticleSubSystem::UpdateFrameInput(f64 frame_time) {
 }
 
 void ParticleSubSystem::UpdateControlpoints(ParticleInstanceRef current) {
-    auto runtime = m_scene.Runtime().Frame().elapsed.to_primitive();
     for (usize index {}; index < m_controlpoints.len(); ++index) {
         auto&           controlpoint = m_controlpoints[index];
         Eigen::Vector3f angles { Eigen::Vector3f::Zero() };
@@ -622,8 +621,9 @@ void ParticleSubSystem::UpdateControlpoints(ParticleInstanceRef current) {
             angles = Eigen::Vector3f { (*m_instance_modifiers).ControlpointAngle(index).data() };
         }
         if (controlpoint.link_mouse) controlpoint.offset += m_frame.mouse_local;
-        if (controlpoint.angle_curve)
-            angles = controlpoint.angle_curve->EvaluateVec3(angles, runtime);
+        if (controlpoint.angle_track) {
+            angles = controlpoint.angle_track->EvaluateVec3(angles);
+        }
         controlpoint.rotation = ControlpointRotation(angles);
     }
 

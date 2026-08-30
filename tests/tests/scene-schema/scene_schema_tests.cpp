@@ -32,9 +32,45 @@
 
 import rstd.cppstd;
 import wescene.json;
+import wescene.pkg.scene_obj;
 import wescene.testing.scene_keys;
 
 using namespace rstd::literals;
+
+TEST(CameraPathDocument, ParsesClipCurvesAndInheritedOptions) {
+    auto json = owe::ParseJson(R"({
+        "paths": [{
+            "id": 7,
+            "name": "Orbit",
+            "visible": true,
+            "options": {"fps": 24.0, "length": 120, "mode": "single"},
+            "eye": {
+                "c0": [{"frame": 0, "value": 1.0}],
+                "c1": [{"frame": 0, "value": 2.0}],
+                "c2": [{"frame": 0, "value": 3.0}]
+            },
+            "fov": [{"frame": 0, "value": 45.0}],
+            "zoom": null
+        }]
+    })")
+                    .unwrap();
+
+    owe::wpscene::CameraPathDocument document;
+    ASSERT_TRUE(document.FromJson(json));
+    ASSERT_EQ(document.paths.len(), rstd::usize(1));
+    const auto& clip = document.paths[rstd::usize()];
+    EXPECT_EQ(clip.id, rstd::i32(7));
+    EXPECT_FLOAT_EQ(clip.options.fps, 24.0f);
+    EXPECT_EQ(clip.options.length, rstd::i32(120));
+    ASSERT_TRUE(clip.eye.is_some());
+    EXPECT_EQ(clip.eye->c0.size(), 1u);
+    EXPECT_EQ(clip.eye->c1.size(), 1u);
+    EXPECT_EQ(clip.eye->c2.size(), 1u);
+    EXPECT_EQ(clip.eye->options.length, rstd::i32(120));
+    ASSERT_TRUE(clip.fov.is_some());
+    EXPECT_EQ(clip.fov->c0.size(), 1u);
+    EXPECT_TRUE(clip.zoom.is_none());
+}
 
 namespace
 {
@@ -306,6 +342,8 @@ const std::map<std::string, std::set<std::string>>& kParsedNestedKeys() {
                 "children",
                 "events",
                 "parent" } },
+        // `step` is parsed for official evaluator compatibility but does not
+        // occur in the live corpus; its parser behavior has a focused test.
         { "objects[].alpha.animation.c0[].",
           set { "frame", "value", "lockangle", "locklength", "front", "back" } },
         { "objects[].alpha.animation.c0[].front.", set { "enabled", "x", "y", "magic" } },

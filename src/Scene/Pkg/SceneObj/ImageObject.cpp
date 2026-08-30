@@ -69,9 +69,9 @@ void NormalizeLegacyFoliageSwayStrength(MaterialPass& pass) {
     if (value != pass.constantshadervalues.end()) {
         for (float& component : value->second) component *= scale;
     }
-    auto animation = pass.constantshadervalues_animations.find("strength");
-    if (animation != pass.constantshadervalues_animations.end())
-        ScaleAnimCurve(animation->second, scale);
+    auto binding = pass.constantshadervalues_bindings.GetMut("strength"_str);
+    if (binding.is_some() && (**binding).animation.is_some())
+        ScaleAnimCurve(*(**binding).animation, scale);
 }
 
 } // namespace

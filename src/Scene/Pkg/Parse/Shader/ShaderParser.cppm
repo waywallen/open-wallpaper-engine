@@ -50,7 +50,7 @@ struct ShaderInfo {
 
     // Filled by BuildMaterial for the direct-binding u_* route. The
     // scene-instance-level user-binding route (effect-key → wallpaper-key)
-    // is registered separately from `Material::constantshadervalues_user`.
+    // is registered separately from material field bindings.
     Vec<UserVarRecord> user_var_staging;
 };
 

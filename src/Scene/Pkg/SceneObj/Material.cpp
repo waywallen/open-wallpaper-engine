@@ -36,8 +36,6 @@ void MergeUserTextures(const rstd::json::Array& src, rstd::json::Array& dst) {
 
 void LoadConstantShaderValue(std::string name, const owe::Json& json,
                              std::unordered_map<std::string, std::vector<float>>& constant_values,
-                             std::unordered_map<std::string, std::string>&        user_values,
-                             std::unordered_map<std::string, AnimCurve>&          animations,
                              FieldBindings&                                       bindings) {
     std::vector<float> value;
     owe::GetJsonValue(json, value);
@@ -45,13 +43,6 @@ void LoadConstantShaderValue(std::string name, const owe::Json& json,
     if (! json.is_object()) return;
 
     (void)AbsorbFieldBinding(name, json, bindings);
-
-    if (auto user = json.get("user"_str); user.is_some()) {
-        auto string = (*user)->as_str();
-        if (string.is_some()) user_values[name] = rstd::cppstd::to_string(*string);
-    }
-    if (auto animation = bindings.animations.find(name); animation != bindings.animations.end())
-        animations[name] = animation->second.clone();
 }
 
 } // namespace
@@ -66,13 +57,10 @@ auto owe::wpscene::Material::clone() const -> Material {
     clone.textures                      = textures;
     clone.combos                        = combos;
     clone.constantshadervalues          = constantshadervalues;
-    clone.constantshadervalues_user     = constantshadervalues_user;
     clone.user_shader_values            = user_shader_values;
     clone.use_puppet                    = use_puppet;
     clone.constantshadervalues_bindings = constantshadervalues_bindings.clone();
     MergeUserTextures(usertextures, clone.usertextures);
-    for (const auto& [name, curve] : constantshadervalues_animations)
-        clone.constantshadervalues_animations[name] = curve.clone();
     return clone;
 }
 
@@ -94,12 +82,6 @@ void MaterialPass::Update(const MaterialPass& p) {
     for (const auto& el : p.constantshadervalues) {
         constantshadervalues[el.first] = el.second;
     }
-    for (const auto& el : p.constantshadervalues_user) {
-        constantshadervalues_user[el.first] = el.second;
-    }
-    for (const auto& el : p.constantshadervalues_animations) {
-        constantshadervalues_animations[el.first] = el.second.clone();
-    }
     constantshadervalues_bindings.Update(p.constantshadervalues_bindings);
     for (const auto& el : p.user_shader_values) {
         user_shader_values[el.first] = el.second;
@@ -114,12 +96,6 @@ void Material::MergePass(const MaterialPass& p) {
     MergeBindingOverrides(p.textures, p.usertextures, p.combos);
     for (const auto& el : p.constantshadervalues) {
         constantshadervalues[el.first] = el.second;
-    }
-    for (const auto& el : p.constantshadervalues_user) {
-        constantshadervalues_user[el.first] = el.second;
-    }
-    for (const auto& el : p.constantshadervalues_animations) {
-        constantshadervalues_animations[el.first] = el.second.clone();
     }
     constantshadervalues_bindings.Update(p.constantshadervalues_bindings);
     for (const auto& el : p.user_shader_values) {
@@ -165,8 +141,6 @@ bool MaterialPass::FromJson(const owe::Json& json) {
                 LoadConstantShaderValue(rstd::cppstd::to_string(entry_key->as_str()),
                                         *entry_value,
                                         constantshadervalues,
-                                        constantshadervalues_user,
-                                        constantshadervalues_animations,
                                         constantshadervalues_bindings);
             });
     }
@@ -241,8 +215,6 @@ bool Material::FromJson(const owe::Json& json, SceneVersion /*v*/) {
                 LoadConstantShaderValue(rstd::cppstd::to_string(entry_key->as_str()),
                                         *entry_value,
                                         constantshadervalues,
-                                        constantshadervalues_user,
-                                        constantshadervalues_animations,
                                         constantshadervalues_bindings);
             });
     }

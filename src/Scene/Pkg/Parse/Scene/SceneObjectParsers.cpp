@@ -106,6 +106,7 @@ void ParseCamera(SceneParseContext& context, const wpscene::SceneMetadata& sc) {
 }
 
 void ParseCameraObj(SceneParseContext& context, wpscene::CameraObject& cam) {
+    PrepareAnimationBindings(context, cam);
     auto& scene           = *context.scene;
     bool  use_perspective = false;
     auto  perspective     = scene.Camera("global_perspective"_str);
@@ -176,10 +177,8 @@ void ParseCameraObj(SceneParseContext& context, wpscene::CameraObject& cam) {
     path->enabled             = cam.visible;
     if (! cam.visible_user.empty())
         path->visible_user_binding = ToSceneUserVisibilityBinding(cam.visible_user);
-    AssignAnimationCurve(path->origin_curve, cam.field_bindings, "origin"_str);
-    AssignAnimationCurve(path->rotation_curve, cam.field_bindings, "angles"_str);
-    AssignAnimationCurve(path->zoom_curve, cam.field_bindings, "zoom"_str);
-    AssignAnimationCurve(path->fov_curve, cam.field_bindings, "fov"_str);
+    AssignCameraFieldAnimations(context, *node, *path, cam.field_bindings);
+    LoadCameraObjectPath(context, cam, *path);
     scene.RegisterCameraPath(path.clone());
     if (! cam.visible_user_key.empty()) {
         scene.RegisterCameraPathUserBinding(
@@ -314,12 +313,13 @@ void ParseSoundObjImpl(SceneParseContext& context, wpscene::SoundObject& obj,
     node->SetSoundControl(rstd::move(control));
     node->SetVolume(obj.volume);
 
-    AssignNodeFieldAnimations(*node.as_ptr(), obj.field_bindings);
+    AssignNodeFieldAnimations(context, *node.as_ptr(), obj.field_bindings);
     WireFieldScripts(context, node, obj.field_bindings);
     RegisterNodeRef(context, obj.id, SceneParseContext::NodeRef { obj.parent, Some(node.clone()) });
 }
 
 void ParseLightObj(SceneParseContext& context, wpscene::LightObject& light_obj) {
+    PrepareAnimationBindings(context, light_obj);
     auto node = Arc<SceneNode>::make(Vector3f(light_obj.origin.data()),
                                      Vector3f(light_obj.scale.data()),
                                      Vector3f(light_obj.angles.data()),
@@ -358,7 +358,7 @@ void ParseLightObj(SceneParseContext& context, wpscene::LightObject& light_obj) 
         light->setVisibleUserBinding(ToSceneUserVisibilityBinding(light_obj.visible_user));
     }
 
-    AssignNodeFieldAnimations(*node.as_ptr(), light_obj.field_bindings);
+    AssignNodeFieldAnimations(context, *node.as_ptr(), light_obj.field_bindings);
     WireFieldScripts(context, node, light_obj.field_bindings);
     RegisterNodeRef(
         context, light_obj.id, SceneParseContext::NodeRef { light_obj.parent, Some(node.clone()) });
@@ -449,7 +449,7 @@ void ParseModelObjImpl(SceneParseContext& context, wpscene::ModelObject& model_o
         auto material_build = rstd::move(material_result).unwrap_unchecked();
         scene_mat           = rstd::move(material_build.material);
         shader_info         = rstd::move(material_build.shader_info);
-        LoadConstvalue(scene_mat, *wpmat, shader_info);
+        LoadConstvalue(context, scene_mat, *wpmat, shader_info);
 
         if (node->shadow.cast) {
             wpscene::Material shadow_material;
@@ -489,7 +489,8 @@ void ParseModelObjImpl(SceneParseContext& context, wpscene::ModelObject& model_o
                 shadow_build.material.depth_compare = CompareOp::Greater;
                 shadow_build.material.depth_bias    = true;
                 shadow_build.material.depth_bias_slope = -4.0f;
-                LoadConstvalue(shadow_build.material, shadow_material, shadow_build.shader_info);
+                LoadConstvalue(
+                    context, shadow_build.material, shadow_material, shadow_build.shader_info);
                 context.scene->ResolveMaterialTextureSources(shadow_build.material);
                 scene_mat.shadow_variant =
                     std::make_shared<SceneMaterial>(rstd::move(shadow_build.material));
@@ -521,7 +522,7 @@ void ParseModelObjImpl(SceneParseContext& context, wpscene::ModelObject& model_o
 
     node->AddMesh(mesh);
     SetUniformConfig(context, node, rstd::move(svData));
-    AssignNodeFieldAnimations(*node.as_ptr(), model_obj.field_bindings);
+    AssignNodeFieldAnimations(context, *node.as_ptr(), model_obj.field_bindings);
     WireFieldScripts(context, node, model_obj.field_bindings);
     if (model_obj.skin == u32()) {
         (void)context.dynamic_model_prototypes.insert(
@@ -545,10 +546,12 @@ namespace owe
 
 void ParseSoundObj(SceneParseContext& context, wpscene::SoundObject& sound,
                    wavsen::audio::SoundManager& manager) {
+    PrepareAnimationBindings(context, sound);
     ParseSoundObjImpl(context, sound, manager);
 }
 
 void ParseModelObj(SceneParseContext& context, wpscene::ModelObject& model) {
+    PrepareAnimationBindings(context, model);
     ParseModelObjImpl(context, model);
 }
 
@@ -574,6 +577,7 @@ SceneParseContext BuildContext(fs::VFS& vfs, ref<str> scene_id, const wpscene::S
                                Option<rstd::path::PathBuf>  shader_cache_dir,
                                GeometryShaderLimits geometry_limits, bool directional_shadow) {
     SceneParseContext context;
+    PrepareAnimationBindings(context, sc.general.field_bindings);
     InitContext(context, vfs, sc, ortho_extent);
     ParseCamera(context, sc);
     context.pkg_version            = sc.pkg_version;
@@ -643,6 +647,7 @@ SceneParseContext BuildContext(fs::VFS& vfs, ref<str> scene_id, const wpscene::S
 }
 
 void ParseContainerObj(SceneParseContext& context, const wpscene::ContainerObject& obj) {
+    PrepareAnimationBindings(context, obj);
     auto node  = Arc<SceneNode>::make(Vector3f(obj.origin.data()),
                                       Vector3f(obj.scale.data()),
                                       Vector3f(obj.angles.data()),
@@ -655,6 +660,7 @@ void ParseContainerObj(SceneParseContext& context, const wpscene::ContainerObjec
     if (! obj.visible) (void)context.scene->SetNodeVisible(*node, false);
     if (! obj.visible_user.empty())
         node->SetVisibleUserBinding(ToSceneUserVisibilityBinding(obj.visible_user));
+    AssignNodeFieldAnimations(context, *node, obj.field_bindings);
     WireFieldScripts(context, node, obj.field_bindings);
     RegisterNodeRef(context,
                     obj.id,

@@ -10,6 +10,8 @@ import :visibility_binding;
 export import :material;
 import :scene_document;
 
+using namespace rstd::literals;
+
 export namespace owe
 
 {
@@ -79,11 +81,11 @@ public:
     // True when something other than the authored value can turn this effect
     // on later: a user property, or a script bound to `visible`.
     bool visible_can_change() const {
-        return ! visible_user.empty() || field_bindings.scripts.contains("visible");
+        return ! visible_user.empty() || field_bindings.HasScript("visible"_str);
     }
-    const ScriptBinding* visible_script() const {
-        auto it = field_bindings.scripts.find("visible");
-        return it == field_bindings.scripts.end() ? nullptr : &it->second;
+    const FieldBindingSpec* visible_binding() const {
+        auto binding = field_bindings.Get("visible"_str);
+        return binding.is_some() ? rstd::addressof(**binding) : nullptr;
     }
 };
 

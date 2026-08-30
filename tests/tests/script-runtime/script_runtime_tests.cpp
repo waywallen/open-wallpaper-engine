@@ -2519,6 +2519,249 @@ TEST(ScriptUserProperty, ScriptedOriginLandsAtCenter) {
     EXPECT_NEAR(v.y, 1080.0, 0.5);
 }
 
+TEST(SceneAnimationPlayback, SharedFieldBindingsAdvanceOnceAndPreserveEventOrder) {
+    owe::Scene scene;
+    auto       node = Arc<owe::SceneNode>::make();
+
+    Vec<owe::SceneAnimationEvent> authored_events;
+    authored_events.push(
+        { .frame = i32(2), .order = usize(1), .name = String::make("second"_str) });
+    authored_events.push({ .frame = i32(2), .order = usize(), .name = String::make("first"_str) });
+    auto clip = Arc<owe::SceneAnimationClip>::make(owe::SceneAnimationClipSpec {
+        .events = rstd::move(authored_events),
+        .mode   = String::make("loop"_str),
+        .fps    = 10.0f,
+        .end    = i32(10),
+    });
+
+    auto playback = Arc<owe::SceneAnimationPlayback>::make(rstd::move(clip), true);
+    node->BindFieldAnimation(String::make("origin"_str), playback.clone());
+    node->BindFieldAnimation(String::make("alpha"_str), playback.clone());
+    auto peer = Arc<owe::SceneNode>::make();
+    peer->BindFieldAnimation(String::make("amount"_str), playback.clone());
+    scene.RootMut()->AppendChild(node.clone());
+    scene.RootMut()->AppendChild(peer.clone());
+
+    scene.Runtime().Advance(rstd::f64(0.2));
+    scene.TickNodeFieldAnimations();
+    EXPECT_TRUE(scene.ConsumeAnimationEvents().is_empty());
+    EXPECT_EQ(playback->Frame(), i32());
+
+    playback->Play();
+    scene.Runtime().Advance(rstd::f64(0.2));
+    scene.TickNodeFieldAnimations();
+    auto events = scene.ConsumeAnimationEvents();
+    ASSERT_EQ(events.len(), usize(2));
+    EXPECT_EQ(events[usize()].event.name, "first"_str);
+    EXPECT_EQ(events[usize()].event.frame, i32(2));
+    EXPECT_EQ(events[usize(1)].event.name, "second"_str);
+    EXPECT_EQ(events[usize(1)].event.frame, i32(2));
+    EXPECT_EQ(playback->Frame(), i32(2));
+
+    playback->Pause();
+    scene.Runtime().Advance(rstd::f64(0.3));
+    scene.TickNodeFieldAnimations();
+    EXPECT_EQ(playback->Frame(), i32(2));
+
+    playback->SetFrame(i32(4));
+    playback->SetRate(2.0f);
+    playback->Play();
+    scene.Runtime().Advance(rstd::f64(0.1));
+    scene.TickNodeFieldAnimations();
+    EXPECT_EQ(playback->Frame(), i32(6));
+
+    playback->SetFrame(i32(10));
+    scene.Runtime().Advance(rstd::f64(0.1));
+    scene.TickNodeFieldAnimations();
+    EXPECT_EQ(playback->Frame(), i32(2));
+}
+
+TEST(ScriptAnimation, BroadcastsMarkersAndControlsSharedPlayback) {
+    owe::SceneNode layer;
+    owe::SceneNode other_layer;
+
+    auto clip     = Arc<owe::SceneAnimationClip>::make(owe::SceneAnimationClipSpec {
+        .name = String::make("main"_str),
+        .mode = String::make("loop"_str),
+        .fps  = 6.0f,
+        .end  = i32(12),
+    });
+    auto playback = Arc<owe::SceneAnimationPlayback>::make(rstd::move(clip));
+
+    auto secondary_clip = Arc<owe::SceneAnimationClip>::make(owe::SceneAnimationClipSpec {
+        .name = String::make("secondary"_str),
+        .mode = String::make("loop"_str),
+        .fps  = 8.0f,
+        .end  = i32(16),
+    });
+    auto secondary      = Arc<owe::SceneAnimationPlayback>::make(rstd::move(secondary_clip));
+    layer.BindFieldAnimation(String::make("scale"_str), secondary.clone());
+    layer.BindFieldAnimation(String::make("origin"_str), playback.clone());
+
+    JsRuntime rt;
+    auto*     controller = rt.MakeFieldScript(
+        R"JS(
+            const animation = thisObject.getAnimation();
+            const secondary = thisLayer.getAnimation("secondary");
+            export function animationEvent(event, value) {
+                return event.name === "beat" ? value + event.frame : -1000;
+            }
+            export function update(value) {
+                animation.setFrame(4);
+                animation.rate = 2;
+                animation.pause();
+                secondary.setFrame(3);
+                secondary.pause();
+                const metadata = animation.name === "main" && animation.fps === 6 &&
+                    animation.frameCount === 12 && animation.duration === 2 &&
+                    secondary.name === "secondary" ? 100 : 0;
+                return value + animation.getFrame() + animation.rate + secondary.getFrame() + metadata;
+            }
+        )JS",
+        "test/animation_controller",
+        FieldKind::Scalar,
+        owe::MakeObject(),
+        owe::IntoJson(0),
+        ScriptBindingContext::ForLayer(&layer, "origin"_str, Some(playback.clone())));
+    auto* peer = rt.MakeFieldScript(
+        R"JS(
+            export function animationEvent(event) { return event.frame + 1; }
+            export function update(value) { return value; }
+        )JS",
+        "test/animation_peer",
+        FieldKind::Scalar,
+        owe::MakeObject(),
+        owe::IntoJson(0),
+        &layer);
+    auto* unrelated = rt.MakeFieldScript(
+        R"JS(
+            export function animationEvent() { return 99; }
+            export function update(value) { return value; }
+        )JS",
+        "test/animation_unrelated",
+        FieldKind::Scalar,
+        owe::MakeObject(),
+        owe::IntoJson(0),
+        &other_layer);
+    ASSERT_NE(controller, nullptr);
+    ASSERT_NE(peer, nullptr);
+    ASSERT_NE(unrelated, nullptr);
+
+    Vec<owe::SceneAnimationEventDispatch> events;
+    events.push(
+        { .node  = &layer,
+          .event = { .frame = i32(3), .order = usize(), .name = String::make("beat"_str) } });
+    rt.TickAll(events.as_slice());
+
+    EXPECT_EQ(LastScalar(controller), 112.0);
+    EXPECT_EQ(LastScalar(peer), 4.0);
+    EXPECT_EQ(LastScalar(unrelated), 0.0);
+    EXPECT_EQ(playback->Frame(), i32(4));
+    EXPECT_FLOAT_EQ(playback->Rate(), 2.0f);
+    EXPECT_FALSE(playback->IsPlaying());
+    EXPECT_EQ(secondary->Frame(), i32(3));
+    EXPECT_FALSE(secondary->IsPlaying());
+}
+
+TEST(ScriptAnimation, SeparatesLayerAndCurrentPropertyLookup) {
+    owe::SceneNode layer;
+    auto           clip     = Arc<owe::SceneAnimationClip>::make(owe::SceneAnimationClipSpec {
+        .name = String::make("layer-track"_str),
+        .fps  = 12.0f,
+        .end  = i32(24),
+    });
+    auto           playback = Arc<owe::SceneAnimationPlayback>::make(rstd::move(clip));
+    layer.BindFieldAnimation(String::make("origin"_str), playback.clone());
+
+    JsRuntime rt;
+    auto*     unanimated = rt.MakeFieldScript(
+        R"JS(
+            const propertyAnimation = thisObject.getAnimation();
+            const layerAnimation = thisLayer.getAnimation("layer-track");
+            export function update() {
+                return thisObject !== thisLayer && propertyAnimation.frameCount === 1 &&
+                    layerAnimation.frameCount === 24 ? 1 : 0;
+            }
+        )JS",
+        "test/animation_property_scope",
+        FieldKind::Scalar,
+        owe::MakeObject(),
+        owe::IntoJson(0),
+        ScriptBindingContext::ForLayer(&layer, "alpha"_str));
+    ASSERT_NE(unanimated, nullptr);
+
+    owe::SceneMaterial material;
+    auto*              material_property = rt.MakeFieldScript(
+        R"JS(
+            const animation = thisObject.getAnimation();
+            export function update() {
+                return thisObject !== thisLayer && animation.name === "layer-track" ? 1 : 0;
+            }
+        )JS",
+        "test/animation_material_property_scope",
+        FieldKind::Scalar,
+        owe::MakeObject(),
+        owe::IntoJson(0),
+        ScriptBindingContext::ForMaterial(&layer, &material, "amount"_str, Some(playback.clone())));
+    ASSERT_NE(material_property, nullptr);
+
+    auto* scene_property = rt.MakeFieldScript(
+        R"JS(
+            const animation = thisObject.getAnimation();
+            export function update() {
+                return thisObject !== thisLayer && animation.name === "layer-track" ? 1 : 0;
+            }
+        )JS",
+        "test/animation_scene_property_scope",
+        FieldKind::Scalar,
+        owe::MakeObject(),
+        owe::IntoJson(0),
+        ScriptBindingContext::ForLayer(nullptr, "camerashake"_str, Some(playback.clone())));
+    ASSERT_NE(scene_property, nullptr);
+
+    rt.TickAll();
+    EXPECT_EQ(LastScalar(unanimated), 1.0);
+    EXPECT_EQ(LastScalar(material_property), 1.0);
+    EXPECT_EQ(LastScalar(scene_property), 1.0);
+}
+
+TEST(ScriptAnimation, TimerKeepsCurrentPropertyAnimation) {
+    owe::SceneNode layer;
+    auto           clip     = Arc<owe::SceneAnimationClip>::make(owe::SceneAnimationClipSpec {
+        .name = String::make("timer-track"_str),
+        .fps  = 10.0f,
+        .end  = i32(20),
+    });
+    auto           playback = Arc<owe::SceneAnimationPlayback>::make(rstd::move(clip));
+
+    JsRuntime rt;
+    auto*     script = rt.MakeFieldScript(
+        R"JS(
+            let observed = 0;
+            export function init(value) {
+                setTimeout(() => {
+                    const animation = thisObject.getAnimation();
+                    observed = animation.name === "timer-track" ? animation.frameCount : -1;
+                }, 10);
+                return value;
+            }
+            export function update() { return observed; }
+        )JS",
+        "test/animation_timer_property_scope",
+        FieldKind::Scalar,
+        owe::MakeObject(),
+        owe::IntoJson(0),
+        ScriptBindingContext::ForLayer(&layer, "origin"_str, Some(rstd::move(playback))));
+    ASSERT_NE(script, nullptr);
+    rt.SetSceneRoot(&layer);
+
+    FrameInputs inputs {};
+    inputs.runtime = 0.02f;
+    rt.SetFrameInputs(inputs);
+    rt.TickAll();
+    EXPECT_EQ(LastScalar(script), 20.0);
+}
+
 TEST(SceneNodeTrans, SetTranslateRecomputesModelTrans) {
     owe::SceneNode parent;
     parent.SetTranslate({ 100.0f, 200.0f, 0.0f });

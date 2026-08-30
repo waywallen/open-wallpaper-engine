@@ -98,7 +98,11 @@ Arc<SceneNode> CloneRegisteredNode(Scene& scene, ref<SceneNode> source, ref<str>
     node->SetBaseColor(source->BaseColor(), source->BaseAlpha());
     node->TexAnim() = source->TexAnim();
     if (! source->Camera().empty()) node->SetCamera(source->Camera());
-    if (source->MeshShared()) node->AddMesh(source->MeshShared()->CloneInstance());
+    if (source->MeshShared()) {
+        auto mesh = source->MeshShared()->CloneInstance();
+        mesh->RegisterAnimations(*node);
+        node->AddMesh(rstd::move(mesh));
+    }
     scene.RegisterNode(*node);
     return node;
 }

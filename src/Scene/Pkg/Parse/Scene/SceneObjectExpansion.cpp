@@ -239,11 +239,10 @@ bool PrepareSceneObject(T& object, Option<ref<rstd::json::Map>> user_properties,
             ResolveVisibleUserBinding(effect.visible, effect.visible_user, user_properties);
     }
     if (force_invisible) object.visible = false;
-    const bool linked     = ! object.visible && linked_source_ids->contains(object.id);
-    const bool user_bound = ! object.visible && ! object.visible_user.empty();
-    const bool visible_script =
-        ! object.visible && object.field_bindings.scripts.count("visible") != 0;
-    constexpr bool keep_text = same<T, wpscene::TextObject>;
+    const bool linked         = ! object.visible && linked_source_ids->contains(object.id);
+    const bool user_bound     = ! object.visible && ! object.visible_user.empty();
+    const bool visible_script = ! object.visible && object.field_bindings.HasScript("visible"_str);
+    constexpr bool keep_text  = same<T, wpscene::TextObject>;
     if constexpr (! same<T, wpscene::ImageObject>) {
         constexpr bool keep_user_visibility = ! same<T, wpscene::SoundObject>;
         if (! object.visible && ! linked && ! keep_text &&

@@ -40,6 +40,24 @@ TEST(FieldBindingJson, CompatibilityReaderPopulatesAnimationMetadata) {
     EXPECT_EQ(tangent.magic, rstd::i32(7));
 }
 
+TEST(FieldBindingJson, TangentObjectDefaultsToEnabledAndParsesStep) {
+    auto parsed = owe::ParseJson(R"({
+        "frame": 10,
+        "value": 2.0,
+        "step": true,
+        "front": {"x": 0.5, "y": 1.0}
+    })");
+    ASSERT_TRUE(parsed.is_ok());
+
+    owe::wpscene::AnimKeyframe key;
+    ASSERT_TRUE(owe::wpscene::ParseAnimKeyframe(parsed.unwrap(), key));
+    EXPECT_TRUE(key.step);
+    EXPECT_TRUE(key.front.enabled);
+    EXPECT_FLOAT_EQ(key.front.x, 0.5f);
+    EXPECT_FLOAT_EQ(key.front.y, 1.0f);
+    EXPECT_FALSE(key.back.enabled);
+}
+
 TEST(SceneObjectClone, MembersProvideCloneTraitImplementation) {
     owe::wpscene::AnimCurve curve;
     curve.relative = true;

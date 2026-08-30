@@ -163,16 +163,8 @@ float cubic(float p0, float p1, float p2, float p3, float t) {
            t * t * t * p3;
 }
 
-struct AnimationFrame {
-    float current { 0.0f };
-    i32   end {};
-    bool  wraps { false };
-};
-
-// Last frame of the timeline: the authored length, stretched to cover a
-// keyframe that sits past it.
 i32 curve_end(const SceneAnimationCurve& curve) {
-    i32  end         = curve.length;
+    i32  end {};
     auto absorb_last = [&end](slice<SceneAnimationKey> keys) {
         if (! keys.is_empty()) end = std::max(end, keys[keys.len() - usize(1)].frame);
     };
@@ -182,55 +174,40 @@ i32 curve_end(const SceneAnimationCurve& curve) {
     return end;
 }
 
-bool curve_loops(const SceneAnimationCurve& curve) {
-    return curve.wraploop || curve.mode == "loop"_str || curve.mode == "repeat"_str;
-}
-
-AnimationFrame animation_frame(const SceneAnimationCurve& curve, double runtime) {
-    float fps   = curve.fps > 0.0f ? curve.fps : 30.0f;
-    float frame = static_cast<float>(runtime) * fps;
-    i32   end   = curve_end(curve);
-    if (end <= i32()) return { .current = frame, .end = end };
-
-    const float ef = rstd::as_cast<float>(end);
-    if (curve.mode == "mirror"_str) {
-        float period = 2.0f * ef;
-        float m      = std::fmod(frame, period);
-        if (m < 0.0f) m += period;
-        return { .current = m <= ef ? m : (period - m), .end = end };
-    }
-
-    if (curve_loops(curve)) {
-        frame = std::fmod(frame, ef);
-        if (frame < 0.0f) frame += ef;
-        return { .current = frame, .end = end, .wraps = curve.wraploop };
-    }
-    return { .current = std::clamp(frame, 0.0f, ef), .end = end };
+bool clip_loops(const SceneAnimationClip& clip) {
+    return clip.WrapLoop() || clip.Mode() == "loop"_str || clip.Mode() == "repeat"_str;
 }
 
 float eval_segment(const SceneAnimationKey& a, const SceneAnimationKey& b, float frame) {
     float dt = rstd::as_cast<float>(b.frame - a.frame);
     if (dt <= 0.0f) return b.value;
-    float linear_t = std::clamp((frame - rstd::as_cast<float>(a.frame)) / dt, 0.0f, 1.0f);
-    bool  has_tan  = a.front_enabled || b.back_enabled;
-    if (! has_tan) return std::lerp(a.value, b.value, linear_t);
+    if (frame >= rstd::as_cast<float>(b.frame)) return b.value;
+    if (b.step) return a.value;
 
     float p0x = rstd::as_cast<float>(a.frame);
     float p3x = rstd::as_cast<float>(b.frame);
-    float p1x = a.front_enabled ? p0x + a.front_x : p0x + dt / 3.0f;
-    float p2x = b.back_enabled ? p3x + b.back_x : p3x - dt / 3.0f;
+    float p1x = p0x + (a.front_enabled ? a.front_x * dt * 0.5f : 0.0f);
+    float p2x = p3x + (b.back_enabled ? b.back_x * dt * 0.5f : 0.0f);
     float p0y = a.value;
     float p3y = b.value;
-    float p1y = a.front_enabled ? p0y + a.front_y : std::lerp(p0y, p3y, 1.0f / 3.0f);
-    float p2y = b.back_enabled ? p3y + b.back_y : std::lerp(p0y, p3y, 2.0f / 3.0f);
+    float p1y = p0y + (a.front_enabled ? a.front_y : 0.0f);
+    float p2y = p3y + (b.back_enabled ? b.back_y : 0.0f);
 
-    if (! (p0x <= p1x && p1x <= p2x && p2x <= p3x)) return std::lerp(a.value, b.value, linear_t);
+    if (! (p0x <= p1x && p1x <= p2x && p2x <= p3x)) {
+        float linear_t = std::clamp((frame - p0x) / dt, 0.0f, 1.0f);
+        return std::lerp(a.value, b.value, linear_t);
+    }
 
     float lo = 0.0f;
     float hi = 1.0f;
     for (int i = 0; i < 16; ++i) {
         float mid = (lo + hi) * 0.5f;
-        if (cubic(p0x, p1x, p2x, p3x, mid) < frame)
+        float x   = cubic(p0x, p1x, p2x, p3x, mid);
+        if (std::abs(x - frame) <= 0.00001f) {
+            lo = hi = mid;
+            break;
+        }
+        if (x < frame)
             lo = mid;
         else
             hi = mid;
@@ -238,7 +215,7 @@ float eval_segment(const SceneAnimationKey& a, const SceneAnimationKey& b, float
     return cubic(p0y, p1y, p2y, p3y, (lo + hi) * 0.5f);
 }
 
-float eval_axis(slice<SceneAnimationKey> keys, const AnimationFrame& frame) {
+float eval_axis(slice<SceneAnimationKey> keys, const SceneAnimationSample& frame) {
     if (keys.is_empty()) return 0.0f;
     const auto& first = keys[usize()];
     const auto& last  = keys[keys.len() - usize(1)];
@@ -315,9 +292,8 @@ bool shader_values_equal(const ShaderValue& a, const ShaderValue& b) {
     return true;
 }
 
-ShaderValue eval_shader_value_animation(const SceneShaderValueAnimation& animation,
-                                        double                           runtime) {
-    if (animation.curve.is_none() || (**animation.curve).Empty() ||
+ShaderValue eval_shader_value_animation(const SceneShaderValueAnimation& animation) {
+    if (animation.track.is_none() || (**animation.track).Empty() ||
         animation.base.size() == usize())
         return animation.base;
 
@@ -325,7 +301,7 @@ ShaderValue eval_shader_value_animation(const SceneShaderValueAnimation& animati
     for (std::size_t i = 0; i < value.size(); ++i) value[i] = animation.base[usize(i)];
 
     if (value.size() == 1) {
-        value[0] = (**animation.curve).EvaluateScalar(value[0], runtime);
+        value[0] = (**animation.track).EvaluateScalar(value[0]);
         return ShaderValue(UniformValueView {
             .data   = value.data(),
             .size   = usize(value.size()),
@@ -336,7 +312,7 @@ ShaderValue eval_shader_value_animation(const SceneShaderValueAnimation& animati
     Eigen::Vector3f base { value[0],
                            value.size() > 1 ? value[1] : 0.0f,
                            value.size() > 2 ? value[2] : 0.0f };
-    auto            animated = (**animation.curve).EvaluateVec3(base, runtime);
+    auto            animated = (**animation.track).EvaluateVec3(base);
     value[0]                 = animated.x();
     if (value.size() > 1) value[1] = animated.y();
     if (value.size() > 2) value[2] = animated.z();
@@ -953,116 +929,312 @@ RenderSceneSnapshot ExtractRenderSceneSnapshot(Scene& scene) {
 
 bool SceneAnimationCurve::Empty() const { return c0.is_empty() && c1.is_empty() && c2.is_empty(); }
 
-float SceneAnimationCurve::EvaluateScalar(float base, double runtime) const {
+i32 SceneAnimationCurve::EndFrame() const { return curve_end(*this); }
+
+float SceneAnimationCurve::EvaluateScalar(float base, const SceneAnimationSample& sample) const {
     if (c0.is_empty()) return base;
-    float value = eval_axis(c0.as_slice(), animation_frame(*this, runtime));
+    float value = eval_axis(c0.as_slice(), sample);
     return relative ? base + value : value;
 }
 
-Eigen::Vector3f SceneAnimationCurve::EvaluateVec3(const Eigen::Vector3f& base,
-                                                  double                 runtime) const {
+Eigen::Vector3f SceneAnimationCurve::EvaluateVec3(const Eigen::Vector3f&      base,
+                                                  const SceneAnimationSample& sample) const {
     if (Empty()) return base;
-    AnimationFrame  frame = animation_frame(*this, runtime);
     Eigen::Vector3f value = base;
     if (! c0.is_empty())
-        value.x() =
-            relative ? base.x() + eval_axis(c0.as_slice(), frame) : eval_axis(c0.as_slice(), frame);
+        value.x() = relative ? base.x() + eval_axis(c0.as_slice(), sample)
+                             : eval_axis(c0.as_slice(), sample);
     if (! c1.is_empty())
-        value.y() =
-            relative ? base.y() + eval_axis(c1.as_slice(), frame) : eval_axis(c1.as_slice(), frame);
+        value.y() = relative ? base.y() + eval_axis(c1.as_slice(), sample)
+                             : eval_axis(c1.as_slice(), sample);
     if (! c2.is_empty())
-        value.z() =
-            relative ? base.z() + eval_axis(c2.as_slice(), frame) : eval_axis(c2.as_slice(), frame);
+        value.z() = relative ? base.z() + eval_axis(c2.as_slice(), sample)
+                             : eval_axis(c2.as_slice(), sample);
     return value;
 }
 
-SceneAnimationEventCursor::SceneAnimationEventCursor(const SceneAnimationCurve& curve) {
-    if (curve.events.is_empty() || curve.startpaused) return;
-    m_fps    = curve.fps > 0.0f ? curve.fps : 30.0f;
-    m_end    = rstd::as_cast<float>(curve_end(curve));
-    m_loop   = curve_loops(curve);
-    m_mirror = curve.mode == "mirror"_str;
-    if (m_end <= 0.0f) {
+float SceneAnimationTrack::EvaluateScalar(float base) const {
+    return curve->EvaluateScalar(base, playback->Sample());
+}
+
+Eigen::Vector3f SceneAnimationTrack::EvaluateVec3(const Eigen::Vector3f& base) const {
+    return curve->EvaluateVec3(base, playback->Sample());
+}
+
+SceneAnimationPlayback::SceneAnimationPlayback(Arc<SceneAnimationClip> clip, bool start_paused)
+    : m_clip(rstd::move(clip)) {
+    m_start_paused = start_paused;
+    m_loop         = clip_loops(*m_clip);
+    m_mirror       = m_clip->Mode() == "mirror"_str;
+    m_playing      = ! start_paused;
+    if (m_clip->End() <= i32()) {
         m_loop   = false;
         m_mirror = false;
     }
-    for (usize index {}; index < curve.events.len(); ++index) {
-        const auto& event = curve.events[index];
-        if (m_end > 0.0f && rstd::as_cast<float>(event.frame) > m_end) continue;
-        m_events.push(SceneAnimationEvent { .frame = std::max(event.frame, i32()),
-                                            .name  = event.name.clone() });
-    }
+}
+
+auto SceneShaderValueAnimation::Share() const -> SceneShaderValueAnimation {
+    return {
+        .base  = base,
+        .track = track.is_some() ? Some(Arc<SceneAnimationTrack>::make((**track).Share())) : None(),
+    };
 }
 
 namespace
 {
-// First time at or after `after` at which a playhead of the given period
-// reaches `at`. `None` when it never does again.
-Option<double> next_pass(double at, double after, double period) {
-    if (period <= 0.0) return at > after ? Some(at) : None();
+double next_animation_pass(double at, double after, double period) {
+    if (period <= 0.0) return at;
     double turns = std::floor((after - at) / period) + 1.0;
     if (turns < 0.0) turns = 0.0;
     double pass = at + turns * period;
     while (pass <= after) pass += period;
-    return Some(pass);
+    return pass;
 }
 } // namespace
 
-void SceneAnimationEventCursor::Advance(double runtime, Vec<ref<str>>& out) {
-    if (m_events.is_empty()) return;
-    const double now = runtime * static_cast<double>(m_fps);
-    if (! m_primed) {
-        // Start half a frame short of zero so markers sitting on frame 0
-        // fire on the first tick instead of being skipped.
-        m_previous = -0.5;
-        m_primed   = true;
+void SceneAnimationPlayback::Advance(double runtime, Vec<SceneAnimationEvent>& out) {
+    if (m_last_runtime.is_some() && *m_last_runtime == runtime) return;
+    double delta = runtime;
+    if (m_last_runtime.is_some()) {
+        if (runtime < *m_last_runtime) {
+            m_position_seconds = std::max(runtime, 0.0);
+            m_previous_frame   = m_position_seconds * static_cast<double>(m_clip->Fps()) - 0.5;
+            delta              = 0.0;
+        } else {
+            delta = runtime - *m_last_runtime;
+        }
     }
-    // A restarted scene rewinds the clock; pick the playhead back up there.
-    if (now < m_previous) m_previous = now - 0.5;
+    m_last_runtime = Some(runtime);
+    if (! m_playing) return;
 
-    const double end    = static_cast<double>(m_end);
+    m_position_seconds += delta * static_cast<double>(m_rate);
+    double       now    = m_position_seconds * static_cast<double>(m_clip->Fps());
+    const double end    = static_cast<double>(m_clip->End().to_primitive());
     const double period = m_mirror ? 2.0 * end : end;
+    if (! m_loop && ! m_mirror && end > 0.0 && now >= end) {
+        now                = end;
+        m_position_seconds = end / static_cast<double>(m_clip->Fps());
+        m_playing          = false;
+    }
 
     struct Pass {
-        double   at { 0.0 };
-        ref<str> name;
+        double              at { 0.0 };
+        SceneAnimationEvent event;
     };
     Vec<Pass> passed;
-    for (usize index {}; index < m_events.len(); ++index) {
-        const auto&    event = m_events[index];
-        const double   frame = static_cast<double>(event.frame.to_primitive());
-        Option<double> pass  = None();
+    auto      append_passes = [&](const SceneAnimationEvent& event, double first, double repeat) {
+        double at = repeat > 0.0 ? next_animation_pass(first, m_previous_frame, repeat) : first;
+        while (at > m_previous_frame && at <= now) {
+            passed.push(Pass { .at    = at,
+                               .event = SceneAnimationEvent { .frame = event.frame,
+                                                              .order = event.order,
+                                                              .name  = event.name.clone() } });
+            if (repeat <= 0.0) break;
+            at += repeat;
+        }
+    };
+    auto events = m_clip->Events();
+    for (usize index {}; index < events.len(); ++index) {
+        const auto&  event = events[index];
+        const double frame = static_cast<double>(event.frame.to_primitive());
         if (! m_loop && ! m_mirror) {
-            pass = next_pass(frame, m_previous, 0.0);
+            append_passes(event, frame, 0.0);
         } else {
-            pass = next_pass(frame, m_previous, period);
+            append_passes(event, frame, period);
             if (m_mirror && frame > 0.0 && frame < end) {
-                // The playhead passes an interior marker twice per period:
-                // once going up, once coming back down.
-                auto back = next_pass(period - frame, m_previous, period);
-                if (back.is_some() && (pass.is_none() || *back < *pass)) pass = back;
+                append_passes(event, period - frame, period);
             }
         }
-        if (pass.is_none() || *pass > now) continue;
-        passed.push(Pass { .at = *pass, .name = event.name.as_str() });
     }
-    m_previous = now;
+    m_previous_frame = now;
     if (passed.is_empty()) return;
     rstd::slice_::sort_unstable_by(passed.as_mut_slice().as_mut_ref(),
                                    [](const Pass& left, const Pass& right) {
-                                       return left.at < right.at;
+                                       if (left.at != right.at) return left.at < right.at;
+                                       return left.event.order < right.event.order;
                                    });
-    for (usize index {}; index < passed.len(); ++index) {
-        ref<str> name = passed[index].name;
-        out.push(rstd::move(name));
+    for (usize index {}; index < passed.len(); ++index) out.push(rstd::move(passed[index].event));
+}
+
+void SceneAnimationPlayback::Play() {
+    if (! m_loop && ! m_mirror && m_clip->End() > i32() && Frame() >= FrameCount()) {
+        m_position_seconds = 0.0;
+        m_previous_frame   = -0.5;
+    }
+    m_playing = true;
+}
+
+void SceneAnimationPlayback::Pause() { m_playing = false; }
+
+void SceneAnimationPlayback::Stop() {
+    m_playing          = false;
+    m_position_seconds = 0.0;
+    m_previous_frame   = -0.5;
+}
+
+void SceneAnimationPlayback::SetFrame(i32 frame) {
+    float value = std::max(rstd::as_cast<float>(frame), 0.0f);
+    if (m_clip->End() > i32()) value = std::min(value, rstd::as_cast<float>(m_clip->End()));
+    m_position_seconds = static_cast<double>(value) / static_cast<double>(m_clip->Fps());
+    m_previous_frame   = static_cast<double>(value);
+}
+
+void SceneAnimationPlayback::SetRate(float rate) {
+    if (std::isfinite(rate) && rate > 0.0f) m_rate = rate;
+}
+
+i32 SceneAnimationPlayback::Frame() const {
+    return i32(static_cast<std::int32_t>(std::floor(Sample().current)));
+}
+
+double SceneAnimationPlayback::Duration() const {
+    return m_clip->End() > i32() ? static_cast<double>(m_clip->End().to_primitive()) /
+                                       static_cast<double>(m_clip->Fps())
+                                 : 0.0;
+}
+
+auto SceneAnimationPlayback::Sample() const -> SceneAnimationSample {
+    const i32 end   = m_clip->End();
+    float     frame = static_cast<float>(m_position_seconds) * m_clip->Fps();
+    if (end <= i32()) return { .current = frame, .end = end };
+
+    const float end_frame = rstd::as_cast<float>(end);
+    if (m_mirror) {
+        const float period = 2.0f * end_frame;
+        frame              = std::fmod(frame, period);
+        if (frame < 0.0f) frame += period;
+        frame = frame <= end_frame ? frame : period - frame;
+    } else if (m_loop) {
+        frame = std::fmod(frame, end_frame);
+        if (frame < 0.0f) frame += end_frame;
+    } else {
+        frame = std::clamp(frame, 0.0f, end_frame);
+    }
+    return { .current = frame, .end = end, .wraps = m_loop && m_clip->WrapLoop() };
+}
+
+void SceneAnimationSet::Register(Arc<SceneAnimationPlayback> playback) {
+    bool found = false;
+    for (const auto& value : m_players) found = found || value.as_ptr() == playback.as_ptr();
+    if (found) return;
+    if (! playback->Name().is_empty() && ! m_names.contains_key(playback->Name()))
+        (void)m_names.insert(String::make(playback->Name()), playback.clone());
+    m_players.push(rstd::move(playback));
+}
+
+void SceneAnimationSet::Register(String property, Arc<SceneAnimationPlayback> playback) {
+    Register(playback.clone());
+    (void)m_properties.insert(rstd::move(property), rstd::move(playback));
+}
+
+auto SceneAnimationSet::ForProperty(ref<str> property) const
+    -> Option<Arc<SceneAnimationPlayback>> {
+    auto playback = m_properties.get(property);
+    return playback.is_some() ? Some((**playback).clone()) : None();
+}
+
+auto SceneAnimationSet::Named(ref<str> name) const -> Option<Arc<SceneAnimationPlayback>> {
+    auto playback = m_names.get(name);
+    return playback.is_some() ? Some((**playback).clone()) : None();
+}
+
+void SceneAnimationSet::Advance(SceneNode& owner, double runtime,
+                                Vec<SceneAnimationEventDispatch>& events) {
+    Vec<SceneAnimationEvent> passed;
+    for (const auto& playback : m_players) {
+        passed.clear();
+        playback->Advance(runtime, passed);
+        for (auto& event : passed)
+            events.push(SceneAnimationEventDispatch { .node = &owner, .event = rstd::move(event) });
     }
 }
 
-void SceneNode::TickFieldAnimations(double runtime) {
-    if (m_origin_curve) SetTranslate(m_origin_curve->EvaluateVec3(m_origin_base, runtime));
-    if (m_scale_curve) SetScale(m_scale_curve->EvaluateVec3(m_scale_base, runtime));
-    if (m_rotation_curve) SetRotation(m_rotation_curve->EvaluateVec3(m_rotation_base, runtime));
-    if (m_alpha_curve) SetUserAlpha(m_alpha_curve->EvaluateScalar(m_base_alpha, runtime));
+void SceneNode::RegisterAnimation(Arc<SceneAnimationPlayback> playback) {
+    m_animations.Register(rstd::move(playback));
+}
+
+void SceneNode::BindFieldAnimation(String field, Arc<SceneAnimationPlayback> playback) {
+    m_animations.Register(rstd::move(field), rstd::move(playback));
+}
+
+void SceneNode::SetFieldAnimation(String field, SceneNodeAnimationTarget target,
+                                  SceneAnimationTrack track, Eigen::Vector3f vector_base,
+                                  float scalar_base) {
+    BindFieldAnimation(field.clone(), track.playback.clone());
+    for (auto& binding : m_field_animation_tracks) {
+        if (binding.field != field.as_str()) continue;
+        binding = SceneNodeFieldAnimation { .field       = rstd::move(field),
+                                            .target      = target,
+                                            .track       = rstd::move(track),
+                                            .vector_base = vector_base,
+                                            .scalar_base = scalar_base };
+        return;
+    }
+    m_field_animation_tracks.push(SceneNodeFieldAnimation { .field       = rstd::move(field),
+                                                            .target      = target,
+                                                            .track       = rstd::move(track),
+                                                            .vector_base = vector_base,
+                                                            .scalar_base = scalar_base });
+}
+
+void SceneNode::SetOriginAnimation(SceneAnimationTrack track) {
+    SetFieldAnimation(String::make("origin"_str),
+                      SceneNodeAnimationTarget::Origin,
+                      rstd::move(track),
+                      m_translate,
+                      0.0f);
+}
+
+void SceneNode::SetScaleAnimation(SceneAnimationTrack track) {
+    SetFieldAnimation(String::make("scale"_str),
+                      SceneNodeAnimationTarget::Scale,
+                      rstd::move(track),
+                      m_scale,
+                      0.0f);
+}
+
+void SceneNode::SetRotationAnimation(SceneAnimationTrack track) {
+    SetFieldAnimation(String::make("angles"_str),
+                      SceneNodeAnimationTarget::Rotation,
+                      rstd::move(track),
+                      m_rotation,
+                      0.0f);
+}
+
+void SceneNode::SetAlphaAnimation(SceneAnimationTrack track) {
+    SetFieldAnimation(String::make("alpha"_str),
+                      SceneNodeAnimationTarget::Alpha,
+                      rstd::move(track),
+                      Eigen::Vector3f::Zero(),
+                      m_base_alpha);
+}
+
+auto SceneNode::FieldAnimation(ref<str> field) const -> Option<Arc<SceneAnimationPlayback>> {
+    return m_animations.ForProperty(field);
+}
+
+auto SceneNode::NamedAnimation(ref<str> name) const -> Option<Arc<SceneAnimationPlayback>> {
+    return m_animations.Named(name);
+}
+
+void SceneNode::TickFieldAnimations(double runtime, Vec<SceneAnimationEventDispatch>& events) {
+    m_animations.Advance(*this, runtime, events);
+    for (const auto& binding : m_field_animation_tracks) {
+        switch (binding.target) {
+        case SceneNodeAnimationTarget::Origin:
+            SetTranslate(binding.track.EvaluateVec3(binding.vector_base));
+            break;
+        case SceneNodeAnimationTarget::Scale:
+            SetScale(binding.track.EvaluateVec3(binding.vector_base));
+            break;
+        case SceneNodeAnimationTarget::Rotation:
+            SetRotation(binding.track.EvaluateVec3(binding.vector_base));
+            break;
+        case SceneNodeAnimationTarget::Alpha:
+            SetUserAlpha(binding.track.EvaluateScalar(binding.scalar_base));
+            break;
+        }
+    }
 }
 
 void SceneCameraPath::CaptureViewport() {
@@ -1072,12 +1244,120 @@ void SceneCameraPath::CaptureViewport() {
     default_fov    = (**camera).Fov();
 }
 
+void SceneCameraPath::ResetQueue() {
+    queue_last_runtime = None();
+    queue_index        = usize();
+    queue_elapsed      = 0.0;
+}
+
+void SceneCameraPath::SetEnabled(bool value) {
+    if (enabled == value) return;
+    enabled = value;
+    ResetQueue();
+}
+
+void SceneCameraPath::CaptureQueueBase() {
+    if (camera.is_none()) return;
+    const auto& value = **camera;
+    queue_base        = value.Transforms();
+    queue_base_fov    = static_cast<float>(value.Fov());
+    queue_base_zoom   = zoom_base;
+    if (! perspective && default_width > 0.0 && value.Width() > 0.0)
+        queue_base_zoom = static_cast<float>(default_width / value.Width());
+}
+
+void SceneCameraPath::SelectQueueClip(bool initial) {
+    if (queue.is_empty()) return;
+    if (queue_mode == SceneCameraPathQueueMode::Random) {
+        queue_index =
+            usize(Random::get<unsigned>(0, rstd::as_cast<unsigned>(queue.len() - usize(1))));
+    } else if (initial) {
+        queue_index = usize();
+    } else {
+        queue_index = (queue_index + usize(1)) % queue.len();
+    }
+    queue_elapsed = 0.0;
+    CaptureQueueBase();
+}
+
+bool SceneCameraPath::ApplyQueueClip(float frame) {
+    if (camera.is_none() || queue.is_empty()) return false;
+    const auto& clip   = queue[queue_index];
+    auto        sample = SceneAnimationSample {
+        .current = std::clamp(frame, 0.0f, rstd::as_cast<float>(clip.length)),
+        .end     = clip.length,
+    };
+    auto evaluate_vec3 = [&](const Option<Arc<SceneAnimationCurve>>& curve,
+                             const Eigen::Vector3d&                  base) -> Eigen::Vector3d {
+        return curve.is_some() ? (**curve).EvaluateVec3(base.cast<float>(), sample).cast<double>()
+                               : base;
+    };
+    auto evaluate_scalar = [&](const Option<Arc<SceneAnimationCurve>>& curve, float base) {
+        return curve.is_some() ? (**curve).EvaluateScalar(base, sample) : base;
+    };
+
+    auto transforms = SceneCameraTransforms {
+        .eye    = evaluate_vec3(clip.eye, queue_base.eye),
+        .center = evaluate_vec3(clip.center, queue_base.center),
+        .up     = evaluate_vec3(clip.up, queue_base.up),
+    };
+    if (! (**camera).SetTransforms(transforms)) return false;
+
+    if (perspective) {
+        float fov = evaluate_scalar(clip.fov, queue_base_fov);
+        if (fov > 0.0f) (**camera).SetFov(fov);
+    } else {
+        float zoom = std::max(evaluate_scalar(clip.zoom, queue_base_zoom), 0.001f);
+        (**camera).SetWidth(default_width / static_cast<double>(zoom));
+        (**camera).SetHeight(default_height / static_cast<double>(zoom));
+    }
+    (**camera).Update();
+    return true;
+}
+
+bool SceneCameraPath::TickQueue(double runtime) {
+    if (queue.is_empty()) return false;
+    if (queue_last_runtime.is_none() || runtime < *queue_last_runtime) {
+        SelectQueueClip(true);
+        queue_last_runtime = Some(runtime);
+        return ApplyQueueClip(0.0f);
+    }
+
+    double delta        = runtime - *queue_last_runtime;
+    queue_last_runtime  = Some(runtime);
+    usize zero_duration = usize();
+    while (delta > 0.0) {
+        const auto& clip      = queue[queue_index];
+        double      duration  = clip.Duration();
+        double      remaining = std::max(duration - queue_elapsed, 0.0);
+        if (remaining > 0.0 && delta < remaining) {
+            queue_elapsed += delta;
+            break;
+        }
+        if (remaining > 0.0) {
+            queue_elapsed = duration;
+            (void)ApplyQueueClip(rstd::as_cast<float>(clip.length));
+            delta -= remaining;
+            zero_duration = usize();
+        } else {
+            ++zero_duration;
+            if (zero_duration >= queue.len()) break;
+        }
+        SelectQueueClip(false);
+    }
+
+    const auto& clip = queue[queue_index];
+    return ApplyQueueClip(static_cast<float>(queue_elapsed) * clip.fps);
+}
+
 bool SceneCameraPath::ApplyDefault() {
     if (camera.is_none()) return false;
     auto& value = **camera;
     if (default_lookat) {
         value.SetLookAt(
             default_eye.cast<double>(), default_center.cast<double>(), default_up.cast<double>());
+    } else if (node) {
+        value.AttatchNode(node);
     }
     if (node) {
         node->SetTranslate(default_translate);
@@ -1095,6 +1375,8 @@ bool SceneCameraPath::Tick(double runtime) {
     auto& value = **camera;
     if (! enabled) return ApplyDefault();
 
+    if (! queue.is_empty()) return TickQueue(runtime);
+
     if (! lookat_tracks.is_empty()) {
         auto key = eval_lookat_tracks(lookat_tracks.as_slice(), runtime, lookat_fps);
         if (! key) return false;
@@ -1108,14 +1390,17 @@ bool SceneCameraPath::Tick(double runtime) {
     if (! node) return false;
     value.AttatchNode(node);
 
-    node->SetTranslate(path_translate_bias + origin_curve.EvaluateVec3(origin_base, runtime));
-    node->SetRotation(path_rotation_bias + rotation_curve.EvaluateVec3(rotation_base, runtime));
+    auto origin = origin_track.is_some() ? origin_track->EvaluateVec3(origin_base) : origin_base;
+    auto rotation =
+        rotation_track.is_some() ? rotation_track->EvaluateVec3(rotation_base) : rotation_base;
+    node->SetTranslate(path_translate_bias + origin);
+    node->SetRotation(path_rotation_bias + rotation);
 
     if (perspective) {
-        float fov = fov_curve.EvaluateScalar(fov_base, runtime);
+        float fov = fov_track.is_some() ? fov_track->EvaluateScalar(fov_base) : fov_base;
         if (fov > 0.0f) value.SetFov(fov);
     } else {
-        float zoom = zoom_curve.EvaluateScalar(zoom_base, runtime);
+        float zoom = zoom_track.is_some() ? zoom_track->EvaluateScalar(zoom_base) : zoom_base;
         zoom       = std::max(zoom, 0.001f);
         value.SetWidth(default_width / static_cast<double>(zoom));
         value.SetHeight(default_height / static_cast<double>(zoom));
@@ -1441,8 +1726,8 @@ bool Scene::SetActiveCameraTransforms(const SceneCameraTransforms& transforms) {
     return true;
 }
 
-bool SceneMaterial::SetShaderValueAnimation(String uniform_name, Arc<SceneAnimationCurve> curve) {
-    if (uniform_name.is_empty() || curve->Empty()) return false;
+bool SceneMaterial::SetShaderValueAnimation(String uniform_name, Arc<SceneAnimationTrack> track) {
+    if (uniform_name.is_empty() || track->Empty()) return false;
     auto uniform_key = rstd::cppstd::to_string(uniform_name.as_str());
 
     ShaderValue base;
@@ -1459,7 +1744,7 @@ bool SceneMaterial::SetShaderValueAnimation(String uniform_name, Arc<SceneAnimat
 
     (void)customShader.valueAnimations.insert(
         rstd::move(uniform_name),
-        SceneShaderValueAnimation { .base = base, .curve = Some(rstd::move(curve)) });
+        SceneShaderValueAnimation { .base = base, .track = Some(rstd::move(track)) });
     return true;
 }
 
@@ -1470,19 +1755,69 @@ auto SceneMaterialCustomShader::Clone() const -> SceneMaterialCustomShader {
         .variant       = variant.is_some() ? Some<SceneShaderVariantDesc>(*variant) : None(),
         .value_version = value_version,
     };
+    struct PlaybackClone {
+        const SceneAnimationPlayback* source { nullptr };
+        Arc<SceneAnimationPlayback>   instance;
+    };
+    Vec<PlaybackClone> playbacks;
     valueAnimations.iter().for_each([&](auto entry) {
         auto [name, animation] = entry;
-        (void)cloned.valueAnimations.insert(name->clone(), animation->Clone());
+        SceneShaderValueAnimation value { .base = animation->base };
+        if (animation->track.is_some()) {
+            const auto& source_track    = **animation->track;
+            const auto* source_playback = source_track.playback.as_ptr().as_raw_ptr();
+            Option<Arc<SceneAnimationPlayback>> instance;
+            for (const auto& candidate : playbacks) {
+                if (candidate.source == source_playback) {
+                    instance = Some(candidate.instance.clone());
+                    break;
+                }
+            }
+            if (instance.is_none()) {
+                auto created = Arc<SceneAnimationPlayback>::make(
+                    source_track.playback->Clip(), source_track.playback->StartsPaused());
+                instance = Some(created.clone());
+                playbacks.push(
+                    PlaybackClone { .source = source_playback, .instance = rstd::move(created) });
+            }
+            value.track = Some(Arc<SceneAnimationTrack>::make(SceneAnimationTrack {
+                .curve    = source_track.curve.clone(),
+                .playback = rstd::move(*instance),
+            }));
+        }
+        (void)cloned.valueAnimations.insert(name->clone(), rstd::move(value));
     });
     return cloned;
 }
 
-bool SceneMaterial::TickShaderValueAnimations(double runtime) {
+auto SceneMaterial::ShaderValueAnimation(ref<str> uniform_name) const
+    -> Option<Arc<SceneAnimationPlayback>> {
+    auto animation = customShader.valueAnimations.get(uniform_name);
+    if (animation.is_none() || (**animation).track.is_none()) return None();
+    return Some((**(**animation).track).playback.clone());
+}
+
+void SceneMaterial::RegisterAnimations(SceneNode& owner) const {
+    customShader.valueAnimations.iter().for_each([&](auto entry) {
+        auto [name, animation] = entry;
+        (void)name;
+        if (animation->track.is_some())
+            owner.RegisterAnimation((**animation->track).playback.clone());
+    });
+}
+
+void SceneMesh::RegisterAnimations(SceneNode& owner) const {
+    for (const auto& material : m_materials) {
+        if (material) material->RegisterAnimations(owner);
+    }
+}
+
+bool SceneMaterial::TickShaderValueAnimations() {
     bool changed = false;
     customShader.valueAnimations.iter_mut().for_each([&](auto entry) {
         auto [name, animation]   = entry;
         auto        uniform_name = rstd::cppstd::to_string(name->as_str());
-        ShaderValue value        = eval_shader_value_animation(*animation, runtime);
+        ShaderValue value        = eval_shader_value_animation(*animation);
         if (auto it = customShader.constValues.find(uniform_name);
             it != customShader.constValues.end() && shader_values_equal(it->second, value)) {
             return;
@@ -2327,17 +2662,24 @@ void Scene::TickMaterialShaderAnimations() {
     for (usize index {}; index < materials.len(); ++index) {
         auto* material = materials[index];
         if (material == nullptr) continue;
-        material->TickShaderValueAnimations(m_runtime.Frame().elapsed.to_primitive());
+        material->TickShaderValueAnimations();
     }
 }
 
 void Scene::TickNodeFieldAnimations() {
-    auto tick_node = [runtime = m_runtime.Frame().elapsed.to_primitive()](auto&      self,
-                                                                          SceneNode& node) -> void {
-        node.TickFieldAnimations(runtime);
+    m_animation_events.clear();
+    auto tick_node = [this, runtime = m_runtime.Frame().elapsed.to_primitive()](
+                         auto& self, SceneNode& node) -> void {
+        node.TickFieldAnimations(runtime, m_animation_events);
         for (const auto& child : node.GetChildren()) self(self, *child);
     };
     tick_node(tick_node, *m_scene_graph);
+}
+
+auto Scene::ConsumeAnimationEvents() -> Vec<SceneAnimationEventDispatch> {
+    auto events        = rstd::move(m_animation_events);
+    m_animation_events = {};
+    return events;
 }
 
 void Scene::TickTransformUpdaters() {

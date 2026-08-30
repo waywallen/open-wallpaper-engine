@@ -128,6 +128,35 @@ struct PropDescriptor {
 
 class FieldScript;
 
+enum class ScriptPropertyObjectKind
+{
+    Layer,
+    Effect,
+    Material,
+};
+
+struct ScriptBindingContext {
+    owe::SceneNode*                          layer { nullptr };
+    ScriptPropertyObjectKind                 object_kind { ScriptPropertyObjectKind::Layer };
+    String                                   property;
+    Option<Arc<owe::SceneAnimationPlayback>> animation;
+    Option<owe::SceneImageEffectRef>         effect;
+    owe::SceneMaterial*                      material { nullptr };
+
+    ScriptBindingContext() = default;
+    ScriptBindingContext(owe::SceneNode* value): layer(value) {}
+    ScriptBindingContext(mut_ptr<owe::SceneNode> value): layer(value.as_raw_ptr()) {}
+
+    static auto ForLayer(owe::SceneNode*, ref<str>,
+                         Option<Arc<owe::SceneAnimationPlayback>> = None()) -> ScriptBindingContext;
+    static auto ForEffect(owe::SceneNode*, owe::SceneImageEffectRef, ref<str>,
+                          Option<Arc<owe::SceneAnimationPlayback>> = None())
+        -> ScriptBindingContext;
+    static auto ForMaterial(owe::SceneNode*, owe::SceneMaterial*, ref<str>,
+                            Option<Arc<owe::SceneAnimationPlayback>> = None())
+        -> ScriptBindingContext;
+};
+
 struct LayerAssetReference {
     ref<str>         path;
     Option<ref<str>> workshop_id;
@@ -148,7 +177,7 @@ public:
     // stub (the JS-side default created at bootstrap).
     FieldScript* MakeFieldScript(std::string_view source, std::string_view script_sha,
                                  FieldKind field_kind, const Json& properties_config,
-                                 const Json& initial_value, owe::SceneNode* node = nullptr);
+                                 const Json& initial_value, ScriptBindingContext context = {});
 
     // Pending scripts initialize in ascending owner order when SetSceneRoot
     // completes scene assembly. Equal orders retain creation order.
@@ -188,17 +217,10 @@ public:
     void SetBoneResolvers(BoneIndexResolver     index_resolver,
                           BoneTransformResolver transform_resolver);
 
-    // Attach a timeline whose markers dispatch this script's
-    // `animationEvent(event, value)` export. A script can be fed by more
-    // than one: its own field's animation, plus any animation that lists
-    // the field among its children. Ignored when the script has no
-    // `animationEvent` export or the curve carries no markers.
-    void AddAnimationEventSource(FieldScript& script, const owe::SceneAnimationCurve& curve);
-
     // Drive every alive FieldScript once. Invokes their cached `update`
     // export and stores the coerced return into FieldScript::last_value().
     // Exceptions are caught and logged once per script_sha.
-    void TickAll();
+    void TickAll(slice<owe::SceneAnimationEventDispatch> animation_events = {});
 
     // Walk every live FieldScript created by this runtime. Caller-provided
     // function gets a non-owning pointer; the renderer uses this to push
@@ -312,7 +334,7 @@ public:
     // Push the host's per-frame state, drive every FieldScript, drain
     // results into actuators. Call once per frame, before the renderer
     // begins drawing.
-    void Tick(const FrameInputs& fi);
+    void Tick(const FrameInputs& fi, slice<owe::SceneAnimationEventDispatch> animation_events = {});
 
     struct Impl;
     std::unique_ptr<Impl> m_impl;

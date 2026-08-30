@@ -5,22 +5,6 @@ import wescene.json;
 
 using namespace rstd::prelude;
 
-// Property-binding side channel.
-//
-// In Wallpaper Engine any scalar field on a scene object can take three
-// shapes:
-//
-//    1. Plain literal       → `42`, `"1 2 3"`, `true`
-//    2. Property-bound       → `{"value": X, "user": "<binding-name>"}`
-//                             (auto-unwrapped by wescene.json GetJsonValue)
-//    3. Animated / scripted  → `{"value": X, "animation": {...}}` or
-//                             `{"value": X, "scriptproperties": {...}}`
-//
-// The renderer currently consumes only (1)/(2). The animation curve and
-// scriptproperties subtrees are absorbed verbatim so the parsed data
-// stays schema-complete; SceneSchema tests assert every observed leaf
-// path under `*.animation.*` is captured.
-//
 // One curve covers a vec3 field (c0/c1/c2 axes) or a scalar (c0 only).
 
 export namespace owe::wpscene
@@ -38,6 +22,7 @@ struct AnimKeyframeTangent {
 struct AnimKeyframe {
     i32                 frame { 0 };
     float               value { 0.0f };
+    bool                step { false };
     bool                lockangle { false };
     bool                locklength { false };
     AnimKeyframeTangent front;
@@ -53,7 +38,7 @@ struct AnimEvent {
     std::string name;
 };
 
-struct AnimOptions {
+struct AnimOptions : rstd::DefaultInClass<AnimOptions, rstd::clone::Clone> {
     float       fps { 30.0f };
     i32         length { 0 };
     std::string mode;
@@ -62,12 +47,12 @@ struct AnimOptions {
     bool        wraploop { false };
     // `smoothing` may be null/int/float in the corpus; kept as raw json
     // until a renderer consumer needs it.
-    owe::Json smoothing;
-    owe::Json parent; // object describing parent anim
-    // Sibling fields driven by the same timeline (`[{"key": "origin"}]`).
-    // Their scripts see this animation's markers too.
-    std::vector<std::string> children;
-    std::vector<AnimEvent>   events;
+    owe::Json              smoothing;
+    Option<String>         parent;
+    Vec<String>            children;
+    std::vector<AnimEvent> events;
+
+    auto clone() const -> AnimOptions;
 };
 
 struct AnimCurve : rstd::DefaultInClass<AnimCurve, rstd::clone::Clone> {
@@ -88,35 +73,40 @@ bool ParseAnimEvent(const owe::Json&, AnimEvent&);
 bool ParseAnimOptions(const owe::Json&, AnimOptions&);
 bool ParseAnimCurve(const owe::Json&, AnimCurve&);
 
-// One captured `{value, script, scriptproperties, user}` per-field
-// script binding. `source` is the inline JS module text observed in scene.json's
-// `"script"` key (5286 bindings, 2877 unique sources in the workshop
-// corpus — see `tests/wpscriptdump`). `properties` mirrors the per-binding
-// `scriptproperties` config block; `initial_value` is the binding's
-// `value` field, fed to `init(value)` by the runtime. `user` carries the
-// optional user-property name from `{user, value}` companion bindings.
 struct ScriptBinding {
     std::string source;
-    owe::Json   properties;
     owe::Json   initial_value;
-    std::string user;
 
     auto clone() const -> ScriptBinding;
 };
 
-// Side-channel container attached to every parseable object kind. Only
-// fields that actually carry a binding contribute entries — empty maps
-// for the common case where every field is a plain literal.
+struct FieldBindingSpec {
+    u64                   identity {};
+    String                field;
+    Option<AnimCurve>     animation;
+    Option<owe::Json>     script_properties;
+    Option<ScriptBinding> script;
+    Option<String>        user;
+
+    auto clone() const -> FieldBindingSpec;
+    auto ScriptProperties() const noexcept -> const owe::Json&;
+};
+
 struct FieldBindings {
-    std::unordered_map<std::string, AnimCurve>     animations;
-    rstd::json::Map                                scriptproperties;
-    std::unordered_map<std::string, ScriptBinding> scripts;
-    // Direct `{value, user}` bindings exist without an accompanying script. Keep them independent
-    // from ScriptBinding so runtime property updates do not require manufacturing an empty script.
-    std::unordered_map<std::string, std::string> users;
+    auto Entries() const noexcept -> slice<FieldBindingSpec> { return entries.as_slice(); }
+    auto Get(ref<str> field) const noexcept -> Option<ref<FieldBindingSpec>>;
+    auto GetMut(ref<str> field) noexcept -> Option<mut_ref<FieldBindingSpec>>;
+    auto Ensure(ref<str> field) -> mut_ref<FieldBindingSpec>;
+
+    bool IsEmpty() const noexcept { return entries.is_empty(); }
+    bool HasAnimation(ref<str> field) const noexcept;
+    bool HasScript(ref<str> field) const noexcept;
 
     auto clone() const -> FieldBindings;
     void Update(const FieldBindings& other);
+
+private:
+    Vec<FieldBindingSpec> entries;
 };
 
 std::size_t AbsorbFieldBinding(std::string_view field, const owe::Json& value, FieldBindings& out);

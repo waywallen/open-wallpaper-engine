@@ -10,6 +10,7 @@ import wescene.scene;
 import wescene.script;
 import wescene.text;
 import wescene.pkg.scene_obj;
+import :scene_stages;
 
 import wescene.pkg.puppet;
 import :particle_runtime;
@@ -26,6 +27,8 @@ export namespace owe
 
 using SceneObjectVar      = wpscene::SceneObject;
 using EffectRenderTargets = HashMap<String, String>;
+
+struct SceneParseContext;
 
 struct PuppetLayerRegistry {
     HashMap<SceneNode*, Arc<PuppetLayer>> by_node;
@@ -74,7 +77,7 @@ void RegisterLayerPreviousBindings(Scene&, SceneMaterial&, const wpscene::Materi
                                    ref<str> composite_target);
 void ApplyTextureBinds(wpscene::Material&, std::span<const wpscene::MaterialPassBindItem>,
                        const EffectRenderTargets&);
-void LoadConstvalue(SceneMaterial&, const wpscene::Material&, const ShaderInfo&,
+void LoadConstvalue(SceneParseContext&, SceneMaterial&, const wpscene::Material&, const ShaderInfo&,
                     SceneShaderValueAnimationMap* = nullptr);
 
 using DirectDrawQuad = array<array<float, 2>, 4>;
@@ -150,6 +153,7 @@ struct SceneParseContext {
     };
     Vec<TextUniformConfigDraft>          text_uniform_configs;
     Vec<ParticleTrailUniformConfigDraft> particle_trail_uniform_configs;
+    SceneAnimationBindingScope           animation_bindings;
 
     struct NodeRef {
         u32                                            parent_id { 0 };
@@ -279,13 +283,24 @@ struct ExpandedSceneObjects {
 auto ExpandSceneObjects(ref<wpscene::SceneDocument>, mut_ref<fs::VFS>, Option<ref<rstd::json::Map>>)
     -> ExpandedSceneObjects;
 
-void AssignNodeFieldAnimations(SceneNode&, const wpscene::FieldBindings&);
+void PrepareAnimationBindings(SceneParseContext&, const wpscene::FieldBindings&);
+void PrepareAnimationBindings(SceneParseContext&, const wpscene::ContainerObject&);
+void PrepareAnimationBindings(SceneParseContext&, const wpscene::ImageObject&);
+void PrepareAnimationBindings(SceneParseContext&, const wpscene::ShapeObject&);
+void PrepareAnimationBindings(SceneParseContext&, const wpscene::ParticleObject&);
+void PrepareAnimationBindings(SceneParseContext&, const wpscene::SoundObject&);
+void PrepareAnimationBindings(SceneParseContext&, const wpscene::LightObject&);
+void PrepareAnimationBindings(SceneParseContext&, const wpscene::TextObject&);
+void PrepareAnimationBindings(SceneParseContext&, const wpscene::ModelObject&);
+void PrepareAnimationBindings(SceneParseContext&, const wpscene::CameraObject&);
+auto ResolveAnimationTrack(const SceneParseContext&, const wpscene::FieldBindingSpec&)
+    -> SceneAnimationTrack;
+void AssignNodeFieldAnimations(SceneParseContext&, SceneNode&, const wpscene::FieldBindings&);
+void AssignCameraFieldAnimations(SceneParseContext&, SceneNode&, SceneCameraPath&,
+                                 const wpscene::FieldBindings&);
+void LoadCameraObjectPath(SceneParseContext&, const wpscene::CameraObject&, SceneCameraPath&);
 auto ToSceneAnimationCurve(const wpscene::AnimCurve&) -> SceneAnimationCurve;
-// Feed a field script the markers of every animation that drives its field,
-// either directly or as one of the animation's children.
-void WireAnimationEventSources(script::JsRuntime&, script::FieldScript&,
-                               const wpscene::FieldBindings&, std::string_view);
-void AssignAnimationCurve(SceneAnimationCurve&, const wpscene::FieldBindings&, ref<str>);
+auto ToSceneAnimationTrack(const wpscene::AnimCurve&) -> SceneAnimationTrack;
 void LoadRootCameraPaths(SceneParseContext&, const wpscene::SceneMetadata&);
 
 struct ProcessOpts {

@@ -838,11 +838,22 @@ TEST(SceneMaterial, PreservesOwnedStateAcrossCopyAndMove) {
     });
     auto curve = Arc<owe::SceneAnimationCurve>::make();
     curve->c0.push({ .frame = i32(), .value = 0.25f });
+    auto clip = Arc<owe::SceneAnimationClip>::make(
+        owe::SceneAnimationClipSpec { .name = String::make("shared"_str) });
+    auto playback = Arc<owe::SceneAnimationPlayback>::make(rstd::move(clip));
+    auto track    = Arc<owe::SceneAnimationTrack>::make(
+        owe::SceneAnimationTrack { .curve = curve.clone(), .playback = playback.clone() });
     (void)material.customShader.valueAnimations.insert(String::make("u_Alpha"_str),
                                                        owe::SceneShaderValueAnimation {
                                                            .base  = owe::ShaderValue(1.0f),
-                                                           .curve = Some(curve.clone()),
+                                                           .track = Some(track.clone()),
                                                        });
+    (void)material.customShader.valueAnimations.insert(
+        String::make("u_Color"_str),
+        owe::SceneShaderValueAnimation {
+            .base  = owe::ShaderValue(0.5f),
+            .track = Some(Arc<owe::SceneAnimationTrack>::make(track->Share())),
+        });
 
     owe::SceneMaterial copied = material;
     ASSERT_EQ(copied.texture_metadata.size(), 1u);
@@ -852,12 +863,25 @@ TEST(SceneMaterial, PreservesOwnedStateAcrossCopyAndMove) {
     EXPECT_EQ(copied.texture_metadata[0].sample_extent, (rstd::array<float, 2> { 960.0f, 540.0f }));
     auto original_animation = material.customShader.valueAnimations.get("u_Alpha"_str);
     auto copied_animation   = copied.customShader.valueAnimations.get("u_Alpha"_str);
+    auto copied_peer        = copied.customShader.valueAnimations.get("u_Color"_str);
     ASSERT_TRUE(original_animation.is_some());
     ASSERT_TRUE(copied_animation.is_some());
-    ASSERT_TRUE((**original_animation).curve.is_some());
-    ASSERT_TRUE((**copied_animation).curve.is_some());
-    EXPECT_EQ((*(**original_animation).curve).as_ptr().as_raw_ptr(),
-              (*(**copied_animation).curve).as_ptr().as_raw_ptr());
+    ASSERT_TRUE(copied_peer.is_some());
+    ASSERT_TRUE((**original_animation).track.is_some());
+    ASSERT_TRUE((**copied_animation).track.is_some());
+    ASSERT_TRUE((**copied_peer).track.is_some());
+    EXPECT_EQ((**(**original_animation).track).curve.as_ptr().as_raw_ptr(),
+              (**(**copied_animation).track).curve.as_ptr().as_raw_ptr());
+    EXPECT_NE((**(**original_animation).track).playback.as_ptr().as_raw_ptr(),
+              (**(**copied_animation).track).playback.as_ptr().as_raw_ptr());
+    EXPECT_EQ((**(**copied_animation).track).playback.as_ptr().as_raw_ptr(),
+              (**(**copied_peer).track).playback.as_ptr().as_raw_ptr());
+    owe::SceneNode copied_owner;
+    copied.RegisterAnimations(copied_owner);
+    auto copied_named = copied_owner.NamedAnimation("shared"_str);
+    ASSERT_TRUE(copied_named.is_some());
+    EXPECT_EQ((*copied_named).as_ptr().as_raw_ptr(),
+              (**(**copied_animation).track).playback.as_ptr().as_raw_ptr());
 
     auto mesh = std::make_shared<owe::SceneMesh>();
     mesh->AddMaterial(std::move(material));
@@ -867,8 +891,8 @@ TEST(SceneMaterial, PreservesOwnedStateAcrossCopyAndMove) {
     EXPECT_EQ(moved->texture_metadata[0].sample_extent, (rstd::array<float, 2> { 960.0f, 540.0f }));
     auto moved_animation = moved->customShader.valueAnimations.get("u_Alpha"_str);
     ASSERT_TRUE(moved_animation.is_some());
-    ASSERT_TRUE((**moved_animation).curve.is_some());
-    EXPECT_EQ((*(**moved_animation).curve).as_ptr().as_raw_ptr(), curve.as_ptr().as_raw_ptr());
+    ASSERT_TRUE((**moved_animation).track.is_some());
+    EXPECT_EQ((*(**moved_animation).track).as_ptr().as_raw_ptr(), track.as_ptr().as_raw_ptr());
 }
 
 TEST(SceneShader, ResolvesLoaderDefinedSamplerMember) {
@@ -1583,14 +1607,17 @@ TEST(SceneNodeFieldAnimation, AlphaAnimationTicksThroughScene) {
     auto       node = rstd::sync::Arc<owe::SceneNode>::make();
     node->SetBaseColor({ 1.0f, 1.0f, 1.0f }, 0.3f);
 
-    owe::SceneAnimationCurve curve;
-    curve.fps    = 30.0f;
-    curve.length = i32(180);
-    curve.mode   = String::make("single"_str);
-    curve.c0.push({ .frame = i32(), .value = 0.0f });
-    curve.c0.push({ .frame = i32(60), .value = 0.5f });
-    curve.c0.push({ .frame = i32(100), .value = 0.0f });
-    node->SetAlphaAnimation(std::move(curve));
+    auto curve = Arc<owe::SceneAnimationCurve>::make();
+    curve->c0.push({ .frame = i32(), .value = 0.0f });
+    curve->c0.push({ .frame = i32(60), .value = 0.5f });
+    curve->c0.push({ .frame = i32(100), .value = 0.0f });
+    auto clip     = Arc<owe::SceneAnimationClip>::make(owe::SceneAnimationClipSpec {
+        .mode = String::make("single"_str),
+        .fps  = 30.0f,
+        .end  = i32(180),
+    });
+    auto playback = Arc<owe::SceneAnimationPlayback>::make(rstd::move(clip));
+    node->SetAlphaAnimation({ .curve = rstd::move(curve), .playback = rstd::move(playback) });
     scene.RootMut()->AppendChild(node.clone());
 
     scene.TickNodeFieldAnimations();
@@ -1608,31 +1635,51 @@ TEST(SceneNodeFieldAnimation, AlphaAnimationTicksThroughScene) {
 
 TEST(SceneNodeFieldAnimation, WrapLoopReturnsSmoothlyToFirstKey) {
     owe::SceneAnimationCurve curve;
-    curve.fps      = 1.0f;
-    curve.length   = i32(4);
-    curve.mode     = String::make("loop"_str);
-    curve.wraploop = true;
     curve.c0.push({ .frame = i32(), .value = 0.0f });
     curve.c0.push({ .frame = i32(2), .value = 10.0f });
 
-    EXPECT_FLOAT_EQ(curve.EvaluateScalar(0.0f, 0.0), 0.0f);
-    EXPECT_FLOAT_EQ(curve.EvaluateScalar(0.0f, 2.0), 10.0f);
-    EXPECT_FLOAT_EQ(curve.EvaluateScalar(0.0f, 3.0), 5.0f);
-    EXPECT_FLOAT_EQ(curve.EvaluateScalar(0.0f, 4.0), 0.0f);
+    EXPECT_FLOAT_EQ(curve.EvaluateScalar(0.0f, { .current = 0.0f, .end = i32(4), .wraps = true }),
+                    0.0f);
+    EXPECT_FLOAT_EQ(curve.EvaluateScalar(0.0f, { .current = 2.0f, .end = i32(4), .wraps = true }),
+                    10.0f);
+    EXPECT_FLOAT_EQ(curve.EvaluateScalar(0.0f, { .current = 3.0f, .end = i32(4), .wraps = true }),
+                    5.0f);
+    EXPECT_FLOAT_EQ(curve.EvaluateScalar(0.0f, { .current = 4.0f, .end = i32(4), .wraps = true }),
+                    0.0f);
+}
+
+TEST(SceneNodeFieldAnimation, TangentXScalesWithHalfSegmentDuration) {
+    owe::SceneAnimationCurve curve;
+    curve.c0.push({
+        .frame         = i32(),
+        .value         = 0.0f,
+        .front_enabled = true,
+        .front_x       = 1.0f,
+        .front_y       = 10.0f,
+    });
+    curve.c0.push({ .frame = i32(100), .value = 0.0f });
+
+    EXPECT_NEAR(
+        curve.EvaluateScalar(0.0f, { .current = 50.0f, .end = i32(100) }), 4.438677f, 0.0001f);
+}
+
+TEST(SceneNodeFieldAnimation, StepKeyHoldsPreviousValueUntilItsFrame) {
+    owe::SceneAnimationCurve curve;
+    curve.c0.push({ .frame = i32(), .value = 2.0f });
+    curve.c0.push({ .frame = i32(10), .value = 8.0f, .step = true });
+
+    EXPECT_FLOAT_EQ(curve.EvaluateScalar(0.0f, { .current = 9.0f, .end = i32(10) }), 2.0f);
+    EXPECT_FLOAT_EQ(curve.EvaluateScalar(0.0f, { .current = 10.0f, .end = i32(10) }), 8.0f);
 }
 
 TEST(SceneNodeFieldAnimation, MirrorTakesPrecedenceOverWrapLoop) {
     owe::SceneAnimationCurve curve;
-    curve.fps      = 1.0f;
-    curve.length   = i32(2);
-    curve.mode     = String::make("mirror"_str);
-    curve.wraploop = true;
     curve.c0.push({ .frame = i32(), .value = 0.0f });
     curve.c0.push({ .frame = i32(2), .value = 10.0f });
 
-    EXPECT_FLOAT_EQ(curve.EvaluateScalar(0.0f, 2.0), 10.0f);
-    EXPECT_FLOAT_EQ(curve.EvaluateScalar(0.0f, 3.0), 5.0f);
-    EXPECT_FLOAT_EQ(curve.EvaluateScalar(0.0f, 4.0), 0.0f);
+    EXPECT_FLOAT_EQ(curve.EvaluateScalar(0.0f, { .current = 2.0f, .end = i32(2) }), 10.0f);
+    EXPECT_FLOAT_EQ(curve.EvaluateScalar(0.0f, { .current = 1.0f, .end = i32(2) }), 5.0f);
+    EXPECT_FLOAT_EQ(curve.EvaluateScalar(0.0f, { .current = 0.0f, .end = i32(2) }), 0.0f);
 }
 
 TEST(SceneMeshDirtyEvents, RoutesDataAndLayoutDirtyByOwner) {

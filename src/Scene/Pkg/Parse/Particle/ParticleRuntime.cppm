@@ -28,7 +28,7 @@ struct ParticleControlpoint {
     Eigen::Vector3d             base_offset { 0.0, 0.0, 0.0 };
     Eigen::Vector3d             offset { 0.0, 0.0, 0.0 };
     Eigen::Matrix3d             rotation { Eigen::Matrix3d::Identity() };
-    Option<SceneAnimationCurve> angle_curve;
+    Option<SceneAnimationTrack> angle_track;
 };
 
 struct ParticleSimulationControlpoint {
@@ -486,8 +486,13 @@ public:
     void SetInstanceModifiers(ParticleInstanceModifiers value) {
         m_instance_modifiers = Some(rstd::move(value));
     }
-    void SetControlpointAngleCurve(usize index, SceneAnimationCurve curve) {
-        m_controlpoints[index].angle_curve = Some(rstd::move(curve));
+    void SetControlpointAngleTrack(usize index, SceneAnimationTrack track) {
+        if (m_owner_node != nullptr) {
+            auto property = std::string("controlpointangle") + std::to_string(index.to_primitive());
+            m_owner_node->BindFieldAnimation(String::make(rstd::cppstd::as_str(property).unwrap()),
+                                             track.playback.clone());
+        }
+        m_controlpoints[index].angle_track = Some(rstd::move(track));
     }
     void SetOwnerNode(SceneNode* node) noexcept { m_owner_node = node; }
     void SetPlaybackState(Arc<ParticlePlaybackState> state) {

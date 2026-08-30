@@ -5,6 +5,7 @@
 #include <vector>
 
 import rstd;
+import rstd.cppstd;
 import wescene.scene;
 import wescene.text;
 import wescene.types;

@@ -4,6 +4,7 @@ import rstd.cppstd;
 import wescene.json;
 import wescene.fs;
 import wescene.pkg.scene_obj;
+import wescene.scene;
 
 using namespace rstd::prelude;
 
@@ -11,6 +12,49 @@ export namespace owe
 {
 
 using SceneObjectVar = wpscene::SceneObject;
+
+enum class SceneAnimationBindingIssue
+{
+    MissingRelation,
+    NonReciprocalRelation,
+    AmbiguousTarget,
+    MetadataMismatch,
+    Cycle,
+    DuplicateName,
+    UnsupportedTarget,
+};
+
+struct SceneAnimationBindingDiagnostic {
+    SceneAnimationBindingIssue issue { SceneAnimationBindingIssue::MissingRelation };
+    u64                        binding {};
+    String                     field;
+    String                     relation;
+};
+
+class SceneAnimationBindingScope {
+public:
+    void Clear() {
+        m_tracks.clear();
+        m_diagnostics.clear();
+    }
+    void Insert(u64 identity, SceneAnimationTrack track) {
+        (void)m_tracks.insert(identity, rstd::move(track));
+    }
+    auto Resolve(const wpscene::FieldBindingSpec&) const -> Option<SceneAnimationTrack>;
+    void Report(SceneAnimationBindingDiagnostic diagnostic) {
+        m_diagnostics.push(rstd::move(diagnostic));
+    }
+    auto Diagnostics() const -> slice<SceneAnimationBindingDiagnostic> {
+        return m_diagnostics.as_slice();
+    }
+
+private:
+    rstd::collections::HashMap<u64, SceneAnimationTrack> m_tracks;
+    Vec<SceneAnimationBindingDiagnostic>                 m_diagnostics;
+};
+
+auto BuildAnimationBindingScope(const wpscene::FieldBindings&) -> SceneAnimationBindingScope;
+auto BuildAnimationBindingScope(const wpscene::ImageObject&) -> SceneAnimationBindingScope;
 
 enum class TextRenderMode
 {

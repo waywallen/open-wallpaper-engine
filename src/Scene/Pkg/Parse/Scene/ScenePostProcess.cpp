@@ -103,7 +103,7 @@ void BuildBloomPostProcess(SceneParseContext& context, fs::VFS& vfs,
         auto material_build = rstd::move(material_result).unwrap_unchecked();
         material            = rstd::move(material_build.material);
         wpShaderInfo        = rstd::move(material_build.shader_info);
-        LoadConstvalue(material, wpmat, wpShaderInfo);
+        LoadConstvalue(context, material, wpmat, wpShaderInfo);
 
         auto pp_mesh = std::make_shared<SceneMesh>();
         pp_mesh->ChangeMeshDataFrom(*scene.DefaultEffectMesh());

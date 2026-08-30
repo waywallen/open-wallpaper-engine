@@ -542,7 +542,7 @@ bool IsLayerCompositeShader(std::string_view shader) {
            shader == "genericimage4" || shader == "passthrough";
 }
 
-std::string ResolveShaderMaterialKey(const ShaderInfo& info, const std::string& material_key) {
+std::string ResolveShaderMaterialKey(const ShaderInfo& info, std::string_view material_key) {
     if (auto it = info.alias.find(material_key); it != info.alias.end()) return it->second;
 
     for (const auto& el : info.alias) {
@@ -633,8 +633,7 @@ void NormalizeEffectPositionCurve(SceneAnimationCurve& curve) {
 // mesh-owned allocation. Wires up:
 //   (1) Direct-route u_* whose shader annotation's `material` field is the
 //       wallpaper-level project.json key (the legacy convention).
-//   (2) Instance-bound effect-internal keys from
-//       `wpmat.constantshadervalues_user`, mapped through `info.alias` to
+//   (2) Instance-bound effect-internal keys mapped through `info.alias` to
 //       the GLSL uniform name.
 //   (3) Legacy material `usershadervalues` bindings: project key to shader
 //       material key.
@@ -660,7 +659,10 @@ void RegisterShaderUserVarIndexImpl(Scene* pScene, const std::shared_ptr<SceneMa
     for (const auto& rec : info.user_var_staging) {
         pScene->RegisterShaderUserBinding(rec.material.clone(), stable_mat, rec.name.clone());
     }
-    for (const auto& [effect_key, wallpaper_key] : wpmat.constantshadervalues_user) {
+    for (const auto& field_binding : wpmat.constantshadervalues_bindings.Entries()) {
+        if (field_binding.user.is_none()) continue;
+        const auto effect_key    = rstd::cppstd::as_string_view(field_binding.field.as_str());
+        const auto wallpaper_key = rstd::cppstd::as_string_view(field_binding.user->as_str());
         // Resolve effect-internal key → GLSL uniform name via alias.
         // LoadConstvalue's fallback search (alias entry whose value, after
         // dropping the leading "u_", matches the key) is honored here too.
@@ -887,8 +889,8 @@ void IndexSystemMediaImageFallbacks(SceneParseContext& context, slice<SceneObjec
     }
 }
 
-void LoadConstvalueImpl(SceneMaterial& material, const wpscene::Material& wpmat,
-                        const ShaderInfo&             info,
+void LoadConstvalueImpl(SceneParseContext& context, SceneMaterial& material,
+                        const wpscene::Material& wpmat, const ShaderInfo& info,
                         SceneShaderValueAnimationMap* final_quad_shader_values) {
     // load glname from alias and load to constvalue
     for (const auto& cs : wpmat.constantshadervalues) {
@@ -897,7 +899,8 @@ void LoadConstvalueImpl(SceneMaterial& material, const wpscene::Material& wpmat,
         std::string               glname = ResolveShaderMaterialKey(info, name);
         if (glname.empty()) {
             if (IsLegacyAtmosphereShadowValue(wpmat, name)) continue;
-            if (wpmat.constantshadervalues_animations.contains(name)) {
+            if (wpmat.constantshadervalues_bindings.HasAnimation(
+                    rstd::cppstd::as_str(name).unwrap())) {
                 rstd_warn("animated shader value '{}' has no uniform in '{}'", name, wpmat.shader);
             } else {
                 rstd_debug(
@@ -917,16 +920,21 @@ void LoadConstvalueImpl(SceneMaterial& material, const wpscene::Material& wpmat,
             material.SetShaderValue(
                 glname,
                 ShaderValue(std::span<const float>(const_value.data(), const_value.size())));
-            if (auto it = wpmat.constantshadervalues_animations.find(name);
-                it != wpmat.constantshadervalues_animations.end()) {
-                auto curve = Arc<SceneAnimationCurve>::make(ToSceneAnimationCurve(it->second));
-                if (final_quad_value) final_quad_value->curve = Some(curve.clone());
+            auto binding =
+                wpmat.constantshadervalues_bindings.Get(rstd::cppstd::as_str(name).unwrap());
+            if (binding.is_some() && (**binding).animation.is_some()) {
+                const auto& authored = *(**binding).animation;
+                auto        track    = ResolveAnimationTrack(context, **binding);
+                if (final_quad_value)
+                    final_quad_value->track = Some(Arc<SceneAnimationTrack>::make(track.Share()));
                 if (normalize_position) {
-                    curve = Arc<SceneAnimationCurve>::make(ToSceneAnimationCurve(it->second));
+                    auto curve = Arc<SceneAnimationCurve>::make(ToSceneAnimationCurve(authored));
                     NormalizeEffectPositionCurve(*curve);
+                    track.curve = rstd::move(curve);
                 }
                 material.SetShaderValueAnimation(
-                    String::make(rstd::cppstd::as_str(glname).unwrap()), rstd::move(curve));
+                    String::make(rstd::cppstd::as_str(glname).unwrap()),
+                    Arc<SceneAnimationTrack>::make(rstd::move(track)));
             }
             if (final_quad_value && final_quad_shader_values) {
                 (void)final_quad_shader_values->insert(
@@ -974,19 +982,34 @@ auto ScriptValueAsShaderValue(const script::ScriptValue& value) -> Option<Shader
 void WireMaterialShaderValueScripts(SceneParseContext& context, const Arc<SceneNode>& owner,
                                     const std::shared_ptr<SceneMaterial>& material,
                                     const wpscene::Material& wpmat, const ShaderInfo& info) {
-    if (! material || wpmat.constantshadervalues_bindings.scripts.empty()) return;
-    auto& scripts = EnsureScriptScene(context);
-    for (const auto& [material_key, binding] : wpmat.constantshadervalues_bindings.scripts) {
-        auto value = wpmat.constantshadervalues.find(material_key);
+    if (! material) return;
+    material->RegisterAnimations(*owner);
+    for (const auto& field_binding : wpmat.constantshadervalues_bindings.Entries()) {
+        auto material_key = rstd::cppstd::to_string(field_binding.field.as_str());
+        auto uniform_name = ResolveShaderMaterialKey(info, material_key);
+        if (uniform_name.empty()) continue;
+        auto animation =
+            material->ShaderValueAnimation(rstd::cppstd::as_str(uniform_name).unwrap());
+        if (field_binding.script.is_none()) continue;
+
+        const auto& binding = *field_binding.script;
+        auto        value   = wpmat.constantshadervalues.find(material_key);
         if (value == wpmat.constantshadervalues.end()) continue;
         auto kind = ShaderValueScriptKind(usize(value->second.size()));
         if (kind == script::FieldKind::Unknown) continue;
-        auto uniform_name = ResolveShaderMaterialKey(info, material_key);
-        if (uniform_name.empty()) continue;
 
+        auto& scripts      = EnsureScriptScene(context);
         auto  sha          = utils::genSha1(std::span<const char>(binding.source));
         auto* field_script = scripts.runtime().MakeFieldScript(
-            binding.source, sha, kind, binding.properties, binding.initial_value, owner.as_ptr());
+            binding.source,
+            sha,
+            kind,
+            field_binding.ScriptProperties(),
+            binding.initial_value,
+            script::ScriptBindingContext::ForMaterial(owner.as_ptr(),
+                                                      material.get(),
+                                                      field_binding.field.as_str(),
+                                                      rstd::move(animation)));
         if (! field_script) continue;
         SetScriptInitializationOrder(context, *field_script, owner.as_ptr());
         TrackRegisteredAssets(context, field_script);
@@ -1032,10 +1055,10 @@ void ApplyTextureBinds(wpscene::Material&                             material,
     ApplyTextureBindsImpl(material, bindings, render_targets);
 }
 
-void LoadConstvalue(SceneMaterial& material, const wpscene::Material& authored,
-                    const ShaderInfo&             shader_info,
+void LoadConstvalue(SceneParseContext& context, SceneMaterial& material,
+                    const wpscene::Material& authored, const ShaderInfo& shader_info,
                     SceneShaderValueAnimationMap* final_quad_shader_values) {
-    LoadConstvalueImpl(material, authored, shader_info, final_quad_shader_values);
+    LoadConstvalueImpl(context, material, authored, shader_info, final_quad_shader_values);
 }
 
 } // namespace owe

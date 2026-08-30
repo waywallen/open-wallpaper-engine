@@ -1,4 +1,5 @@
 export module wescene.pkg.scene_obj:misc_object;
+import rstd;
 import rstd.cppstd;
 import wescene.fs;
 import wescene.json;
@@ -9,6 +10,7 @@ import :image_object;
 import :scene_document;
 
 using namespace rstd::literals;
+using namespace rstd::prelude;
 
 // Object kinds beyond image/light/particle/sound: text overlays, .mdl
 // model attachments, and editor camera markers. These exist only at the
@@ -263,6 +265,62 @@ struct CameraObject {
         owe::GetJsonValue(json, "solid", solid, false);
         owe::GetJsonValue(json, "disablepropagation", disablepropagation, false);
         AbsorbAllFieldBindings(json, field_bindings);
+        return true;
+    }
+};
+
+struct CameraPathClip {
+    i32               id { 0 };
+    String            name;
+    bool              visible { true };
+    AnimOptions       options;
+    Option<AnimCurve> eye;
+    Option<AnimCurve> center;
+    Option<AnimCurve> up;
+    Option<AnimCurve> fov;
+    Option<AnimCurve> zoom;
+
+    bool FromJson(const owe::Json& json) {
+        if (! json.is_object()) return false;
+        owe::GetJsonValue(json, "id", id, false);
+        std::string raw_name;
+        owe::GetJsonValue(json, "name", raw_name, false);
+        name = String::make(rstd::cppstd::as_str(raw_name).unwrap());
+        owe::GetJsonValue(json, "visible", visible, false);
+        if (auto value = json.get("options"_str); value.is_some())
+            ParseAnimOptions(**value, options);
+
+        auto parse_curve = [&](ref<str> key) -> Option<AnimCurve> {
+            auto value = json.get(key);
+            if (value.is_none() || (*value)->is_null()) return None();
+            AnimCurve curve;
+            bool      parsed = (*value)->is_array() ? ParseAnimAxis(**value, curve.c0)
+                                                    : ParseAnimCurve(**value, curve);
+            if (! parsed) return None();
+            curve.options = options.clone();
+            return Some(rstd::move(curve));
+        };
+        eye    = parse_curve("eye"_str);
+        center = parse_curve("center"_str);
+        up     = parse_curve("up"_str);
+        fov    = parse_curve("fov"_str);
+        zoom   = parse_curve("zoom"_str);
+        return true;
+    }
+};
+
+struct CameraPathDocument {
+    Vec<CameraPathClip> paths;
+
+    bool FromJson(const owe::Json& json) {
+        auto value = json.get("paths"_str);
+        if (value.is_none()) return false;
+        auto values = (*value)->as_array();
+        if (values.is_none()) return false;
+        for (const auto& entry : **values) {
+            CameraPathClip path;
+            if (path.FromJson(entry)) paths.push(rstd::move(path));
+        }
         return true;
     }
 };

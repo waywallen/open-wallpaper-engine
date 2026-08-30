@@ -67,8 +67,8 @@ void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj
 
     bool       isPassthrough      = wpimgobj.config.passthrough;
     const bool alpha_can_change   = ! wpimgobj.alpha_user_key.empty() ||
-                                    wpimgobj.field_bindings.animations.count("alpha") != 0 ||
-                                    wpimgobj.field_bindings.scripts.count("alpha") != 0;
+                                    wpimgobj.field_bindings.HasAnimation("alpha"_str) ||
+                                    wpimgobj.field_bindings.HasScript("alpha"_str);
     const auto geometry_size      = wpimgobj.size;
     const auto effect_target_size = ImageEffectTargetSize(context, wpimgobj);
 
@@ -249,7 +249,7 @@ void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj
         auto material_build = rstd::move(material_result).unwrap_unchecked();
         material            = rstd::move(material_build.material);
         shaderInfo          = rstd::move(material_build.shader_info);
-        LoadConstvalue(material, image_wpmat, shaderInfo);
+        LoadConstvalue(context, material, image_wpmat, shaderInfo);
     }
 
     // Whether the layer's base texture is point-sampled (noInterpolation).
@@ -417,7 +417,8 @@ void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj
         auto supplemental_build  = rstd::move(supplemental_result).unwrap_unchecked();
         supplemental_material    = rstd::move(supplemental_build.material);
         supplemental_shader_info = rstd::move(supplemental_build.shader_info);
-        LoadConstvalue(supplemental_material, *supplemental_wpmat, supplemental_shader_info);
+        LoadConstvalue(
+            context, supplemental_material, *supplemental_wpmat, supplemental_shader_info);
 
         const auto supplemental_uv_scale = Texture0UvScale(supplemental_material);
         const auto supplemental_slot     = rstd::as_cast<u32>(usize(mesh.MaterialSlots().size()));
@@ -552,7 +553,7 @@ void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj
                 auto clip_build = rstd::move(clip_result).unwrap_unchecked();
                 clip_scene_mat  = rstd::move(clip_build.material);
                 clip_shaderInfo = rstd::move(clip_build.shader_info);
-                LoadConstvalue(clip_scene_mat, clip_wpmat, clip_shaderInfo);
+                LoadConstvalue(context, clip_scene_mat, clip_wpmat, clip_shaderInfo);
                 const auto clip_slot = rstd::as_cast<u32>(usize(mesh.MaterialSlots().size()));
                 mesh.AddMaterial(std::move(clip_scene_mat));
                 track_image_property_material(mesh.MaterialSlots().back());
@@ -826,7 +827,8 @@ void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj
                 wpEffShaderInfo   = rstd::move(effect_build.shader_info);
 
                 // load glname from alias and load to constvalue
-                LoadConstvalue(material, wpmat, wpEffShaderInfo, &final_quad_shader_values);
+                LoadConstvalue(
+                    context, material, wpmat, wpEffShaderInfo, &final_quad_shader_values);
                 auto spMesh = std::make_shared<SceneMesh>();
                 {
                     svData.effect_projection_node = Some(spImgNode.clone());
@@ -892,7 +894,7 @@ void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj
                             auto mask_build = rstd::move(mask_result).unwrap_unchecked();
                             mask_material   = rstd::move(mask_build.material);
                             mask_shaderInfo = rstd::move(mask_build.shader_info);
-                            LoadConstvalue(mask_material, mask_wpmat, mask_shaderInfo);
+                            LoadConstvalue(context, mask_material, mask_wpmat, mask_shaderInfo);
                             RegisterLayerPreviousBindings(*context.scene,
                                                           mask_material,
                                                           mask_wpmat,
@@ -923,7 +925,7 @@ void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj
                             auto clip_build = rstd::move(clip_result).unwrap_unchecked();
                             clip_material   = rstd::move(clip_build.material);
                             clip_shaderInfo = rstd::move(clip_build.shader_info);
-                            LoadConstvalue(clip_material, clip_wpmat, clip_shaderInfo);
+                            LoadConstvalue(context, clip_material, clip_wpmat, clip_shaderInfo);
                             RegisterLayerPreviousBindings(*context.scene,
                                                           clip_material,
                                                           clip_wpmat,
@@ -1000,7 +1002,7 @@ void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj
                 auto material_build = rstd::move(material_result).unwrap_unchecked();
                 material            = rstd::move(material_build.material);
                 shader_info         = rstd::move(material_build.shader_info);
-                LoadConstvalue(material, passthrough_mat, shader_info);
+                LoadConstvalue(context, material, passthrough_mat, shader_info);
                 auto mesh = std::make_shared<SceneMesh>();
                 mesh->AddMaterial(std::move(material));
                 RegisterMaterialBindings(
@@ -1081,7 +1083,7 @@ void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj
                         auto final_build  = rstd::move(final_result).unwrap_unchecked();
                         finalMaterial     = rstd::move(final_build.material);
                         wpFinalShaderInfo = rstd::move(final_build.shader_info);
-                        LoadConstvalue(finalMaterial, passthrough_mat, wpFinalShaderInfo);
+                        LoadConstvalue(context, finalMaterial, passthrough_mat, wpFinalShaderInfo);
                         auto spFinalMesh = std::make_shared<SceneMesh>();
                         spFinalMesh->AddMaterial(std::move(finalMaterial));
                         RegisterMaterialBindings(*context.scene,
@@ -1128,7 +1130,7 @@ void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj
                     node->SetGeometryTransform(rstd::move(transform));
             }));
 
-    AssignNodeFieldAnimations(*spImgNode.as_ptr(), wpimgobj.field_bindings);
+    AssignNodeFieldAnimations(context, *spImgNode.as_ptr(), wpimgobj.field_bindings);
     WireFieldScripts(context, spImgNode, wpimgobj.field_bindings);
     if (! wpimgobj.color_user_key.empty()) {
         context.scene->RegisterImageColorUserBinding(
@@ -1156,6 +1158,7 @@ void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj
 }
 
 void ParseShapeObj(SceneParseContext& context, wpscene::ShapeObject& shape_obj) {
+    PrepareAnimationBindings(context, shape_obj);
     if (shape_obj.shape != "quad") {
         rstd_error("unsupported shape '{}' for '{}'", shape_obj.shape, shape_obj.name);
         return;
@@ -1226,6 +1229,7 @@ void ParseShapeObj(SceneParseContext& context, wpscene::ShapeObject& shape_obj) 
 }
 
 void ParseImageObj(SceneParseContext& context, wpscene::ImageObject& image) {
+    PrepareAnimationBindings(context, image);
     ParseImageObjImpl(context, image);
 }
 

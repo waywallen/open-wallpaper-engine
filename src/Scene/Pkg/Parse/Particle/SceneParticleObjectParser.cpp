@@ -203,8 +203,8 @@ struct ParticleNodeControl {
     bool IsPlaying() const { return playback->playing.load(rstd::sync::atomic::Ordering::Acquire); }
 };
 
-void LoadControlPoint(ParticleSubSystem& system, const wpscene::Particle& particle,
-                      ParticleInstanceModifiers modifiers) {
+void LoadControlPoint(SceneParseContext& context, ParticleSubSystem& system,
+                      const wpscene::Particle& particle, ParticleInstanceModifiers modifiers) {
     auto points = system.ControlpointsMut();
     auto count  = rstd::cmp::min(points.len(), usize(particle.controlpoints.size()));
     for (usize index {}; index < count; ++index) {
@@ -223,10 +223,10 @@ void LoadControlPoint(ParticleSubSystem& system, const wpscene::Particle& partic
     const auto& field_bindings = modifiers.ControlpointFieldBindings();
     if (! field_bindings) return;
     for (usize index {}; index < points.len(); ++index) {
-        auto field = std::string("controlpointangle") + std::to_string(index.to_primitive());
-        auto curve = field_bindings->animations.find(field);
-        if (curve != field_bindings->animations.end())
-            system.SetControlpointAngleCurve(index, ToSceneAnimationCurve(curve->second));
+        auto field   = std::string("controlpointangle") + std::to_string(index.to_primitive());
+        auto binding = field_bindings->Get(rstd::cppstd::as_str(field).unwrap());
+        if (binding.is_some() && (**binding).animation.is_some())
+            system.SetControlpointAngleTrack(index, ResolveAnimationTrack(context, **binding));
     }
 }
 void LoadInitializer(ParticleSubSystem& system, const wpscene::Particle& particle,
@@ -478,7 +478,7 @@ void BuildParticleObjectNode(ParticleObjectParseServices& services,
         rstd_error("load particleobj '{}' material faild", wppartobj.name);
         return;
     }
-    LoadConstvalue(material, particle_obj.material, shaderInfo);
+    LoadConstvalue(*services.construction_context, material, particle_obj.material, shaderInfo);
     auto  spMesh             = std::make_shared<SceneMesh>(true);
     auto& mesh               = *spMesh;
     auto  sequencemultiplier = particle_obj.sequencemultiplier;
@@ -555,7 +555,7 @@ void BuildParticleObjectNode(ParticleObjectParseServices& services,
     LoadEmitter(*particleSub, particle_obj, modifiers);
     LoadInitializer(*particleSub, particle_obj, modifiers.Clone());
     LoadOperator(*particleSub, particle_obj, modifiers.Clone());
-    LoadControlPoint(*particleSub, particle_obj, modifiers.Clone());
+    LoadControlPoint(*services.construction_context, *particleSub, particle_obj, modifiers.Clone());
     particleSub->Finalize();
 
     // Register every {user:"<key>", value:...} binding on instanceoverride
@@ -614,7 +614,8 @@ void BuildParticleObjectNode(ParticleObjectParseServices& services,
             .state    = override_state.clone(),
             .playback = playback_state.clone(),
         }));
-        AssignNodeFieldAnimations(*spNode.as_ptr(), wppartobj.field_bindings);
+        AssignNodeFieldAnimations(
+            *services.construction_context, *spNode.as_ptr(), wppartobj.field_bindings);
     }
     if (services.construction_context != nullptr)
         WireFieldScripts(*services.construction_context, spNode, wppartobj.field_bindings);
@@ -667,6 +668,7 @@ void ParseParticleObjImpl(SceneParseContext& context, wpscene::ParticleObject& p
 }
 
 void ParseParticleObj(SceneParseContext& context, wpscene::ParticleObject& particle) {
+    PrepareAnimationBindings(context, particle);
     ParseParticleObjImpl(context, particle);
 }
 

@@ -26,14 +26,7 @@ public:
     rstd::json::Array                                   usertextures; // PKGV0018+; polymorphic
     std::unordered_map<std::string, i32>                combos;
     std::unordered_map<std::string, std::vector<float>> constantshadervalues;
-    // scene.json instance-level user binding:
-    //   "constantshadervalues": { "Opacity": {"user":"luzopacidad","value":1} }
-    // Maps effect-internal material key → wallpaper-level project.json key.
-    // The fallback `value` is already extracted into `constantshadervalues`
-    // by GetJsonValue's auto-unwrap.
-    std::unordered_map<std::string, std::string> constantshadervalues_user;
-    std::unordered_map<std::string, AnimCurve>   constantshadervalues_animations;
-    FieldBindings                                constantshadervalues_bindings;
+    FieldBindings                                       constantshadervalues_bindings;
     // Legacy `usershadervalues`: project.json key -> shader material key.
     std::unordered_map<std::string, std::string> user_shader_values;
     std::string                                  target;
@@ -64,8 +57,6 @@ public:
     rstd::json::Array                                   usertextures;
     std::unordered_map<std::string, i32>                combos;
     std::unordered_map<std::string, std::vector<float>> constantshadervalues;
-    std::unordered_map<std::string, std::string>        constantshadervalues_user;
-    std::unordered_map<std::string, AnimCurve>          constantshadervalues_animations;
     FieldBindings                                       constantshadervalues_bindings;
     std::unordered_map<std::string, std::string>        user_shader_values;
 

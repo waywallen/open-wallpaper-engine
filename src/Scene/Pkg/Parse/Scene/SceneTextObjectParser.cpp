@@ -183,20 +183,23 @@ void ParseTextObjImpl(SceneParseContext& context, wpscene::TextObject& obj) {
     MarkHiddenLinkSource(context, obj.id);
 
     // --- determine initial text + whether a runtime binding will rewrite it
-    auto text_binding_it      = obj.field_bindings.scripts.find("text");
-    bool has_text_script      = (text_binding_it != obj.field_bindings.scripts.end());
-    auto pointsize_binding_it = obj.field_bindings.scripts.find("pointsize");
-    bool has_pointsize_script = (pointsize_binding_it != obj.field_bindings.scripts.end());
+    auto text_binding      = obj.field_bindings.Get("text"_str);
+    bool has_text_script   = text_binding.is_some() && (**text_binding).script.is_some();
+    auto pointsize_binding = obj.field_bindings.Get("pointsize"_str);
+    bool has_pointsize_script =
+        pointsize_binding.is_some() && (**pointsize_binding).script.is_some();
     // Scripts can also drive `text` indirectly: a script attached to any
     // other field (commonly `visible`) writes `thisLayer.text = "..."` from
     // its update() side-effect (e.g. workshop 2283810443's clock). Transform
     // scripts alone should not force large dynamic text RTs.
     bool has_indirect_text_script = false;
     if (! has_text_script) {
-        for (const auto& [_, sb] : obj.field_bindings.scripts) {
-            if (sb.source.find(".text") != std::string::npos ||
-                sb.source.find("[\"text\"]") != std::string::npos ||
-                sb.source.find("['text']") != std::string::npos) {
+        for (const auto& binding : obj.field_bindings.Entries()) {
+            if (binding.script.is_none()) continue;
+            const auto& source = binding.script->source;
+            if (source.find(".text") != std::string::npos ||
+                source.find("[\"text\"]") != std::string::npos ||
+                source.find("['text']") != std::string::npos) {
                 has_indirect_text_script = true;
                 break;
             }
@@ -249,7 +252,7 @@ void ParseTextObjImpl(SceneParseContext& context, wpscene::TextObject& obj) {
         node->ID() = obj.id;
         node->SetSize({ obj.size[0], obj.size[1] });
         node->SetReflected(obj.reflected);
-        AssignNodeFieldAnimations(*node.as_ptr(), obj.field_bindings);
+        AssignNodeFieldAnimations(context, *node.as_ptr(), obj.field_bindings);
         WireFieldScripts(context, node, obj.field_bindings);
         if (! obj.visible) node->SetVisible(false);
         if (! obj.visible_user.empty())
@@ -668,7 +671,7 @@ void ParseTextObjImpl(SceneParseContext& context, wpscene::TextObject& obj) {
             auto material_build = rstd::move(material_result).unwrap_unchecked();
             mat                 = rstd::move(material_build.material);
             si                  = rstd::move(material_build.shader_info);
-            LoadConstvalue(mat, pt_mat, si);
+            LoadConstvalue(context, mat, pt_mat, si);
             mat.blenmode = BlendMode::Translucent;
             return Some(LoadedTextMaterial {
                 .source      = std::move(pt_mat),
@@ -807,7 +810,7 @@ void ParseTextObjImpl(SceneParseContext& context, wpscene::TextObject& obj) {
                     auto material_build = rstd::move(material_result).unwrap_unchecked();
                     mat                 = rstd::move(material_build.material);
                     shader_info         = rstd::move(material_build.shader_info);
-                    LoadConstvalue(mat, wpmat, shader_info, &final_quad_shader_values);
+                    LoadConstvalue(context, mat, wpmat, shader_info, &final_quad_shader_values);
 
                     auto mesh = std::make_shared<SceneMesh>();
                     mesh->AddMaterial(std::move(mat));
@@ -1069,7 +1072,7 @@ void ParseTextObjImpl(SceneParseContext& context, wpscene::TextObject& obj) {
                                            static_cast<float>(origin.z) });
             }));
 
-    AssignNodeFieldAnimations(*layer_node.as_ptr(), obj.field_bindings);
+    AssignNodeFieldAnimations(context, *layer_node.as_ptr(), obj.field_bindings);
     WireFieldScripts(context, layer_node, obj.field_bindings, apply_text_origin, apply_text_scale);
     if (! obj.visible) layer_node->SetVisible(false);
     if (! obj.visible_user.empty())
@@ -1090,17 +1093,19 @@ void ParseTextObjImpl(SceneParseContext& context, wpscene::TextObject& obj) {
             }));
     }
     if (has_text_script) {
-        const auto& sb  = text_binding_it->second;
-        auto&       ss  = EnsureScriptScene(context);
-        std::string sha = utils::genSha1(std::span<const char>(sb.source));
-        auto*       fs  = ss.runtime().MakeFieldScript(sb.source,
-                                                       sha,
-                                                       script::FieldKind::String,
-                                                       sb.properties,
-                                                       sb.initial_value,
-                                                       layer_node.as_ptr());
+        const auto& binding = **text_binding;
+        const auto& sb      = *binding.script;
+        auto&       ss      = EnsureScriptScene(context);
+        std::string sha     = utils::genSha1(std::span<const char>(sb.source));
+        auto*       fs      = ss.runtime().MakeFieldScript(
+            sb.source,
+            sha,
+            script::FieldKind::String,
+            binding.ScriptProperties(),
+            sb.initial_value,
+            script::ScriptBindingContext::ForLayer(
+                layer_node.as_ptr(), "text"_str, layer_node->FieldAnimation("text"_str)));
         if (fs) {
-            WireAnimationEventSources(ss.runtime(), *fs, obj.field_bindings, "text");
             SetScriptInitializationOrder(context, *fs, layer_node.as_ptr());
             TrackRegisteredAssets(context, fs);
             ss.AddActuator({
@@ -1112,15 +1117,18 @@ void ParseTextObjImpl(SceneParseContext& context, wpscene::TextObject& obj) {
         }
     }
     if (has_pointsize_script) {
-        const auto& sb  = pointsize_binding_it->second;
-        auto&       ss  = EnsureScriptScene(context);
-        std::string sha = utils::genSha1(std::span<const char>(sb.source));
-        auto*       fs  = ss.runtime().MakeFieldScript(sb.source,
-                                                       sha,
-                                                       script::FieldKind::Scalar,
-                                                       sb.properties,
-                                                       sb.initial_value,
-                                                       layer_node.as_ptr());
+        const auto& binding = **pointsize_binding;
+        const auto& sb      = *binding.script;
+        auto&       ss      = EnsureScriptScene(context);
+        std::string sha     = utils::genSha1(std::span<const char>(sb.source));
+        auto*       fs      = ss.runtime().MakeFieldScript(
+            sb.source,
+            sha,
+            script::FieldKind::Scalar,
+            binding.ScriptProperties(),
+            sb.initial_value,
+            script::ScriptBindingContext::ForLayer(
+                layer_node.as_ptr(), "pointsize"_str, layer_node->FieldAnimation("pointsize"_str)));
         if (fs) {
             SetScriptInitializationOrder(context, *fs, layer_node.as_ptr());
             TrackRegisteredAssets(context, fs);
@@ -1173,6 +1181,7 @@ void ParseTextObjImpl(SceneParseContext& context, wpscene::TextObject& obj) {
 }
 
 void ParseTextObj(SceneParseContext& context, wpscene::TextObject& text) {
+    PrepareAnimationBindings(context, text);
     ParseTextObjImpl(context, text);
 }
 
