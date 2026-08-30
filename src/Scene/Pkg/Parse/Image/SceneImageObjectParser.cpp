@@ -220,10 +220,7 @@ void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj
     if (color_blend_uses_layer_material && ! hasEffect) ApplyImageColorBlend(image_wpmat, wpimgobj);
     ApplyUserTextureBindings(context, image_wpmat);
     {
-        svData.SetParallaxContract({ wpimgobj.parallaxDepth[0], wpimgobj.parallaxDepth[1] },
-                                   wpimgobj.id,
-                                   wpimgobj.parallaxDepthAuthored,
-                                   ! wpimgobj.disablepropagation);
+        svData.SetParallaxContract(wpimgobj.parallax, wpimgobj.id, ! wpimgobj.disablepropagation);
         if (! hasEffect && puppet.is_some() && has_bones) {
             MdlParser::AddPuppetShaderInfo(shaderInfo, **puppet);
         }
@@ -810,10 +807,7 @@ void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj
                     ShaderValue::fromMatrix(Eigen::Matrix4f::Identity());
                 SceneMaterial          material;
                 UniformNodeConfigDraft svData;
-                svData.SetParallaxContract({ wpimgobj.parallaxDepth[0], wpimgobj.parallaxDepth[1] },
-                                           wpimgobj.id,
-                                           wpimgobj.parallaxDepthAuthored,
-                                           ! wpimgobj.disablepropagation);
+                svData.SetParallaxContract(wpimgobj.parallax, wpimgobj.id, ! wpimgobj.disablepropagation);
                 SceneShaderValueAnimationMap final_quad_shader_values;
                 auto effect_result = BuildMaterial(vfs,
                                                    *context.shader_cache,
@@ -984,11 +978,9 @@ void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj
                 shader_info.baseConstSvs = NeutralColorUniforms(baseConstSvs);
                 SceneMaterial          material;
                 UniformNodeConfigDraft uniform_config;
-                uniform_config.SetParallaxContract(
-                    { wpimgobj.parallaxDepth[0], wpimgobj.parallaxDepth[1] },
-                    wpimgobj.id,
-                    wpimgobj.parallaxDepthAuthored,
-                    ! wpimgobj.disablepropagation);
+                uniform_config.SetParallaxContract(wpimgobj.parallax,
+                                                   wpimgobj.id,
+                                                   ! wpimgobj.disablepropagation);
                 auto material_result = BuildMaterial(vfs,
                                                      *context.shader_cache,
                                                      context.shader_environment,
@@ -1066,11 +1058,9 @@ void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj
                     wpFinalShaderInfo.baseConstSvs = NeutralColorUniforms(baseConstSvs);
                     SceneMaterial          finalMaterial;
                     UniformNodeConfigDraft finalSvData;
-                    finalSvData.SetParallaxContract(
-                        { wpimgobj.parallaxDepth[0], wpimgobj.parallaxDepth[1] },
-                        wpimgobj.id,
-                        wpimgobj.parallaxDepthAuthored,
-                        ! wpimgobj.disablepropagation);
+                    finalSvData.SetParallaxContract(wpimgobj.parallax,
+                                                    wpimgobj.id,
+                                                    ! wpimgobj.disablepropagation);
                     auto final_result = BuildMaterial(vfs,
                                                       *context.shader_cache,
                                                       context.shader_environment,
@@ -1216,8 +1206,7 @@ void ParseShapeObj(SceneParseContext& context, wpscene::ShapeObject& shape_obj) 
     image.field_bindings        = rstd::move(shape_obj.field_bindings);
     image.visible_user          = rstd::move(shape_obj.visible_user);
     image.visible_user_key      = rstd::move(shape_obj.visible_user_key);
-    image.parallaxDepth         = shape_obj.parallaxDepth;
-    image.parallaxDepthAuthored = shape_obj.parallaxDepthAuthored;
+    image.parallax              = shape_obj.parallax;
     ParseImageObjImpl(context,
                       image,
                       ImageParseGeometry {

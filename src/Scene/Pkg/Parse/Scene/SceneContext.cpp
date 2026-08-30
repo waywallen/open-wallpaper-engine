@@ -8,10 +8,7 @@ void owe::SetUniformConfig(SceneParseContext& context, const Arc<SceneNode>& nod
                            UniformNodeConfigDraft config) {
     config.configured = true;
     context.uniform_state->RegisterNodeParallaxContract(
-        *node,
-        config.object_id,
-        config.parallax_depth,
-        config.parallax_depth_authored);
+        *node, config.object_id, config.parallax);
     for (auto& entry : context.uniform_configs) {
         if (entry.node.as_ptr() != node.as_ptr()) continue;
         entry.config = rstd::move(config);
@@ -29,6 +26,17 @@ auto owe::FindUniformConfig(const SceneParseContext& context, const SceneNode& n
         if (entry.node.as_ptr() == &node) return &entry.config;
     }
     return nullptr;
+}
+
+void owe::ApplyParallaxUniformConfig(SceneParseContext&                    context,
+                                const Arc<SceneNode>&                 node,
+                                const wpscene::ParallaxDepthBinding&  parallax,
+                                i32                                   object_id,
+                                bool                                  propagate_to_children) {
+    if (! parallax.authored && wpscene::IsZeroParallaxDepth(parallax.depth)) return;
+    UniformNodeConfigDraft uniform_config;
+    uniform_config.SetParallaxContract(parallax, object_id, propagate_to_children);
+    SetUniformConfig(context, node, rstd::move(uniform_config));
 }
 
 auto owe::SceneParseContext::NextSyntheticObjectId() -> i32 {

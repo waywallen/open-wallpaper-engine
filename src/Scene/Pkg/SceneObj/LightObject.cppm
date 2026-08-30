@@ -25,8 +25,7 @@ public:
     std::array<float, 3> origin { 0.0f, 0.0f, 0.0f };
     std::array<float, 3> scale { 1.0f, 1.0f, 1.0f };
     std::array<float, 3> angles { 0.0f, 0.0f, 0.0f };
-    std::array<float, 2> parallaxDepth { kDefaultParallaxDepth };
-    bool                 parallaxDepthAuthored { false };
+    ParallaxDepthBinding parallax;
     std::array<float, 3> color { 1.0f, 1.0f, 1.0f };
     std::string          light; // "point" / "spot" / "directional" / ...
     std::string          shape; // PKGV0021+

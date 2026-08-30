@@ -393,9 +393,7 @@ void ParseModelObjImpl(SceneParseContext& context, wpscene::ModelObject& model_o
     auto mesh = std::make_shared<SceneMesh>();
 
     UniformNodeConfigDraft svData;
-    svData.SetParallaxContract({ model_obj.parallaxDepth[0], model_obj.parallaxDepth[1] },
-                               model_obj.id,
-                               model_obj.parallaxDepthAuthored);
+    svData.SetParallaxContract(model_obj.parallax, model_obj.id);
     svData.use_camera_eye_position = true;
     if (context.orthographic_scene) {
         svData.eye_position_override = Some(array<float, 3> {
@@ -557,34 +555,7 @@ void ParseModelObj(SceneParseContext& context, wpscene::ModelObject& model) {
 
 bool SceneHasAuthoredParallaxDepth(slice<SceneObjectVar> objects) {
     for (usize index {}; index < objects.len(); ++index) {
-        const auto& object = objects[index];
-        RSTD_MATCH(object) {
-            RSTD_CASE(Container, value) {
-                if (value.parallax_depth_authored) return true;
-            }
-            RSTD_CASE(Image, value) {
-                if (value.parallaxDepthAuthored) return true;
-            }
-            RSTD_CASE(Shape, value) {
-                if (value.parallaxDepthAuthored) return true;
-            }
-            RSTD_CASE(Particle, value) {
-                if (value.parallaxDepthAuthored) return true;
-            }
-            RSTD_CASE(Light, value) {
-                if (value.parallaxDepthAuthored) return true;
-            }
-            RSTD_CASE(Text, value) {
-                if (value.parallaxDepthAuthored) return true;
-            }
-            RSTD_CASE(Model, value) {
-                if (value.parallaxDepthAuthored) return true;
-            }
-            RSTD_CASE(Camera, value) {
-                if (value.parallaxDepthAuthored) return true;
-            }
-            RSTD_CASE(Sound) { continue; }
-        }
+        if (wpscene::SceneObjectParallaxAuthored(objects[index])) return true;
     }
     return false;
 }
@@ -686,14 +657,9 @@ void ParseContainerObj(SceneParseContext& context, const wpscene::ContainerObjec
                                       Vector3f(obj.angles.data()),
                                       obj.name);
     node->ID() = i32(obj.id);
-    if (obj.parallax_depth_authored || obj.disable_propagation ||
-        ! wpscene::IsZeroParallaxDepth(obj.parallax_depth)) {
-        UniformNodeConfigDraft uniform_config;
-        uniform_config.SetParallaxContract({ obj.parallax_depth[0], obj.parallax_depth[1] },
-                                             obj.id,
-                                             obj.parallax_depth_authored,
-                                             ! obj.disable_propagation);
-        SetUniformConfig(context, node, rstd::move(uniform_config));
+    if (obj.parallax.authored || obj.disable_propagation ||
+        ! wpscene::IsZeroParallaxDepth(obj.parallax.depth)) {
+        ApplyParallaxUniformConfig(context, node, obj.parallax, obj.id, ! obj.disable_propagation);
     }
     if (! obj.visible) (void)context.scene->SetNodeVisible(*node, false);
     if (! obj.visible_user.empty())

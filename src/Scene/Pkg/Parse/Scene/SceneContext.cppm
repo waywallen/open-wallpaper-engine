@@ -191,6 +191,11 @@ struct SceneParseContext {
 };
 
 void SetUniformConfig(SceneParseContext&, const Arc<SceneNode>&, UniformNodeConfigDraft);
+void ApplyParallaxUniformConfig(SceneParseContext&,
+                                const Arc<SceneNode>&,
+                                const wpscene::ParallaxDepthBinding& parallax,
+                                i32                                   object_id,
+                                bool                                  propagate_to_children = true);
 auto FindUniformConfig(const SceneParseContext&, const SceneNode&) -> const UniformNodeConfigDraft*;
 void RegisterNodeRef(SceneParseContext&, i32, SceneParseContext::NodeRef);
 

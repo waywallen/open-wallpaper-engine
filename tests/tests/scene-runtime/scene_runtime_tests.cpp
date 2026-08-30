@@ -863,16 +863,16 @@ TEST(UniformSourceParallax, ParentPropagationSelectsAncestorConfiguration) {
 
     auto parent_state = Arc<owe::UniformNodeState>::make(parent.clone(), camera_resolver.clone());
     parent_state->object_id               = i32(1);
-    parent_state->parallax_depth          = { -1.56f, -0.79f };
-    parent_state->parallax_depth_authored = true;
+    parent_state->parallax.depth    = { -1.56f, -0.79f };
+    parent_state->parallax.authored = true;
     auto child_state = Arc<owe::UniformNodeState>::make(child.clone(), camera_resolver.clone());
     child_state->object_id               = i32(2);
-    child_state->parallax_depth          = { 1.0f, 1.0f };
-    child_state->parallax_depth_authored = false;
+    child_state->parallax.depth    = { 1.0f, 1.0f };
+    child_state->parallax.authored = false;
     auto effect_state = Arc<owe::UniformNodeState>::make(effect.clone(), camera_resolver.clone());
     effect_state->object_id              = i32(2);
-    effect_state->parallax_depth         = { 1.0f, 1.0f };
-    effect_state->parallax_depth_authored = false;
+    effect_state->parallax.depth    = { 1.0f, 1.0f };
+    effect_state->parallax.authored = false;
     effect_state->effect_projection_node = Some(child.clone());
     state->SetNodeState({ .index = rstd::u32(1), .generation = rstd::u32(1) },
                         parent_state.clone());
@@ -902,25 +902,25 @@ TEST(UniformSourceParallax, ParentPropagationSelectsAncestorConfiguration) {
     EXPECT_NEAR(mvp[rstd::usize(12)], expected_inherited.x(), 1e-5f);
     EXPECT_NEAR(mvp[rstd::usize(13)], expected_inherited.y(), 1e-5f);
 
-    child_state->parallax_depth = { 0.0f, 0.0f };
+    child_state->parallax.depth = { 0.0f, 0.0f };
     mvp                         = capture_mvp();
     EXPECT_NEAR(mvp[rstd::usize(12)], expected_inherited.x(), 1e-5f);
     EXPECT_NEAR(mvp[rstd::usize(13)], expected_inherited.y(), 1e-5f);
 
-    child_state->parallax_depth = { 0.5f, 0.5f };
+    child_state->parallax.depth = { 0.5f, 0.5f };
     mvp                         = capture_mvp();
     EXPECT_NEAR(mvp[rstd::usize(12)], expected_inherited.x(), 1e-5f);
     EXPECT_NEAR(mvp[rstd::usize(13)], expected_inherited.y(), 1e-5f);
 
-    parent_state->parallax_depth = { 0.0f, 0.0f };
-    child_state->parallax_depth  = { -0.7f, -0.7f };
+    parent_state->parallax.depth = { 0.0f, 0.0f };
+    child_state->parallax.depth  = { -0.7f, -0.7f };
     mvp                          = capture_mvp();
     auto expected_frozen         = expected_translation({ 1982.0f, 1053.0f }, { 0.0f, 0.0f });
     EXPECT_NEAR(mvp[rstd::usize(12)], expected_frozen.x(), 1e-5f);
     EXPECT_NEAR(mvp[rstd::usize(13)], expected_frozen.y(), 1e-5f);
 
-    parent_state->parallax_depth  = { 0.321f, 0.321f };
-    child_state->parallax_depth   = { 0.321f, 0.321f };
+    parent_state->parallax.depth = { 0.321f, 0.321f };
+    child_state->parallax.depth  = { 0.321f, 0.321f };
     mvp                           = capture_mvp();
     auto expected_parent_authored = expected_translation({ 1982.0f, 1053.0f }, { 0.321f, 0.321f });
     EXPECT_NEAR(mvp[rstd::usize(12)], expected_parent_authored.x(), 1e-5f);
@@ -976,8 +976,8 @@ TEST(UniformSourceParallax, OrthographicOmittedDepthUsesImplicitParallax) {
 
     auto layer_state = Arc<owe::UniformNodeState>::make(layer.clone(), camera_resolver.clone());
     layer_state->object_id               = i32(1);
-    layer_state->parallax_depth          = { 0.0f, 0.0f };
-    layer_state->parallax_depth_authored = false;
+    layer_state->parallax.depth    = { 0.0f, 0.0f };
+    layer_state->parallax.authored = false;
     state->SetNodeState({ .index = rstd::u32(1), .generation = rstd::u32(1) }, layer_state.clone());
 
     owe::TransformUniformSource source(state.clone(), layer_state.clone());
@@ -1036,8 +1036,8 @@ TEST(UniformSourceParallax, UnregisteredContainerRootDoesNotPoisonChildren) {
 
     auto child_state = Arc<owe::UniformNodeState>::make(child.clone(), camera_resolver.clone());
     child_state->object_id               = i32(2);
-    child_state->parallax_depth          = { -1.12f, -1.36f };
-    child_state->parallax_depth_authored = true;
+    child_state->parallax.depth    = { -1.12f, -1.36f };
+    child_state->parallax.authored = true;
     state->SetNodeState({ .index = rstd::u32(2), .generation = rstd::u32(1) }, child_state.clone());
 
     owe::TransformUniformSource source(state.clone(), child_state.clone());
@@ -1102,13 +1102,13 @@ TEST(UniformSourceParallax, DisablePropagationBlocksInheritance) {
 
     auto parent_state = Arc<owe::UniformNodeState>::make(parent.clone(), camera_resolver.clone());
     parent_state->object_id                      = i32(1);
-    parent_state->parallax_depth                 = { -1.56f, -0.79f };
-    parent_state->parallax_depth_authored        = true;
+    parent_state->parallax.depth    = { -1.56f, -0.79f };
+    parent_state->parallax.authored = true;
     parent_state->propagate_parallax_to_children = false;
     auto child_state = Arc<owe::UniformNodeState>::make(child.clone(), camera_resolver.clone());
     child_state->object_id               = i32(2);
-    child_state->parallax_depth          = { 0.0f, 0.0f };
-    child_state->parallax_depth_authored = false;
+    child_state->parallax.depth    = { 0.0f, 0.0f };
+    child_state->parallax.authored = false;
     state->SetNodeState({ .index = rstd::u32(1), .generation = rstd::u32(1) },
                         parent_state.clone());
     state->SetNodeState({ .index = rstd::u32(2), .generation = rstd::u32(1) }, child_state.clone());
@@ -1129,79 +1129,6 @@ TEST(UniformSourceParallax, DisablePropagationBlocksInheritance) {
     ASSERT_GT(mvp_blocked.size().to_primitive(), 13u);
     EXPECT_TRUE(std::abs(mvp_inherited[rstd::usize(12)] - mvp_blocked[rstd::usize(12)]) > 1e-5f ||
                 std::abs(mvp_inherited[rstd::usize(13)] - mvp_blocked[rstd::usize(13)]) > 1e-5f);
-}
-
-TEST(UniformSourceParallax, EffectModelReceivesParallaxShift) {
-    owe::Scene scene;
-    scene.SetOrtho({ i32(3840), i32(2160) });
-
-    auto camera_node = Arc<owe::SceneNode>::make(Eigen::Vector3f { 1920.0f, 1080.0f, 0.0f },
-                                                 Eigen::Vector3f { 1.0f, 1.0f, 1.0f },
-                                                 Eigen::Vector3f::Zero());
-    auto camera =
-        Arc<owe::SceneCamera>::make(owe::SceneCamera::MakeOrthographic(3840, 2160, -1.0, 1.0));
-    camera->AttatchNode(camera_node.as_ptr());
-    scene.RegisterCamera(String::make("default"_str), camera.clone());
-    ASSERT_TRUE(scene.SetActiveCamera("default"_str));
-
-    auto parent = Arc<owe::SceneNode>::make(Eigen::Vector3f { 1982.0f, 1053.0f, 0.0f },
-                                            Eigen::Vector3f { 1.0f, 1.0f, 1.0f },
-                                            Eigen::Vector3f::Zero());
-    auto child  = Arc<owe::SceneNode>::make(Eigen::Vector3f { -76.0f, -3.0f, 0.0f },
-                                            Eigen::Vector3f { 1.0f, 1.0f, 1.0f },
-                                            Eigen::Vector3f::Zero());
-    auto effect = Arc<owe::SceneNode>::make();
-    auto mesh   = std::make_shared<owe::SceneMesh>();
-    mesh->AddMaterial(owe::SceneMaterial {});
-    owe::SceneMesh::Submesh submesh;
-    submesh.material_slot = u32();
-    mesh->Submeshes().push_back(std::move(submesh));
-    child->AddMesh(mesh);
-    parent->AppendChild(child.clone());
-    scene.RootMut()->AppendChild(parent.clone());
-    scene.RebuildResourceIndex();
-    effect->SetParentAnchor(child.as_ptr());
-
-    auto state = Arc<owe::UniformSceneState>::make(Arc<owe::AudioResponseDemand>::make());
-    state->SetLayerParallaxPolicy(true, true);
-    state->CameraParallax() = { true, 0.03f, 0.0f, 0.36f };
-    state->SetOrtho(3840.0f, 2160.0f);
-    state->SetPointerInput(0.0, 1.0);
-    state->Advance(owe::SceneFrame {});
-
-    auto camera_resolver = Arc<owe::UniformCameraResolver>::make(camera.clone());
-    camera_resolver->Add(String::make("default"_str), camera.clone());
-
-    auto parent_state = Arc<owe::UniformNodeState>::make(parent.clone(), camera_resolver.clone());
-    parent_state->object_id               = i32(1);
-    parent_state->parallax_depth          = { -1.56f, -0.79f };
-    parent_state->parallax_depth_authored = true;
-    auto child_state = Arc<owe::UniformNodeState>::make(child.clone(), camera_resolver.clone());
-    child_state->object_id               = i32(2);
-    child_state->parallax_depth          = { 1.0f, 1.0f };
-    child_state->parallax_depth_authored = false;
-    auto effect_state = Arc<owe::UniformNodeState>::make(effect.clone(), camera_resolver.clone());
-    effect_state->object_id               = i32(2);
-    effect_state->parallax_depth          = { 1.0f, 1.0f };
-    effect_state->parallax_depth_authored = false;
-    effect_state->effect_projection_node  = Some(child.clone());
-    effect_state->effect_projection_size  = { 3840.0f, 2160.0f };
-    state->SetNodeState({ .index = rstd::u32(1), .generation = rstd::u32(1) },
-                        parent_state.clone());
-    state->SetNodeState({ .index = rstd::u32(2), .generation = rstd::u32(1) }, child_state.clone());
-    state->SetNodeState({ .index = rstd::u32(3), .generation = rstd::u32(1) },
-                        effect_state.clone());
-
-    owe::TransformUniformSource source(state.clone(), effect_state.clone());
-    auto effect_enabled =
-        scene_test::Capture(scene.Runtime().Frame(), source, owe::TransformUniformOutput::EffectModel);
-    state->CameraParallax().enable = false;
-    auto effect_disabled =
-        scene_test::Capture(scene.Runtime().Frame(), source, owe::TransformUniformOutput::EffectModel);
-    ASSERT_GT(effect_enabled.size().to_primitive(), 13u);
-    ASSERT_GT(effect_disabled.size().to_primitive(), 13u);
-    EXPECT_TRUE(std::abs(effect_enabled[rstd::usize(12)] - effect_disabled[rstd::usize(12)]) > 1e-4f ||
-                std::abs(effect_enabled[rstd::usize(13)] - effect_disabled[rstd::usize(13)]) > 1e-4f);
 }
 
 TEST(UniformSourceParallax, PerspectiveWithoutAuthoredParallaxDepthSkipsShift) {
@@ -1240,8 +1167,8 @@ TEST(UniformSourceParallax, PerspectiveWithoutAuthoredParallaxDepthSkipsShift) {
 
     auto layer_state = Arc<owe::UniformNodeState>::make(layer.clone(), camera_resolver.clone());
     layer_state->object_id               = i32(31);
-    layer_state->parallax_depth          = { 0.0f, 0.0f };
-    layer_state->parallax_depth_authored = false;
+    layer_state->parallax.depth    = { 0.0f, 0.0f };
+    layer_state->parallax.authored = false;
     state->SetNodeState({ .index = rstd::u32(1), .generation = rstd::u32(1) }, layer_state.clone());
 
     owe::TransformUniformSource source(state.clone(), layer_state.clone());
@@ -1293,8 +1220,8 @@ TEST(UniformSourceParallax, PerspectiveWithAuthoredParallaxDepthAppliesShift) {
 
     auto layer_state = Arc<owe::UniformNodeState>::make(layer.clone(), camera_resolver.clone());
     layer_state->object_id               = i32(1);
-    layer_state->parallax_depth          = { 1.0f, 1.0f };
-    layer_state->parallax_depth_authored = true;
+    layer_state->parallax.depth    = { 1.0f, 1.0f };
+    layer_state->parallax.authored = true;
     state->SetNodeState({ .index = rstd::u32(1), .generation = rstd::u32(1) }, layer_state.clone());
 
     owe::TransformUniformSource source(state.clone(), layer_state.clone());

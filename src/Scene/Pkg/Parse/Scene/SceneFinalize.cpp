@@ -49,8 +49,7 @@ bool RegisterUniformNodeSources(Scene& scene, const Arc<UniformSceneState>& unif
 
     auto state                         = Arc<UniformNodeState>::make(node.clone(), camera_resolver.clone());
     state->object_id                   = config.object_id;
-    state->parallax_depth              = config.parallax_depth;
-    state->parallax_depth_authored     = config.parallax_depth_authored;
+    state->parallax                    = config.parallax;
     state->propagate_parallax_to_children = config.propagate_parallax_to_children;
     state->ride_parent_parallax        = config.ride_parent_parallax;
     state->use_camera_eye_position = config.use_camera_eye_position;

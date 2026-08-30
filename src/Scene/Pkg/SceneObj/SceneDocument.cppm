@@ -16,20 +16,27 @@ export namespace owe
 namespace wpscene
 {
 
-// Omitted parallaxDepth is stored as 0.0. Orthographic scenes resolve omitted layers to
-// kImplicitOrthographicParallaxDepth at runtime when layer parallax is enabled.
+// parallaxDepth rules (resolved in UniformSceneState::ComputeParallaxOffset):
+// - omitted: stored as kDefaultParallaxDepth; orthographic scenes use kImplicitOrthographicParallaxDepth
+// - explicit value: used as authored depth (including {0,0} = frozen layer)
+// - perspective scenes without any authored depth: layer parallax stays disabled
 inline constexpr std::array<float, 2> kDefaultParallaxDepth { 0.0f, 0.0f };
 inline constexpr std::array<float, 2> kImplicitOrthographicParallaxDepth { 1.0f, 1.0f };
+
+struct ParallaxDepthBinding {
+    std::array<float, 2> depth { kDefaultParallaxDepth };
+    bool                 authored { false };
+};
 
 inline bool JsonHasParallaxDepth(const owe::Json& json) {
     auto member = json.get("parallaxDepth"_str);
     return member.is_some() && ! (*member)->is_null();
 }
 
-inline void ReadParallaxDepth(const owe::Json& json, std::array<float, 2>& depth, bool& authored) {
-    authored = JsonHasParallaxDepth(json);
-    depth    = kDefaultParallaxDepth;
-    if (authored) (void)owe::GetJsonValue(json, "parallaxDepth", depth, false);
+inline void ReadParallaxDepth(const owe::Json& json, ParallaxDepthBinding& binding) {
+    binding.authored = JsonHasParallaxDepth(json);
+    binding.depth    = kDefaultParallaxDepth;
+    if (binding.authored) (void)owe::GetJsonValue(json, "parallaxDepth", binding.depth, false);
 }
 
 inline bool IsZeroParallaxDepth(const std::array<float, 2>& depth) {
@@ -101,8 +108,8 @@ public:
     bool                 camerafade { false };
     bool                 camerapreview { false };
     bool                 cameraparallax { false };
-    float                cameraparallaxamount { 0.0f };
-    float                cameraparallaxdelay { 0.0f };
+    float                cameraparallaxamount { 0.5f };
+    float                cameraparallaxdelay { 0.1f };
     float                cameraparallaxmouseinfluence { 0.0f };
     bool                 isOrtho { false };
     Orthogonalprojection orthogonalprojection { i32(1920), i32(1080) };

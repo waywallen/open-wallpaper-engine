@@ -402,9 +402,7 @@ void BuildParticleObjectNode(ParticleObjectParseServices& services,
     UniformNodeConfigDraft svData;
 
     if (! is_child) {
-        svData.SetParallaxContract({ wppartobj.parallaxDepth[0], wppartobj.parallaxDepth[1] },
-                                   wppartobj.id,
-                                   wppartobj.parallaxDepthAuthored);
+        svData.SetParallaxContract(wppartobj.parallax, wppartobj.id);
     }
     svData.use_camera_eye_position = particle_obj.flags[wpscene::Particle::FlagEnum::perspective];
     svData.vertices_in_world_space = particle_obj.flags[wpscene::Particle::FlagEnum::wordspace];

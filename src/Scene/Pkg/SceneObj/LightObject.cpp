@@ -21,7 +21,7 @@ bool LightObject::FromJson(const owe::Json& json, fs::VFS&, SceneVersion /*v*/) 
     visible_user_key = visible_user.name;
     owe::GetJsonValue(json, "name", name, false);
     owe::GetJsonValue(json, "id", id, false);
-    ReadParallaxDepth(json, parallaxDepth, parallaxDepthAuthored);
+    ReadParallaxDepth(json, parallax);
     owe::GetJsonValue(json, "shape", shape, false);
     owe::GetJsonValue(json, "locktransforms", locktransforms, false);
     owe::GetJsonValue(json, "muteineditor", muteineditor, false);
