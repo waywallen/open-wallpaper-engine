@@ -868,11 +868,11 @@ TEST(UniformSourceParallax, ParentPropagationSelectsAncestorConfiguration) {
     auto child_state = Arc<owe::UniformNodeState>::make(child.clone(), camera_resolver.clone());
     child_state->object_id         = i32(2);
     child_state->parallax.depth    = { 1.0f, 1.0f };
-    child_state->parallax.authored = false;
+    child_state->parallax.authored = true;
     auto effect_state = Arc<owe::UniformNodeState>::make(effect.clone(), camera_resolver.clone());
     effect_state->object_id              = i32(2);
     effect_state->parallax.depth         = { 1.0f, 1.0f };
-    effect_state->parallax.authored      = false;
+    effect_state->parallax.authored      = true;
     effect_state->effect_projection_node = Some(child.clone());
     state->SetNodeState({ .index = rstd::u32(1), .generation = rstd::u32(1) },
                         parent_state.clone());

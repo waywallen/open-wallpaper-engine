@@ -982,6 +982,11 @@ void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj
                 UniformNodeConfigDraft uniform_config;
                 uniform_config.SetParallaxContract(
                     wpimgobj.parallax, wpimgobj.id, ! wpimgobj.disablepropagation);
+                uniform_config.effect_projection_node = Some(spImgNode.clone());
+                uniform_config.effect_projection_size = {
+                    rstd::as_cast<float>(effect_extent[usize()]),
+                    rstd::as_cast<float>(effect_extent[usize(1)])
+                };
                 auto material_result = BuildMaterial(vfs,
                                                      *context.shader_cache,
                                                      context.shader_environment,
@@ -1061,6 +1066,11 @@ void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj
                     UniformNodeConfigDraft finalSvData;
                     finalSvData.SetParallaxContract(
                         wpimgobj.parallax, wpimgobj.id, ! wpimgobj.disablepropagation);
+                    finalSvData.effect_projection_node = Some(spImgNode.clone());
+                    finalSvData.effect_projection_size = {
+                        rstd::as_cast<float>(effect_extent[usize()]),
+                        rstd::as_cast<float>(effect_extent[usize(1)])
+                    };
                     auto final_result = BuildMaterial(vfs,
                                                       *context.shader_cache,
                                                       context.shader_environment,

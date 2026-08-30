@@ -385,17 +385,17 @@ auto UniformSceneState::LogicalParallaxState(const UniformNodeState& state) cons
         }
     }
 
-    if (current->parallax.authored) return current;
-
-    // Unauthored layers inherit from the nearest authored ancestor.
-    auto remaining = m_nodes.len();
+    // An authored ancestor owns parallax for the composed subtree. Descendant layers still carry
+    // their bindings so they remain valid when propagation is disabled or the hierarchy changes.
+    const UniformNodeState* cursor    = current;
+    auto                    remaining = m_nodes.len();
     while (remaining != usize()) {
-        auto* parent = ParentParallaxState(*current);
+        auto* parent = ParentParallaxState(*cursor);
         if (parent == nullptr) break;
         --remaining;
         if (! parent->propagate_parallax_to_children) break;
-        current = parent;
-        if (current->parallax.authored) return current;
+        cursor = parent;
+        if (parent->parallax.authored) current = parent;
     }
     return current;
 }
