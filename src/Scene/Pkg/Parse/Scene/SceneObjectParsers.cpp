@@ -197,7 +197,7 @@ void ParseCameraObj(SceneParseContext& context, wpscene::CameraObject& cam) {
 }
 
 void InitContext(SceneParseContext& context, fs::VFS& vfs, const wpscene::SceneMetadata& sc,
-                 array<i32, 2> ortho_extent, bool any_authored_parallax) {
+                 array<i32, 2> ortho_extent) {
     context.vfs = &vfs;
     auto& scene = *context.scene;
     scene.SetImageParser(Box<dyn<IImageParser>>::make(TexImageParser(&vfs)));
@@ -214,8 +214,7 @@ void InitContext(SceneParseContext& context, fs::VFS& vfs, const wpscene::SceneM
     context.ortho_w            = ortho_extent[usize()];
     context.ortho_h            = ortho_extent[usize(1)];
     context.orthographic_scene = sc.general.isOrtho;
-    context.uniform_state->SetLayerParallaxPolicy(sc.general.isOrtho || any_authored_parallax,
-                                                  sc.general.isOrtho);
+    context.uniform_state->SetOrthographicImplicitParallax(sc.general.isOrtho);
 
     {
         auto& gb                                   = context.global_base_uniforms;
@@ -553,13 +552,6 @@ void ParseModelObj(SceneParseContext& context, wpscene::ModelObject& model) {
     ParseModelObjImpl(context, model);
 }
 
-bool SceneHasAuthoredParallaxDepth(slice<SceneObjectVar> objects) {
-    for (usize index {}; index < objects.len(); ++index) {
-        if (wpscene::SceneObjectParallaxAuthored(objects[index])) return true;
-    }
-    return false;
-}
-
 void IndexSceneDocument(SceneParseContext& context, ref<wpscene::SceneDocument> document,
                         slice<SceneObjectVar> objects) {
     context.scene_has_scripts       = SceneHasScripts(objects);
@@ -578,12 +570,11 @@ void IndexSceneDocument(SceneParseContext& context, ref<wpscene::SceneDocument> 
 
 SceneParseContext BuildContext(fs::VFS& vfs, ref<str> scene_id, const wpscene::SceneMetadata& sc,
                                array<i32, 2>                ortho_extent,
-                               bool                         any_authored_parallax,
                                Option<ref<rstd::json::Map>> user_properties,
                                Option<rstd::path::PathBuf>  shader_cache_dir,
                                GeometryShaderLimits geometry_limits, bool directional_shadow) {
     SceneParseContext context;
-    InitContext(context, vfs, sc, ortho_extent, any_authored_parallax);
+    InitContext(context, vfs, sc, ortho_extent);
     ParseCamera(context, sc);
     context.pkg_version            = sc.pkg_version;
     context.user_properties        = user_properties;

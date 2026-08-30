@@ -326,7 +326,7 @@ ParticleObject ParticleObject::Clone() const {
     out.origin           = origin;
     out.scale            = scale;
     out.angles           = angles;
-    out.parallax           = parallax;
+    out.parallax         = parallax;
     out.visible          = visible;
     out.particle         = particle;
     out.particleObj      = particleObj.Clone();

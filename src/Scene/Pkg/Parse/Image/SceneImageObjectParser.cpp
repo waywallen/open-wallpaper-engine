@@ -808,7 +808,8 @@ void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj
                     ShaderValue::fromMatrix(Eigen::Matrix4f::Identity());
                 SceneMaterial          material;
                 UniformNodeConfigDraft svData;
-                svData.SetParallaxContract(wpimgobj.parallax, wpimgobj.id, ! wpimgobj.disablepropagation);
+                svData.SetParallaxContract(
+                    wpimgobj.parallax, wpimgobj.id, ! wpimgobj.disablepropagation);
                 SceneShaderValueAnimationMap final_quad_shader_values;
                 auto effect_result = BuildMaterial(vfs,
                                                    *context.shader_cache,
@@ -979,9 +980,8 @@ void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj
                 shader_info.baseConstSvs = NeutralColorUniforms(baseConstSvs);
                 SceneMaterial          material;
                 UniformNodeConfigDraft uniform_config;
-                uniform_config.SetParallaxContract(wpimgobj.parallax,
-                                                   wpimgobj.id,
-                                                   ! wpimgobj.disablepropagation);
+                uniform_config.SetParallaxContract(
+                    wpimgobj.parallax, wpimgobj.id, ! wpimgobj.disablepropagation);
                 auto material_result = BuildMaterial(vfs,
                                                      *context.shader_cache,
                                                      context.shader_environment,
@@ -1059,9 +1059,8 @@ void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj
                     wpFinalShaderInfo.baseConstSvs = NeutralColorUniforms(baseConstSvs);
                     SceneMaterial          finalMaterial;
                     UniformNodeConfigDraft finalSvData;
-                    finalSvData.SetParallaxContract(wpimgobj.parallax,
-                                                    wpimgobj.id,
-                                                    ! wpimgobj.disablepropagation);
+                    finalSvData.SetParallaxContract(
+                        wpimgobj.parallax, wpimgobj.id, ! wpimgobj.disablepropagation);
                     auto final_result = BuildMaterial(vfs,
                                                       *context.shader_cache,
                                                       context.shader_environment,
@@ -1192,22 +1191,22 @@ void ParseShapeObj(SceneParseContext& context, wpscene::ShapeObject& shape_obj) 
     image.visible  = shape_obj.visible;
     image.material = last_effect->materials.back().clone();
     image.material.MergePass(last_effect->passes.back());
-    image.material.blending     = "additive";
-    image.effects               = rstd::move(shape_obj.effects);
-    image.nopadding             = true;
-    image.locktransforms        = shape_obj.locktransforms;
-    image.muteineditor          = shape_obj.muteineditor;
-    image.nointerpolation       = shape_obj.nointerpolation;
-    image.reflected             = shape_obj.reflected;
-    image.castshadow            = shape_obj.castshadow;
-    image.disablepropagation    = shape_obj.disablepropagation;
-    image.parent                = shape_obj.parent;
-    image.attachment            = rstd::move(shape_obj.attachment);
-    image.dependencies          = rstd::move(shape_obj.dependencies);
-    image.field_bindings        = rstd::move(shape_obj.field_bindings);
-    image.visible_user          = rstd::move(shape_obj.visible_user);
-    image.visible_user_key      = rstd::move(shape_obj.visible_user_key);
-    image.parallax              = shape_obj.parallax;
+    image.material.blending  = "additive";
+    image.effects            = rstd::move(shape_obj.effects);
+    image.nopadding          = true;
+    image.locktransforms     = shape_obj.locktransforms;
+    image.muteineditor       = shape_obj.muteineditor;
+    image.nointerpolation    = shape_obj.nointerpolation;
+    image.reflected          = shape_obj.reflected;
+    image.castshadow         = shape_obj.castshadow;
+    image.disablepropagation = shape_obj.disablepropagation;
+    image.parent             = shape_obj.parent;
+    image.attachment         = rstd::move(shape_obj.attachment);
+    image.dependencies       = rstd::move(shape_obj.dependencies);
+    image.field_bindings     = rstd::move(shape_obj.field_bindings);
+    image.visible_user       = rstd::move(shape_obj.visible_user);
+    image.visible_user_key   = rstd::move(shape_obj.visible_user_key);
+    image.parallax           = shape_obj.parallax;
     ParseImageObjImpl(context,
                       image,
                       ImageParseGeometry {

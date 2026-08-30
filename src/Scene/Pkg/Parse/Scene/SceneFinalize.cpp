@@ -47,15 +47,15 @@ bool RegisterUniformNodeSources(Scene& scene, const Arc<UniformSceneState>& unif
     auto node_id = scene.ResourceIndex().nodeId(*node);
     if (node_id.is_none()) return false;
 
-    auto state                         = Arc<UniformNodeState>::make(node.clone(), camera_resolver.clone());
-    state->object_id                   = config.object_id;
-    state->parallax                    = config.parallax;
+    auto state       = Arc<UniformNodeState>::make(node.clone(), camera_resolver.clone());
+    state->object_id = config.object_id;
+    state->parallax  = config.parallax;
     state->propagate_parallax_to_children = config.propagate_parallax_to_children;
-    state->ride_parent_parallax        = config.ride_parent_parallax;
-    state->use_camera_eye_position = config.use_camera_eye_position;
-    state->eye_position_override   = config.eye_position_override;
-    state->vertices_in_world_space = config.vertices_in_world_space;
-    state->effect_projection_size  = config.effect_projection_size;
+    state->ride_parent_parallax           = config.ride_parent_parallax;
+    state->use_camera_eye_position        = config.use_camera_eye_position;
+    state->eye_position_override          = config.eye_position_override;
+    state->vertices_in_world_space        = config.vertices_in_world_space;
+    state->effect_projection_size         = config.effect_projection_size;
     if (config.effect_projection_node.is_some())
         state->effect_projection_node = Some((*config.effect_projection_node).clone());
     uniform_state->SetNodeState(*node_id, state.clone());

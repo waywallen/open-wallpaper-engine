@@ -47,6 +47,4 @@ class SceneObject {
 
 Vec<SceneObject> DecodeSceneObjects(ref<SceneDocument>, mut_ref<fs::VFS>);
 
-bool SceneObjectParallaxAuthored(const SceneObject& object);
-
 } // namespace owe::wpscene

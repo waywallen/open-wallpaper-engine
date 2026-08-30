@@ -115,17 +115,4 @@ Vec<SceneObject> DecodeSceneObjects(ref<SceneDocument> document, mut_ref<fs::VFS
     return objects;
 }
 
-bool SceneObjectParallaxAuthored(const SceneObject& object) {
-    if (object.is_Container()) return object.as_Container().value.parallax.authored;
-    if (object.is_Image()) return object.as_Image().value.parallax.authored;
-    if (object.is_Shape()) return object.as_Shape().value.parallax.authored;
-    if (object.is_Particle()) return object.as_Particle().value.parallax.authored;
-    if (object.is_Sound()) return false;
-    if (object.is_Light()) return object.as_Light().value.parallax.authored;
-    if (object.is_Text()) return object.as_Text().value.parallax.authored;
-    if (object.is_Model()) return object.as_Model().value.parallax.authored;
-    if (object.is_Camera()) return object.as_Camera().value.parallax.authored;
-    return false;
-}
-
 } // namespace owe::wpscene

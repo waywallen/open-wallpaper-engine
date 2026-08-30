@@ -146,22 +146,21 @@ struct UniformCameraShake {
 };
 
 struct UniformNodeConfigDraft {
-    bool                    configured { false };
-    i32                     object_id { 0 };
+    bool                          configured { false };
+    i32                           object_id { 0 };
     wpscene::ParallaxDepthBinding parallax;
-    bool                    propagate_parallax_to_children { true };
-    bool                    ride_parent_parallax { false };
-    bool                    use_camera_eye_position { false };
-    Option<array<float, 3>> eye_position_override;
-    bool                    vertices_in_world_space { false };
-    Option<Arc<SceneNode>>  effect_projection_node;
-    array<float, 2>         effect_projection_size { 0.0f, 0.0f };
+    bool                          propagate_parallax_to_children { true };
+    bool                          ride_parent_parallax { false };
+    bool                          use_camera_eye_position { false };
+    Option<array<float, 3>>       eye_position_override;
+    bool                          vertices_in_world_space { false };
+    Option<Arc<SceneNode>>        effect_projection_node;
+    array<float, 2>               effect_projection_size { 0.0f, 0.0f };
 
     auto Clone() const -> UniformNodeConfigDraft;
     auto CloneForRuntimeLayer(i32 owner) const -> UniformNodeConfigDraft;
-    void SetParallaxContract(wpscene::ParallaxDepthBinding binding,
-                             i32                         owner = i32(),
-                             bool                        propagate_to_children = true);
+    void SetParallaxContract(wpscene::ParallaxDepthBinding binding, i32 owner = i32(),
+                             bool propagate_to_children = true);
 };
 
 class UniformCameraResolver {
@@ -181,17 +180,17 @@ private:
 };
 
 struct UniformNodeState {
-    Arc<SceneNode>             node;
-    Arc<UniformCameraResolver> camera_resolver;
-    i32                        object_id { 0 };
+    Arc<SceneNode>                node;
+    Arc<UniformCameraResolver>    camera_resolver;
+    i32                           object_id { 0 };
     wpscene::ParallaxDepthBinding parallax;
-    bool                       propagate_parallax_to_children { true };
-    bool                       ride_parent_parallax { false };
-    bool                       use_camera_eye_position { false };
-    Option<array<float, 3>>    eye_position_override;
-    bool                       vertices_in_world_space { false };
-    Option<Arc<SceneNode>>     effect_projection_node;
-    array<float, 2>            effect_projection_size { 0.0f, 0.0f };
+    bool                          propagate_parallax_to_children { true };
+    bool                          ride_parent_parallax { false };
+    bool                          use_camera_eye_position { false };
+    Option<array<float, 3>>       eye_position_override;
+    bool                          vertices_in_world_space { false };
+    Option<Arc<SceneNode>>        effect_projection_node;
+    array<float, 2>               effect_projection_size { 0.0f, 0.0f };
 
     UniformNodeState(Arc<SceneNode> value, Arc<UniformCameraResolver> resolver)
         : node(rstd::move(value)), camera_resolver(rstd::move(resolver)) {}
@@ -227,9 +226,8 @@ public:
     array<float, 2>              Ortho() const noexcept { return m_ortho; }
 
     void SetOrtho(float width, float height) { m_ortho = { width, height }; }
-    void SetLayerParallaxPolicy(bool enabled, bool orthographic_implicit) {
-        m_layer_parallax_enabled          = enabled;
-        m_orthographic_implicit_parallax  = orthographic_implicit;
+    void SetOrthographicImplicitParallax(bool enabled) {
+        m_orthographic_implicit_parallax = enabled;
     }
     void SetPointerInput(double, double);
     void SetAudioSpectrum(const scene_audio::Buffers&);
@@ -259,7 +257,6 @@ private:
     UniformFrameInputs       m_inputs;
     UniformCameraParallax    m_camera_parallax;
     UniformCameraShake       m_camera_shake;
-    bool                     m_layer_parallax_enabled { false };
     bool                     m_orthographic_implicit_parallax { false };
     array<float, 2>          m_ortho { 1920.0f, 1080.0f };
     array<float, 2>          m_pointer_input { 0.5f, 0.5f };

@@ -259,8 +259,7 @@ void UniformSceneState::SetNodeState(SceneNodeId id, Arc<UniformNodeState> state
     (void)m_nodes.insert(Key(id), rstd::move(state));
 }
 
-void UniformSceneState::RegisterNodeParallaxContract(const SceneNode&           node,
-                                                     i32                        object_id,
+void UniformSceneState::RegisterNodeParallaxContract(const SceneNode& node, i32 object_id,
                                                      const wpscene::ParallaxDepthBinding& binding) {
     (void)m_parallax_owners.insert(rstd::addressof(node), object_id);
     if (! binding.authored) return;
@@ -413,8 +412,6 @@ auto UniformSceneState::ComputeParallaxOffset(const UniformNodeState& state,
                                               const SceneCamera&      camera,
                                               SceneRenderViewKind     view) const
     -> rstd::array<float, 2> {
-    if (! m_layer_parallax_enabled) return { 0.0f, 0.0f };
-
     const auto* source = LogicalParallaxState(state);
 
     array<float, 2> depth_values;
@@ -429,7 +426,7 @@ auto UniformSceneState::ComputeParallaxOffset(const UniformNodeState& state,
     }
 
     source->node->UpdateTrans();
-    const Vector3f node_position       = source->node->ModelTrans().block<3, 1>(0, 3).cast<float>();
+    const Vector3f node_position = source->node->ModelTrans().block<3, 1>(0, 3).cast<float>();
     const Vector2f depth { depth_values[usize(0)], depth_values[usize(1)] };
     const auto     ortho_values = Ortho();
     const Vector2f ortho { ortho_values[usize(0)], ortho_values[usize(1)] };

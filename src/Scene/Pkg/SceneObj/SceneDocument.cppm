@@ -17,7 +17,8 @@ namespace wpscene
 {
 
 // parallaxDepth rules (resolved in UniformSceneState::ComputeParallaxOffset):
-// - omitted: stored as kDefaultParallaxDepth; orthographic scenes use kImplicitOrthographicParallaxDepth
+// - omitted: stored as kDefaultParallaxDepth; orthographic scenes use
+// kImplicitOrthographicParallaxDepth
 // - explicit value: used as authored depth (including {0,0} = frozen layer)
 // - perspective scenes without any authored depth: layer parallax stays disabled
 inline constexpr std::array<float, 2> kDefaultParallaxDepth { 0.0f, 0.0f };
