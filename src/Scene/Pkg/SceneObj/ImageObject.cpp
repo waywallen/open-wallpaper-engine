@@ -304,7 +304,12 @@ bool ImageObject::FromJson(const owe::Json& json, fs::VFS& vfs, SceneVersion v) 
     owe::GetJsonValue(json, "name", name, false);
     owe::GetJsonValue(json, "id", id, false);
     owe::GetJsonValue(json, "colorBlendMode", colorBlendMode, false);
-    ReadParallaxDepth(json, parallaxDepth, parallaxDepthAuthored);
+    ReadParallaxDepth(json, parallax);
+    if (! parallax.authored && composite_layer) {
+        // WE gives composite containers the regular layer depth when the field is omitted.
+        parallax.depth    = kImplicitOrthographicParallaxDepth;
+        parallax.authored = true;
+    }
     if (! fullscreen) {
         owe::GetJsonValue(json, "origin", origin);
         owe::GetJsonValue(json, "angles", angles);
@@ -379,7 +384,7 @@ bool ShapeObject::FromJson(const owe::Json& json, fs::VFS& vfs, SceneVersion v) 
     owe::GetJsonValue(json, "origin", origin);
     owe::GetJsonValue(json, "angles", angles);
     owe::GetJsonValue(json, "scale", scale);
-    ReadParallaxDepth(json, parallaxDepth, parallaxDepthAuthored);
+    ReadParallaxDepth(json, parallax);
 
     ReadImageEffects(json, vfs, v, effects);
 

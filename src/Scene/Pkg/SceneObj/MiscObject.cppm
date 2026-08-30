@@ -31,8 +31,7 @@ struct TextObject {
     std::array<float, 3> origin { 0.0f, 0.0f, 0.0f };
     std::array<float, 3> scale { 1.0f, 1.0f, 1.0f };
     std::array<float, 3> angles { 0.0f, 0.0f, 0.0f };
-    std::array<float, 2> parallaxDepth { kDefaultParallaxDepth };
-    bool                 parallaxDepthAuthored { false };
+    ParallaxDepthBinding parallax;
     bool                 visible { true };
 
     bool             locktransforms { false };
@@ -90,7 +89,7 @@ struct TextObject {
         owe::GetJsonValue(json, "origin", origin, false);
         owe::GetJsonValue(json, "scale", scale, false);
         owe::GetJsonValue(json, "angles", angles, false);
-        ReadParallaxDepth(json, parallaxDepth, parallaxDepthAuthored);
+        ReadParallaxDepth(json, parallax);
         ReadVisibleProperty(json, visible, visible_user);
         visible_user_key = visible_user.name;
         owe::GetJsonValue(json, "locktransforms", locktransforms, false);
@@ -153,8 +152,7 @@ struct ModelObject {
     std::array<float, 3> origin { 0.0f, 0.0f, 0.0f };
     std::array<float, 3> scale { 1.0f, 1.0f, 1.0f };
     std::array<float, 3> angles { 0.0f, 0.0f, 0.0f };
-    std::array<float, 2> parallaxDepth { kDefaultParallaxDepth };
-    bool                 parallaxDepthAuthored { false };
+    ParallaxDepthBinding parallax;
     bool                 visible { true };
 
     bool             locktransforms { false };
@@ -185,7 +183,7 @@ struct ModelObject {
         owe::GetJsonValue(json, "origin", origin, false);
         owe::GetJsonValue(json, "scale", scale, false);
         owe::GetJsonValue(json, "angles", angles, false);
-        ReadParallaxDepth(json, parallaxDepth, parallaxDepthAuthored);
+        ReadParallaxDepth(json, parallax);
         ReadVisibleProperty(json, visible, visible_user);
         visible_user_key = visible_user.name;
         owe::GetJsonValue(json, "locktransforms", locktransforms, false);
@@ -216,8 +214,7 @@ struct CameraObject {
     std::array<float, 3> origin { 0.0f, 0.0f, 0.0f };
     std::array<float, 3> scale { 1.0f, 1.0f, 1.0f };
     std::array<float, 3> angles { 0.0f, 0.0f, 0.0f };
-    std::array<float, 2> parallaxDepth { kDefaultParallaxDepth };
-    bool                 parallaxDepthAuthored { false };
+    ParallaxDepthBinding parallax;
     bool                 visible { true };
 
     bool             locktransforms { false };
@@ -248,7 +245,7 @@ struct CameraObject {
         owe::GetJsonValue(json, "origin", origin, false);
         owe::GetJsonValue(json, "scale", scale, false);
         owe::GetJsonValue(json, "angles", angles, false);
-        ReadParallaxDepth(json, parallaxDepth, parallaxDepthAuthored);
+        ReadParallaxDepth(json, parallax);
         ReadVisibleProperty(json, visible, visible_user);
         visible_user_key = visible_user.name;
         owe::GetJsonValue(json, "locktransforms", locktransforms, false);

@@ -25,8 +25,7 @@ struct ContainerObject {
     std::array<float, 3> origin { 0.0f, 0.0f, 0.0f };
     std::array<float, 3> scale { 1.0f, 1.0f, 1.0f };
     std::array<float, 3> angles { 0.0f, 0.0f, 0.0f };
-    std::array<float, 2> parallax_depth { kDefaultParallaxDepth };
-    bool                 parallax_depth_authored { false };
+    ParallaxDepthBinding parallax;
     bool                 visible { true };
     bool                 solid { false };
     bool                 disable_propagation { false };
@@ -47,5 +46,7 @@ class SceneObject {
 };
 
 Vec<SceneObject> DecodeSceneObjects(ref<SceneDocument>, mut_ref<fs::VFS>);
+
+bool SceneObjectParallaxAuthored(const SceneObject& object);
 
 } // namespace owe::wpscene

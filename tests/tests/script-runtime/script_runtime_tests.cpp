@@ -659,9 +659,12 @@ TEST(ScriptNodeSoftMutation, RuntimeLayersKeepIndependentPendingParallaxDepth) {
     auto first  = Arc<owe::SceneNode>::make();
     auto writer = Arc<owe::SceneNode>::make();
     auto second = Arc<owe::SceneNode>::make();
-    state->RegisterNodeParallaxContract(*first, i32(-1), { 1.0f, 1.0f });
-    state->RegisterNodeParallaxContract(*writer, i32(-1), { 1.0f, 1.0f });
-    state->RegisterNodeParallaxContract(*second, i32(-2), { 1.0f, 1.0f });
+    state->RegisterNodeParallaxContract(
+        *first, i32(-1), owe::wpscene::ParallaxDepthBinding { { 1.0f, 1.0f }, true });
+    state->RegisterNodeParallaxContract(
+        *writer, i32(-1), owe::wpscene::ParallaxDepthBinding { { 1.0f, 1.0f }, true });
+    state->RegisterNodeParallaxContract(
+        *second, i32(-2), owe::wpscene::ParallaxDepthBinding { { 1.0f, 1.0f }, true });
     EXPECT_TRUE(state->SetNodeParallaxDepth(*first, { 0.0f, 0.0f }));
 
     auto first_depth  = state->NodeParallaxDepth(*first);
@@ -683,8 +686,8 @@ TEST(ScriptNodeSoftMutation, RuntimeLayersKeepIndependentPendingParallaxDepth) {
     auto first_state       = Arc<owe::UniformNodeState>::make(first.clone(), cameras.clone());
     first_state->object_id = i32(-1);
     state->SetNodeState({ .index = u32(1), .generation = u32(1) }, first_state.clone());
-    EXPECT_FLOAT_EQ(first_state->parallax_depth[usize()], 0.0f);
-    EXPECT_FLOAT_EQ(first_state->parallax_depth[usize(1)], 0.0f);
+    EXPECT_FLOAT_EQ(first_state->parallax.depth[0], 0.0f);
+    EXPECT_FLOAT_EQ(first_state->parallax.depth[1], 0.0f);
 }
 
 TEST(ScriptNodeSoftMutation, ImageAlignmentBindingClonesForDynamicLayer) {

@@ -852,6 +852,7 @@ TEST(UniformSourceParallax, ParentPropagationSelectsAncestorConfiguration) {
     effect->SetParentAnchor(child.as_ptr());
 
     auto state = Arc<owe::UniformSceneState>::make(Arc<owe::AudioResponseDemand>::make());
+    state->SetLayerParallaxPolicy(true, true);
     state->CameraParallax() = { true, 0.03f, 0.0f, 0.36f };
     state->SetOrtho(3840.0f, 2160.0f);
     state->SetPointerInput(0.0, 1.0);
@@ -861,14 +862,17 @@ TEST(UniformSourceParallax, ParentPropagationSelectsAncestorConfiguration) {
     camera_resolver->Add(String::make("default"_str), camera.clone());
 
     auto parent_state = Arc<owe::UniformNodeState>::make(parent.clone(), camera_resolver.clone());
-    parent_state->object_id      = i32(1);
-    parent_state->parallax_depth = { -1.56f, -0.79f };
+    parent_state->object_id               = i32(1);
+    parent_state->parallax.depth    = { -1.56f, -0.79f };
+    parent_state->parallax.authored = true;
     auto child_state = Arc<owe::UniformNodeState>::make(child.clone(), camera_resolver.clone());
-    child_state->object_id      = i32(2);
-    child_state->parallax_depth = { 1.0f, 1.0f };
+    child_state->object_id               = i32(2);
+    child_state->parallax.depth    = { 1.0f, 1.0f };
+    child_state->parallax.authored = false;
     auto effect_state = Arc<owe::UniformNodeState>::make(effect.clone(), camera_resolver.clone());
     effect_state->object_id              = i32(2);
-    effect_state->parallax_depth         = { 1.0f, 1.0f };
+    effect_state->parallax.depth    = { 1.0f, 1.0f };
+    effect_state->parallax.authored = false;
     effect_state->effect_projection_node = Some(child.clone());
     state->SetNodeState({ .index = rstd::u32(1), .generation = rstd::u32(1) },
                         parent_state.clone());
@@ -898,25 +902,25 @@ TEST(UniformSourceParallax, ParentPropagationSelectsAncestorConfiguration) {
     EXPECT_NEAR(mvp[rstd::usize(12)], expected_inherited.x(), 1e-5f);
     EXPECT_NEAR(mvp[rstd::usize(13)], expected_inherited.y(), 1e-5f);
 
-    child_state->parallax_depth = { 0.0f, 0.0f };
+    child_state->parallax.depth = { 0.0f, 0.0f };
     mvp                         = capture_mvp();
     EXPECT_NEAR(mvp[rstd::usize(12)], expected_inherited.x(), 1e-5f);
     EXPECT_NEAR(mvp[rstd::usize(13)], expected_inherited.y(), 1e-5f);
 
-    child_state->parallax_depth = { 0.5f, 0.5f };
+    child_state->parallax.depth = { 0.5f, 0.5f };
     mvp                         = capture_mvp();
     EXPECT_NEAR(mvp[rstd::usize(12)], expected_inherited.x(), 1e-5f);
     EXPECT_NEAR(mvp[rstd::usize(13)], expected_inherited.y(), 1e-5f);
 
-    parent_state->parallax_depth = { 0.0f, 0.0f };
-    child_state->parallax_depth  = { -0.7f, -0.7f };
+    parent_state->parallax.depth = { 0.0f, 0.0f };
+    child_state->parallax.depth  = { -0.7f, -0.7f };
     mvp                          = capture_mvp();
     auto expected_frozen         = expected_translation({ 1982.0f, 1053.0f }, { 0.0f, 0.0f });
     EXPECT_NEAR(mvp[rstd::usize(12)], expected_frozen.x(), 1e-5f);
     EXPECT_NEAR(mvp[rstd::usize(13)], expected_frozen.y(), 1e-5f);
 
-    parent_state->parallax_depth  = { 0.321f, 0.321f };
-    child_state->parallax_depth   = { 0.321f, 0.321f };
+    parent_state->parallax.depth = { 0.321f, 0.321f };
+    child_state->parallax.depth  = { 0.321f, 0.321f };
     mvp                           = capture_mvp();
     auto expected_parent_authored = expected_translation({ 1982.0f, 1053.0f }, { 0.321f, 0.321f });
     EXPECT_NEAR(mvp[rstd::usize(12)], expected_parent_authored.x(), 1e-5f);
@@ -933,4 +937,304 @@ TEST(UniformSourceParallax, ParentPropagationSelectsAncestorConfiguration) {
     mvp = capture_mvp();
     EXPECT_NEAR(mvp[rstd::usize(12)], 0.0f, 1e-5f);
     EXPECT_NEAR(mvp[rstd::usize(13)], 0.0f, 1e-5f);
+}
+
+TEST(UniformSourceParallax, OrthographicOmittedDepthUsesImplicitParallax) {
+    owe::Scene scene;
+    scene.SetOrtho({ i32(1920), i32(1080) });
+
+    auto camera_node = Arc<owe::SceneNode>::make(Eigen::Vector3f { 960.0f, 540.0f, 0.0f },
+                                                 Eigen::Vector3f { 1.0f, 1.0f, 1.0f },
+                                                 Eigen::Vector3f::Zero());
+    auto camera =
+        Arc<owe::SceneCamera>::make(owe::SceneCamera::MakeOrthographic(1920, 1080, -1.0, 1.0));
+    camera->AttatchNode(camera_node.as_ptr());
+    scene.RegisterCamera(String::make("default"_str), camera.clone());
+    ASSERT_TRUE(scene.SetActiveCamera("default"_str));
+
+    auto layer = Arc<owe::SceneNode>::make(Eigen::Vector3f { 1200.0f, 700.0f, 0.0f },
+                                           Eigen::Vector3f { 1.0f, 1.0f, 1.0f },
+                                           Eigen::Vector3f::Zero());
+    auto mesh = std::make_shared<owe::SceneMesh>();
+    mesh->AddMaterial(owe::SceneMaterial {});
+    owe::SceneMesh::Submesh submesh;
+    submesh.material_slot = u32();
+    mesh->Submeshes().push_back(std::move(submesh));
+    layer->AddMesh(mesh);
+    scene.RootMut()->AppendChild(layer.clone());
+    scene.RebuildResourceIndex();
+
+    auto state = Arc<owe::UniformSceneState>::make(Arc<owe::AudioResponseDemand>::make());
+    state->SetLayerParallaxPolicy(true, true);
+    state->CameraParallax() = { true, 0.5f, 0.0f, 0.36f };
+    state->SetOrtho(1920.0f, 1080.0f);
+    state->SetPointerInput(0.0, 1.0);
+    state->Advance(owe::SceneFrame {});
+
+    auto camera_resolver = Arc<owe::UniformCameraResolver>::make(camera.clone());
+    camera_resolver->Add(String::make("default"_str), camera.clone());
+
+    auto layer_state = Arc<owe::UniformNodeState>::make(layer.clone(), camera_resolver.clone());
+    layer_state->object_id               = i32(1);
+    layer_state->parallax.depth    = { 0.0f, 0.0f };
+    layer_state->parallax.authored = false;
+    state->SetNodeState({ .index = rstd::u32(1), .generation = rstd::u32(1) }, layer_state.clone());
+
+    owe::TransformUniformSource source(state.clone(), layer_state.clone());
+    state->CameraParallax().enable = false;
+    auto mvp_without_parallax = scene_test::Capture(
+        scene.Runtime().Frame(), source, owe::TransformUniformOutput::ModelViewProjection);
+    state->CameraParallax().enable = true;
+    auto mvp_with_parallax = scene_test::Capture(
+        scene.Runtime().Frame(), source, owe::TransformUniformOutput::ModelViewProjection);
+    ASSERT_GT(mvp_without_parallax.size().to_primitive(), 13u);
+    ASSERT_GT(mvp_with_parallax.size().to_primitive(), 13u);
+    EXPECT_TRUE(std::abs(mvp_without_parallax[rstd::usize(12)] - mvp_with_parallax[rstd::usize(12)]) >
+                    1e-5f ||
+                std::abs(mvp_without_parallax[rstd::usize(13)] - mvp_with_parallax[rstd::usize(13)]) >
+                    1e-5f);
+}
+
+TEST(UniformSourceParallax, UnregisteredContainerRootDoesNotPoisonChildren) {
+    owe::Scene scene;
+    scene.SetOrtho({ i32(3840), i32(2160) });
+
+    auto camera_node = Arc<owe::SceneNode>::make(Eigen::Vector3f { 1920.0f, 1080.0f, 0.0f },
+                                                 Eigen::Vector3f { 1.0f, 1.0f, 1.0f },
+                                                 Eigen::Vector3f::Zero());
+    auto camera =
+        Arc<owe::SceneCamera>::make(owe::SceneCamera::MakeOrthographic(3840, 2160, -1.0, 1.0));
+    camera->AttatchNode(camera_node.as_ptr());
+    scene.RegisterCamera(String::make("default"_str), camera.clone());
+    ASSERT_TRUE(scene.SetActiveCamera("default"_str));
+
+    auto container = Arc<owe::SceneNode>::make(Eigen::Vector3f { 1982.0f, 1053.0f, 0.0f },
+                                              Eigen::Vector3f { 1.0f, 1.0f, 1.0f },
+                                              Eigen::Vector3f::Zero());
+    auto child = Arc<owe::SceneNode>::make(Eigen::Vector3f { -76.0f, -3.0f, 0.0f },
+                                          Eigen::Vector3f { 1.0f, 1.0f, 1.0f },
+                                          Eigen::Vector3f::Zero());
+    auto mesh  = std::make_shared<owe::SceneMesh>();
+    mesh->AddMaterial(owe::SceneMaterial {});
+    owe::SceneMesh::Submesh submesh;
+    submesh.material_slot = u32();
+    mesh->Submeshes().push_back(std::move(submesh));
+    child->AddMesh(mesh);
+    container->AppendChild(child.clone());
+    scene.RootMut()->AppendChild(container.clone());
+    scene.RebuildResourceIndex();
+
+    auto state = Arc<owe::UniformSceneState>::make(Arc<owe::AudioResponseDemand>::make());
+    state->SetLayerParallaxPolicy(true, true);
+    state->CameraParallax() = { true, 0.03f, 0.0f, 0.36f };
+    state->SetOrtho(3840.0f, 2160.0f);
+    state->SetPointerInput(0.0, 1.0);
+    state->Advance(owe::SceneFrame {});
+
+    auto camera_resolver = Arc<owe::UniformCameraResolver>::make(camera.clone());
+    camera_resolver->Add(String::make("default"_str), camera.clone());
+
+    auto child_state = Arc<owe::UniformNodeState>::make(child.clone(), camera_resolver.clone());
+    child_state->object_id               = i32(2);
+    child_state->parallax.depth    = { -1.12f, -1.36f };
+    child_state->parallax.authored = true;
+    state->SetNodeState({ .index = rstd::u32(2), .generation = rstd::u32(1) }, child_state.clone());
+
+    owe::TransformUniformSource source(state.clone(), child_state.clone());
+    auto mvp = scene_test::Capture(
+        scene.Runtime().Frame(), source, owe::TransformUniformOutput::ModelViewProjection);
+
+    const Eigen::Vector2f camera_pos { 1920.0f, 1080.0f };
+    const Eigen::Vector2f mouse_vec { 691.2f, 388.8f };
+    const Eigen::Vector2f depth { -1.12f, -1.36f };
+    const Eigen::Vector2f base { 1906.0f, 1050.0f };
+    const Eigen::Vector2f offset =
+        (base - camera_pos + mouse_vec).cwiseProduct(depth) * 0.03f;
+    const Eigen::Vector2f final_pos = base + offset;
+    const Eigen::Vector2f expected {
+        (final_pos.x() - 1920.0f) / 1920.0f,
+        (final_pos.y() - 1080.0f) / 1080.0f,
+    };
+
+    ASSERT_GT(mvp.size().to_primitive(), 13u);
+    EXPECT_NEAR(mvp[rstd::usize(12)], expected.x(), 1e-5f);
+    EXPECT_NEAR(mvp[rstd::usize(13)], expected.y(), 1e-5f);
+}
+
+TEST(UniformSourceParallax, DisablePropagationBlocksInheritance) {
+    owe::Scene scene;
+    scene.SetOrtho({ i32(3840), i32(2160) });
+
+    auto camera_node = Arc<owe::SceneNode>::make(Eigen::Vector3f { 1920.0f, 1080.0f, 0.0f },
+                                                 Eigen::Vector3f { 1.0f, 1.0f, 1.0f },
+                                                 Eigen::Vector3f::Zero());
+    auto camera =
+        Arc<owe::SceneCamera>::make(owe::SceneCamera::MakeOrthographic(3840, 2160, -1.0, 1.0));
+    camera->AttatchNode(camera_node.as_ptr());
+    scene.RegisterCamera(String::make("default"_str), camera.clone());
+    ASSERT_TRUE(scene.SetActiveCamera("default"_str));
+
+    auto parent = Arc<owe::SceneNode>::make(Eigen::Vector3f { 1982.0f, 1053.0f, 0.0f },
+                                            Eigen::Vector3f { 1.0f, 1.0f, 1.0f },
+                                            Eigen::Vector3f::Zero());
+    auto child  = Arc<owe::SceneNode>::make(Eigen::Vector3f { -76.0f, -3.0f, 0.0f },
+                                            Eigen::Vector3f { 1.0f, 1.0f, 1.0f },
+                                            Eigen::Vector3f::Zero());
+    auto mesh   = std::make_shared<owe::SceneMesh>();
+    mesh->AddMaterial(owe::SceneMaterial {});
+    owe::SceneMesh::Submesh submesh;
+    submesh.material_slot = u32();
+    mesh->Submeshes().push_back(std::move(submesh));
+    child->AddMesh(mesh);
+    parent->AppendChild(child.clone());
+    scene.RootMut()->AppendChild(parent.clone());
+    scene.RebuildResourceIndex();
+
+    auto state = Arc<owe::UniformSceneState>::make(Arc<owe::AudioResponseDemand>::make());
+    state->SetLayerParallaxPolicy(true, true);
+    state->CameraParallax() = { true, 0.03f, 0.0f, 0.36f };
+    state->SetOrtho(3840.0f, 2160.0f);
+    state->SetPointerInput(0.0, 1.0);
+    state->Advance(owe::SceneFrame {});
+
+    auto camera_resolver = Arc<owe::UniformCameraResolver>::make(camera.clone());
+    camera_resolver->Add(String::make("default"_str), camera.clone());
+
+    auto parent_state = Arc<owe::UniformNodeState>::make(parent.clone(), camera_resolver.clone());
+    parent_state->object_id                      = i32(1);
+    parent_state->parallax.depth    = { -1.56f, -0.79f };
+    parent_state->parallax.authored = true;
+    parent_state->propagate_parallax_to_children = false;
+    auto child_state = Arc<owe::UniformNodeState>::make(child.clone(), camera_resolver.clone());
+    child_state->object_id               = i32(2);
+    child_state->parallax.depth    = { 0.0f, 0.0f };
+    child_state->parallax.authored = false;
+    state->SetNodeState({ .index = rstd::u32(1), .generation = rstd::u32(1) },
+                        parent_state.clone());
+    state->SetNodeState({ .index = rstd::u32(2), .generation = rstd::u32(1) }, child_state.clone());
+
+    owe::TransformUniformSource source(state.clone(), child_state.clone());
+    auto capture_mvp = [&]() {
+        return scene_test::Capture(
+            scene.Runtime().Frame(), source, owe::TransformUniformOutput::ModelViewProjection);
+    };
+
+    parent_state->propagate_parallax_to_children = true;
+    auto mvp_inherited = capture_mvp();
+
+    parent_state->propagate_parallax_to_children = false;
+    auto mvp_blocked = capture_mvp();
+
+    ASSERT_GT(mvp_inherited.size().to_primitive(), 13u);
+    ASSERT_GT(mvp_blocked.size().to_primitive(), 13u);
+    EXPECT_TRUE(std::abs(mvp_inherited[rstd::usize(12)] - mvp_blocked[rstd::usize(12)]) > 1e-5f ||
+                std::abs(mvp_inherited[rstd::usize(13)] - mvp_blocked[rstd::usize(13)]) > 1e-5f);
+}
+
+TEST(UniformSourceParallax, PerspectiveWithoutAuthoredParallaxDepthSkipsShift) {
+    owe::Scene scene;
+    scene.SetOrtho({ i32(1920), i32(1080) });
+
+    auto camera =
+        Arc<owe::SceneCamera>::make(owe::SceneCamera::MakePerspective(16.0 / 9.0, 0.1, 10000.0, 60.0));
+    camera->SetLookAt(Eigen::Vector3d { -1.69, 0.62, 9.29 },
+                      Eigen::Vector3d { -1.58, 0.60, 8.30 },
+                      Eigen::Vector3d::UnitY());
+    scene.RegisterCamera(String::make("default"_str), camera.clone());
+    ASSERT_TRUE(scene.SetActiveCamera("default"_str));
+
+    auto layer = Arc<owe::SceneNode>::make(Eigen::Vector3f { 0.0f, 0.0f, 3.0f },
+                                           Eigen::Vector3f { 0.0025f, 0.0025f, 5.0f },
+                                           Eigen::Vector3f::Zero());
+    auto mesh = std::make_shared<owe::SceneMesh>();
+    mesh->AddMaterial(owe::SceneMaterial {});
+    owe::SceneMesh::Submesh submesh;
+    submesh.material_slot = u32();
+    mesh->Submeshes().push_back(std::move(submesh));
+    layer->AddMesh(mesh);
+    scene.RootMut()->AppendChild(layer.clone());
+    scene.RebuildResourceIndex();
+
+    auto state = Arc<owe::UniformSceneState>::make(Arc<owe::AudioResponseDemand>::make());
+    state->SetLayerParallaxPolicy(false, false);
+    state->CameraParallax() = { true, 2.0f, 0.0f, 1.0f };
+    state->SetOrtho(1920.0f, 1080.0f);
+    state->SetPointerInput(0.0, 1.0);
+    state->Advance(owe::SceneFrame {});
+
+    auto camera_resolver = Arc<owe::UniformCameraResolver>::make(camera.clone());
+    camera_resolver->Add(String::make("default"_str), camera.clone());
+
+    auto layer_state = Arc<owe::UniformNodeState>::make(layer.clone(), camera_resolver.clone());
+    layer_state->object_id               = i32(31);
+    layer_state->parallax.depth    = { 0.0f, 0.0f };
+    layer_state->parallax.authored = false;
+    state->SetNodeState({ .index = rstd::u32(1), .generation = rstd::u32(1) }, layer_state.clone());
+
+    owe::TransformUniformSource source(state.clone(), layer_state.clone());
+    state->CameraParallax().enable = false;
+    auto mvp_without_parallax = scene_test::Capture(
+        scene.Runtime().Frame(), source, owe::TransformUniformOutput::ModelViewProjection);
+    state->CameraParallax().enable = true;
+    auto mvp_with_parallax = scene_test::Capture(
+        scene.Runtime().Frame(), source, owe::TransformUniformOutput::ModelViewProjection);
+    ASSERT_GT(mvp_without_parallax.size().to_primitive(), 13u);
+    ASSERT_GT(mvp_with_parallax.size().to_primitive(), 13u);
+    EXPECT_NEAR(mvp_without_parallax[rstd::usize(12)], mvp_with_parallax[rstd::usize(12)], 1e-5f);
+    EXPECT_NEAR(mvp_without_parallax[rstd::usize(13)], mvp_with_parallax[rstd::usize(13)], 1e-5f);
+}
+
+TEST(UniformSourceParallax, PerspectiveWithAuthoredParallaxDepthAppliesShift) {
+    owe::Scene scene;
+    scene.SetOrtho({ i32(1920), i32(1080) });
+
+    auto camera =
+        Arc<owe::SceneCamera>::make(owe::SceneCamera::MakePerspective(16.0 / 9.0, 0.1, 10000.0, 60.0));
+    camera->SetLookAt(Eigen::Vector3d { 0.0, 0.0, 5.0 },
+                      Eigen::Vector3d::Zero(),
+                      Eigen::Vector3d::UnitY());
+    scene.RegisterCamera(String::make("default"_str), camera.clone());
+    ASSERT_TRUE(scene.SetActiveCamera("default"_str));
+
+    auto layer = Arc<owe::SceneNode>::make(Eigen::Vector3f { 1.0f, 2.0f, -3.0f },
+                                           Eigen::Vector3f::Ones(),
+                                           Eigen::Vector3f::Zero());
+    auto mesh = std::make_shared<owe::SceneMesh>();
+    mesh->AddMaterial(owe::SceneMaterial {});
+    owe::SceneMesh::Submesh submesh;
+    submesh.material_slot = u32();
+    mesh->Submeshes().push_back(std::move(submesh));
+    layer->AddMesh(mesh);
+    scene.RootMut()->AppendChild(layer.clone());
+    scene.RebuildResourceIndex();
+
+    auto state = Arc<owe::UniformSceneState>::make(Arc<owe::AudioResponseDemand>::make());
+    state->SetLayerParallaxPolicy(true, false);
+    state->CameraParallax() = { true, 0.5f, 0.0f, 1.0f };
+    state->SetOrtho(1920.0f, 1080.0f);
+    state->SetPointerInput(0.0, 1.0);
+    state->Advance(owe::SceneFrame {});
+
+    auto camera_resolver = Arc<owe::UniformCameraResolver>::make(camera.clone());
+    camera_resolver->Add(String::make("default"_str), camera.clone());
+
+    auto layer_state = Arc<owe::UniformNodeState>::make(layer.clone(), camera_resolver.clone());
+    layer_state->object_id               = i32(1);
+    layer_state->parallax.depth    = { 1.0f, 1.0f };
+    layer_state->parallax.authored = true;
+    state->SetNodeState({ .index = rstd::u32(1), .generation = rstd::u32(1) }, layer_state.clone());
+
+    owe::TransformUniformSource source(state.clone(), layer_state.clone());
+    state->CameraParallax().enable = false;
+    auto mvp_without_parallax = scene_test::Capture(
+        scene.Runtime().Frame(), source, owe::TransformUniformOutput::ModelViewProjection);
+    state->CameraParallax().enable = true;
+    auto mvp_with_parallax = scene_test::Capture(
+        scene.Runtime().Frame(), source, owe::TransformUniformOutput::ModelViewProjection);
+    ASSERT_GT(mvp_without_parallax.size().to_primitive(), 13u);
+    ASSERT_GT(mvp_with_parallax.size().to_primitive(), 13u);
+    EXPECT_TRUE(std::abs(mvp_without_parallax[rstd::usize(12)] - mvp_with_parallax[rstd::usize(12)]) >
+                    1e-5f ||
+                std::abs(mvp_without_parallax[rstd::usize(13)] - mvp_with_parallax[rstd::usize(13)]) >
+                    1e-5f);
 }

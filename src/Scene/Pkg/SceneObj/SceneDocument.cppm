@@ -16,22 +16,35 @@ export namespace owe
 namespace wpscene
 {
 
-// Omitted parallaxDepth uses 1.0. Child layers follow the unparented ancestor.
-inline constexpr std::array<float, 2> kDefaultParallaxDepth { 1.0f, 1.0f };
+// parallaxDepth rules (resolved in UniformSceneState::ComputeParallaxOffset):
+// - omitted: stored as kDefaultParallaxDepth; orthographic scenes use kImplicitOrthographicParallaxDepth
+// - explicit value: used as authored depth (including {0,0} = frozen layer)
+// - perspective scenes without any authored depth: layer parallax stays disabled
+inline constexpr std::array<float, 2> kDefaultParallaxDepth { 0.0f, 0.0f };
+inline constexpr std::array<float, 2> kImplicitOrthographicParallaxDepth { 1.0f, 1.0f };
+
+struct ParallaxDepthBinding {
+    std::array<float, 2> depth { kDefaultParallaxDepth };
+    bool                 authored { false };
+};
 
 inline bool JsonHasParallaxDepth(const owe::Json& json) {
     auto member = json.get("parallaxDepth"_str);
     return member.is_some() && ! (*member)->is_null();
 }
 
-inline void ReadParallaxDepth(const owe::Json& json, std::array<float, 2>& depth, bool& authored) {
-    authored = JsonHasParallaxDepth(json);
-    depth    = kDefaultParallaxDepth;
-    if (authored) (void)owe::GetJsonValue(json, "parallaxDepth", depth, false);
+inline void ReadParallaxDepth(const owe::Json& json, ParallaxDepthBinding& binding) {
+    binding.authored = JsonHasParallaxDepth(json);
+    binding.depth    = kDefaultParallaxDepth;
+    if (binding.authored) (void)owe::GetJsonValue(json, "parallaxDepth", binding.depth, false);
 }
 
 inline bool IsZeroParallaxDepth(const std::array<float, 2>& depth) {
     return depth[0] * depth[0] + depth[1] * depth[1] <= 1e-12f;
+}
+
+inline bool IsZeroParallaxDepth(const rstd::array<float, 2>& depth) {
+    return depth[usize()] * depth[usize()] + depth[usize(1)] * depth[usize(1)] <= 1e-12f;
 }
 
 // pkg container version (the "PKGV00xx" stamp at the head of scene.pkg).
