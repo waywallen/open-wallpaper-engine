@@ -43,16 +43,34 @@ Vec<SceneAnimationKey> ToSceneAnimationAxis(const std::vector<owe::wpscene::Anim
     return result;
 }
 
+Vec<SceneAnimationEvent>
+ToSceneAnimationEvents(const std::vector<owe::wpscene::AnimEvent>& events) {
+    Vec<SceneAnimationEvent> result;
+    result.reserve(usize(events.size()));
+    for (const auto& event : events)
+        result.push(SceneAnimationEvent {
+            .frame = event.frame,
+            .name  = String::make(rstd::cppstd::as_str(event.name).unwrap()),
+        });
+    sort_unstable_by(result.as_mut_slice().as_mut_ref(),
+                     [](const SceneAnimationEvent& left, const SceneAnimationEvent& right) {
+                         return left.frame < right.frame;
+                     });
+    return result;
+}
+
 SceneAnimationCurve BuildSceneAnimationCurve(const owe::wpscene::AnimCurve& curve) {
     return SceneAnimationCurve {
-        .c0       = ToSceneAnimationAxis(curve.c0),
-        .c1       = ToSceneAnimationAxis(curve.c1),
-        .c2       = ToSceneAnimationAxis(curve.c2),
-        .fps      = curve.options.fps,
-        .length   = curve.options.length,
-        .mode     = String::make(rstd::cppstd::as_str(curve.options.mode).unwrap()),
-        .wraploop = curve.options.wraploop,
-        .relative = curve.relative,
+        .c0          = ToSceneAnimationAxis(curve.c0),
+        .c1          = ToSceneAnimationAxis(curve.c1),
+        .c2          = ToSceneAnimationAxis(curve.c2),
+        .events      = ToSceneAnimationEvents(curve.options.events),
+        .fps         = curve.options.fps,
+        .length      = curve.options.length,
+        .mode        = String::make(rstd::cppstd::as_str(curve.options.mode).unwrap()),
+        .wraploop    = curve.options.wraploop,
+        .relative    = curve.relative,
+        .startpaused = curve.options.startpaused,
     };
 }
 

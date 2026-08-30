@@ -1215,19 +1215,54 @@ struct SceneAnimationKey {
     float back_y { 0.0f };
 };
 
+// A marker on the curve's timeline. Playback crossing `frame` is what a
+// wallpaper's `animationEvent(event, value)` export reacts to.
+struct SceneAnimationEvent {
+    i32    frame {};
+    String name;
+};
+
 struct SceneAnimationCurve {
-    Vec<SceneAnimationKey> c0;
-    Vec<SceneAnimationKey> c1;
-    Vec<SceneAnimationKey> c2;
-    float                  fps { 30.0f };
-    i32                    length {};
-    String                 mode;
-    bool                   wraploop { false };
-    bool                   relative { false };
+    Vec<SceneAnimationKey>   c0;
+    Vec<SceneAnimationKey>   c1;
+    Vec<SceneAnimationKey>   c2;
+    Vec<SceneAnimationEvent> events;
+    float                    fps { 30.0f };
+    i32                      length {};
+    String                   mode;
+    bool                     wraploop { false };
+    bool                     relative { false };
+    bool                     startpaused { false };
 
     bool            Empty() const;
     float           EvaluateScalar(float base, double runtime) const;
     Eigen::Vector3f EvaluateVec3(const Eigen::Vector3f& base, double runtime) const;
+};
+
+// Playhead that reports which of a curve's markers were passed since the
+// previous tick. It runs on the same frame clock the curve is evaluated
+// on, so a marker fires on the frame the curve actually reaches it —
+// including once per pass under `loop`, and once per direction under
+// `mirror`. Markers of a `startpaused` timeline stay silent: nothing
+// advances that playhead until named playback control exists.
+class SceneAnimationEventCursor {
+public:
+    explicit SceneAnimationEventCursor(const SceneAnimationCurve& curve);
+
+    bool Empty() const { return m_events.is_empty(); }
+
+    // Move the playhead to `runtime` and append every marker passed on the
+    // way, in the order they were passed.
+    void Advance(double runtime, Vec<ref<str>>& out);
+
+private:
+    Vec<SceneAnimationEvent> m_events;
+    float                    m_fps { 30.0f };
+    float                    m_end { 0.0f };
+    bool                     m_loop { false };
+    bool                     m_mirror { false };
+    bool                     m_primed { false };
+    double                   m_previous { 0.0 };
 };
 
 struct SceneCameraLookAtKey {

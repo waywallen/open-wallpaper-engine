@@ -188,6 +188,13 @@ public:
     void SetBoneResolvers(BoneIndexResolver     index_resolver,
                           BoneTransformResolver transform_resolver);
 
+    // Attach a timeline whose markers dispatch this script's
+    // `animationEvent(event, value)` export. A script can be fed by more
+    // than one: its own field's animation, plus any animation that lists
+    // the field among its children. Ignored when the script has no
+    // `animationEvent` export or the curve carries no markers.
+    void AddAnimationEventSource(FieldScript& script, const owe::SceneAnimationCurve& curve);
+
     // Drive every alive FieldScript once. Invokes their cached `update`
     // export and stores the coerced return into FieldScript::last_value().
     // Exceptions are caught and logged once per script_sha.

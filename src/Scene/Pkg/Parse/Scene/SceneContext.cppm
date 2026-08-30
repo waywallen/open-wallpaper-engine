@@ -281,6 +281,10 @@ auto ExpandSceneObjects(ref<wpscene::SceneDocument>, mut_ref<fs::VFS>, Option<re
 
 void AssignNodeFieldAnimations(SceneNode&, const wpscene::FieldBindings&);
 auto ToSceneAnimationCurve(const wpscene::AnimCurve&) -> SceneAnimationCurve;
+// Feed a field script the markers of every animation that drives its field,
+// either directly or as one of the animation's children.
+void WireAnimationEventSources(script::JsRuntime&, script::FieldScript&,
+                               const wpscene::FieldBindings&, std::string_view);
 void AssignAnimationCurve(SceneAnimationCurve&, const wpscene::FieldBindings&, ref<str>);
 void LoadRootCameraPaths(SceneParseContext&, const wpscene::SceneMetadata&);
 

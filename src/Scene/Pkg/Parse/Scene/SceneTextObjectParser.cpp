@@ -1099,6 +1099,7 @@ void ParseTextObjImpl(SceneParseContext& context, wpscene::TextObject& obj) {
                                                        sb.initial_value,
                                                        layer_node.as_ptr());
         if (fs) {
+            WireAnimationEventSources(ss.runtime(), *fs, obj.field_bindings, "text");
             SetScriptInitializationOrder(context, *fs, layer_node.as_ptr());
             TrackRegisteredAssets(context, fs);
             ss.AddActuator({

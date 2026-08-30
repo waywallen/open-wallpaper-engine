@@ -547,6 +547,7 @@ struct FieldScript::Impl {
     JSValue          module_ns { JS_UNDEFINED };
     JSValue          init_fn { JS_UNDEFINED };
     JSValue          update_fn { JS_UNDEFINED };
+    JSValue          animation_event_fn { JS_UNDEFINED };
     bool             update_takes_arg { false };
     bool             init_done { false };
     std::uint64_t    initialization_order { 0 };
@@ -563,7 +564,9 @@ struct FieldScript::Impl {
     JSValue         wrapped_layer { JS_UNDEFINED };
     // Per-script cursor-inside-bbox state used to edge-detect
     // cursorEnter / cursorLeave between frames.
-    bool                                                          cursor_inside { false };
+    bool cursor_inside { false };
+    // Timelines whose markers this script's `animationEvent` reacts to.
+    std::vector<owe::SceneAnimationEventCursor>                   animation_cursors;
     std::unordered_map<std::string, std::vector<owe::SceneNode*>> asset_clone_queues;
     std::unordered_map<owe::SceneNode*, std::string>              clone_asset_keys;
     Vec<String>                                                   registered_assets;
@@ -1031,6 +1034,16 @@ JSValue MakeCursorEvent(JSContext* ctx, const CursorWorld& c, int button) {
     }
     JS_DefinePropertyValueStr(ctx, ev, "worldPosition", wp, JS_PROP_C_W_E);
     JS_DefinePropertyValueStr(ctx, ev, "button", JS_NewInt32(ctx, button), JS_PROP_C_W_E);
+    return ev;
+}
+
+// Build the event object passed to `animationEvent`. Scripts branch on
+// event.name, which is the marker's name as authored on the timeline.
+JSValue MakeAnimationEvent(JSContext* ctx, ref<str> name) {
+    JSValue ev   = JS_NewObject(ctx);
+    auto    text = rstd::cppstd::to_string(name);
+    JS_DefinePropertyValueStr(
+        ctx, ev, "name", JS_NewStringLen(ctx, text.data(), text.size()), JS_PROP_C_W_E);
     return ev;
 }
 
@@ -3221,6 +3234,7 @@ JsRuntime::~JsRuntime() {
     for (auto& fs : m_impl->scripts) {
         if (fs && fs->m_impl) {
             JS_FreeValue(m_impl->ctx, fs->m_impl->update_fn);
+            JS_FreeValue(m_impl->ctx, fs->m_impl->animation_event_fn);
             JS_FreeValue(m_impl->ctx, fs->m_impl->init_fn);
             JS_FreeValue(m_impl->ctx, fs->m_impl->module_ns);
             JS_FreeValue(m_impl->ctx, fs->m_impl->current_value);
@@ -3380,6 +3394,15 @@ void JsRuntime::SetInitializationOrder(FieldScript& script, std::uint64_t order)
     script.m_impl->initialization_order = order;
 }
 
+void JsRuntime::AddAnimationEventSource(FieldScript&                    script,
+                                        const owe::SceneAnimationCurve& curve) {
+    if (! m_impl || ! script.m_impl || script.m_impl->rt != m_impl.get()) return;
+    if (JS_IsUndefined(script.m_impl->animation_event_fn)) return;
+    owe::SceneAnimationEventCursor cursor(curve);
+    if (cursor.Empty()) return;
+    script.m_impl->animation_cursors.push_back(rstd::move(cursor));
+}
+
 void JsRuntime::RegisterInitialLayerConfig(owe::SceneNode* node, Json config) {
     if (! m_impl || node == nullptr) return;
     (void)m_impl->host.initial_layer_configs.insert(node, rstd::move(config));
@@ -3461,6 +3484,46 @@ void JsRuntime::TickAll() {
         }
     }
     if (! JS_IsUndefined(ev_shared)) JS_FreeValue(ctx, ev_shared);
+
+    // Timeline marker dispatch. Each bound curve advances on the clock the
+    // renderer evaluates it on; the markers it passed since the previous
+    // tick fire `animationEvent(event, value)`. Runs before update() so
+    // update sees the state the callbacks wrote this frame.
+    Vec<ref<str>> passed_markers;
+    for (auto& fs : m_impl->scripts) {
+        auto* I = fs->m_impl.get();
+        if (! I->alive || I->animation_cursors.empty()) continue;
+        passed_markers.clear();
+        for (auto& cursor : I->animation_cursors)
+            cursor.Advance(m_impl->host.inputs.runtime, passed_markers);
+        if (passed_markers.is_empty()) continue;
+        BindThisLayer(
+            ctx, JS_IsUndefined(I->wrapped_layer) ? m_impl->host.default_layer : I->wrapped_layer);
+        m_impl->host.active_field_script = fs.get();
+        for (usize index {}; index < passed_markers.len(); ++index) {
+            JSValue args[2] = { MakeAnimationEvent(ctx, passed_markers[index]),
+                                JS_DupValue(ctx, I->current_value) };
+            JSValue ret     = JS_Call(ctx, I->animation_event_fn, JS_UNDEFINED, 2, args);
+            JS_FreeValue(ctx, args[0]);
+            JS_FreeValue(ctx, args[1]);
+            if (JS_IsException(ret)) {
+                m_impl->LogError(ctx, I->sha, "animationEvent threw");
+                JS_FreeValue(ctx, ret);
+                continue;
+            }
+            // The callback may hand back a replacement property value, the
+            // same way update() does; keep it for the update() that follows.
+            auto value = CoerceReturn(ctx, ret, I->kind);
+            if (! std::holds_alternative<std::monostate>(value)) {
+                JSValue next_value = ScriptValueToJs(ctx, value);
+                JS_FreeValue(ctx, I->current_value);
+                I->current_value = next_value;
+                I->last_value    = std::move(value);
+            }
+            JS_FreeValue(ctx, ret);
+        }
+    }
+    m_impl->host.active_field_script = nullptr;
 
     for (auto& fs : m_impl->scripts) {
         auto* I = fs->m_impl.get();
@@ -3743,6 +3806,14 @@ FieldScript* JsRuntime::MakeFieldScript(std::string_view source, std::string_vie
     } else {
         JS_FreeValue(ctx, update_fn);
         I->update_fn = JS_UNDEFINED;
+    }
+    // Cache `animationEvent` the same way; timeline markers dispatch into it.
+    JSValue animation_event_fn = JS_GetPropertyStr(ctx, ns, "animationEvent");
+    if (JS_IsFunction(ctx, animation_event_fn)) {
+        I->animation_event_fn = animation_event_fn;
+    } else {
+        JS_FreeValue(ctx, animation_event_fn);
+        I->animation_event_fn = JS_UNDEFINED;
     }
     // Reuse the coerced initial value as the seed for (value)-form
     // updates so the first frame's `update(value)` sees a Vec3, not a
