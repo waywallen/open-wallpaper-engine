@@ -207,7 +207,7 @@ void ParseTextObjImpl(SceneParseContext& context, wpscene::TextObject& obj) {
                               has_text_user || context.scene_layer_text_writes;
     bool has_text_effect    = false;
     for (const auto& effect : obj.effects) {
-        if (effect.visible || ! effect.visible_user.empty()) {
+        if (effect.visible || effect.visible_can_change()) {
             has_text_effect = true;
             break;
         }
@@ -688,7 +688,7 @@ void ParseTextObjImpl(SceneParseContext& context, wpscene::TextObject& obj) {
             layer->SetFinalMaterialState(final_state);
 
             for (const auto& wpeffobj : obj.effects) {
-                if (! wpeffobj.visible && wpeffobj.visible_user.empty()) continue;
+                if (! wpeffobj.visible && ! wpeffobj.visible_can_change()) continue;
 
                 auto effect             = std::make_shared<SceneImageEffect>();
                 effect->name            = wpeffobj.name;
@@ -698,6 +698,7 @@ void ParseTextObjImpl(SceneParseContext& context, wpscene::TextObject& obj) {
                     effect->visible_user_binding =
                         ToSceneUserVisibilityBinding(wpeffobj.visible_user);
                 }
+                WireImageEffectVisibilityScript(context, layer_node.as_ptr(), wpeffobj, effect_id);
 
                 const std::string   inRT { composite };
                 EffectRenderTargets render_targets;

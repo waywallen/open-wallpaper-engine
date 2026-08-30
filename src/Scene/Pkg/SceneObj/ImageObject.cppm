@@ -71,6 +71,20 @@ public:
     std::vector<MaterialPass>  passes;
     std::vector<EffectCommand> commands;
     std::vector<EffectFbo>     fbos;
+    // `visible` can also be `{"value": false, "script": "..."}`. The script
+    // decides every frame whether the effect draws, so the authored value
+    // says nothing about whether the effect is ever needed.
+    FieldBindings field_bindings;
+
+    // True when something other than the authored value can turn this effect
+    // on later: a user property, or a script bound to `visible`.
+    bool visible_can_change() const {
+        return ! visible_user.empty() || field_bindings.scripts.contains("visible");
+    }
+    const ScriptBinding* visible_script() const {
+        auto it = field_bindings.scripts.find("visible");
+        return it == field_bindings.scripts.end() ? nullptr : &it->second;
+    }
 };
 
 class ImageObject {

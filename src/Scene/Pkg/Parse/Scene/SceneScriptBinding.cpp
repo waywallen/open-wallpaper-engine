@@ -487,6 +487,33 @@ void WireFieldScripts(SceneParseContext& context, const Arc<SceneNode>& node_sp,
     }
 }
 
+// An effect's `visible` can be driven by a script, the same way a layer's
+// can. The effect is already registered with the scene, so the actuator
+// only has to flip its runtime visibility; the render graph rebuild is
+// handled by Scene::SetImageEffectRuntimeVisible.
+void WireImageEffectVisibilityScript(SceneParseContext& context, SceneNode* node,
+                                     const wpscene::ImageEffect& effect, SceneEffectId effect_id) {
+    const auto* sb = effect.visible_script();
+    if (sb == nullptr || ! effect_id.Valid()) return;
+
+    auto&       ss  = EnsureScriptScene(context);
+    auto&       rt  = ss.runtime();
+    std::string sha = utils::genSha1(std::span<const char>(sb->source));
+    auto*       fs  = rt.MakeFieldScript(
+        sb->source, sha, script::FieldKind::Bool, sb->properties, sb->initial_value, node);
+    if (! fs) return;
+    SetScriptInitializationOrder(context, *fs, node);
+    TrackRegisteredAssets(context, fs);
+
+    auto* scene = context.scene.get();
+    ss.AddActuator({ fs, [scene, effect_id](const script::ScriptValue& value) {
+                        auto flag = ScriptValueAsFloat(value);
+                        if (! flag) return;
+                        (void)scene->SetImageEffectRuntimeVisible({ .id = effect_id },
+                                                                  *flag >= 0.5f);
+                    } });
+}
+
 void WireCameraShakeScripts(SceneParseContext& context, const wpscene::FieldBindings& fb) {
     if (fb.scripts.empty()) return;
 

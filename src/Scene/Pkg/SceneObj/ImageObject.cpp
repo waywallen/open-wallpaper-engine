@@ -148,6 +148,7 @@ bool ImageEffect::FromJson(const owe::Json& json, fs::VFS& vfs, SceneVersion v) 
     owe::GetJsonValue(json, "file", filePath);
     ReadVisibleProperty(json, visible, visible_user);
     visible_user_key = visible_user.name;
+    AbsorbAllFieldBindings(json, field_bindings);
     owe::GetJsonValue(json, "name", name, false);
     owe::GetJsonValue(json, "username", username, false);
     owe::GetJsonValue(json, "id", id, false);
