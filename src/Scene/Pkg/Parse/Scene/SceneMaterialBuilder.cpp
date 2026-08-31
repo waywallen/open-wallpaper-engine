@@ -81,6 +81,14 @@ i32 CountVisibleImageEffects(std::span<const wpscene::ImageEffect> effects) {
 
 bool ParseEnabled(std::string_view str) { return str == "enabled"; }
 
+Option<bool> ParseAlphaWrite(std::string_view str) {
+    if (str == "enabled") return Some(true);
+    if (str == "disabled") return Some(false);
+    if (str == "default" || str.empty()) return None<bool>();
+    rstd_error("unknown alphawriting: {}", str);
+    return None<bool>();
+}
+
 CullMode ParseCullMode(std::string_view str) {
     if (str == "back" || str == "normal") return CullMode::Back;
     if (str == "front") return CullMode::Front;
@@ -500,6 +508,7 @@ auto BuildMaterial(fs::VFS& vfs, ShaderCache& shader_cache,
     shader->descriptor_sets  = variant_desc.descriptor_sets;
 
     material.blenmode    = blend_mode;
+    material.alpha_write = ParseAlphaWrite(wpmat.alphawriting);
     material.depth_test  = ParseEnabled(wpmat.depthtest);
     material.depth_write = ParseEnabled(wpmat.depthwrite);
     material.cull_mode   = ParseCullMode(wpmat.cullmode);

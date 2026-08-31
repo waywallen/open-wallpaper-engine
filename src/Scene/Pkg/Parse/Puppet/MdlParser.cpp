@@ -1071,7 +1071,7 @@ Option<usize> MdlParser::FindMeshByMaterial(const Mdl& mdl, ref<str> material_re
 }
 
 void MdlParser::GenMeshFromMdl(SceneMesh::Submesh& submesh, const Mdl::Mesh& src,
-                               array<float, 2> texcoord_scale) {
+                               array<float, 2> texcoord_scale, array<float, 3> position_offset) {
     const size_t vert_num = src.positions.len().to_primitive();
     if (vert_num == 0) return;
     if (! src.part_uv2.is_empty() || ! src.parts.is_empty()) {
@@ -1086,10 +1086,10 @@ void MdlParser::GenMeshFromMdl(SceneMesh::Submesh& submesh, const Mdl::Mesh& src
 
     // Position is always present (the parser would have failed otherwise).
     specs.push_back(VAttr::Position);
-    packers.push_back([&src](size_t i, float* dst) {
-        dst[0] = src.positions[usize(i)][usize(0)];
-        dst[1] = src.positions[usize(i)][usize(1)];
-        dst[2] = src.positions[usize(i)][usize(2)];
+    packers.push_back([&src, position_offset](size_t i, float* dst) {
+        dst[0] = src.positions[usize(i)][usize(0)] + position_offset[usize(0)];
+        dst[1] = src.positions[usize(i)][usize(1)] + position_offset[usize(1)];
+        dst[2] = src.positions[usize(i)][usize(2)] + position_offset[usize(2)];
     });
     if (! src.normals.is_empty()) {
         specs.push_back(VAttr::Normal);

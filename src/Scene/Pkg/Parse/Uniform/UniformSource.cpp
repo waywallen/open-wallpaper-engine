@@ -1061,10 +1061,15 @@ auto ParticleTrailUniformSource::Evaluate(ref<dyn<UniformUpdateContext>>,
 
 auto PuppetUniformSource::Describe(mut_ref<dyn<UniformBindingSink>> sink) const
     -> Result<empty, UniformError> {
+    auto bones = Bind(sink,
+                      PuppetUniformOutput::Bones,
+                      G_BONES,
+                      UniformValueShape::MatrixArray(u32(4), u32(4), usize(1), usize(256)));
+    if (bones.is_err()) return Err(rstd::move(bones).unwrap_err_unchecked());
     return Bind(sink,
-                UniformOutputId { .value = u32() },
-                G_BONES,
-                UniformValueShape::MatrixArray(u32(4), u32(4), usize(1), usize(256)));
+                PuppetUniformOutput::BlendMap,
+                G_BLENDMAP,
+                UniformValueShape::FloatRange(u32(4), u32(1024)));
 }
 
 auto PuppetUniformSource::Version(ref<dyn<UniformUpdateContext>> context) const -> u64 {
@@ -1074,16 +1079,26 @@ auto PuppetUniformSource::Version(ref<dyn<UniformUpdateContext>> context) const 
 auto PuppetUniformSource::Evaluate(ref<dyn<UniformUpdateContext>> context,
                                    mut_ref<dyn<UniformValueSink>> sink) const
     -> Result<empty, UniformError> {
-    const auto output = UniformOutputId { .value = u32() };
-    if (! sink->Wants(output)) return Ok(empty {});
-    auto matrices = m_layer->genFrame(context->Frame()->elapsed.to_primitive());
-    if (matrices.is_empty()) return Ok(empty {});
-    auto value = UniformValue::fromMatrixArray(matrices[usize()].data(),
-                                               u32(4),
-                                               u32(4),
-                                               matrices.len(),
-                                               UniformMatrixStorage::ColumnMajor);
-    return sink->Write(output, value.View());
+    UniformWriter writer(sink);
+    const double  time = context->Frame()->elapsed.to_primitive();
+    if (writer.Wants(PuppetUniformOutput::Bones)) {
+        auto matrices = m_layer->genFrame(time);
+        if (! matrices.is_empty()) {
+            auto value = UniformValue::fromMatrixArray(matrices[usize()].data(),
+                                                       u32(4),
+                                                       u32(4),
+                                                       matrices.len(),
+                                                       UniformMatrixStorage::ColumnMajor);
+            writer.Write(PuppetUniformOutput::Bones, value);
+        }
+    }
+    if (writer.Wants(PuppetUniformOutput::BlendMap)) {
+        auto blend_map = m_layer->TextureChannelBlendMap(time);
+        if (! blend_map.is_empty())
+            writer.Write(PuppetUniformOutput::BlendMap,
+                         UniformValue(blend_map.as_raw_ptr(), blend_map.len()));
+    }
+    return writer.Finish();
 }
 
 } // namespace owe

@@ -445,7 +445,11 @@ void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj
         MdlParser::GenMeshFromMdl(
             supplemental_submesh,
             *supplemental_mesh,
-            { supplemental_uv_scale[usize()], supplemental_uv_scale[usize(1)] });
+            { supplemental_uv_scale[usize()], supplemental_uv_scale[usize(1)] },
+            hasEffect ? array<float, 3> { effect_target_size[usize()] * -0.5f,
+                                          effect_target_size[usize(1)] * -0.5f,
+                                          0.0f }
+                      : array<float, 3> {});
         supplemental_submesh.material_slot   = supplemental_slot;
         supplemental_submesh.preserve_output = true;
     }
@@ -841,7 +845,10 @@ void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj
                                                           effect_extent[usize(1)]) };
                     if (puppet.is_some() && wpmat.use_puppet) {
                         auto effect_puppet_layer =
-                            MakePuppetLayer((*(*puppet)->puppet).clone(), wpimgobj.puppet_layers);
+                            image_puppet_layer.is_some()
+                                ? (*image_puppet_layer).clone()
+                                : MakePuppetLayer((*(*puppet)->puppet).clone(),
+                                                  wpimgobj.puppet_layers);
                         RegisterPuppetLayer(
                             context, spEffNode.as_ptr(), rstd::move(effect_puppet_layer));
                     }

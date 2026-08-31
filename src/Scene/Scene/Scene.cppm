@@ -809,6 +809,7 @@ public:
 
     SceneMaterialCustomShader      customShader;
     BlendMode                      blenmode { BlendMode::Disable };
+    Option<bool>                   alpha_write;
     bool                           depth_test { false };
     bool                           depth_write { false };
     CompareOp                      depth_compare { CompareOp::LessEqual };
@@ -854,6 +855,7 @@ private:
         hasSprite           = other.hasSprite;
         customShader        = other.customShader.Clone();
         blenmode            = other.blenmode;
+        alpha_write         = other.alpha_write;
         depth_test          = other.depth_test;
         depth_write         = other.depth_write;
         depth_compare       = other.depth_compare;
@@ -875,6 +877,7 @@ private:
         hasSprite           = other.hasSprite;
         customShader        = std::move(other.customShader);
         blenmode            = other.blenmode;
+        alpha_write         = rstd::move(other.alpha_write);
         depth_test          = other.depth_test;
         depth_write         = other.depth_write;
         depth_compare       = other.depth_compare;

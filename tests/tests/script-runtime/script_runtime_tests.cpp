@@ -989,6 +989,61 @@ TEST(ScriptCursor, ClickAndDownUpInside) {
     EXPECT_EQ(std::get<ScalarValue>(fs->last_value()).v, 1'010'101);
 }
 
+TEST(ScriptCursor, ClickRestartsNamedAnimationLayer) {
+    owe::SceneNode node;
+    node.SetTranslate({ 500.0f, 500.0f, 0.0f });
+    node.SetSize({ 200.0f, 200.0f });
+
+    auto clip     = Arc<owe::SceneAnimationClip>::make(owe::SceneAnimationClipSpec {
+        .name = String::make("Arona Drool"_str),
+        .mode = String::make("single"_str),
+        .fps  = 30.0f,
+        .end  = i32(60),
+    });
+    auto playback = Arc<owe::SceneAnimationPlayback>::make(rstd::move(clip));
+    node.RegisterAnimation(playback.clone());
+
+    JsRuntime rt;
+    rt.SetFrameInputs(MakeFi());
+    auto* fs = rt.MakeFieldScript(
+        R"JS(
+            let animation;
+            export function init(value) {
+                animation = thisLayer.getAnimationLayer("Arona Drool");
+                animation.pause();
+                return value;
+            }
+            export function cursorClick() {
+                animation.stop();
+                animation.play();
+            }
+            export function update() {
+                return animation.getFrame() + (animation.isPlaying() ? 1000 : 0);
+            }
+        )JS",
+        "test/cursor_animation_layer",
+        FieldKind::Scalar,
+        owe::MakeObject(),
+        owe::IntoJson(0),
+        &node);
+    ASSERT_NE(fs, nullptr);
+    rt.SetSceneRoot(&node);
+    EXPECT_FALSE(playback->IsPlaying());
+    playback->SetFrame(i32(17));
+
+    auto fi                  = MakeFi();
+    fi.cursor_in_window      = true;
+    fi.cursor_x              = 500.0f / 1920.0f;
+    fi.cursor_y              = 500.0f / 1080.0f;
+    fi.mouse_buttons_pressed = 1u << 0;
+    rt.SetFrameInputs(fi);
+    rt.TickAll();
+
+    EXPECT_TRUE(playback->IsPlaying());
+    EXPECT_EQ(playback->Frame(), i32());
+    EXPECT_EQ(LastScalar(fs), 1000.0);
+}
+
 TEST(ScriptCursor, ClickOutsideIsIgnored) {
     owe::SceneNode node;
     node.SetTranslate({ 500.0f, 500.0f, 0.0f });

@@ -96,6 +96,12 @@ enum class ParticleTrailUniformOutput : rstd::uint32_t
     RenderVar0,
 };
 
+enum class PuppetUniformOutput : rstd::uint32_t
+{
+    Bones,
+    BlendMap,
+};
+
 template<typename Output>
 inline auto ToUniformOutput(Output output) -> UniformOutputId {
     return { .value = u32(static_cast<rstd::uint32_t>(output)) };

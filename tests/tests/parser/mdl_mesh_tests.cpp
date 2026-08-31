@@ -57,6 +57,43 @@ TEST(Puppet, ArcOwnedLayerExposesBorrowedTransforms) {
     EXPECT_TRUE(transform->matrix().isApprox(Eigen::Matrix4f::Identity()));
 }
 
+TEST(Puppet, SamplesTextureChannelBlendMapFromAnimationPlayback) {
+    auto  puppet     = Arc<owe::Puppet>::make();
+    auto& animation  = puppet->anims.emplace_back();
+    animation.id     = 781;
+    animation.name   = String::make("Arona Drool"_str);
+    animation.mode   = owe::Puppet::PlayMode::Single;
+    animation.fps    = 1.0f;
+    animation.length = 2;
+    auto& channels   = animation.trans.insert(owe::Puppet::AnimTrans {});
+    channels.main_track.push(0.0f);
+    channels.main_track.push(1.0f);
+    channels.main_track.push(0.0f);
+    auto& second = channels.tail_tracks.emplace_back();
+    second.push(1.0f);
+    second.push(0.5f);
+    second.push(0.0f);
+    puppet->prepared();
+
+    owe::PuppetLayer                 layer(puppet.clone());
+    owe::PuppetLayer::AnimationLayer authored {
+        .id      = 781,
+        .visible = true,
+        .name    = String::make("Arona Drool"_str),
+    };
+    layer.prepared(slice<owe::PuppetLayer::AnimationLayer>::from_raw_parts(&authored, usize(1)));
+    ASSERT_EQ(layer.AnimationPlaybacks().len(), usize(1));
+    layer.AnimationPlaybacks()[usize()]->SetFrame(i32(1));
+    layer.AnimationPlaybacks()[usize()]->Pause();
+
+    const auto blend_map = layer.TextureChannelBlendMap(0.0);
+    ASSERT_EQ(blend_map.len(), usize(4));
+    EXPECT_FLOAT_EQ(blend_map[usize()], 1.0f);
+    EXPECT_FLOAT_EQ(blend_map[usize(1)], 0.5f);
+    EXPECT_FLOAT_EQ(blend_map[usize(2)], 0.0f);
+    EXPECT_FLOAT_EQ(blend_map[usize(3)], 0.0f);
+}
+
 TEST(MdlMesh, KeepsPuppetPositionsInMdlLocalSpace) {
     owe::Mdl::Mesh source;
     source.positions.push(array<float, 3> { 244.0f, 349.5f, 0.0f });

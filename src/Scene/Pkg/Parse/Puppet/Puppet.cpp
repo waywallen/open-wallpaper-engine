@@ -5,11 +5,14 @@ module;
 module wescene.pkg.puppet;
 import eigen;
 import wescene.core;
+import wescene.scene;
+import rstd;
 import rstd.cppstd;
 
 using namespace owe;
 using namespace Eigen;
 using namespace rstd::prelude;
+using namespace rstd::literals;
 using rstd::sync::Arc;
 
 static double SampleBoneCurve(const Vec<Puppet::BoneFrameCurve>& curves, usize bone_index,
@@ -25,6 +28,32 @@ static double SampleBoneCurve(const Vec<Puppet::BoneFrameCurve>& curves, usize b
     const double a = sample(info.frame_a);
     const double b = sample(info.frame_b);
     return a * (1.0 - info.t) + b * info.t;
+}
+
+static bool IsTextureChannelTrack(const Puppet::Animation& animation, const Vec<float>& values) {
+    if (animation.length < 0) return false;
+    return values.len() == usize(static_cast<size_t>(animation.length) + 1);
+}
+
+static float SampleTextureChannelTrack(const Vec<float>&                           values,
+                                       const Puppet::Animation::InterpolationInfo& info) {
+    if (values.is_empty()) return 0.0f;
+    const auto sample = [&](usize frame) {
+        const auto index = frame < values.len() ? frame : values.len() - usize(1);
+        return values[index];
+    };
+    return sample(info.frame_a) * static_cast<float>(1.0 - info.t) +
+           sample(info.frame_b) * static_cast<float>(info.t);
+}
+
+static usize TextureChannelTrackCount(const Puppet::Animation& animation) {
+    if (animation.trans.is_none()) return usize();
+    const auto& trans = *animation.trans;
+    usize       count = IsTextureChannelTrack(animation, trans.main_track) ? usize(1) : usize();
+    for (const auto& track : trans.tail_tracks) {
+        if (IsTextureChannelTrack(animation, track)) ++count;
+    }
+    return count;
 }
 
 static double LayerBoneBlend(const Puppet::Animation& anim, usize bone_index,
@@ -337,10 +366,31 @@ auto PuppetLayer::AnimationLayer::Clone() const -> AnimationLayer {
     };
 }
 
+static ref<str> PuppetAnimationMode(Puppet::PlayMode mode) {
+    switch (mode) {
+    case Puppet::PlayMode::Loop: return "loop"_str;
+    case Puppet::PlayMode::Mirror: return "mirror"_str;
+    case Puppet::PlayMode::Single: return "single"_str;
+    }
+    rstd::unreachable();
+}
+
 void PuppetLayer::prepared(slice<AnimationLayer> alayers) {
     m_layers.clear();
     m_layers.reserve(alayers.len());
     for (usize i {}; i < alayers.len(); ++i) m_layers.emplace_back();
+    m_playbacks.clear();
+    m_playbacks.reserve(alayers.len());
+    m_texture_channel_blend_map.clear();
+
+    usize texture_channel_count {};
+    for (const auto& animation : m_puppet->anims) {
+        texture_channel_count =
+            rstd::cmp::max(texture_channel_count, TextureChannelTrackCount(animation));
+    }
+    const usize blend_map_size = ((texture_channel_count + usize(3)) / usize(4)) * usize(4);
+    m_texture_channel_blend_map.reserve(blend_map_size);
+    for (usize index {}; index < blend_map_size; ++index) m_texture_channel_blend_map.push(0.0f);
 
     const auto&           anims         = m_puppet->anims;
     const AnimationLayer* additive_base = nullptr;
@@ -383,10 +433,28 @@ void PuppetLayer::prepared(slice<AnimationLayer> alayers) {
             out_layer.additive = false;
         }
 
+        Option<Arc<SceneAnimationPlayback>> playback;
+        if (ok) {
+            auto clip  = Arc<SceneAnimationClip>::make(SceneAnimationClipSpec {
+                .name =
+                    ! out_layer.name.is_empty() ? out_layer.name.clone() : matched->name.clone(),
+                .mode = String::make(PuppetAnimationMode(matched->mode)),
+                .fps  = static_cast<float>(matched->fps),
+                .end  = i32(matched->length),
+            });
+            auto value = Arc<SceneAnimationPlayback>::make(rstd::move(clip), out_layer.rate <= 0.0);
+            if (out_layer.rate > 0.0) value->SetRate(static_cast<float>(out_layer.rate));
+            playback = Some(rstd::move(value));
+        }
+
         m_layers[i] = Layer {
             .anim_layer = rstd::move(out_layer),
             .anim       = ok ? matched : nullptr,
+            .playback   = rstd::move(playback),
         };
+    }
+    for (const auto& layer : m_layers) {
+        if (layer.playback.is_some()) m_playbacks.push((*layer.playback).clone());
     }
 }
 
@@ -425,14 +493,49 @@ Option<Eigen::Affine3f> PuppetLayer::attachmentTransform(usize index, double tim
     return Some(rstd::move(transform));
 }
 
-void PuppetLayer::updateInterpolation(double elapsed) noexcept {
-    double delta   = (m_last_elapsed < 0.0) ? 0.0 : (elapsed - m_last_elapsed);
-    bool   advance = (m_last_elapsed < 0.0) || (delta > 0.0);
-    if (advance) m_last_elapsed = elapsed;
+auto PuppetLayer::AnimationPlaybacks() const noexcept -> slice<Arc<SceneAnimationPlayback>> {
+    return m_playbacks.as_slice();
+}
+
+auto PuppetLayer::TextureChannelBlendMap(double time) noexcept -> slice<float> {
+    updateInterpolation(time);
+    for (auto& value : m_texture_channel_blend_map) value = 0.0f;
+
+    for (const auto& layer : m_layers) {
+        if (layer.anim == nullptr || ! layer.anim_layer.visible || layer.anim->trans.is_none())
+            continue;
+
+        const auto& animation = *layer.anim;
+        const auto& trans     = *animation.trans;
+        usize       channel {};
+        auto        apply = [&](const Vec<float>& track) {
+            if (! IsTextureChannelTrack(animation, track)) return;
+            if (channel >= m_texture_channel_blend_map.len()) return;
+
+            const float sample = SampleTextureChannelTrack(track, layer.interp_info);
+            const float blend  = static_cast<float>(std::max(0.0, layer.anim_layer.blend));
+            auto&       value  = m_texture_channel_blend_map[channel];
+            if (layer.anim_layer.additive) {
+                value += sample * blend;
+            } else {
+                const float weight = std::min(blend, 1.0f);
+                value              = value * (1.0f - weight) + sample * weight;
+            }
+            ++channel;
+        };
+
+        apply(trans.main_track);
+        for (const auto& track : trans.tail_tracks) apply(track);
+    }
+    return m_texture_channel_blend_map.as_slice();
+}
+
+void PuppetLayer::updateInterpolation(double) noexcept {
     for (auto& layer : m_layers) {
         if (layer) {
-            if (advance) layer.anim_layer.cur_time += delta * layer.anim_layer.rate;
-            layer.interp_info = layer.anim->getInterpolationInfo(&(layer.anim_layer.cur_time));
+            double position   = layer.playback.is_some() ? (*layer.playback)->PositionSeconds()
+                                                         : layer.anim_layer.cur_time;
+            layer.interp_info = layer.anim->getInterpolationInfo(&position);
         }
     }
 }

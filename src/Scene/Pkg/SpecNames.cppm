@@ -103,6 +103,7 @@ inline constexpr ref<str> G_TEXELSIZEHALF                  = "g_TexelSizeHalf"_s
 inline constexpr ref<str> G_TEXTURE0SAMPLERSTATE           = "g_Texture0SamplerState"_str;
 inline constexpr ref<str> G_BONES                          = "g_Bones"_str;
 inline constexpr ref<str> G_BONESALPHA                     = "g_BonesAlpha"_str;
+inline constexpr ref<str> G_BLENDMAP                       = "g_BlendMap"_str;
 inline constexpr ref<str> G_SCREEN                         = "g_Screen"_str;
 inline constexpr ref<str> G_PARALLAXPOSITION               = "g_ParallaxPosition"_str;
 inline constexpr ref<str> G_MORPHWEIGHTS                   = "g_MorphWeights"_str;

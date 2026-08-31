@@ -52,6 +52,7 @@ auto owe::wpscene::Material::clone() const -> Material {
     clone.blending                      = blending;
     clone.cullmode                      = cullmode;
     clone.shader                        = shader;
+    clone.alphawriting                  = alphawriting;
     clone.depthtest                     = depthtest;
     clone.depthwrite                    = depthwrite;
     clone.textures                      = textures;
@@ -189,6 +190,7 @@ bool Material::FromJson(const owe::Json& json, SceneVersion /*v*/) {
     }
     owe::GetJsonValue(jContent, "blending", blending);
     owe::GetJsonValue(jContent, "cullmode", cullmode);
+    owe::GetJsonValue(jContent, "alphawriting", alphawriting, false);
     owe::GetJsonValue(jContent, "depthtest", depthtest);
     owe::GetJsonValue(jContent, "depthwrite", depthwrite);
     owe::GetJsonValue(jContent, "shader", shader);

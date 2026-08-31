@@ -3087,10 +3087,6 @@ JSValue NodeGetAnimation(JSContext* ctx, JSValueConst this_val, int argc, JSValu
     return WrapAnimation(ctx, rstd::move(playback));
 }
 
-JSValue NodeGetAnimationLayerStub(JSContext* ctx, JSValueConst, int, JSValueConst*) {
-    return MakeAnimationStub(ctx);
-}
-
 static JSClassID s_video_texture_class_id = 0;
 
 struct VideoTextureHandle {
@@ -3249,7 +3245,7 @@ const JSCFunctionListEntry s_layer_proto_funcs[] = {
     JS_CFUNC_DEF("getTextureAnimation", 0, NodeGetTextureAnimation),
     JS_CFUNC_DEF("getVideoTexture", 0, NodeGetVideoTexture),
     JS_CFUNC_DEF("getAnimation", 1, NodeGetAnimation),
-    JS_CFUNC_DEF("getAnimationLayer", 1, NodeGetAnimationLayerStub),
+    JS_CFUNC_DEF("getAnimationLayer", 1, NodeGetAnimation),
     JS_CFUNC_DEF("createLayer", 1, NodeSceneCreateLayer),
     JS_CFUNC_DEF("destroyLayer", 1, NodeSceneDestroyLayer),
     JS_CFUNC_DEF("getLayerIndex", 1, NodeSceneGetLayerIndex),

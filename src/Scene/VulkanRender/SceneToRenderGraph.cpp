@@ -346,7 +346,7 @@ static SceneNodeLayer* ToGraphPass(SceneNode* node, std::string_view output, Ext
         SceneMaterial* material = slots[material_slot].get();
         scene.ResolveMaterialTextureSources(*material);
         std::shared_ptr<SceneMaterial> material_override;
-        if (imgeff != nullptr && submesh.output_override.empty()) {
+        if (imgeff != nullptr && submesh.output_override.empty() && ! submesh.preserve_output) {
             auto source_blend = imgeff->IntermediateSourceBlend();
             if (source_blend.is_some()) {
                 material_override           = std::make_shared<SceneMaterial>(*material);

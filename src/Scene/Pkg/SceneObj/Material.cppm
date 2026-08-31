@@ -51,6 +51,7 @@ public:
     std::string blending { "translucent" };
     std::string cullmode { "nocull" };
     std::string shader;
+    std::string alphawriting { "default" };
     std::string depthtest { "disabled" };
     std::string depthwrite { "disabled" };
     std::vector<std::string>                            textures;

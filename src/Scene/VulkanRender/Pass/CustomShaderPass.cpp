@@ -893,8 +893,9 @@ void CustomShaderPass::prepare(Scene& scene, const Device& device, PassPrepareCo
         {
             VkColorComponentFlags colorMask =
                 VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT;
-            bool writes_alpha = ! ((*m_desc.node)->Camera().empty() ||
-                                   sstart_with((*m_desc.node)->Camera(), "global"));
+            const bool default_writes_alpha = ! ((*m_desc.node)->Camera().empty() ||
+                                                 sstart_with((*m_desc.node)->Camera(), "global"));
+            const bool writes_alpha = material_ref.alpha_write.unwrap_or(default_writes_alpha);
 
             if (writes_alpha) colorMask |= VK_COLOR_COMPONENT_A_BIT;
             color_blend.colorWriteMask = colorMask;

@@ -3,6 +3,7 @@ module;
 export module wescene.pkg.puppet;
 import eigen;
 import wescene.core;
+import wescene.scene;
 import rstd;
 
 using namespace rstd::prelude;
@@ -110,9 +111,9 @@ public:
         Vec<BoneFrame> frames;
     };
 
-    // mdla>=3 per-anim translation/root-motion payload. trans_flag==1 uses
-    // extra_track + main_track; trans_flag==0 can store main_track followed by
-    // zero-delimited same-sized tail tracks.
+    // MDLA >= 3 animation payload. Scalar main/tail tracks contain the texture-channel
+    // blend curves consumed by puppettexturechannels; alternate wider tracks and the
+    // optional prefix remain preserved until their semantics are identified.
     struct AnimTrans {
         Vec<float>      extra_track;
         Vec<float>      main_track;
@@ -268,6 +269,8 @@ public:
     uint32_t                boneIndex(ref<str> name) const noexcept;
     Option<Eigen::Affine3f> boneTransform(uint32_t index, double time) noexcept;
     Option<Eigen::Affine3f> attachmentTransform(usize index, double time) noexcept;
+    auto AnimationPlaybacks() const noexcept -> slice<Arc<SceneAnimationPlayback>>;
+    auto TextureChannelBlendMap(double time) noexcept -> slice<float>;
 
     void updateInterpolation(double time) noexcept;
 
@@ -275,18 +278,16 @@ private:
     struct Layer {
         AnimationLayer                       anim_layer;
         const Puppet::Animation*             anim { nullptr };
+        Option<Arc<SceneAnimationPlayback>>  playback;
         Puppet::Animation::InterpolationInfo interp_info {};
 
         operator bool() const noexcept { return anim != nullptr; };
     };
 
-    // Absolute scene elapsed time of the last advance. Guards against
-    // multi-pass nodes (e.g. puppet with mask pre-pass + clipped-main)
-    // advancing animation N× per frame.
-    double m_last_elapsed { -1.0 };
-
-    Vec<Layer>  m_layers;
-    Arc<Puppet> m_puppet;
+    Vec<Layer>                       m_layers;
+    Vec<Arc<SceneAnimationPlayback>> m_playbacks;
+    Vec<float>                       m_texture_channel_blend_map;
+    Arc<Puppet>                      m_puppet;
 };
 
 } // namespace owe
