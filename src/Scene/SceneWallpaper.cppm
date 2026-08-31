@@ -61,6 +61,7 @@ struct SceneWallpaperConfig {
     rstd::json::Map                         user_properties;
     uint32_t                                fps { 30 };
     float                                   volume { 1.0f };
+    float                                   volume_scale { 1.0f };
     bool                                    muted { false };
     FillMode                                fill_mode { FillMode::ASPECTCROP };
     float                                   speed { 1.0f };

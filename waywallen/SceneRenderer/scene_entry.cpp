@@ -469,6 +469,7 @@ struct HostState {
     rstd::sync::atomic::Atomic<bool> shutdown { false };
     rstd::sync::atomic::Atomic<bool> paused { false };
     rstd::sync::atomic::Atomic<bool> muted { false };
+    rstd::sync::atomic::Atomic<bool> audio_gate_open { false };
     rstd::sync::atomic::Atomic<bool> settings_enable_audio { true };
     rstd::sync::atomic::Atomic<bool> property_enable_audio { true };
     rstd::sync::atomic::Atomic<bool> audio_response_demand { false };
@@ -516,7 +517,9 @@ void apply_volume_scale(HostState& s, float scale, uint32_t fade_ms) {
 }
 
 float runtime_volume_scale(const HostState& s) {
-    return (effective_audio_enabled(s) && ! s.paused.load(rstd::sync::atomic::Ordering::Acquire) &&
+    const bool audio_gate_open = s.audio_gate_open.load(rstd::sync::atomic::Ordering::Acquire);
+    return (audio_gate_open && effective_audio_enabled(s) &&
+            ! s.paused.load(rstd::sync::atomic::Ordering::Acquire) &&
             ! s.muted.load(rstd::sync::atomic::Ordering::Acquire))
                ? 1.0f
                : 0.0f;
@@ -532,7 +535,8 @@ void set_base_volume(HostState& s, float volume) {
 }
 
 void set_runtime_pause(HostState& s, bool paused, uint32_t fade_ms) {
-    const bool was_paused  = s.paused.exchange(paused, rstd::sync::atomic::Ordering::AcqRel);
+    const bool was_paused = s.paused.exchange(paused, rstd::sync::atomic::Ordering::AcqRel);
+    if (! paused) s.audio_gate_open.store(true, rstd::sync::atomic::Ordering::Release);
     const bool was_audible = effective_audio_enabled(s) && ! was_paused &&
                              ! s.muted.load(rstd::sync::atomic::Ordering::Acquire);
     if (! s.wp) return;
@@ -549,6 +553,7 @@ void set_runtime_pause(HostState& s, bool paused, uint32_t fade_ms) {
 
 void set_runtime_mute(HostState& s, bool muted, uint32_t fade_ms) {
     s.muted.store(muted, rstd::sync::atomic::Ordering::Release);
+    if (! muted) s.audio_gate_open.store(true, rstd::sync::atomic::Ordering::Release);
     apply_runtime_volume_scale(s, fade_ms);
 }
 
@@ -997,6 +1002,7 @@ int run(int argc, char** argv) {
     wp_config.fps             = opts.initial_fps;
     wp_config.speed           = opts.initial_playback_rate;
     wp_config.volume          = effective_volume(host);
+    wp_config.volume_scale    = 0.0f;
     wp_config.muted           = ! effective_audio_enabled(host);
     wp.configure(rstd::move(wp_config));
 

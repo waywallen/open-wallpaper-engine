@@ -176,6 +176,7 @@ std::filesystem::path executable_dir(const char* argv0) {
 // The reader thread decodes bridge events; the CEF UI thread applies them.
 class HostMsg final {
     RSTD_ENUM(HostMsg, (Setting, (std::string key; std::string value;)), (SyncPauseVisibility),
+              (OpenAudioGate), (RuntimeMute, (bool muted;)),
               (PointerMove, (i32 x; i32 y; bool left_down;)),
               (PointerButton, (i32 x; i32 y; i32 button; bool down;)),
               (PointerAxis, (i32 x; i32 y; i32 delta_x; i32 delta_y;)))
@@ -183,8 +184,6 @@ class HostMsg final {
 
 using HostSender   = rstd::sync::mpmc::Sender<HostMsg>;
 using HostReceiver = rstd::sync::mpmc::Receiver<HostMsg>;
-
-constexpr std::string_view kRuntimeMuteKey = "__waywallen_runtime_mute";
 
 using BridgeSubscriptions = std::shared_ptr<ww_wescene::BridgeSubscriptionController>;
 
@@ -220,6 +219,7 @@ struct HostState {
     bool                             audio_enabled { true };
     f32                              base_volume { 1.0f };
     bool                             muted { false };
+    bool                             audio_gate_open { false };
 
     rstd::sync::Mutex<BridgeSubscriptions> subscriptions { BridgeSubscriptions {} };
     rstd::sync::atomic::Atomic<bool>       audio_response_demand { false };
@@ -259,12 +259,23 @@ void enqueue_setting(HostState& s, std::string key, std::string value) {
 }
 
 f32 effective_volume(const HostState& s) {
-    if (! s.audio_enabled || s.muted) return f32();
+    if (! s.audio_gate_open || ! s.audio_enabled || s.muted) return f32();
     return s.base_volume.clamp(f32(), f32(1.0f));
 }
 
 void apply_effective_volume(HostState& s) {
     if (s.host) s.host->ApplyVolume(effective_volume(s).to_primitive());
+}
+
+void open_audio_gate(HostState& s) {
+    s.audio_gate_open = true;
+    apply_effective_volume(s);
+}
+
+void set_runtime_mute(HostState& s, bool muted) {
+    s.muted = muted;
+    if (! muted) s.audio_gate_open = true;
+    apply_effective_volume(s);
 }
 
 void merge_user_property_overrides(owe::Json& properties, const rstd::json::Map& overrides) {
@@ -286,9 +297,6 @@ void apply_setting(HostState& s, HostMsg::Setting_payload&& setting) {
     if (setting.key == "volume") {
         // Wire format is u32 0..100; CEF host takes 0..1 ratio.
         s.base_volume = parse_f32(setting.value.c_str(), f32(100.0f)) / f32(100.0f);
-        apply_effective_volume(s);
-    } else if (setting.key == kRuntimeMuteKey) {
-        s.muted = parse_bool(setting.value.c_str(), false);
         apply_effective_volume(s);
     } else if (setting.key == "fps") {
         auto fps = parse_u32(setting.value.c_str(), u32());
@@ -331,6 +339,8 @@ void drain_host_messages(HostState& s) {
         RSTD_MATCH(rstd::move(message)) {
             RSTD_CASE_PAYLOAD(Setting, value) { apply_setting(s, rstd::move(value)); }
             RSTD_CASE(SyncPauseVisibility) { sync_pause_visibility(s); }
+            RSTD_CASE(OpenAudioGate) { open_audio_gate(s); }
+            RSTD_CASE_PAYLOAD(RuntimeMute, value) { set_runtime_mute(s, value.muted); }
             RSTD_CASE_PAYLOAD(PointerMove, value) {
                 if (s.host) {
                     s.host->OnMouseMove(
@@ -400,13 +410,14 @@ void apply_control(HostState& s, ReaderState& reader, ww_bridge_control_t& msg) 
     case WW_EVT_IN_PLAY:
         s.paused.store(false, rstd::sync::atomic::Ordering::Release);
         enqueue_host_message(s, HostMsg::SyncPauseVisibility());
+        enqueue_host_message(s, HostMsg::OpenAudioGate());
         break;
     case WW_EVT_IN_PAUSE:
         s.paused.store(true, rstd::sync::atomic::Ordering::Release);
         enqueue_host_message(s, HostMsg::SyncPauseVisibility());
         break;
-    case WW_EVT_IN_MUTE: enqueue_setting(s, std::string(kRuntimeMuteKey), "true"); break;
-    case WW_EVT_IN_UNMUTE: enqueue_setting(s, std::string(kRuntimeMuteKey), "false"); break;
+    case WW_EVT_IN_MUTE: enqueue_host_message(s, HostMsg::RuntimeMute(true)); break;
+    case WW_EVT_IN_UNMUTE: enqueue_host_message(s, HostMsg::RuntimeMute(false)); break;
     case WW_EVT_IN_POINTER_MOTION: {
         // Daemon transforms display-local coords into renderer-tex
         // pixel space before sending; CEF view rect is opened at the
@@ -738,6 +749,7 @@ int run(int argc, char** argv) {
 
     weweb::BrowserHost::OpenOptions open_opts;
     open_opts.shared_texture_enabled = opts.shared_texture_enabled;
+    open_opts.initially_muted        = true;
     open_opts.frame_rate             = static_cast<int>(opts.initial_fps.to_primitive());
     if (! host.OpenWallpaper(manifest,
                              opts.workshop_dir,

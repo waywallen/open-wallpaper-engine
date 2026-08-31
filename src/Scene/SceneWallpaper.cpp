@@ -1100,7 +1100,7 @@ void SceneRuntimeController::on(MainMsg::Configure_payload&& m) {
     m_user_properties = NormalizeUserProperties(m_config.user_properties);
     on(MainMsg::SetFps_payload { u32(m_config.fps) });
     on(MainMsg::SetVolume_payload { f32(m_config.volume) });
-    on(MainMsg::SetVolumeScale_payload { f32(1.0f) });
+    on(MainMsg::SetVolumeScale_payload { f32(m_config.volume_scale) });
     on(MainMsg::SetMuted_payload { m_config.muted });
     on(MainMsg::SetFillMode_payload { m_config.fill_mode });
     on(MainMsg::SetSpeed_payload { f32(m_config.speed) });

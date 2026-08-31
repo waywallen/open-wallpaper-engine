@@ -113,7 +113,8 @@ bool BrowserHost::OpenWallpaper(const WebManifest&           manifest,
         impl_->osr->SetCpuPaintCallback(impl_->cpu_cb);
     }
 
-    impl_->client = new ClientHandler(manifest.user_props.clone(), impl_->osr);
+    impl_->client =
+        new ClientHandler(manifest.user_props.clone(), impl_->osr, opts.initially_muted);
     impl_->client->SetAudioDemandCallback(impl_->audio_demand_cb);
     impl_->client->SetCloseCallback([this] {
         impl_->should_exit.store(true);
@@ -226,10 +227,7 @@ void BrowserHost::Pump() {
 }
 
 void BrowserHost::ApplyVolume(float volume) {
-    if (impl_->client) {
-        auto browser = impl_->client->GetBrowser();
-        if (browser && browser->GetHost()) browser->GetHost()->SetAudioMuted(volume <= 0.0f);
-    }
+    if (impl_->client) impl_->client->SetAudioMuted(volume <= 0.0f);
     auto object = rstd::json::Map::make();
     object.insert(::alloc::string::String::make("value"_str),
                   rstd::into<owe::Json>(rstd::f32(volume)));

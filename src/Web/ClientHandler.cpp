@@ -12,8 +12,11 @@ import :cef_internal;
 namespace weweb
 {
 
-ClientHandler::ClientHandler(owe::Json user_props, CefRefPtr<OsrRenderHandler> render_handler)
-    : user_props_(std::move(user_props)), render_handler_(std::move(render_handler)) {}
+ClientHandler::ClientHandler(owe::Json user_props, CefRefPtr<OsrRenderHandler> render_handler,
+                             bool initially_muted)
+    : user_props_(std::move(user_props)),
+      render_handler_(std::move(render_handler)),
+      audio_muted_(initially_muted) {}
 
 void ClientHandler::SetCloseCallback(std::function<void()> cb) { close_cb_ = std::move(cb); }
 
@@ -22,7 +25,17 @@ void ClientHandler::SetAudioDemandCallback(std::function<void(bool)> cb) {
     if (audio_demand_cb_) audio_demand_cb_(audio_demand_);
 }
 
-void ClientHandler::OnAfterCreated(CefRefPtr<CefBrowser> browser) { browser_ = browser; }
+void ClientHandler::SetAudioMuted(bool muted) {
+    audio_muted_ = muted;
+    if (browser_ && browser_->GetHost()) browser_->GetHost()->SetAudioMuted(muted);
+}
+
+void ClientHandler::OnAfterCreated(CefRefPtr<CefBrowser> browser) {
+    browser_ = browser;
+    if (browser_ && browser_->GetHost()) {
+        browser_->GetHost()->SetAudioMuted(audio_muted_);
+    }
+}
 
 bool ClientHandler::DoClose(CefRefPtr<CefBrowser> /*browser*/) {
     return false; // proceed with the default close

@@ -27,6 +27,7 @@ public:
 
     struct OpenOptions {
         bool shared_texture_enabled { true };
+        bool initially_muted { false };
         int  frame_rate { 60 };
     };
 

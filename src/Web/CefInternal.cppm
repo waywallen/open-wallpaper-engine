@@ -95,13 +95,15 @@ class ClientHandler : public CefClient,
                       public CefLoadHandler,
                       public CefDisplayHandler {
 public:
-    explicit ClientHandler(owe::Json user_props, CefRefPtr<OsrRenderHandler> render_handler);
+    explicit ClientHandler(owe::Json user_props, CefRefPtr<OsrRenderHandler> render_handler,
+                           bool initially_muted);
 
     ClientHandler(const ClientHandler&)            = delete;
     ClientHandler& operator=(const ClientHandler&) = delete;
 
     void                  SetCloseCallback(std::function<void()> cb);
     void                  SetAudioDemandCallback(std::function<void(bool)> cb);
+    void                  SetAudioMuted(bool muted);
     CefRefPtr<CefBrowser> GetBrowser() const { return browser_; }
 
     CefRefPtr<CefLifeSpanHandler> GetLifeSpanHandler() override { return this; }
@@ -141,6 +143,7 @@ private:
     std::function<void(bool)>   audio_demand_cb_;
     int                         audio_context_generation_ { 0 };
     bool                        audio_demand_ { false };
+    bool                        audio_muted_ { false };
     std::atomic<bool>           property_injected_ { false };
     CefRefCount                 ref_count_;
 };
