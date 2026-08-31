@@ -218,7 +218,7 @@ function M.properties(entry, ctx)
     prefix_property_titles(props)
     add_predefined_properties(entry, props)
 
-    return ctx.json.encode(props)
+    return props
 end
 
 local function we_assets(ctx)
