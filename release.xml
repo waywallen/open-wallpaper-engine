@@ -1,3 +1,29 @@
+<release version="0.2.9" date="2026-08-31">
+  <description>
+    <p>Added:</p>
+    <ul>
+      <li>Russian plugin localization. #119 by @CatSema</li>
+      <li>Localized labels for Workshop filters. #124 by @CatSema</li>
+      <li>Timeline animation events for scene scripts. #111 by @wehrwolfmann</li>
+    </ul>
+    <p>Fixes:</p>
+    <ul>
+      <li>Effect visibility scripts respond to runtime changes. #112 by @wehrwolfmann</li>
+      <li>Perspective scenes handle omitted parallax depth correctly. #125 by @barrence01</li>
+      <li>Dynamic and composed layer parallax routing.</li>
+      <li>Conditional shader combo defaults and SDR bloom rendering.</li>
+      <li>Puppet effect geometry, texture coordinates and texture-channel animations.</li>
+      <li>Composite layer source alignment.</li>
+      <li>Renderer startup audio state synchronization.</li>
+      <li>Localized wallpaper property metadata.</li>
+    </ul>
+    <p>Changed:</p>
+    <ul>
+      <li>Renderer logging follows the host logging control.</li>
+      <li>Animation field bindings use the shared scene animation model.</li>
+    </ul>
+  </description>
+</release>
 <release version="0.2.8" date="2026-08-24">
   <description>
     <p>Added:</p>

@@ -20,7 +20,7 @@ members = [
 default-members = ["viewer/SceneViewer", "viewer/WebViewer"]
 
 [workspace.package]
-version = "0.2.8"
+version = "0.2.9"
 
 [workspace.dependencies.owe-core]
 path = "src/Core"

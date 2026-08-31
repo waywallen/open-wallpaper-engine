@@ -2,7 +2,7 @@ version = 1
 
 [[packages]]
 name = "owe-audio"
-version = "0.2.8"
+version = "0.2.9"
 dependencies = [
   "owe-core",
   "rstd-std",
@@ -10,7 +10,7 @@ dependencies = [
 
 [[packages]]
 name = "owe-core"
-version = "0.2.8"
+version = "0.2.9"
 dependencies = [
   "rstd-argparse",
   "rstd-cppstd",
@@ -25,7 +25,7 @@ source = "git+https://gitlab.com/libeigen/eigen.git#bc3b39870ecb690a623a3f49149a
 
 [[packages]]
 name = "owe-scene"
-version = "0.2.8"
+version = "0.2.9"
 dependencies = [
   "owe-audio",
   "owe-core",
@@ -47,7 +47,7 @@ source = "git+https://github.com/quickjs-ng/quickjs.git#3c051980ab7e783dfbfb1c70
 
 [[packages]]
 name = "owe-sceneviewer"
-version = "0.2.8"
+version = "0.2.9"
 dependencies = [
   "owe-core",
   "owe-scene",
@@ -57,7 +57,7 @@ dependencies = [
 
 [[packages]]
 name = "owe-tests"
-version = "0.2.8"
+version = "0.2.9"
 dependencies = [
   "owe-audio",
   "owe-core",
@@ -77,7 +77,7 @@ dependencies = [
 
 [[packages]]
 name = "owe-types"
-version = "0.2.8"
+version = "0.2.9"
 dependencies = [
   "owe-core",
   "rstd-cppstd",
@@ -86,7 +86,7 @@ dependencies = [
 
 [[packages]]
 name = "owe-utils"
-version = "0.2.8"
+version = "0.2.9"
 dependencies = [
   "owe-core",
   "owe-types",
@@ -97,7 +97,7 @@ dependencies = [
 
 [[packages]]
 name = "owe-viewer-common"
-version = "0.2.8"
+version = "0.2.9"
 dependencies = [
   "owe-audio",
   "owe-core",
@@ -109,7 +109,7 @@ dependencies = [
 
 [[packages]]
 name = "owe-vulkan"
-version = "0.2.8"
+version = "0.2.9"
 dependencies = [
   "owe-core",
   "owe-types",
@@ -128,7 +128,7 @@ source = "git+https://github.com/KhronosGroup/glslang.git#275822a6261ee689aadb1d
 
 [[packages]]
 name = "owe-waywallen-plugin"
-version = "0.2.8"
+version = "0.2.9"
 runtime-dependencies = [
   "owe-waywallen-scene-renderer",
   "owe-waywallen-web-renderer",
@@ -136,17 +136,18 @@ runtime-dependencies = [
 
 [[packages]]
 name = "owe-waywallen-producer"
-version = "0.2.8"
+version = "0.2.9"
 dependencies = [
   "owe-audio",
   "rstd-cppstd",
+  "rstd-log",
   "rstd-std",
   "vvk",
 ]
 
 [[packages]]
 name = "owe-waywallen-scene-renderer"
-version = "0.2.8"
+version = "0.2.9"
 dependencies = [
   "owe-core",
   "owe-scene",
@@ -160,7 +161,7 @@ dependencies = [
 
 [[packages]]
 name = "owe-waywallen-web-renderer"
-version = "0.2.8"
+version = "0.2.9"
 dependencies = [
   "owe-audio",
   "owe-core",
@@ -175,7 +176,7 @@ dependencies = [
 
 [[packages]]
 name = "owe-web"
-version = "0.2.8"
+version = "0.2.9"
 dependencies = [
   "owe-core",
   "rstd-cppstd",
@@ -185,7 +186,7 @@ dependencies = [
 [[packages.externals]]
 name = "cef"
 source = "archive+https://cef-builds.spotifycdn.com/cef_binary_149.0.4%2Bg2f1bfd8%2Bchromium-149.0.7827.156_linuxarm64_minimal.tar.bz2"
-checksum = "sha256:8909a79689eec7b23ed80084b69766952d44e00f9a345832951b32903f8a80a0"
+checksum = "8909a79689eec7b23ed80084b69766952d44e00f9a345832951b32903f8a80a0"
 architectures = [
   "aarch64",
 ]
@@ -193,14 +194,14 @@ architectures = [
 [[packages.externals]]
 name = "cef"
 source = "archive+https://cef-builds.spotifycdn.com/cef_binary_149.0.4%2Bg2f1bfd8%2Bchromium-149.0.7827.156_linux64_minimal.tar.bz2"
-checksum = "sha256:6d43607675e47ed6bfa40d1cfce136d04e7720529f8f1c4435d4ba1dcd1839b2"
+checksum = "6d43607675e47ed6bfa40d1cfce136d04e7720529f8f1c4435d4ba1dcd1839b2"
 architectures = [
   "x86_64",
 ]
 
 [[packages]]
 name = "owe-webviewer"
-version = "0.2.8"
+version = "0.2.9"
 dependencies = [
   "owe-audio",
   "owe-core",
@@ -215,7 +216,7 @@ dependencies = [
 [[packages]]
 name = "rstd-alloc"
 version = "0.1.0"
-source = "git+https://github.com/litocpp/rstd.git#fdb99aaa894d76b04032cd301ac82b5ee6e3ec6d"
+source = "git+https://github.com/litocpp/rstd.git#456fec5cc2b87acdb56800e298b5712ea69cdd47"
 dependencies = [
   "rstd-core",
   "rstd-runtime",
@@ -224,7 +225,7 @@ dependencies = [
 [[packages]]
 name = "rstd-argparse"
 version = "0.1.0"
-source = "git+https://github.com/litocpp/rstd.git#fdb99aaa894d76b04032cd301ac82b5ee6e3ec6d"
+source = "git+https://github.com/litocpp/rstd.git#456fec5cc2b87acdb56800e298b5712ea69cdd47"
 dependencies = [
   "rstd-std",
 ]
@@ -232,12 +233,12 @@ dependencies = [
 [[packages]]
 name = "rstd-basic"
 version = "0.1.0"
-source = "git+https://github.com/litocpp/rstd.git#fdb99aaa894d76b04032cd301ac82b5ee6e3ec6d"
+source = "git+https://github.com/litocpp/rstd.git#456fec5cc2b87acdb56800e298b5712ea69cdd47"
 
 [[packages]]
 name = "rstd-bench"
 version = "0.1.0"
-source = "git+https://github.com/litocpp/rstd.git#fdb99aaa894d76b04032cd301ac82b5ee6e3ec6d"
+source = "git+https://github.com/litocpp/rstd.git#456fec5cc2b87acdb56800e298b5712ea69cdd47"
 dependencies = [
   "rstd-std",
 ]
@@ -245,7 +246,7 @@ dependencies = [
 [[packages]]
 name = "rstd-core"
 version = "0.1.0"
-source = "git+https://github.com/litocpp/rstd.git#fdb99aaa894d76b04032cd301ac82b5ee6e3ec6d"
+source = "git+https://github.com/litocpp/rstd.git#456fec5cc2b87acdb56800e298b5712ea69cdd47"
 dependencies = [
   "rstd-basic",
   "rstd-runtime",
@@ -254,7 +255,7 @@ dependencies = [
 [[packages]]
 name = "rstd-cppstd"
 version = "0.1.0"
-source = "git+https://github.com/litocpp/rstd.git#fdb99aaa894d76b04032cd301ac82b5ee6e3ec6d"
+source = "git+https://github.com/litocpp/rstd.git#456fec5cc2b87acdb56800e298b5712ea69cdd47"
 dependencies = [
   "rstd-std",
 ]
@@ -262,7 +263,7 @@ dependencies = [
 [[packages]]
 name = "rstd-dlopn"
 version = "0.1.0"
-source = "git+https://github.com/litocpp/rstd.git#fdb99aaa894d76b04032cd301ac82b5ee6e3ec6d"
+source = "git+https://github.com/litocpp/rstd.git#456fec5cc2b87acdb56800e298b5712ea69cdd47"
 dependencies = [
   "rstd-std",
 ]
@@ -270,7 +271,7 @@ dependencies = [
 [[packages]]
 name = "rstd-json"
 version = "0.1.0"
-source = "git+https://github.com/litocpp/rstd.git#fdb99aaa894d76b04032cd301ac82b5ee6e3ec6d"
+source = "git+https://github.com/litocpp/rstd.git#456fec5cc2b87acdb56800e298b5712ea69cdd47"
 dependencies = [
   "rstd-core",
   "rstd-parse",
@@ -281,7 +282,7 @@ dependencies = [
 [[packages]]
 name = "rstd-log"
 version = "0.1.0"
-source = "git+https://github.com/litocpp/rstd.git#fdb99aaa894d76b04032cd301ac82b5ee6e3ec6d"
+source = "git+https://github.com/litocpp/rstd.git#456fec5cc2b87acdb56800e298b5712ea69cdd47"
 dependencies = [
   "rstd-core",
   "rstd-std",
@@ -290,7 +291,7 @@ dependencies = [
 [[packages]]
 name = "rstd-parse"
 version = "0.1.0"
-source = "git+https://github.com/litocpp/rstd.git#fdb99aaa894d76b04032cd301ac82b5ee6e3ec6d"
+source = "git+https://github.com/litocpp/rstd.git#456fec5cc2b87acdb56800e298b5712ea69cdd47"
 dependencies = [
   "rstd-alloc",
   "rstd-core",
@@ -299,7 +300,7 @@ dependencies = [
 [[packages]]
 name = "rstd-runtime"
 version = "0.1.0"
-source = "git+https://github.com/litocpp/rstd.git#fdb99aaa894d76b04032cd301ac82b5ee6e3ec6d"
+source = "git+https://github.com/litocpp/rstd.git#456fec5cc2b87acdb56800e298b5712ea69cdd47"
 dependencies = [
   "rstd-basic",
 ]
@@ -307,7 +308,7 @@ dependencies = [
 [[packages]]
 name = "rstd-serde"
 version = "0.1.0"
-source = "git+https://github.com/litocpp/rstd.git#fdb99aaa894d76b04032cd301ac82b5ee6e3ec6d"
+source = "git+https://github.com/litocpp/rstd.git#456fec5cc2b87acdb56800e298b5712ea69cdd47"
 dependencies = [
   "rstd-alloc",
 ]
@@ -315,7 +316,7 @@ dependencies = [
 [[packages]]
 name = "rstd-std"
 version = "0.1.0"
-source = "git+https://github.com/litocpp/rstd.git#fdb99aaa894d76b04032cd301ac82b5ee6e3ec6d"
+source = "git+https://github.com/litocpp/rstd.git#456fec5cc2b87acdb56800e298b5712ea69cdd47"
 dependencies = [
   "rstd-alloc",
   "rstd-core",
@@ -324,7 +325,7 @@ dependencies = [
 [[packages]]
 name = "rstd-test"
 version = "0.1.0"
-source = "git+https://github.com/litocpp/rstd.git#fdb99aaa894d76b04032cd301ac82b5ee6e3ec6d"
+source = "git+https://github.com/litocpp/rstd.git#456fec5cc2b87acdb56800e298b5712ea69cdd47"
 dependencies = [
   "rstd-std",
 ]
@@ -351,7 +352,7 @@ source = "git+https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.
 [[packages]]
 name = "wavsen"
 version = "0.1.0"
-source = "git+https://github.com/hypengw/wavsen.git#c7cb2b2304b0b0e309c19373ac0722d904ddebc0"
+source = "git+https://github.com/hypengw/wavsen.git#77dfd33d07112c05df4682e08b98e19153ebe3ab"
 dependencies = [
   "rstd-core",
   "rstd-cppstd",

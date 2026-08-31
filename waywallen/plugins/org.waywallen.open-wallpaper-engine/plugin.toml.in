@@ -13,7 +13,7 @@ name = "Wallpaper Engine"
 version = "@OWE_PLUGIN_VERSION@"
 update = "@OWE_WAYWALLEN_PLUGIN_UPDATE_URL@"
 entry = "main.lua"
-entry_version = 3
+entry_version = 4
 
 [plugin.i18n]
 directory = "i18n"
