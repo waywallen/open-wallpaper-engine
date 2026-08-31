@@ -1,9 +1,61 @@
 msgid ""
-msgstr "Project-Id-Version: org.waywallen.open-wallpaper-engine 0.2.8\nPO-Revision-Date: 2026-08-25 00:54+0300\nLast-Translator: CatSema <catsemaofficial@gmail.com>\nLanguage-Team: Russian\nLanguage: ru\nMIME-Version: 1.0\nContent-Type: text/plain; charset=UTF-8\nContent-Transfer-Encoding: 8bit\n"
+msgstr "Project-Id-Version: org.waywallen.open-wallpaper-engine 0.2.9\nLanguage: ru\nMIME-Version: 1.0\nContent-Type: text/plain; charset=UTF-8\nContent-Transfer-Encoding: 8bit\nLanguage-Team: Russian\nLast-Translator: CatSema <catsemaofficial@gmail.com>\nPO-Revision-Date: 2026-08-25 00:54+0300\n"
+
+#: wallpaper_engine/api.lua:108
+msgid "1280 x 720"
+msgstr "1280 x 720"
+
+#: wallpaper_engine/api.lua:109
+msgid "1366 x 768"
+msgstr "1366 x 768"
+
+#: wallpaper_engine/api.lua:110
+msgid "1920 x 1080"
+msgstr "1920 x 1080"
+
+#: wallpaper_engine/api.lua:111
+msgid "2560 x 1440"
+msgstr "2560 x 1440"
+
+#: wallpaper_engine/api.lua:112
+msgid "3840 x 2160"
+msgstr "3840 x 2160"
+
+#: wallpaper_engine/api.lua:61
+msgid "3D"
+msgstr "3D"
+
+#: wallpaper_engine/api.lua:75
+msgid "Abstract"
+msgstr "Абстракция"
+
+#: wallpaper_engine/api.lua:76
+msgid "Animal"
+msgstr "Животные"
+
+#: wallpaper_engine/api.lua:77
+msgid "Anime"
+msgstr "Аниме"
+
+#: wallpaper_engine/api.lua:59
+msgid "Approved"
+msgstr "Одобрено"
 
 #: plugin.toml
 msgid "Audio"
 msgstr "Звук"
+
+#: wallpaper_engine/api.lua:60
+msgid "Audio responsive"
+msgstr "Реагирует на звук"
+
+#: wallpaper_engine/api.lua:79
+msgid "CGI"
+msgstr "Компьютерная графика"
+
+#: wallpaper_engine/api.lua:78
+msgid "Cartoon"
+msgstr "Мультфильмы"
 
 #: wallpaper_engine/api.lua:45
 msgid "Content rating"
@@ -12,6 +64,14 @@ msgstr "Возрастной рейтинг"
 #: plugin.toml
 msgid "Custom resolution"
 msgstr "Пользовательское разрешение"
+
+#: wallpaper_engine/api.lua:62
+msgid "Customizable"
+msgstr "Настраиваемые"
+
+#: wallpaper_engine/api.lua:80
+msgid "Cyberpunk"
+msgstr "Киберпанк"
 
 #: plugin.toml
 msgid "Debugging"
@@ -25,29 +85,97 @@ msgstr "Декодирование"
 msgid "Defaults to Everyone when nothing is selected. Mature includes NSFW wallpapers."
 msgstr "Если ничего не выбрано, по умолчанию отображаются обои категории «Для всех». Категория «Для взрослых» включает NSFW-обои."
 
-#: plugin.toml
+#: wallpaper_engine/api.lua:117
+msgid "Dual 3840 x 1080"
+msgstr "Два монитора, 3840 x 1080"
+
+#: wallpaper_engine/api.lua:118
+msgid "Dual 5120 x 1440"
+msgstr "Два монитора, 5120 x 1440"
+
+#: wallpaper_engine/api.lua:119
+msgid "Dual 7680 x 2160"
+msgstr "Два монитора, 7680 x 2160"
+
+#: wallpaper_engine/api.lua:116
+msgid "Dual Standard Definition"
+msgstr "Два монитора, стандартное разрешение"
+
+#: wallpaper_engine/api.lua:131
+msgid "Dynamic resolution"
+msgstr "Динамическое разрешение"
+
+#: plugin.toml wallpaper_engine/wallpaper.lua:128
 msgid "Enable audio"
 msgstr "Включить звук"
+
+#: wallpaper_engine/api.lua:48
+msgid "Everyone"
+msgstr "Для всех"
+
+#: wallpaper_engine/api.lua:81
+msgid "Fantasy"
+msgstr "Фэнтези"
 
 #: plugin.toml
 msgid "Frame rate"
 msgstr "Частота кадров"
 
+#: wallpaper_engine/api.lua:82
+msgid "Game"
+msgstr "Игры"
+
 #: wallpaper_engine/api.lua:72
 msgid "Genre"
 msgstr "Жанр"
+
+#: wallpaper_engine/api.lua:83
+msgid "Girls"
+msgstr "Девушки"
+
+#: wallpaper_engine/api.lua:84
+msgid "Guys"
+msgstr "Парни"
+
+#: wallpaper_engine/api.lua:64
+msgid "HDR"
+msgstr "HDR"
 
 #: plugin.toml
 msgid "Hardware decoding"
 msgstr "Аппаратное декодирование"
 
-#: main.lua:43 main.lua:44
+#: wallpaper_engine/api.lua:85
+msgid "Landscape"
+msgstr "Пейзажи"
+
+#: main.lua:43 main.lua:44 wallpaper_engine/auth.lua:44
 msgid "Log in to Steam"
 msgstr "Войти в Steam"
+
+#: wallpaper_engine/api.lua:88
+msgid "MMD"
+msgstr "MMD"
 
 #: plugin.toml
 msgid "MSAA"
 msgstr "MSAA"
+
+#: wallpaper_engine/api.lua:50
+msgid "Mature"
+msgstr "Для взрослых"
+
+#: wallpaper_engine/api.lua:65
+msgid "Media Integration"
+msgstr "Интеграция с медиаплеером"
+
+#: wallpaper_engine/api.lua:86
+msgid "Medieval"
+msgstr "Средневековье"
+
+#: wallpaper_engine/api.lua:87
+msgid "Memes"
+msgstr "Мемы"
 
 #: wallpaper_engine/api.lua:56
 msgid "Miscellaneous"
@@ -60,6 +188,66 @@ msgstr "Недавно добавленные"
 #: main.lua:88
 msgid "Most subscribed"
 msgstr "Самые популярные"
+
+#: wallpaper_engine/api.lua:89
+msgid "Music"
+msgstr "Музыка"
+
+#: wallpaper_engine/api.lua:90
+msgid "Nature"
+msgstr "Природа"
+
+#: wallpaper_engine/session.lua:30 wallpaper_engine/session.lua:52 wallpaper_engine/session.lua:526
+msgid "Not signed in"
+msgstr "Вход не выполнен"
+
+#: wallpaper_engine/api.lua:130
+msgid "Other resolution"
+msgstr "Другое разрешение"
+
+#: main.lua:69
+msgid "Pick the directory that contains the `steamapps` folder.\nTypically `%1` or `%2` (or `%3` for Flatpak Steam)."
+msgstr "Выберите каталог, содержащий папку `steamapps`.\nОбычно это `%1` или `%2` (либо `%3` для Steam из Flatpak)."
+
+#: wallpaper_engine/api.lua:91
+msgid "Pixel art"
+msgstr "Пиксельная графика"
+
+#: wallpaper_engine/wallpaper.lua:134
+msgid "Playback speed"
+msgstr "Скорость воспроизведения"
+
+#: wallpaper_engine/api.lua:127
+msgid "Portrait 1080 x 1920"
+msgstr "Портретное 1080 x 1920"
+
+#: wallpaper_engine/api.lua:128
+msgid "Portrait 1440 x 2560"
+msgstr "Портретное 1440 x 2560"
+
+#: wallpaper_engine/api.lua:129
+msgid "Portrait 2160 x 3840"
+msgstr "Портретное 2160 x 3840"
+
+#: wallpaper_engine/api.lua:126
+msgid "Portrait 720 x 1280"
+msgstr "Портретное 720 x 1280"
+
+#: wallpaper_engine/api.lua:125
+msgid "Portrait Standard Definition"
+msgstr "Портретное стандартное разрешение"
+
+#: wallpaper_engine/api.lua:63
+msgid "Puppet Warp"
+msgstr "Деформация марионетки"
+
+#: wallpaper_engine/api.lua:49
+msgid "Questionable"
+msgstr "Сомнительный контент"
+
+#: wallpaper_engine/api.lua:92
+msgid "Relaxing"
+msgstr "Расслабляющие"
 
 #: plugin.toml
 msgid "Remote debugging port"
@@ -77,6 +265,22 @@ msgstr "Рендеринг"
 msgid "Resolution"
 msgstr "Разрешение"
 
+#: wallpaper_engine/api.lua:93
+msgid "Retro"
+msgstr "Ретро"
+
+#: wallpaper_engine/auth.lua:45
+msgid "Scan and approve this login in the Steam mobile app."
+msgstr "Отсканируйте QR-код и подтвердите вход в мобильном приложении Steam."
+
+#: wallpaper_engine/api.lua:38
+msgid "Scene"
+msgstr "Сцена"
+
+#: wallpaper_engine/api.lua:94
+msgid "Sci-Fi"
+msgstr "Научная фантастика"
+
 #: plugin.toml
 msgid "Shared texture"
 msgstr "Совместно используемая текстура"
@@ -84,6 +288,14 @@ msgstr "Совместно используемая текстура"
 #: main.lua:54
 msgid "Sign out"
 msgstr "Выйти"
+
+#: wallpaper_engine/api.lua:95
+msgid "Sports"
+msgstr "Спорт"
+
+#: wallpaper_engine/api.lua:107
+msgid "Standard Definition"
+msgstr "Стандартное разрешение"
 
 #: main.lua:33
 msgid "Status"
@@ -93,9 +305,33 @@ msgstr "Статус"
 msgid "Steam Library Path"
 msgstr "Путь к библиотеке Steam"
 
+#: wallpaper_engine/auth.lua:63
+msgid "Steam QR poll failed with HTTP %1"
+msgstr "Не удалось проверить статус QR-входа Steam: HTTP %1"
+
 #: main.lua:10
 msgid "Steam account"
 msgstr "Учётная запись Steam"
+
+#: wallpaper_engine/session.lua:544
+msgid "Steam session check failed"
+msgstr "Не удалось проверить сеанс Steam"
+
+#: wallpaper_engine/session.lua:467 wallpaper_engine/session.lua:532 wallpaper_engine/session.lua:543
+msgid "Steam session expired; sign in again"
+msgstr "Сеанс Steam истёк. Войдите снова"
+
+#: wallpaper_engine/session.lua:123 wallpaper_engine/session.lua:522
+msgid "Steam sign-in must be renewed"
+msgstr "Необходимо повторно войти в Steam"
+
+#: wallpaper_engine/api.lua:96
+msgid "Technology"
+msgstr "Технологии"
+
+#: wallpaper_engine/api.lua:97
+msgid "Television"
+msgstr "Телевидение"
 
 #: main.lua:89
 msgid "Top rated"
@@ -125,9 +361,61 @@ msgstr "Популярное за год"
 msgid "Trending today"
 msgstr "Популярное за день"
 
+#: wallpaper_engine/api.lua:124
+msgid "Triple 11520 x 2160"
+msgstr "Три монитора, 11520 x 2160"
+
+#: wallpaper_engine/api.lua:121
+msgid "Triple 4096 x 768"
+msgstr "Три монитора, 4096 x 768"
+
+#: wallpaper_engine/api.lua:122
+msgid "Triple 5760 x 1080"
+msgstr "Три монитора, 5760 x 1080"
+
+#: wallpaper_engine/api.lua:123
+msgid "Triple 7680 x 1440"
+msgstr "Три монитора, 7680 x 1440"
+
+#: wallpaper_engine/api.lua:120
+msgid "Triple Standard Definition"
+msgstr "Три монитора, стандартное разрешение"
+
 #: wallpaper_engine/api.lua:35
 msgid "Type"
 msgstr "Тип"
+
+#: wallpaper_engine/api.lua:114
+msgid "Ultrawide 2560 x 1080"
+msgstr "Сверхширокое 2560 x 1080"
+
+#: wallpaper_engine/api.lua:115
+msgid "Ultrawide 3440 x 1440"
+msgstr "Сверхширокое 3440 x 1440"
+
+#: wallpaper_engine/api.lua:113
+msgid "Ultrawide Standard Definition"
+msgstr "Сверхширокое стандартное разрешение"
+
+#: wallpaper_engine/api.lua:99
+msgid "Unspecified"
+msgstr "Не указано"
+
+#: wallpaper_engine/api.lua:66
+msgid "User Shortcut"
+msgstr "Пользовательское сочетание клавиш"
+
+#: wallpaper_engine/api.lua:98
+msgid "Vehicle"
+msgstr "Транспорт"
+
+#: wallpaper_engine/api.lua:39
+msgid "Video"
+msgstr "Видео"
+
+#: wallpaper_engine/api.lua:67
+msgid "Video Texture"
+msgstr "Видеотекстура"
 
 #: plugin.toml
 msgid "Volume"
@@ -137,306 +425,10 @@ msgstr "Громкость"
 msgid "Waywallen only manages Workshop subscriptions and does not download wallpapers. Keep the Steam desktop client running to download subscribed items."
 msgstr "Waywallen только управляет подписками в Мастерской и не загружает обои. Не закрывайте клиент Steam: он загружает материалы, на которые вы подписались."
 
-#: main.lua:29
-msgid "Workshop"
-msgstr "Мастерская"
-
-#: main.lua:69
-msgid "Pick the directory that contains the `steamapps` folder.\nTypically `%s` or `%s` (or `%s` for Flatpak Steam)."
-msgstr "Выберите каталог, содержащий папку `steamapps`.\nОбычно это `%s` или `%s` (либо `%s` для Steam из Flatpak)."
-
-#: wallpaper_engine/api.lua
-msgid "Scene"
-msgstr "Сцена"
-
-#: wallpaper_engine/api.lua
-msgid "Video"
-msgstr "Видео"
-
-#: wallpaper_engine/api.lua
+#: wallpaper_engine/api.lua:40
 msgid "Web"
 msgstr "Веб"
 
-#: wallpaper_engine/api.lua
-msgid "Everyone"
-msgstr "Для всех"
-
-#: wallpaper_engine/api.lua
-msgid "Questionable"
-msgstr "Сомнительный контент"
-
-#: wallpaper_engine/api.lua
-msgid "Mature"
-msgstr "Для взрослых"
-
-#: wallpaper_engine/api.lua
-msgid "Approved"
-msgstr "Одобрено"
-
-#: wallpaper_engine/api.lua
-msgid "Audio responsive"
-msgstr "Реагирует на звук"
-
-#: wallpaper_engine/api.lua
-msgid "3D"
-msgstr "3D"
-
-#: wallpaper_engine/api.lua
-msgid "Customizable"
-msgstr "Настраиваемые"
-
-#: wallpaper_engine/api.lua
-msgid "Puppet Warp"
-msgstr "Деформация марионетки"
-
-#: wallpaper_engine/api.lua
-msgid "HDR"
-msgstr "HDR"
-
-#: wallpaper_engine/api.lua
-msgid "Media Integration"
-msgstr "Интеграция с медиаплеером"
-
-#: wallpaper_engine/api.lua
-msgid "User Shortcut"
-msgstr "Пользовательское сочетание клавиш"
-
-#: wallpaper_engine/api.lua
-msgid "Video Texture"
-msgstr "Видеотекстура"
-
-#: wallpaper_engine/api.lua
-msgid "Abstract"
-msgstr "Абстракция"
-
-#: wallpaper_engine/api.lua
-msgid "Animal"
-msgstr "Животные"
-
-#: wallpaper_engine/api.lua
-msgid "Anime"
-msgstr "Аниме"
-
-#: wallpaper_engine/api.lua
-msgid "Cartoon"
-msgstr "Мультфильмы"
-
-#: wallpaper_engine/api.lua
-msgid "CGI"
-msgstr "Компьютерная графика"
-
-#: wallpaper_engine/api.lua
-msgid "Cyberpunk"
-msgstr "Киберпанк"
-
-#: wallpaper_engine/api.lua
-msgid "Fantasy"
-msgstr "Фэнтези"
-
-#: wallpaper_engine/api.lua
-msgid "Game"
-msgstr "Игры"
-
-#: wallpaper_engine/api.lua
-msgid "Girls"
-msgstr "Девушки"
-
-#: wallpaper_engine/api.lua
-msgid "Guys"
-msgstr "Парни"
-
-#: wallpaper_engine/api.lua
-msgid "Landscape"
-msgstr "Пейзажи"
-
-#: wallpaper_engine/api.lua
-msgid "Medieval"
-msgstr "Средневековье"
-
-#: wallpaper_engine/api.lua
-msgid "Memes"
-msgstr "Мемы"
-
-#: wallpaper_engine/api.lua
-msgid "MMD"
-msgstr "MMD"
-
-#: wallpaper_engine/api.lua
-msgid "Music"
-msgstr "Музыка"
-
-#: wallpaper_engine/api.lua
-msgid "Nature"
-msgstr "Природа"
-
-#: wallpaper_engine/api.lua
-msgid "Pixel art"
-msgstr "Пиксельная графика"
-
-#: wallpaper_engine/api.lua
-msgid "Relaxing"
-msgstr "Расслабляющие"
-
-#: wallpaper_engine/api.lua
-msgid "Retro"
-msgstr "Ретро"
-
-#: wallpaper_engine/api.lua
-msgid "Sci-Fi"
-msgstr "Научная фантастика"
-
-#: wallpaper_engine/api.lua
-msgid "Sports"
-msgstr "Спорт"
-
-#: wallpaper_engine/api.lua
-msgid "Technology"
-msgstr "Технологии"
-
-#: wallpaper_engine/api.lua
-msgid "Television"
-msgstr "Телевидение"
-
-#: wallpaper_engine/api.lua
-msgid "Vehicle"
-msgstr "Транспорт"
-
-#: wallpaper_engine/api.lua
-msgid "Unspecified"
-msgstr "Не указано"
-
-#: wallpaper_engine/api.lua
-msgid "Standard Definition"
-msgstr "Стандартное разрешение"
-
-#: wallpaper_engine/api.lua
-msgid "1280 x 720"
-msgstr "1280 x 720"
-
-#: wallpaper_engine/api.lua
-msgid "1366 x 768"
-msgstr "1366 x 768"
-
-#: wallpaper_engine/api.lua
-msgid "1920 x 1080"
-msgstr "1920 x 1080"
-
-#: wallpaper_engine/api.lua
-msgid "2560 x 1440"
-msgstr "2560 x 1440"
-
-#: wallpaper_engine/api.lua
-msgid "3840 x 2160"
-msgstr "3840 x 2160"
-
-#: wallpaper_engine/api.lua
-msgid "Ultrawide Standard Definition"
-msgstr "Сверхширокое стандартное разрешение"
-
-#: wallpaper_engine/api.lua
-msgid "Ultrawide 2560 x 1080"
-msgstr "Сверхширокое 2560 x 1080"
-
-#: wallpaper_engine/api.lua
-msgid "Ultrawide 3440 x 1440"
-msgstr "Сверхширокое 3440 x 1440"
-
-#: wallpaper_engine/api.lua
-msgid "Dual Standard Definition"
-msgstr "Два монитора, стандартное разрешение"
-
-#: wallpaper_engine/api.lua
-msgid "Dual 3840 x 1080"
-msgstr "Два монитора, 3840 x 1080"
-
-#: wallpaper_engine/api.lua
-msgid "Dual 5120 x 1440"
-msgstr "Два монитора, 5120 x 1440"
-
-#: wallpaper_engine/api.lua
-msgid "Dual 7680 x 2160"
-msgstr "Два монитора, 7680 x 2160"
-
-#: wallpaper_engine/api.lua
-msgid "Triple Standard Definition"
-msgstr "Три монитора, стандартное разрешение"
-
-#: wallpaper_engine/api.lua
-msgid "Triple 4096 x 768"
-msgstr "Три монитора, 4096 x 768"
-
-#: wallpaper_engine/api.lua
-msgid "Triple 5760 x 1080"
-msgstr "Три монитора, 5760 x 1080"
-
-#: wallpaper_engine/api.lua
-msgid "Triple 7680 x 1440"
-msgstr "Три монитора, 7680 x 1440"
-
-#: wallpaper_engine/api.lua
-msgid "Triple 11520 x 2160"
-msgstr "Три монитора, 11520 x 2160"
-
-#: wallpaper_engine/api.lua
-msgid "Portrait Standard Definition"
-msgstr "Портретное стандартное разрешение"
-
-#: wallpaper_engine/api.lua
-msgid "Portrait 720 x 1280"
-msgstr "Портретное 720 x 1280"
-
-#: wallpaper_engine/api.lua
-msgid "Portrait 1080 x 1920"
-msgstr "Портретное 1080 x 1920"
-
-#: wallpaper_engine/api.lua
-msgid "Portrait 1440 x 2560"
-msgstr "Портретное 1440 x 2560"
-
-#: wallpaper_engine/api.lua
-msgid "Portrait 2160 x 3840"
-msgstr "Портретное 2160 x 3840"
-
-#: wallpaper_engine/api.lua
-msgid "Other resolution"
-msgstr "Другое разрешение"
-
-#: wallpaper_engine/api.lua
-msgid "Dynamic resolution"
-msgstr "Динамическое разрешение"
-
-#: wallpaper_engine/auth.lua
-msgid "Scan and approve this login in the Steam mobile app."
-msgstr "Отсканируйте QR-код и подтвердите вход в мобильном приложении Steam."
-
-#: wallpaper_engine/auth.lua
-msgid "Steam QR poll failed with HTTP %s"
-msgstr "Не удалось проверить статус QR-входа Steam: HTTP %s"
-
-#: wallpaper_engine/session.lua
-msgid "Not signed in"
-msgstr "Вход не выполнен"
-
-#: wallpaper_engine/session.lua
-msgid "Steam sign-in must be renewed"
-msgstr "Необходимо повторно войти в Steam"
-
-#: wallpaper_engine/session.lua
-msgid "Steam session expired; sign in again"
-msgstr "Сеанс Steam истёк. Войдите снова"
-
-#: wallpaper_engine/session.lua
-msgid "Steam session check failed"
-msgstr "Не удалось проверить сеанс Steam"
-
-#: wallpaper_engine/subscription.lua
-msgid "Steam subscription status failed with HTTP %s"
-msgstr "Не удалось получить статус подписки Steam: HTTP %s"
-
-#: wallpaper_engine/subscription.lua
-msgid "Steam subscription request failed with HTTP %s"
-msgstr "Не удалось изменить подписку Steam: HTTP %s"
-
-#: wallpaper_engine/wallpaper.lua
-msgid "Playback speed"
-msgstr "Скорость воспроизведения"
+#: main.lua:29
+msgid "Workshop"
+msgstr "Мастерская"

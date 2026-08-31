@@ -41,8 +41,8 @@ function M.begin(ctx)
         challenge = response.challenge_url,
         poll_after_ms = math.floor((tonumber(response.interval) or 5) * 1000),
         expires_in_ms = 180000,
-        title = "Log in to Steam",
-        instruction = "Scan and approve this login in the Steam mobile app.",
+        title = tr("Log in to Steam"),
+        instruction = tr("Scan and approve this login in the Steam mobile app."),
     }
 end
 
@@ -60,7 +60,7 @@ function M.poll(ctx, key)
     if not rsp:ok() then
         return {
             state = "failed",
-            error = "Steam QR poll failed with HTTP " .. tostring(rsp:status()),
+            error = tr("Steam QR poll failed with HTTP %1", rsp:status()),
         }
     end
     local response = ((rsp:json() or {}).response or {})

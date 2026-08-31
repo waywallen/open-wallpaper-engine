@@ -1,9 +1,61 @@
 msgid ""
-msgstr "Project-Id-Version: org.waywallen.open-wallpaper-engine 0.2.6\nPO-Revision-Date: 2026-08-28 19:37+0300\nLast-Translator: hypengw <hypengwip@gmail.com>\nLanguage-Team: Chinese\nLanguage: zh-CN\nMIME-Version: 1.0\nContent-Type: text/plain; charset=UTF-8\nContent-Transfer-Encoding: 8bit\n"
+msgstr "Project-Id-Version: org.waywallen.open-wallpaper-engine 0.2.9\nLanguage: zh-CN\nMIME-Version: 1.0\nContent-Type: text/plain; charset=UTF-8\nContent-Transfer-Encoding: 8bit\nLanguage-Team: Chinese\nLast-Translator: hypengw <hypengwip@gmail.com>\nPO-Revision-Date: 2026-08-28 19:37+0300\n"
+
+#: wallpaper_engine/api.lua:108
+msgid "1280 x 720"
+msgstr "1280 x 720"
+
+#: wallpaper_engine/api.lua:109
+msgid "1366 x 768"
+msgstr "1366 x 768"
+
+#: wallpaper_engine/api.lua:110
+msgid "1920 x 1080"
+msgstr "1920 x 1080"
+
+#: wallpaper_engine/api.lua:111
+msgid "2560 x 1440"
+msgstr "2560 x 1440"
+
+#: wallpaper_engine/api.lua:112
+msgid "3840 x 2160"
+msgstr "3840 x 2160"
+
+#: wallpaper_engine/api.lua:61
+msgid "3D"
+msgstr "3D"
+
+#: wallpaper_engine/api.lua:75
+msgid "Abstract"
+msgstr "抽象"
+
+#: wallpaper_engine/api.lua:76
+msgid "Animal"
+msgstr "动物"
+
+#: wallpaper_engine/api.lua:77
+msgid "Anime"
+msgstr "动漫"
+
+#: wallpaper_engine/api.lua:59
+msgid "Approved"
+msgstr "已批准"
 
 #: plugin.toml
 msgid "Audio"
 msgstr "音频"
+
+#: wallpaper_engine/api.lua:60
+msgid "Audio responsive"
+msgstr "音频响应"
+
+#: wallpaper_engine/api.lua:79
+msgid "CGI"
+msgstr "CGI"
+
+#: wallpaper_engine/api.lua:78
+msgid "Cartoon"
+msgstr "卡通"
 
 #: wallpaper_engine/api.lua:45
 msgid "Content rating"
@@ -12,6 +64,14 @@ msgstr "内容分级"
 #: plugin.toml
 msgid "Custom resolution"
 msgstr "自定义分辨率"
+
+#: wallpaper_engine/api.lua:62
+msgid "Customizable"
+msgstr "可自定义"
+
+#: wallpaper_engine/api.lua:80
+msgid "Cyberpunk"
+msgstr "赛博朋克"
 
 #: plugin.toml
 msgid "Debugging"
@@ -25,29 +85,97 @@ msgstr "解码"
 msgid "Defaults to Everyone when nothing is selected. Mature includes NSFW wallpapers."
 msgstr "未选择时默认为 Everyone。Mature 包含 NSFW 壁纸。"
 
-#: plugin.toml
+#: wallpaper_engine/api.lua:117
+msgid "Dual 3840 x 1080"
+msgstr "双屏 3840 x 1080"
+
+#: wallpaper_engine/api.lua:118
+msgid "Dual 5120 x 1440"
+msgstr "双屏 5120 x 1440"
+
+#: wallpaper_engine/api.lua:119
+msgid "Dual 7680 x 2160"
+msgstr "双屏 7680 x 2160"
+
+#: wallpaper_engine/api.lua:116
+msgid "Dual Standard Definition"
+msgstr "双屏标准分辨率"
+
+#: wallpaper_engine/api.lua:131
+msgid "Dynamic resolution"
+msgstr "动态分辨率"
+
+#: plugin.toml wallpaper_engine/wallpaper.lua:128
 msgid "Enable audio"
 msgstr "启用音频"
+
+#: wallpaper_engine/api.lua:48
+msgid "Everyone"
+msgstr "所有人"
+
+#: wallpaper_engine/api.lua:81
+msgid "Fantasy"
+msgstr "奇幻"
 
 #: plugin.toml
 msgid "Frame rate"
 msgstr "帧率"
 
+#: wallpaper_engine/api.lua:82
+msgid "Game"
+msgstr "游戏"
+
 #: wallpaper_engine/api.lua:72
 msgid "Genre"
 msgstr "题材"
+
+#: wallpaper_engine/api.lua:83
+msgid "Girls"
+msgstr "女孩"
+
+#: wallpaper_engine/api.lua:84
+msgid "Guys"
+msgstr "男孩"
+
+#: wallpaper_engine/api.lua:64
+msgid "HDR"
+msgstr "HDR"
 
 #: plugin.toml
 msgid "Hardware decoding"
 msgstr "硬件解码"
 
-#: main.lua:43 main.lua:44
+#: wallpaper_engine/api.lua:85
+msgid "Landscape"
+msgstr "风景"
+
+#: main.lua:43 main.lua:44 wallpaper_engine/auth.lua:44
 msgid "Log in to Steam"
 msgstr "登录 Steam"
+
+#: wallpaper_engine/api.lua:88
+msgid "MMD"
+msgstr "MMD"
 
 #: plugin.toml
 msgid "MSAA"
 msgstr "MSAA"
+
+#: wallpaper_engine/api.lua:50
+msgid "Mature"
+msgstr "成人内容"
+
+#: wallpaper_engine/api.lua:65
+msgid "Media Integration"
+msgstr "媒体集成"
+
+#: wallpaper_engine/api.lua:86
+msgid "Medieval"
+msgstr "中世纪"
+
+#: wallpaper_engine/api.lua:87
+msgid "Memes"
+msgstr "梗图"
 
 #: wallpaper_engine/api.lua:56
 msgid "Miscellaneous"
@@ -60,6 +188,66 @@ msgstr "最新"
 #: main.lua:88
 msgid "Most subscribed"
 msgstr "订阅最多"
+
+#: wallpaper_engine/api.lua:89
+msgid "Music"
+msgstr "音乐"
+
+#: wallpaper_engine/api.lua:90
+msgid "Nature"
+msgstr "自然"
+
+#: wallpaper_engine/session.lua:30 wallpaper_engine/session.lua:52 wallpaper_engine/session.lua:526
+msgid "Not signed in"
+msgstr "未登录"
+
+#: wallpaper_engine/api.lua:130
+msgid "Other resolution"
+msgstr "其他分辨率"
+
+#: main.lua:69
+msgid "Pick the directory that contains the `steamapps` folder.\nTypically `%1` or `%2` (or `%3` for Flatpak Steam)."
+msgstr "选择包含 `steamapps` 文件夹的目录。\n通常为 `%1` 或 `%2`（Flatpak Steam 则为 `%3`）。"
+
+#: wallpaper_engine/api.lua:91
+msgid "Pixel art"
+msgstr "像素艺术"
+
+#: wallpaper_engine/wallpaper.lua:134
+msgid "Playback speed"
+msgstr "播放速度"
+
+#: wallpaper_engine/api.lua:127
+msgid "Portrait 1080 x 1920"
+msgstr "纵向 1080 x 1920"
+
+#: wallpaper_engine/api.lua:128
+msgid "Portrait 1440 x 2560"
+msgstr "纵向 1440 x 2560"
+
+#: wallpaper_engine/api.lua:129
+msgid "Portrait 2160 x 3840"
+msgstr "纵向 2160 x 3840"
+
+#: wallpaper_engine/api.lua:126
+msgid "Portrait 720 x 1280"
+msgstr "纵向 720 x 1280"
+
+#: wallpaper_engine/api.lua:125
+msgid "Portrait Standard Definition"
+msgstr "纵向标准分辨率"
+
+#: wallpaper_engine/api.lua:63
+msgid "Puppet Warp"
+msgstr "木偶变形"
+
+#: wallpaper_engine/api.lua:49
+msgid "Questionable"
+msgstr "敏感内容"
+
+#: wallpaper_engine/api.lua:92
+msgid "Relaxing"
+msgstr "轻松"
 
 #: plugin.toml
 msgid "Remote debugging port"
@@ -77,6 +265,22 @@ msgstr "渲染"
 msgid "Resolution"
 msgstr "分辨率"
 
+#: wallpaper_engine/api.lua:93
+msgid "Retro"
+msgstr "复古"
+
+#: wallpaper_engine/auth.lua:45
+msgid "Scan and approve this login in the Steam mobile app."
+msgstr "在 Steam 手机应用中扫描二维码并批准此次登录。"
+
+#: wallpaper_engine/api.lua:38
+msgid "Scene"
+msgstr "场景"
+
+#: wallpaper_engine/api.lua:94
+msgid "Sci-Fi"
+msgstr "科幻"
+
 #: plugin.toml
 msgid "Shared texture"
 msgstr "共享纹理"
@@ -84,6 +288,14 @@ msgstr "共享纹理"
 #: main.lua:54
 msgid "Sign out"
 msgstr "退出登录"
+
+#: wallpaper_engine/api.lua:95
+msgid "Sports"
+msgstr "体育"
+
+#: wallpaper_engine/api.lua:107
+msgid "Standard Definition"
+msgstr "标准分辨率"
 
 #: main.lua:33
 msgid "Status"
@@ -93,9 +305,33 @@ msgstr "状态"
 msgid "Steam Library Path"
 msgstr "Steam 库路径"
 
+#: wallpaper_engine/auth.lua:63
+msgid "Steam QR poll failed with HTTP %1"
+msgstr "Steam QR 轮询失败：HTTP %1"
+
 #: main.lua:10
 msgid "Steam account"
 msgstr "Steam 账户"
+
+#: wallpaper_engine/session.lua:544
+msgid "Steam session check failed"
+msgstr "Steam 会话检查失败"
+
+#: wallpaper_engine/session.lua:467 wallpaper_engine/session.lua:532 wallpaper_engine/session.lua:543
+msgid "Steam session expired; sign in again"
+msgstr "Steam 会话已过期，请重新登录"
+
+#: wallpaper_engine/session.lua:123 wallpaper_engine/session.lua:522
+msgid "Steam sign-in must be renewed"
+msgstr "需要重新登录 Steam"
+
+#: wallpaper_engine/api.lua:96
+msgid "Technology"
+msgstr "科技"
+
+#: wallpaper_engine/api.lua:97
+msgid "Television"
+msgstr "电视"
 
 #: main.lua:89
 msgid "Top rated"
@@ -125,9 +361,61 @@ msgstr "今年趋势"
 msgid "Trending today"
 msgstr "今日趋势"
 
+#: wallpaper_engine/api.lua:124
+msgid "Triple 11520 x 2160"
+msgstr "三屏 11520 x 2160"
+
+#: wallpaper_engine/api.lua:121
+msgid "Triple 4096 x 768"
+msgstr "三屏 4096 x 768"
+
+#: wallpaper_engine/api.lua:122
+msgid "Triple 5760 x 1080"
+msgstr "三屏 5760 x 1080"
+
+#: wallpaper_engine/api.lua:123
+msgid "Triple 7680 x 1440"
+msgstr "三屏 7680 x 1440"
+
+#: wallpaper_engine/api.lua:120
+msgid "Triple Standard Definition"
+msgstr "三屏标准分辨率"
+
 #: wallpaper_engine/api.lua:35
 msgid "Type"
 msgstr "类型"
+
+#: wallpaper_engine/api.lua:114
+msgid "Ultrawide 2560 x 1080"
+msgstr "超宽屏 2560 x 1080"
+
+#: wallpaper_engine/api.lua:115
+msgid "Ultrawide 3440 x 1440"
+msgstr "超宽屏 3440 x 1440"
+
+#: wallpaper_engine/api.lua:113
+msgid "Ultrawide Standard Definition"
+msgstr "超宽屏标准分辨率"
+
+#: wallpaper_engine/api.lua:99
+msgid "Unspecified"
+msgstr "未指定"
+
+#: wallpaper_engine/api.lua:66
+msgid "User Shortcut"
+msgstr "用户快捷键"
+
+#: wallpaper_engine/api.lua:98
+msgid "Vehicle"
+msgstr "车辆"
+
+#: wallpaper_engine/api.lua:39
+msgid "Video"
+msgstr "视频"
+
+#: wallpaper_engine/api.lua:67
+msgid "Video Texture"
+msgstr "视频纹理"
 
 #: plugin.toml
 msgid "Volume"
@@ -136,6 +424,10 @@ msgstr "音量"
 #: main.lua:45
 msgid "Waywallen only manages Workshop subscriptions and does not download wallpapers. Keep the Steam desktop client running to download subscribed items."
 msgstr "Waywallen 仅管理创意工坊订阅，不会下载壁纸。请保持 Steam 桌面客户端运行，以下载已订阅的项目。"
+
+#: wallpaper_engine/api.lua:40
+msgid "Web"
+msgstr "网页"
 
 #: main.lua:29
 msgid "Workshop"

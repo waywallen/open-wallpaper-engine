@@ -1,8 +1,11 @@
 local plugin_root = assert(arg[1], "plugin root argument required")
 local cache = {}
 
-function tr(msgid)
-    return msgid
+function tr(msgid, ...)
+    local arguments = { ... }
+    return (msgid:gsub("%%(%d+)", function(index)
+        return tostring(arguments[tonumber(index)] or "%" .. index)
+    end))
 end
 
 function import(name)

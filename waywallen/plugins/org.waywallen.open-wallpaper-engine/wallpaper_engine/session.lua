@@ -27,7 +27,7 @@ local state = {
 }
 local generation = 0
 local credentials_rejected = false
-local last_check = { state = "signed_out", display_value = "Not signed in" }
+local last_check = { state = "signed_out", display_value = tr("Not signed in") }
 
 local function remember(check)
     last_check = check
@@ -49,7 +49,7 @@ local function clear()
     state.avatar_url = ""
     credentials_rejected = false
     generation = generation + 1
-    last_check = { state = "signed_out", display_value = "Not signed in" }
+    last_check = { state = "signed_out", display_value = tr("Not signed in") }
 end
 
 local function jwt_payload(ctx, token)
@@ -120,7 +120,7 @@ local function mark_legacy(account_name, steamid)
     last_check = {
         state = "expired",
         display_value = state.account_name ~= "" and state.account_name or "Steam",
-        error = "Steam sign-in must be renewed",
+        error = tr("Steam sign-in must be renewed"),
     }
 end
 
@@ -464,7 +464,7 @@ function M.reject_credentials(ctx)
     last_check = {
         state = "expired",
         display_value = state.account_name ~= "" and state.account_name or "Steam",
-        error = "Steam session expired; sign in again",
+        error = tr("Steam session expired; sign in again"),
     }
 end
 
@@ -519,17 +519,17 @@ function M.check(ctx)
         return remember({
             state = "expired",
             display_value = state.account_name ~= "" and state.account_name or "Steam",
-            error = "Steam sign-in must be renewed",
+            error = tr("Steam sign-in must be renewed"),
         })
     end
     if not M.signed_in() then
-        return remember({ state = "signed_out", display_value = "Not signed in" })
+        return remember({ state = "signed_out", display_value = tr("Not signed in") })
     end
     if credentials_rejected then
         return remember({
             state = "expired",
             display_value = state.account_name ~= "" and state.account_name or "Steam",
-            error = "Steam session expired; sign in again",
+            error = tr("Steam session expired; sign in again"),
         })
     end
     local ok, error_value = pcall(validate_saved_session, ctx)
@@ -540,8 +540,8 @@ function M.check(ctx)
         return remember({
             state = expired and "expired" or "error",
             display_value = state.account_name ~= "" and state.account_name or "Steam",
-            error = expired and "Steam session expired; sign in again"
-                or "Steam session check failed",
+            error = expired and tr("Steam session expired; sign in again")
+                or tr("Steam session check failed"),
         })
     end
     local display = state.account_name ~= "" and state.account_name or "Steam"

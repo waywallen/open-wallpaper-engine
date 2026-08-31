@@ -66,12 +66,12 @@ function M.info()
                 scan = true,
                 auto_detect = true,
                 library_label = tr("Steam Library Path"),
-                library_hint =
-                    "Pick the directory that contains the `steamapps` folder.\n" ..
-                    "Typically `" .. expand_home("~/.steam/steam") .. "` or `" ..
-                    expand_home("~/.local/share/Steam") .. "` " ..
-                    "(or `" .. expand_home("~/.var/app/com.valvesoftware.Steam/data/Steam") ..
-                    "` for Flatpak Steam).",
+                library_hint = tr([[Pick the directory that contains the `steamapps` folder.
+Typically `%1` or `%2` (or `%3` for Flatpak Steam).]],
+                    expand_home("~/.steam/steam"),
+                    expand_home("~/.local/share/Steam"),
+                    expand_home("~/.var/app/com.valvesoftware.Steam/data/Steam")
+                ),
             },
             discover = {
                 search = true,
@@ -122,7 +122,7 @@ function M.actions.status(ctx)
     local checked = session.current_check()
     local active = checked.state == "signed_in"
     return {
-        status = { steam_account = checked.display_value or "" },
+        status = { steam_account = checked.error or checked.display_value or "" },
         actions = {
             steam_sign_in = { visible = not active, enabled = not active },
             steam_sign_out = { visible = session.signed_in(), enabled = true },
