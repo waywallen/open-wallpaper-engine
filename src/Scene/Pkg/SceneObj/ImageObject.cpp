@@ -147,6 +147,16 @@ bool ImageEffect::FromJson(const owe::Json& json, fs::VFS& vfs, SceneVersion v) 
     std::string filePath;
     owe::GetJsonValue(json, "file", filePath);
     ReadVisibleProperty(json, visible, visible_user);
+    // Effect visibility scripts (e.g. media-thumbnail covers toggled by
+    // mediaThumbnailChanged) are not executed yet; their initial value is
+    // usually false, which would drop the effect at build time and hide the
+    // feature permanently. Default such effects to visible instead — their
+    // media textures fall back to the base texture until real art arrives.
+    if (! visible && visible_user.name.empty()) {
+        if (auto value = json.get("visible"_str);
+            value.is_some() && (*value)->is_object() && (*value)->get("script"_str).is_some())
+            visible = true;
+    }
     visible_user_key = visible_user.name;
     AbsorbAllFieldBindings(json, field_bindings);
     owe::GetJsonValue(json, "name", name, false);

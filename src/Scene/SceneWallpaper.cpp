@@ -397,6 +397,9 @@ private:
     UniformRuntimeInput*             m_uniform_input { nullptr };
     // Identity snapshot owned by the compiled render graph.
     RenderSceneSnapshot                 m_render_scene;
+    std::string                         m_last_art_url;
+    std::string                         m_last_prev_art_url;
+    bool                                m_has_media { false };
     Option<Box<rg::RenderGraph>>        m_rg;
     f32                                 m_speed { 1.0f };
     FillMode                            m_fillmode { FillMode::ASPECTCROP };
@@ -650,6 +653,22 @@ void SceneRenderController::rebuildRenderGraph(vulkan::RenderGraphResourceRetent
     m_render->UpdateCameraFillMode(*m_scene, m_fillmode);
     consumeDirtyEventsCoveredByGraphRebuild();
     (void)m_scene->ConsumeRenderGraphDirty();
+
+    // Media textures can change while a build is in flight; the drain above
+    // just ate those dirty events even though the build may have read the
+    // older material state. Re-apply the last media status: if the built
+    // graph already matches, this is a no-op, otherwise it re-marks the
+    // materials and refreshes (bounded: the follow-up rebuild re-applies
+    // again and finds nothing changed).
+    if (m_has_media) {
+        auto changed = SceneUserPropertyApplier::ApplyTexture(
+            *m_scene, "$mediaThumbnail", RuntimeTextureProperty(m_last_art_url));
+        auto changed_prev = SceneUserPropertyApplier::ApplyTexture(
+            *m_scene, "$mediaPreviousThumbnail", RuntimeTextureProperty(m_last_prev_art_url));
+        if (! changed.is_empty() || ! changed_prev.is_empty()) {
+            refreshPreparedMaterialDirtyEvents();
+        }
+    }
 }
 
 void SceneRenderController::consumeDirtyEventsCoveredByGraphRebuild() {
@@ -795,6 +814,9 @@ void SceneRenderController::on(RenderMsg::SetMediaStatus_payload&& m) {
 
     owe::script::SetSceneMediaStatus(*m_scene, ToScriptMediaStatus(m.status));
 
+    m_last_art_url      = m.status.art_url;
+    m_last_prev_art_url = m.status.previous_art_url;
+    m_has_media         = true;
     (void)SceneUserPropertyApplier::ApplyTexture(
         *m_scene, "$mediaThumbnail", RuntimeTextureProperty(m.status.art_url));
     (void)SceneUserPropertyApplier::ApplyTexture(
