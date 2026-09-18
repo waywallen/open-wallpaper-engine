@@ -581,12 +581,11 @@ auto TransformUniformSource::Evaluate(ref<dyn<UniformUpdateContext>> context,
 
     if (req_m || req_normal_model || req_am || req_mvp || req_mi || req_mvpi || req_effect_model) {
         Matrix4d model = m_node->vertices_in_world_space ? Matrix4d::Identity() : node.ModelTrans();
-        const auto& parallax = m_state->CameraParallax();
-        auto        attached = camera.GetAttachedNode();
+        auto     attached = camera.GetAttachedNode();
         // A layer camera renders the complete local surface; its outer draw owns parallax.
         const bool layer_camera = attached.is_some() && (*attached)->HasLayer();
         const bool apply_model_parallax =
-            node.Camera() != "effect" && parallax.enable && ! layer_camera;
+            node.Camera() != "effect" && m_state->CameraParallaxEnabled() && ! layer_camera;
         array<float, 2> shift {};
         if (apply_model_parallax) {
             shift = m_state->ComputeParallaxOffset(*m_node, camera, render_view);
@@ -717,7 +716,7 @@ auto FrameUniformSource::Evaluate(ref<dyn<UniformUpdateContext>> context,
 
     Vector2f    parallax_position { 0.5f, 0.5f };
     const auto& parallax = m_state->CameraParallax();
-    if (parallax.enable) {
+    if (m_state->CameraParallaxEnabled()) {
         const Vector2f centered = Vector2f(inputs.pointer.data()) - Vector2f { 0.5f, 0.5f };
         parallax_position =
             Vector2f { 0.5f, 0.5f } + (Scaling(1.0f, -1.0f) * centered) * parallax.mouse_influence;

@@ -231,10 +231,17 @@ public:
     const UniformFrameInputs&    Inputs() const noexcept { return m_inputs; }
     array<float, 2>              Ortho() const noexcept { return m_ortho; }
 
+    // The scene's own switch, narrowed by the host's. A scene that never
+    // authored parallax stays still whatever the host asks for.
+    bool CameraParallaxEnabled() const noexcept {
+        return m_camera_parallax.enable && m_camera_parallax_host_enabled;
+    }
+
     void SetOrtho(float width, float height) { m_ortho = { width, height }; }
     void SetOrthographicImplicitParallax(bool enabled) {
         m_orthographic_implicit_parallax = enabled;
     }
+    void SetCameraParallaxHostEnabled(bool enabled) { m_camera_parallax_host_enabled = enabled; }
     void SetPointerInput(double, double);
     void SetAudioSpectrum(const scene_audio::Buffers&);
     void Advance(const SceneFrame&);
@@ -264,6 +271,7 @@ private:
     UniformCameraParallax    m_camera_parallax;
     UniformCameraShake       m_camera_shake;
     bool                     m_orthographic_implicit_parallax { false };
+    bool                     m_camera_parallax_host_enabled { true };
     array<float, 2>          m_ortho { 1920.0f, 1080.0f };
     array<float, 2>          m_pointer_input { 0.5f, 0.5f };
     Arc<AudioResponseDemand> m_audio_demand;
@@ -274,6 +282,7 @@ public:
     explicit UniformRuntimeInput(Arc<UniformSceneState> state): m_state(rstd::move(state)) {}
 
     void SetPointerInput(double x, double y) { m_state->SetPointerInput(x, y); }
+    void SetCameraParallaxEnabled(bool enabled) { m_state->SetCameraParallaxHostEnabled(enabled); }
     void SetAudioSpectrum(const scene_audio::Buffers& buffers) {
         m_state->SetAudioSpectrum(buffers);
     }

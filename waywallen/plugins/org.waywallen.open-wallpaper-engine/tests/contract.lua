@@ -1059,4 +1059,81 @@ truthy(locale_props.only_en.text:find("English only", 1, true),
 truthy(locale_props.unknown.text:find("ui_prop_absent", 1, true),
     "key in neither file is left alone")
 
+-- The parallax switch is only worth showing on scenes that actually move.
+-- `cameraparallax` lives in the scene document, which for a packed scene
+-- sits inside the .pkg — too large for `ctx.fs.read`, so the plugin reads
+-- the container's table of contents and then just that member.
+local function pkg_sized(value) return string.pack("<i4", #value) .. value end
+
+local function pkg_bytes(members)
+    local toc, data, offset = {}, {}, 0
+    for _, member in ipairs(members) do
+        toc[#toc + 1] = pkg_sized(member.name) .. string.pack("<i4i4", offset, #member.data)
+        data[#data + 1] = member.data
+        offset = offset + #member.data
+    end
+    return pkg_sized("PKGV0017") .. string.pack("<i4", #members)
+        .. table.concat(toc) .. table.concat(data)
+end
+
+local scene_dir = item_dir
+local scene_pkg = scene_dir .. "/scene.pkg"
+
+local function scene_ctx(blob, documents)
+    return {
+        env = function() return nil end,
+        config = { get = function() return nil end },
+        fs = {
+            exists = function(path) return path == scene_dir .. "/project.json" end,
+            read = function(path)
+                if path == scene_dir .. "/project.json" then return "scene-project" end
+                return nil
+            end,
+            read_bytes = blob and function(path, offset, len)
+                if path ~= scene_pkg then return nil end
+                if offset < 0 or len <= 0 or len > 1048576 then return nil end
+                local chunk = blob:sub(offset + 1, offset + len)
+                if chunk == "" then return nil end
+                return chunk
+            end or nil,
+        },
+        json = {
+            parse = function(value)
+                if value == "scene-project" then return { general = { properties = {} } } end
+                return documents[value]
+            end,
+            encode = function(value) return value end,
+        },
+    }
+end
+
+local scene_entry = { wp_type = "scene", resource = scene_pkg, library_root = steam_root }
+-- A member ahead of the document, so a wrong offset base cannot pass.
+local moving_pkg = pkg_bytes({
+    { name = "materials/rock.tex", data = "texture-bytes" },
+    { name = "scene.json", data = "scene:moving" },
+})
+local still_pkg = pkg_bytes({
+    { name = "materials/rock.tex", data = "texture-bytes" },
+    { name = "scene.json", data = "scene:still" },
+})
+local documents = {
+    ["scene:moving"] = { general = { cameraparallax = true } },
+    ["scene:still"] = { general = { bloom = true } },
+}
+
+local moving_props = main.wallpaper.properties(scene_entry, scene_ctx(moving_pkg, documents))
+truthy(moving_props["waywallen.mouse_parallax"],
+    "a scene with cameraparallax on is offered the switch")
+
+local still_props = main.wallpaper.properties(scene_entry, scene_ctx(still_pkg, documents))
+equal(still_props["waywallen.mouse_parallax"], nil,
+    "a scene that never moves is not offered the switch")
+truthy(still_props["waywallen.playback_speed"],
+    "playback speed stays on every scene")
+
+local unreadable_props = main.wallpaper.properties(scene_entry, scene_ctx(nil, documents))
+truthy(unreadable_props["waywallen.mouse_parallax"],
+    "a daemon without a windowed read keeps the switch rather than losing it")
+
 print("OWE waywallen Lua contract fixtures passed")
