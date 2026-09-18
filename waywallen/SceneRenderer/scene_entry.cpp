@@ -49,6 +49,7 @@ struct Options {
     float       initial_playback_rate { 1.0f };
     bool        settings_enable_audio { true };
     bool        property_enable_audio { true };
+    bool        initial_camera_parallax { true };
     std::string render_node;
     std::string video_hwdec;
 
@@ -62,6 +63,7 @@ struct Options {
 constexpr const char* kSettingsEnableAudioKey = "enable_audio";
 constexpr const char* kPropertyEnableAudioKey = "waywallen.enable_audio";
 constexpr const char* kPlaybackSpeedKey       = "waywallen.playback_speed";
+constexpr const char* kMouseParallaxKey       = "waywallen.mouse_parallax";
 
 [[noreturn]] void die(const std::string& msg) {
     rstd_error("waywallen-wescene-renderer: {}", msg);
@@ -611,6 +613,17 @@ void set_playback_rate(HostState& s, const char* value) {
     if (s.wp) s.wp->setSpeed(rate);
 }
 
+void set_camera_parallax(HostState& s, const char* value) {
+    bool enabled = true;
+    if (! parse_bool_wire(value, enabled)) {
+        rstd_warn("waywallen-wescene-renderer: invalid {} value '{}'; ignoring",
+                  kMouseParallaxKey,
+                  value ? value : "");
+        return;
+    }
+    if (s.wp) s.wp->setCameraParallax(enabled);
+}
+
 void set_fps(HostState& s, uint32_t fps) {
     if (! s.wp || fps == 0) return;
     s.wp->setFps(fps);
@@ -645,6 +658,8 @@ void apply_control(HostState& s, ww_bridge_control_t& msg) {
                 set_property_enable_audio(s, val);
             } else if (std::strcmp(key, kPlaybackSpeedKey) == 0) {
                 set_playback_rate(s, val);
+            } else if (std::strcmp(key, kMouseParallaxKey) == 0) {
+                set_camera_parallax(s, val);
             } else if (std::strcmp(key, "test_pattern") == 0) {
                 // Wescene's test_pattern flag is set on initial spawn
                 // through RenderInit; runtime toggling is not wired
@@ -920,6 +935,17 @@ int run(int argc, char** argv) {
                             }
                             return;
                         }
+                        if (k == kMouseParallaxKey) {
+                            bool enabled = true;
+                            if (parse_user_property_bool(v, enabled)) {
+                                opts.initial_camera_parallax = enabled;
+                            } else {
+                                rstd_warn("waywallen-wescene-renderer: invalid {} initial value; "
+                                          "using true",
+                                          kMouseParallaxKey);
+                            }
+                            return;
+                        }
                         if (k == kPlaybackSpeedKey) {
                             float rate = 1.0f;
                             if (parse_user_property_playback_rate(v, rate)) {
@@ -1009,6 +1035,7 @@ int run(int argc, char** argv) {
     wp_config.user_properties = rstd::move(opts.initial_user_properties);
     wp_config.fps             = opts.initial_fps;
     wp_config.speed           = opts.initial_playback_rate;
+    wp_config.camera_parallax = opts.initial_camera_parallax;
     wp_config.volume          = effective_volume(host);
     wp_config.volume_scale    = 0.0f;
     wp_config.muted           = ! effective_audio_enabled(host);

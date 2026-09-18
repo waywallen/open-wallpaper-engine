@@ -140,6 +140,15 @@ local PLAYBACK_SPEED_PROPERTY = {
     value = 100,
 }
 
+-- Scene wallpapers move the camera with the cursor whenever the author
+-- turned `cameraparallax` on, and most authors never bind it to a
+-- property the viewer can reach. This is that switch.
+local MOUSE_PARALLAX_PROPERTY = {
+    text = tr("Mouse parallax"),
+    type = "bool",
+    value = true,
+}
+
 local function load_project_properties(entry, ctx)
     local dir = project_util.project_dir_of(entry)
     if not dir then return nil end
@@ -192,6 +201,9 @@ local function add_predefined_properties(entry, props)
     if (entry.wp_type == "scene" or entry.wp_type == "video") and
         props["waywallen.playback_speed"] == nil then
         props["waywallen.playback_speed"] = PLAYBACK_SPEED_PROPERTY
+    end
+    if entry.wp_type == "scene" and props["waywallen.mouse_parallax"] == nil then
+        props["waywallen.mouse_parallax"] = MOUSE_PARALLAX_PROPERTY
     end
 end
 

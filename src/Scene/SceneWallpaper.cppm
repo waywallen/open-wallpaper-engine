@@ -65,6 +65,7 @@ struct SceneWallpaperConfig {
     bool                                    muted { false };
     FillMode                                fill_mode { FillMode::ASPECTCROP };
     float                                   speed { 1.0f };
+    bool                                    camera_parallax { true };
     bool                                    graphviz { false };
     Option<u64>                             random_seed;
 };
@@ -99,6 +100,7 @@ public:
     void setMuted(bool);
     void setFillMode(FillMode);
     void setSpeed(float);
+    void setCameraParallax(bool);
     void setMediaStatus(MediaStatus);
     void setAudioClientIdentity(SceneAudioClientIdentity);
     void setAudioResponseDemandCallback(AudioResponseDemandCallback);
