@@ -31,6 +31,7 @@ lito.install({
         { source = "wallpaper_engine/auth.lua", destination = plugin_path("wallpaper_engine/auth.lua") },
         { source = "wallpaper_engine/discover.lua", destination = plugin_path("wallpaper_engine/discover.lua") },
         { source = "wallpaper_engine/map.lua", destination = plugin_path("wallpaper_engine/map.lua") },
+        { source = "wallpaper_engine/pkg.lua", destination = plugin_path("wallpaper_engine/pkg.lua") },
         { source = "wallpaper_engine/profile.lua", destination = plugin_path("wallpaper_engine/profile.lua") },
         { source = "wallpaper_engine/project.lua", destination = plugin_path("wallpaper_engine/project.lua") },
         { source = "wallpaper_engine/session.lua", destination = plugin_path("wallpaper_engine/session.lua") },

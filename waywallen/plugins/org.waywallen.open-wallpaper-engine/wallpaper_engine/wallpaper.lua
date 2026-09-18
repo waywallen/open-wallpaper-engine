@@ -1,4 +1,5 @@
 local project_util = import("wallpaper_engine.project")
+local pkg_util = import("wallpaper_engine.pkg")
 
 local M = {}
 
@@ -142,12 +143,44 @@ local PLAYBACK_SPEED_PROPERTY = {
 
 -- Scene wallpapers move the camera with the cursor whenever the author
 -- turned `cameraparallax` on, and most authors never bind it to a
--- property the viewer can reach. This is that switch.
+-- property the viewer can reach. This is that switch — offered only to
+-- the scenes that actually move, so it does not become a dead row on
+-- every other one.
 local MOUSE_PARALLAX_PROPERTY = {
     text = tr("Mouse parallax"),
     type = "bool",
     value = true,
 }
+
+-- The engine reads `/scene.json` out of the package whatever the package
+-- is named, and falls back to the sibling document for unpacked scenes.
+local function scene_document(entry, ctx)
+    local resource = entry.resource
+    if type(resource) ~= "string" or resource == "" then return nil end
+    local lower = string.lower(resource)
+    local raw
+    if string.sub(lower, -4) == ".pkg" then
+        raw = pkg_util.read_member(ctx, resource, "scene.json")
+    elseif string.sub(lower, -5) == ".json" then
+        raw = ctx.fs.read(resource)
+    end
+    if type(raw) ~= "string" or raw == "" then return nil end
+    local parsed = ctx.json.parse(raw)
+    if type(parsed) ~= "table" then return nil end
+    return parsed
+end
+
+-- true/false as the scene says, nil when it could not be read: a scene
+-- that does move must not lose its switch over an unreadable package.
+-- `cameraparallax` defaults to off in the engine, so an absent field is
+-- a scene that stays still.
+local function scene_uses_camera_parallax(entry, ctx)
+    local document = scene_document(entry, ctx)
+    if not document then return nil end
+    local general = document.general
+    if type(general) ~= "table" then return false end
+    return general.cameraparallax == true
+end
 
 local function load_project_properties(entry, ctx)
     local dir = project_util.project_dir_of(entry)
@@ -193,7 +226,7 @@ local function prefix_property_titles(props)
     end
 end
 
-local function add_predefined_properties(entry, props)
+local function add_predefined_properties(entry, props, ctx)
     if entry.wp_type == "web" then return end
     if props["waywallen.enable_audio"] == nil then
         props["waywallen.enable_audio"] = ENABLE_AUDIO_PROPERTY
@@ -202,7 +235,9 @@ local function add_predefined_properties(entry, props)
         props["waywallen.playback_speed"] == nil then
         props["waywallen.playback_speed"] = PLAYBACK_SPEED_PROPERTY
     end
-    if entry.wp_type == "scene" and props["waywallen.mouse_parallax"] == nil then
+    if entry.wp_type == "scene" and props["waywallen.mouse_parallax"] == nil
+        and scene_uses_camera_parallax(entry, ctx) ~= false
+    then
         props["waywallen.mouse_parallax"] = MOUSE_PARALLAX_PROPERTY
     end
 end
@@ -228,7 +263,7 @@ function M.properties(entry, ctx)
     end
 
     prefix_property_titles(props)
-    add_predefined_properties(entry, props)
+    add_predefined_properties(entry, props, ctx)
 
     return props
 end
