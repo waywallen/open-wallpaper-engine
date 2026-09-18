@@ -39,9 +39,7 @@ VkSurfaceFormatKHR chooseSwapSurfaceFormat(rstd::slice<VkSurfaceFormatKHR> avail
         }
     }
     auto& format = availableFormats[rstd::usize()];
-    rstd_info("swapchain format: {}, color space: {}",
-              vvk::ToString(format.format),
-              vvk::ToString(format.colorSpace));
+    rstd_info("swapchain format: {}, color space: {}", format.format, format.colorSpace);
     return format;
 }
 
