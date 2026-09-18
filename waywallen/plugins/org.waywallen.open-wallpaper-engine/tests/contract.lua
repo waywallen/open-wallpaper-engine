@@ -1058,5 +1058,7 @@ truthy(locale_props.only_en.text:find("English only", 1, true),
     "key missing from the translated file falls back to en-us")
 truthy(locale_props.unknown.text:find("ui_prop_absent", 1, true),
     "key in neither file is left alone")
+equal(locale_props["waywallen.playback_speed"].step, 1,
+    "playback speed steps by a single percent")
 
 print("OWE waywallen Lua contract fixtures passed")
