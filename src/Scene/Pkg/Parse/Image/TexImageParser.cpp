@@ -291,11 +291,11 @@ auto ParseExternalImage(std::string_view key, const std::string& path)
         });
     }
 
-    auto img_ptr    = Arc<Image>::make();
-    img_ptr->key    = std::string(key);
-    img_ptr->header = MakeExternalImageHeader(width, height);
-    img_ptr->slots.resize(1);
-    auto& slot  = img_ptr->slots[0];
+    auto img_ptr          = Arc<Image>::make();
+    img_ptr->content->key = std::string(key);
+    img_ptr->header       = MakeExternalImageHeader(width, height);
+    img_ptr->content->slots.resize(1);
+    auto& slot  = img_ptr->content->slots[0];
     slot.width  = width;
     slot.height = height;
     slot.mipmaps.resize(1);
@@ -306,6 +306,7 @@ auto ParseExternalImage(std::string_view key, const std::string& path)
     mipmap.data   = ImageDataPtr(reinterpret_cast<uint8_t*>(pixels), [](uint8_t* data) {
         stbi_image_free(data);
     });
+    img_ptr->FinalizeContent();
     return Ok(rstd::move(img_ptr));
 }
 
@@ -317,21 +318,18 @@ auto TexImageParser::Parse(ref<str> name) const -> Result<Arc<Image>, ImageParse
         return ParseExternalImage(name_view, *path);
     }
 
-    std::string path    = "/assets/materials/" + std::string(name_view) + ".tex";
-    auto        img_ptr = Arc<Image>::make();
-    auto&       img     = *img_ptr;
-    img.key             = name_view;
-    auto source         = m_vfs->open_read(fs::ToPath(path));
-    if (source.is_err()) {
-        return Err(ImageParseError {
-            .kind    = ImageParseErrorKind::MissingContent,
-            .message = rstd::format("open texture {} failed", name),
-        });
-    }
-    auto tex_source = rstd::move(source).unwrap_unchecked();
-    auto file       = fs::BinaryReader(tex_source.clone());
-    auto body       = rstd_try(LoadHeader(file, img.header, name));
-    auto ver        = body.version;
+    auto  prepared   = rstd_try(PrepareHeader(name));
+    auto  img_ptr    = Arc<Image>::make();
+    auto& img        = *img_ptr;
+    img.content->key = name_view;
+    img.header       = prepared->header;
+    auto tex_source  = prepared->source.clone();
+    auto file        = fs::BinaryReader(tex_source.clone());
+    if (! file.SeekSet(prepared->body_offset))
+        return Err(InvalidTextureData(name, "body offset"_str));
+    TexBodyHeader body { .version         = prepared->version,
+                         .condition_count = prepared->condition_count };
+    auto          ver = body.version;
     if (body.condition_count > 0)
         rstd_warn("texture {}: conditional patches are not applied; using base mipmaps", name);
 
@@ -345,9 +343,9 @@ auto TexImageParser::Parse(ref<str> name) const -> Result<Arc<Image>, ImageParse
     }
     std::size_t image_count = static_cast<std::size_t>(_image_count);
 
-    img.slots.resize(image_count);
+    img.content->slots.resize(image_count);
     for (std::size_t i_image = 0; i_image < image_count; i_image++) {
-        auto& img_slot = img.slots[i_image];
+        auto& img_slot = img.content->slots[i_image];
         auto& mipmaps  = img_slot.mipmaps;
 
         std::size_t mipmap_count =
@@ -385,12 +383,15 @@ auto TexImageParser::Parse(ref<str> name) const -> Result<Arc<Image>, ImageParse
             // pulling the (possibly hundreds of MiB) payload into RAM.
             // The range reader is seekable, so sniff without loading the
             // complete video payload.
-            if (ver.body_has_image_type() && img.header.type == ImageType::UNKNOWN &&
+            if (ver.body_has_image_type() &&
+                (img.header.type == ImageType::UNKNOWN || img.header.type == ImageType::VIDEO) &&
                 ! LZ4_compressed && src_size >= 16) {
                 std::ptrdiff_t body_off = file.Tell();
                 unsigned char  sniff[16] {};
                 file.Read(sniff, sizeof(sniff));
-                ImageType maybe_video = DetectEmbeddedImageType(sniff, sizeof(sniff));
+                ImageType maybe_video = img.header.type == ImageType::VIDEO
+                                            ? ImageType::VIDEO
+                                            : DetectEmbeddedImageType(sniff, sizeof(sniff));
                 if (maybe_video == ImageType::VIDEO) {
                     img.header.type   = ImageType::VIDEO;
                     img.header.format = TextureFormat::RGBA8;
@@ -470,6 +471,7 @@ auto TexImageParser::Parse(ref<str> name) const -> Result<Arc<Image>, ImageParse
             rstd_try(SkipConditionalPatches(file, body, name));
         }
     }
+    img_ptr->FinalizeContent();
     return Ok(rstd::move(img_ptr));
 }
 
@@ -539,6 +541,16 @@ auto TexImageParser::ParseHeader(ref<str> name) const -> Result<ImageHeader, Ima
     // internally (light cookies, etc.). We don't model that, so just
     // return an empty header without spamming a vfs miss.
     if (name_view.find("_alias_") != std::string_view::npos) return Ok(rstd::move(header));
+    auto prepared = rstd_try(PrepareHeader(name));
+    return Ok(prepared->header);
+}
+
+auto TexImageParser::PrepareHeader(ref<str> name) const
+    -> Result<Arc<PreparedHeader>, ImageParseError> {
+    auto cache = m_headers->lock().unwrap_unchecked();
+    if (auto cached = cache->get(name); cached.is_some()) return Ok((*cached)->clone());
+    const auto  name_view = rstd::cppstd::as_string_view(name);
+    ImageHeader header;
     std::string path   = "/assets/materials/" + std::string(name_view) + ".tex";
     auto        source = m_vfs->open_read(fs::ToPath(path));
     if (source.is_err()) {
@@ -547,10 +559,12 @@ auto TexImageParser::ParseHeader(ref<str> name) const -> Result<ImageHeader, Ima
             .message = rstd::format("open texture header {} failed", name),
         });
     }
-    auto file = fs::BinaryReader(rstd::move(source).unwrap_unchecked());
+    auto input = rstd::move(source).unwrap_unchecked();
+    auto file  = fs::BinaryReader(input.clone());
 
-    auto body = rstd_try(LoadHeader(file, header, name));
-    auto ver  = body.version;
+    auto       body        = rstd_try(LoadHeader(file, header, name));
+    const auto body_offset = file.Tell();
+    auto       ver         = body.version;
     if (header.count < 0) {
         return Err(ImageParseError {
             .kind    = ImageParseErrorKind::InvalidData,
@@ -712,5 +726,13 @@ auto TexImageParser::ParseHeader(ref<str> name) const -> Result<ImageHeader, Ima
             }
         }
     }
-    return Ok(rstd::move(header));
+    auto prepared = Arc<PreparedHeader>::make(PreparedHeader {
+        .header          = rstd::move(header),
+        .source          = rstd::move(input),
+        .version         = body.version,
+        .condition_count = body.condition_count,
+        .body_offset     = body_offset,
+    });
+    (void)cache->insert(String::make(name), prepared.clone());
+    return Ok(rstd::move(prepared));
 }

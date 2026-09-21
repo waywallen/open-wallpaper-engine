@@ -9,14 +9,7 @@ archive = "owe-vulkan"
 sources = [
   "ShaderCompile.cppm",
   "Vulkan.cppm",
-  "BufferManager.cpp",
-  "Device.cpp",
-  "GraphicsPipeline.cpp",
-  "Instance.cpp",
-  "Parameters.cpp",
   "Shader.cpp",
-  "Swapchain.cpp",
-  "TextureCache.cpp",
 ]
 
 [usage]
@@ -28,6 +21,10 @@ options = [
 ]
 
 [dependencies.owe-core]
+workspace = true
+pub = true
+
+[dependencies.vrento]
 workspace = true
 pub = true
 
@@ -67,10 +64,3 @@ targets = [
   { name = "glslang::SPIRV", pub = true },
   { name = "glslang::glslang-default-resource-limits", pub = true },
 ]
-
-[[test]]
-name = "owe-vulkan-memory-tests"
-sources = ["tests/main.cpp", "tests/memory.cpp"]
-
-[dev-dependencies.rstd-test]
-workspace = true

@@ -413,12 +413,12 @@ TEST(TextColorBlendParsing, PreservesOverlayAdditiveAndDirectModes) {
     ASSERT_NE(material, nullptr);
     ASSERT_TRUE(material->customShader.variant.is_some());
     EXPECT_EQ(material->customShader.variant->input_combos.at("BLENDMODE"), "11");
-    EXPECT_EQ(material->blenmode, owe::BlendMode::Translucent);
+    EXPECT_EQ(material->Pipeline().blend_mode, owe::BlendMode::Translucent);
     auto additive = scene.scene->RootMut()->FindByName("Additive");
     ASSERT_NE(additive, nullptr);
     ASSERT_NE(additive->Mesh(), nullptr);
     ASSERT_NE(additive->Mesh()->Material(), nullptr);
-    EXPECT_EQ(additive->Mesh()->Material()->blenmode, owe::BlendMode::Additive);
+    EXPECT_EQ(additive->Mesh()->Material()->Pipeline().blend_mode, owe::BlendMode::Additive);
     auto direct = scene.scene->RootMut()->FindByName("Direct");
     ASSERT_NE(direct, nullptr);
     ASSERT_NE(direct->Mesh(), nullptr);
@@ -461,7 +461,7 @@ TEST(ImageColorBlendParsing, LinearDodgeUsesAdditiveAttachmentOwner) {
     ASSERT_NE(node, nullptr);
     ASSERT_NE(node->Mesh(), nullptr);
     ASSERT_NE(node->Mesh()->Material(), nullptr);
-    EXPECT_EQ(node->Mesh()->Material()->blenmode, owe::BlendMode::Additive);
+    EXPECT_EQ(node->Mesh()->Material()->Pipeline().blend_mode, owe::BlendMode::Additive);
     ASSERT_TRUE(node->Mesh()->Material()->customShader.variant.is_some());
     EXPECT_EQ(node->Mesh()->Material()->customShader.variant->input_combos.at("SCENE_ORTHO"), "1");
     EXPECT_EQ(node->Mesh()->Material()->customShader.variant->input_combos.at("OWE_IMAGE_LAYER"),
@@ -515,7 +515,7 @@ TEST(ImageColorBlendParsing, EffectLayerPreservesLinearDodgeAttachmentOwner) {
     ASSERT_FALSE(final_effect->nodes.empty());
     auto* final_material = final_effect->nodes.back().sceneNode->Mesh()->Material();
     ASSERT_NE(final_material, nullptr);
-    EXPECT_EQ(final_material->blenmode, owe::BlendMode::Additive);
+    EXPECT_EQ(final_material->Pipeline().blend_mode, owe::BlendMode::Additive);
 }
 
 TEST(SceneLinkedSources, EffectSelfCompositeStaysInOwningLayer) {

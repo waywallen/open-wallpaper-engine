@@ -26,8 +26,8 @@ public:
         }
 
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        auto image = Arc<owe::Image>::make();
-        image->key = rstd::cppstd::to_string(name);
+        auto image          = Arc<owe::Image>::make();
+        image->content->key = rstd::cppstd::to_string(name);
         m_active.fetch_sub(1);
         return Ok(rstd::move(image));
     }
@@ -58,8 +58,8 @@ public:
                 .message = String::make("bad image"_str),
             });
         }
-        auto image = Arc<owe::Image>::make();
-        image->key = rstd::cppstd::to_string(name);
+        auto image          = Arc<owe::Image>::make();
+        image->content->key = rstd::cppstd::to_string(name);
         return Ok(rstd::move(image));
     }
 
@@ -137,10 +137,10 @@ TEST_F(ConditionalTextureTest, BaseMipmapsRemainAlignedWithMultipleConditions) {
         auto                parsed = parser.Parse("conditional"_str);
         ASSERT_TRUE(parsed.is_ok());
         auto image = rstd::move(parsed).unwrap_unchecked();
-        ASSERT_EQ(image->slots.size(), 1u);
-        ASSERT_EQ(image->slots[0].mipmaps.size(), 2u);
+        ASSERT_EQ(image->content->slots.size(), 1u);
+        ASSERT_EQ(image->content->slots[0].mipmaps.size(), 2u);
         for (std::size_t index = 0; index < 2; ++index) {
-            const auto& mip = image->slots[0].mipmaps[index];
+            const auto& mip = image->content->slots[0].mipmaps[index];
             EXPECT_EQ(mip.width, index == 0 ? 2 : 1);
             EXPECT_EQ(mip.height, mip.width);
             EXPECT_EQ(mip.size, isize(mip.width * mip.height * 4));
@@ -162,6 +162,35 @@ TEST_F(ConditionalTextureTest, SpriteHeaderSkipsConditionalPatches) {
     EXPECT_EQ(header->spriteAnim.numFrames(), usize(1));
     EXPECT_EQ(header->extraHeader.at("texs").val, 3);
     EXPECT_TRUE(parser.Parse("conditional"_str).is_ok());
+}
+
+TEST_F(ConditionalTextureTest, FullLoadReusesPreparedHeaderAndOpenSource) {
+    WriteTexture(true, 1);
+    owe::TexImageParser parser(&vfs);
+    auto                header = parser.ParseHeader("conditional"_str);
+    ASSERT_TRUE(header.is_ok());
+    std::filesystem::rename(root / "materials" / "conditional.tex", root / "original.tex");
+    {
+        std::ofstream replacement(root / "materials" / "conditional.tex");
+    }
+    auto parsed = parser.Parse("conditional"_str);
+    ASSERT_TRUE(parsed.is_ok());
+    auto image = rstd::move(parsed).unwrap_unchecked();
+    EXPECT_EQ(image->header.spriteAnim.numFrames(), usize(1));
+    EXPECT_EQ(image->content->slots[0].mipmaps.size(), 2u);
+}
+
+TEST_F(ConditionalTextureTest, ParserRetainsMountedSourcesAfterVfsDestruction) {
+    WriteTexture(false, 0);
+    Option<owe::TexImageParser> parser;
+    {
+        owe::fs::VFS source;
+        auto         mount = owe::fs::make_physical_fs(owe::fs::ToPath(root.string()));
+        ASSERT_TRUE(mount.is_ok());
+        ASSERT_TRUE(source.mount("/assets"_str, rstd::move(mount).unwrap_unchecked()).is_ok());
+        parser = Some(owe::TexImageParser(&source));
+    }
+    EXPECT_TRUE(parser->Parse("conditional"_str).is_ok());
 }
 
 TEST_F(ConditionalTextureTest, RejectsTruncatedConditionsAndPatches) {
@@ -189,7 +218,7 @@ TEST(ImageParser, BatchPreservesOrderAndBoundsConcurrency) {
     for (usize index {}; index < names.len(); ++index) {
         ASSERT_TRUE(images[index].is_ok());
         auto image = rstd::move(images[index]).unwrap_unchecked();
-        EXPECT_EQ(image->key, rstd::cppstd::to_string(names[index].as_str()));
+        EXPECT_EQ(image->content->key, rstd::cppstd::to_string(names[index].as_str()));
     }
     EXPECT_GT(parser.peak(), 1);
     EXPECT_LE(parser.peak(), 4);
@@ -237,9 +266,9 @@ TEST(ImageParser, TextureHeaderExposesFourthPackedComponent) {
 
 TEST(ImageParser, SceneBatchPreservesRuntimeParserAndErrorPositions) {
     owe::Scene scene;
-    scene.SetImageParser(Box<dyn<owe::IImageParser>>::make(MixedImageParser {}));
-    auto runtime = Arc<owe::Image>::make();
-    runtime->key = "runtime-value";
+    scene.SetImageParser(rstd::sync::Arc<dyn<owe::IImageParser>>::make(MixedImageParser {}));
+    auto runtime          = Arc<owe::Image>::make();
+    runtime->content->key = "runtime-value";
     scene.RegisterRuntimeImage(String::make("runtime"_str), runtime.clone());
 
     Vec<String> names;
@@ -250,13 +279,31 @@ TEST(ImageParser, SceneBatchPreservesRuntimeParserAndErrorPositions) {
 
     ASSERT_EQ(images.len(), names.len());
     ASSERT_TRUE(images[usize(0)].is_ok());
-    EXPECT_EQ((*images[usize(0)])->key, "first");
+    EXPECT_EQ((*images[usize(0)])->content->key, "first");
     ASSERT_TRUE(images[usize(1)].is_ok());
     EXPECT_TRUE(Arc<owe::Image>::ptr_eq(*images[usize(1)], runtime));
     ASSERT_TRUE(images[usize(2)].is_err());
     EXPECT_EQ(images[usize(2)].unwrap_err_unchecked().kind, owe::ImageParseErrorKind::DecodeFailed);
     ASSERT_TRUE(images[usize(3)].is_ok());
-    EXPECT_EQ((*images[usize(3)])->key, "last");
+    EXPECT_EQ((*images[usize(3)])->content->key, "last");
+}
+
+TEST(ImageParser, CapturedSourceRetainsOldRuntimeImageAndParser) {
+    Option<Arc<owe::SceneImageSource>> source;
+    auto                               original = Arc<owe::Image>::make();
+    original->content->key                      = "original";
+    {
+        owe::Scene scene;
+        scene.SetImageParser(Arc<dyn<owe::IImageParser>>::make(MixedImageParser {}));
+        scene.RegisterRuntimeImage(String::make("runtime"_str), original.clone());
+        source = Some(scene.CaptureImageSource());
+        scene.RegisterRuntimeImage(String::make("runtime"_str), Arc<owe::Image>::make());
+    }
+    auto retained = (*source)->Parse("runtime"_str);
+    ASSERT_TRUE(retained.is_ok());
+    EXPECT_TRUE(Arc<owe::Image>::ptr_eq(retained.unwrap_unchecked(), original));
+    EXPECT_TRUE((*source)->Parse("bad"_str).is_err());
+    EXPECT_TRUE((*source)->Parse("first"_str).is_ok());
 }
 
 } // namespace

@@ -134,9 +134,9 @@ struct FontFace::Impl {
     FT_Face                                 face { nullptr };
     std::uint32_t                           pixel_size { 0 };
 
-    std::uint32_t             atlas_w { kMinAtlasDim };
-    std::uint32_t             atlas_h { kMinAtlasDim };
-    std::vector<std::uint8_t> atlas;
+    std::uint32_t                  atlas_w { kMinAtlasDim };
+    std::uint32_t                  atlas_h { kMinAtlasDim };
+    Arc<std::vector<std::uint8_t>> atlas { Arc<std::vector<std::uint8_t>>::make() };
 
     // Shelf packer state: pen advances along the current shelf, falls to a
     // new shelf when the next glyph won't fit horizontally.
@@ -162,14 +162,15 @@ struct FontFace::Impl {
     }
 
     Impl() {
-        atlas.assign(static_cast<std::size_t>(atlas_w) * atlas_h, 0);
+        atlas->assign(static_cast<std::size_t>(atlas_w) * atlas_h, 0);
         SeedWhiteCell();
     }
 
     void ResetAtlas(std::uint32_t dim) {
         atlas_w = dim;
         atlas_h = dim;
-        atlas.assign(static_cast<std::size_t>(atlas_w) * atlas_h, 0);
+        atlas =
+            Arc<std::vector<std::uint8_t>>::make(static_cast<std::size_t>(atlas_w) * atlas_h, 0);
         dirty_rects.clear();
         glyphs.clear();
         pen_x   = 0;
@@ -181,7 +182,7 @@ struct FontFace::Impl {
     void SeedWhiteCell() {
         for (std::uint32_t y = 0; y < kWhiteCellSize; ++y) {
             for (std::uint32_t x = 0; x < kWhiteCellSize; ++x) {
-                atlas[y * atlas_w + x] = 0xFF;
+                (*atlas)[y * atlas_w + x] = 0xFF;
             }
         }
         pen_x   = kWhiteCellSize + 1;
@@ -253,7 +254,7 @@ struct FontFace::Impl {
     void Blit(std::uint32_t x, std::uint32_t y, std::uint32_t w, std::uint32_t h,
               const std::uint8_t* src, std::uint32_t pitch) {
         for (std::uint32_t row = 0; row < h; ++row) {
-            std::memcpy(&atlas[(y + row) * atlas_w + x], src + row * pitch, w);
+            std::memcpy(&(*atlas)[(y + row) * atlas_w + x], src + row * pitch, w);
         }
     }
 };
@@ -278,7 +279,17 @@ FontMetrics FontFace::Metrics() const {
 }
 
 std::span<const std::uint8_t> FontFace::AtlasPixels() const {
-    return std::span<const std::uint8_t>(m_impl->atlas);
+    return std::span<const std::uint8_t>(*m_impl->atlas);
+}
+
+auto FontFace::RetainAtlasPixels() const -> owe::ImageDataPtr {
+    struct Owner {
+        Arc<std::vector<std::uint8_t>> pixels;
+        explicit Owner(Arc<std::vector<std::uint8_t>> value): pixels(rstd::move(value)) {}
+        Owner(const Owner& other): pixels(other.pixels.clone()) {}
+        void operator()(std::uint8_t*) const noexcept {}
+    };
+    return owe::ImageDataPtr(m_impl->atlas->data(), Owner(m_impl->atlas.clone()));
 }
 
 std::span<const AtlasDirtyRect> FontFace::DirtyRects() const noexcept {
@@ -555,8 +566,8 @@ auto BuildAtlasImage(const FontFace& face, ref<str> key) -> Option<Arc<owe::Imag
     auto pix = face.AtlasPixels();
     if (fm.atlas_w == 0 || fm.atlas_h == 0 || pix.empty()) return None();
 
-    auto img = Arc<owe::Image>::make();
-    img->key = rstd::cppstd::to_string(key);
+    auto img          = Arc<owe::Image>::make();
+    img->content->key = rstd::cppstd::to_string(key);
 
     img->header.width         = static_cast<std::int32_t>(fm.atlas_w);
     img->header.height        = static_cast<std::int32_t>(fm.atlas_h);
@@ -573,8 +584,8 @@ auto BuildAtlasImage(const FontFace& face, ref<str> key) -> Option<Arc<owe::Imag
                                   owe::TextureFilter::LINEAR,
                                   owe::TextureFilter::LINEAR };
 
-    img->slots.resize(1);
-    auto& slot  = img->slots[0];
+    img->content->slots.resize(1);
+    auto& slot  = img->content->slots[0];
     slot.width  = img->header.width;
     slot.height = img->header.height;
     slot.mipmaps.resize(1);
@@ -583,13 +594,10 @@ auto BuildAtlasImage(const FontFace& face, ref<str> key) -> Option<Arc<owe::Imag
     mip.height = img->header.height;
     mip.size   = static_cast<owe::isize>(pix.size());
 
-    // Alias the face's live CPU atlas (no memcpy). The renderer's first
-    // CreateTex call samples whatever pixels are present at that moment, so
-    // glyphs the actuator Populated between parse-time and the first draw
-    // are picked up. The face is scene-owned and outlives the Image.
-    mip.data = owe::ImageDataPtr(const_cast<std::uint8_t*>(pix.data()), [](std::uint8_t*) noexcept {
-    });
+    // Retain the live atlas storage even when the face is destroyed before upload.
+    mip.data = face.RetainAtlasPixels();
 
+    img->FinalizeContent();
     return Some(rstd::move(img));
 }
 

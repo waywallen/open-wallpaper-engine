@@ -4,6 +4,12 @@ export module wescene.types;
 import wescene.core;
 import rstd;
 import rstd.cppstd;
+export import vrento.texture_types;
+export import vrento.vertex_types;
+export import vrento.shader_types;
+export import vrento.graphics_types;
+export import vrento.video_playback;
+export import vrento.image;
 
 export namespace owe
 {
@@ -56,136 +62,43 @@ enum class ImageType
 };
 std::string ToString(const ImageType&);
 
-enum class TextureFormat
-{
-    BC1,
-    BC2,
-    BC3,
-    RGB8,
-    RGBA8,
-    RG8,
-    R8,
-    D32F
-};
+using vrento::TextureFormat;
 std::string ToString(const TextureFormat&);
 
-enum class BlendMode
-{
-    Disable,
-    Translucent,
-    Additive,
-    AlphaToCoverage,
-    Normal
-};
+using vrento::BlendMode;
 
-enum class CullMode
-{
-    None,
-    Front,
-    Back
-};
+using vrento::CullMode;
 
-enum class ShaderType
-{
-    VERTEX,
-    GEOMETRY,
-    FRAGMENT
-};
+using vrento::ShaderType;
 
-enum class ShaderScalarKind
-{
-    Unknown,
-    Float,
-    SignedInteger,
-    UnsignedInteger,
-    Boolean,
-};
+using vrento::ShaderScalarKind;
 
-enum class ShaderMatrixMajor
-{
-    None,
-    Row,
-    Column,
-};
+using vrento::ShaderMatrixMajor;
 
-enum class ShaderMatrixConvention
-{
-    ColumnVector,
-    RowVector,
-};
+using vrento::ShaderMatrixConvention;
 
-enum class ShaderMatrixAbi
-{
-    NativeSpirv,
-    Hlsl,
-};
+using vrento::ShaderMatrixAbi;
 
 enum class TextureType
 {
     IMG_2D,
 };
 
-enum class MeshPrimitive
-{
-    POINT,
-    TRIANGLE
-};
+using vrento::MeshPrimitive;
 
-enum class FillMode
-{
-    STRETCH,
-    ASPECTFIT,
-    ASPECTCROP
-};
+using vrento::FillMode;
 
-enum class TextureWrap
-{
-    CLAMP_TO_EDGE,
-    CLAMP_TO_BORDER,
-    REPEAT
-};
+using vrento::TextureWrap;
 
-enum class TextureFilter
-{
-    LINEAR,
-    NEAREST
-};
+using vrento::TextureFilter;
 
-enum class CompareOp
-{
-    Never,
-    Less,
-    LessEqual,
-    Greater,
-    GreaterEqual,
-    Equal,
-    NotEqual,
-    Always,
-};
+using vrento::CompareOp;
 
-enum class TextureBorderColor
-{
-    TransparentBlack,
-    OpaqueBlack,
-    OpaqueWhite,
-};
+using vrento::TextureBorderColor;
 
-struct TextureSample {
-    TextureWrap        wrapS { TextureWrap::REPEAT };
-    TextureWrap        wrapT { TextureWrap::REPEAT };
-    TextureFilter      magFilter { TextureFilter::NEAREST };
-    TextureFilter      minFilter { TextureFilter::NEAREST };
-    bool               compare_enable { false };
-    CompareOp          compare_op { CompareOp::Never };
-    TextureBorderColor border_color { TextureBorderColor::OpaqueBlack };
-};
+using vrento::TextureSample;
 
-struct VideoPlaybackSnapshot {
-    bool      playing { true };
-    rstd::f64 rate { 1.0 };
-    rstd::u64 seek_sequence {};
-    rstd::f64 seek_seconds {};
-};
+using vrento::VideoPlaybackSnapshot;
 
 class VideoPlaybackState {
 public:
@@ -243,17 +156,11 @@ private:
     rstd::sync::atomic::Atomic<rstd::f64> m_duration { rstd::f64(-1.0) };
 };
 
-enum class VertexType
-{
-    FLOAT1,
-    FLOAT2,
-    FLOAT3,
-    FLOAT4,
-    UINT1,
-    UINT2,
-    UINT3,
-    UINT4
+struct SharedVideoPlayback {
+    rstd::sync::Arc<VideoPlaybackState> state;
 };
+
+using vrento::VertexType;
 
 // ---------- BitFlags<EnumT> (was in Utils.cppm) ---------------------------
 
@@ -348,16 +255,8 @@ union ImageExtra {
     char    str[125];
 };
 
-using ImageDataPtr = std::unique_ptr<uint8_t, std::function<void(uint8_t*)>>;
-
-struct ImageData {
-    std::int32_t                      width { 0 };
-    std::int32_t                      height { 0 };
-    isize                             size { 0 };
-    ImageDataPtr                      data {};
-    rstd::Option<rstd::io::ReadRange> video_source;
-    ImageData() = default;
-};
+using vrento::ImageData;
+using vrento::ImageDataPtr;
 
 struct ImageHeader {
     std::int32_t width { 0 };
@@ -380,20 +279,33 @@ struct ImageHeader {
 };
 
 struct Image : NoCopy, NoMove {
-    struct Slot {
-        std::int32_t width { 0 };
-        std::int32_t height { 0 };
+    ImageHeader                    header;
+    rstd::sync::Arc<vrento::Image> content { rstd::sync::Arc<vrento::Image>::make() };
 
-        std::vector<ImageData> mipmaps;
-
-        explicit operator bool() const { return width != 0 && height != 0 && ! mipmaps.empty(); }
-    };
-    ImageHeader       header;
-    std::vector<Slot> slots;
-    std::string       key;
+    void FinalizeContent() {
+        content->header = vrento::ImageHeader {
+            .kind   = header.type == ImageType::VIDEO ? vrento::ImageKind::Video
+                                                      : vrento::ImageKind::Pixels,
+            .format = header.format,
+            .sample = header.sample,
+        };
+    }
 };
 
 } // namespace owe
+
+export namespace rstd
+{
+template<>
+struct Impl<vrento::VideoPlayback, owe::SharedVideoPlayback> : ImplBase<owe::SharedVideoPlayback> {
+    auto Snapshot() const -> vrento::VideoPlaybackSnapshot {
+        return this->self().state->Snapshot();
+    }
+    void PublishTime(f64 current, Option<f64> duration) const {
+        this->self().state->PublishTime(current, duration);
+    }
+};
+} // namespace rstd
 
 // Small OS utility — dlopen/dlsym wrapper. Lives here so wescene-vulkan-runtime
 // can reach it without dragging wescene-base in. hash_combine is co-located

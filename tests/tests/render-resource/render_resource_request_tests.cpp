@@ -183,9 +183,9 @@ TEST(PassCommon, ConfiguresAlphaToCoverageWithoutColorBlending) {
     EXPECT_EQ(load_op, VK_ATTACHMENT_LOAD_OP_LOAD);
 
     owe::SceneMaterial material;
-    material.blenmode    = owe::BlendMode::AlphaToCoverage;
-    material.depth_write = true;
-    EXPECT_TRUE(owe::vulkan::EffectiveDepthWrite(material));
+    material.SetBlendMode(owe::BlendMode::AlphaToCoverage);
+    material.SetDepthWrite(true);
+    EXPECT_TRUE(owe::vulkan::EffectiveDepthWrite(material.Pipeline()));
 }
 
 TEST(UniformBufferLayout, PreservesReflectedSlots) {
@@ -898,6 +898,63 @@ TEST(ResourcePlan, UpdatesTextureRequestByStableUse) {
     EXPECT_EQ(plan.textures[rstd::usize()].request.name, "texture-new"_str);
 }
 
+TEST(ShaderBackend, CompilesBothLanguagesAndReusesReflection) {
+    using namespace owe::vulkan;
+    auto                  backend = MakeShaderBackend();
+    ShaderReflectionCache cache(backend.as_ref());
+    for (auto language : { SourceLang::Glsl, SourceLang::Hlsl }) {
+        ShaderCompUnit unit {
+            .stage       = owe::ShaderType::VERTEX,
+            .src         = language == SourceLang::Glsl
+                               ? "#version 450\nvoid main() { gl_Position = vec4(0, 0, 0, 1); }"
+                               : "float4 main() : SV_Position { return float4(0, 0, 0, 1); }",
+            .entry_point = "main",
+            .lang        = language,
+        };
+        std::string preprocessed;
+        ASSERT_TRUE(backend->Preprocess(unit.src, unit.stage, language, preprocessed));
+        EXPECT_FALSE(preprocessed.empty());
+        std::vector<Uni_ShaderSpv> spvs;
+        ASSERT_TRUE(backend->CompileAndLinkShaderUnits(std::span(&unit, 1), {}, spvs));
+        ASSERT_EQ(spvs.size(), 1u);
+        owe::SceneShader shader;
+        shader.codes.push_back(spvs[0]->spirv);
+        auto first = cache.Query(shader);
+        ASSERT_TRUE(first.is_some());
+        auto second = cache.Query(shader);
+        ASSERT_TRUE(second.is_some());
+        EXPECT_EQ(&**first, &**second);
+        cache.Clear();
+        EXPECT_TRUE(cache.Query(shader).is_some());
+        unit.src = "invalid shader";
+        spvs.clear();
+        EXPECT_FALSE(backend->CompileAndLinkShaderUnits(std::span(&unit, 1), {}, spvs));
+    }
+}
+
+TEST(TextureLoader, RetainsCapturedRuntimeContentAfterSceneReplacement) {
+    using namespace rstd;
+    auto original          = sync::Arc<owe::Image>::make();
+    original->content->key = "original";
+    Option<sync::Arc<dyn<owe::resource::TextureLoader>>> loader;
+    {
+        owe::Scene scene;
+        scene.RegisterRuntimeImage(String::make("runtime"_str), original.clone());
+        auto snapshot = owe::ExtractRenderSceneSnapshot(scene);
+        owe::vulkan::SnapshotImportedTextureProvider provider(
+            snapshot, ref<owe::Scene>::from_raw_parts(&scene));
+        auto opened = provider.OpenTextureLoader();
+        ASSERT_TRUE(opened.is_ok());
+        loader = Some(rstd::move(opened).unwrap_unchecked());
+        scene.RegisterRuntimeImage(String::make("runtime"_str), sync::Arc<owe::Image>::make());
+    }
+    auto loaded = (*loader)->LoadTexture("runtime"_str);
+    ASSERT_TRUE(loaded.is_ok());
+    auto image = rstd::move(loaded).unwrap_unchecked();
+    EXPECT_EQ(&*image, &*original->content);
+    EXPECT_EQ(image->key, "original");
+}
+
 TEST(FramePassResources, DeclaresTargetUsesOutsideTheRenderGraphPlan) {
     owe::SceneRenderTarget render_target {
         .width        = i32(1920),
@@ -913,7 +970,8 @@ TEST(FramePassResources, DeclaresTargetUsesOutsideTheRenderGraphPlan) {
             owe::resource::TextureUseHandle { .index = rstd::u64(4), .generation = rstd::u64(7) },
         .request = owe::vulkan::MakeImportedTextureRequest("graph-input"),
     });
-    owe::vulkan::ShaderReflectionCache shader_cache;
+    auto                               shader_backend = owe::vulkan::MakeShaderBackend();
+    owe::vulkan::ShaderReflectionCache shader_cache(shader_backend.as_ref());
     owe::vulkan::PrePass               pre(owe::vulkan::PrePass::Desc {
         .result_request      = rstd::Some(target.clone()),
         .result_msaa_request = rstd::Some(rstd::move(msaa)),
@@ -962,7 +1020,8 @@ TEST(FramePassResources, DeclaresTargetUsesOutsideTheRenderGraphPlan) {
 
 TEST(ResourceDeclarationContext, ScopesLocalResourceNamesToThePlanGeneration) {
     owe::resource::ResourcePlan             plan { .generation = rstd::u64(7) };
-    owe::vulkan::ShaderReflectionCache      shader_cache;
+    auto                                    shader_backend = owe::vulkan::MakeShaderBackend();
+    owe::vulkan::ShaderReflectionCache      shader_cache(shader_backend.as_ref());
     owe::vulkan::ResourceDeclarationContext declarations(plan, shader_cache);
 
     auto name = declarations.ScopeResourceName(String::make("pass:25:0:vertex:0"_str));
@@ -986,7 +1045,8 @@ TEST(FramePassResources, ClearsStaleUsesBeforeFramePassInjection) {
         .request = owe::vulkan::MakeImportedTextureRequest("particle/fog/fog1"),
     });
 
-    owe::vulkan::ShaderReflectionCache shader_cache;
+    auto                               shader_backend = owe::vulkan::MakeShaderBackend();
+    owe::vulkan::ShaderReflectionCache shader_cache(shader_backend.as_ref());
     owe::vulkan::PrePass               pre(owe::vulkan::PrePass::Desc {
         .result_request      = rstd::Some(target.clone()),
         .result_msaa_request = rstd::Some(rstd::move(msaa)),

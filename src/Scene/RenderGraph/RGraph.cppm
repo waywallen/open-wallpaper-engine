@@ -1,7 +1,6 @@
 export module wescene.rgraph;
-
-export import :dependency_graph;
-export import :pass;
-export import :pass_node;
-export import :tex_node;
-export import :render_graph;
+export import vrento.rgraph;
+export namespace owe
+{
+namespace rg = vrento::rg;
+}

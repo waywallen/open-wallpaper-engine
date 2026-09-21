@@ -95,13 +95,25 @@ auto ParseImages(ref<dyn<IImageParser>> parser, slice<String> names, usize max_w
 
 class TexImageParser {
 public:
-    TexImageParser(fs::VFS* vfs): m_vfs(vfs) {}
+    TexImageParser(fs::VFS* vfs): m_vfs(vfs->Snapshot()) {}
 
     auto Parse(ref<str> name) const -> Result<Arc<Image>, ImageParseError>;
     auto ParseMany(slice<String> names) const -> Vec<Result<Arc<Image>, ImageParseError>>;
     auto ParseHeader(ref<str> name) const -> Result<ImageHeader, ImageParseError>;
 
 private:
-    fs::VFS* m_vfs;
+    struct PreparedHeader {
+        ImageHeader         header;
+        rstd::io::ReadRange source;
+        TexFormatVersion    version;
+        rstd::uint32_t      condition_count {};
+        std::ptrdiff_t      body_offset {};
+    };
+    using HeaderCache = rstd::collections::HashMap<String, Arc<PreparedHeader>>;
+    auto PrepareHeader(ref<str> name) const -> Result<Arc<PreparedHeader>, ImageParseError>;
+
+    Arc<fs::VFS>                        m_vfs;
+    Arc<rstd::sync::Mutex<HeaderCache>> m_headers { Arc<rstd::sync::Mutex<HeaderCache>>::make(
+        HeaderCache {}) };
 };
 } // namespace owe

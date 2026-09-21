@@ -53,10 +53,14 @@ struct CachedShaderReflection {
 
 class ShaderReflectionCache : NoCopy, NoMove {
 public:
+    explicit ShaderReflectionCache(rstd::ref<rstd::dyn<ShaderBackend>> backend)
+        : m_backend(backend) {}
+    auto Backend() const -> rstd::ref<rstd::dyn<ShaderBackend>> { return m_backend; }
     auto Query(const SceneShader&) -> rstd::Option<rstd::ref<CachedShaderReflection>>;
     void Clear();
 
 private:
+    rstd::ref<rstd::dyn<ShaderBackend>>                                     m_backend;
     rstd::collections::HashMap<ShaderReflectionKey, CachedShaderReflection> m_entries;
 };
 

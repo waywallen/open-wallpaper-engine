@@ -288,10 +288,10 @@ inline Option<String> ResolveImportedTextureName(const RenderSceneSnapshot& rend
     return Some(resolved->name.clone());
 }
 
-inline Arc<Image> MakeMissingTexturePlaceholder(ref<str> key) {
+inline Arc<vrento::Image> MakeMissingTexturePlaceholder(ref<str> key) {
     constexpr std::int32_t size = 2;
     auto                   img  = Arc<Image>::make();
-    img->key                    = std::string(rstd::cppstd::as_string_view(key));
+    img->content->key           = std::string(rstd::cppstd::as_string_view(key));
     auto& header                = img->header;
     header.width                = size;
     header.height               = size;
@@ -307,8 +307,8 @@ inline Arc<Image> MakeMissingTexturePlaceholder(ref<str> key) {
     // 2x2 is pow2, so no mipmap downsampling constraints apply.
     header.mipmap_pow2   = true;
     header.mipmap_larger = false;
-    img->slots.resize(1);
-    auto& slot  = img->slots[0];
+    img->content->slots.resize(1);
+    auto& slot  = img->content->slots[0];
     slot.width  = size;
     slot.height = size;
     slot.mipmaps.resize(1);
@@ -327,16 +327,18 @@ inline Arc<Image> MakeMissingTexturePlaceholder(ref<str> key) {
     mipmap.data = ImageDataPtr(pixels, [](uint8_t* data) {
         delete[] data;
     });
-    return img;
+    img->FinalizeContent();
+    return img->content.clone();
 }
 
 class SnapshotImportedTextureLoader {
 public:
-    explicit SnapshotImportedTextureLoader(ref<Scene> scene): m_scene(scene) {}
+    explicit SnapshotImportedTextureLoader(Arc<SceneImageSource> source)
+        : m_source(rstd::move(source)) {}
 
-    auto LoadTexture(ref<str> key) const -> Result<Arc<Image>, resource::ResourceError> {
-        auto parsed = m_scene->ParseImage(key);
-        if (parsed.is_ok()) return Ok(rstd::move(parsed).unwrap_unchecked());
+    auto LoadTexture(ref<str> key) const -> Result<Arc<vrento::Image>, resource::ResourceError> {
+        auto parsed = m_source->Parse(key);
+        if (parsed.is_ok()) return Ok(parsed.unwrap_unchecked()->content.clone());
         auto error = rstd::move(parsed).unwrap_err_unchecked();
         if (error.kind == ImageParseErrorKind::MissingContent) {
             rstd_warn("texture {} not found, using placeholder", key);
@@ -349,13 +351,13 @@ public:
     }
 
 private:
-    ref<Scene> m_scene;
+    Arc<SceneImageSource> m_source;
 };
 
 class SnapshotImportedTextureProvider {
 public:
     SnapshotImportedTextureProvider(const RenderSceneSnapshot& render_scene, ref<Scene> scene)
-        : m_render_scene(render_scene), m_scene(scene) {}
+        : m_render_scene(render_scene), m_source(scene->CaptureImageSource()) {}
 
     auto ResolveTextureContent(const TextureRequest& request) const
         -> Result<resource::ImportedTextureContentIdentity, resource::ResourceError> {
@@ -376,15 +378,17 @@ public:
 
     auto OpenTextureLoader() const
         -> Result<Arc<dyn<resource::TextureLoader>>, resource::ResourceError> {
-        return Ok(Arc<dyn<resource::TextureLoader>>::make(SnapshotImportedTextureLoader(m_scene)));
+        return Ok(Arc<dyn<resource::TextureLoader>>::make(
+            SnapshotImportedTextureLoader(m_source.clone())));
     }
 
     auto ResolveVideoPlayback(const TextureRequest& request) const
-        -> Option<Arc<VideoPlaybackState>> {
+        -> Option<Arc<dyn<vrento::VideoPlayback>>> {
         auto record = ResolveRecord(request);
         return record != nullptr && record->video_control.is_some()
-                   ? Some(record->video_control->clone())
-                   : None<Arc<VideoPlaybackState>>();
+                   ? Some(Arc<dyn<vrento::VideoPlayback>>::make(
+                         SharedVideoPlayback { record->video_control->clone() }))
+                   : None<Arc<dyn<vrento::VideoPlayback>>>();
     }
 
 private:
@@ -401,7 +405,7 @@ private:
     }
 
     const RenderSceneSnapshot& m_render_scene;
-    ref<Scene>                 m_scene;
+    Arc<SceneImageSource>      m_source;
 };
 
 class SnapshotTexturePrepareObserver {
@@ -473,7 +477,8 @@ struct Impl<owe::resource::TextureCatalog, owe::RenderSceneSnapshot>
 template<>
 struct Impl<owe::resource::TextureLoader, owe::vulkan::SnapshotImportedTextureLoader>
     : ImplBase<owe::vulkan::SnapshotImportedTextureLoader> {
-    auto LoadTexture(ref<str> key) const -> Result<Arc<owe::Image>, owe::resource::ResourceError> {
+    auto LoadTexture(ref<str> key) const
+        -> Result<Arc<vrento::Image>, owe::resource::ResourceError> {
         return this->self().LoadTexture(key);
     }
 };
@@ -492,7 +497,7 @@ struct Impl<owe::resource::TextureContentProvider, owe::vulkan::SnapshotImported
     }
 
     auto ResolveVideoPlayback(const owe::resource::TextureRequest& request) const
-        -> Option<Arc<owe::VideoPlaybackState>> {
+        -> Option<Arc<dyn<vrento::VideoPlayback>>> {
         return this->self().ResolveVideoPlayback(request);
     }
 };

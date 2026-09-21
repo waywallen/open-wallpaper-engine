@@ -501,11 +501,13 @@ auto BuildMaterial(fs::VFS& vfs, ShaderCache& shader_cache,
     shader->uniform_blocks   = variant_desc.uniform_blocks;
     shader->descriptor_sets  = variant_desc.descriptor_sets;
 
-    material.blenmode    = blend_mode;
-    material.alpha_write = ParseAlphaWrite(wpmat.alphawriting);
-    material.depth_test  = ParseEnabled(wpmat.depthtest);
-    material.depth_write = ParseEnabled(wpmat.depthwrite);
-    material.cull_mode   = ParseCullMode(wpmat.cullmode);
+    auto pipeline        = material.Pipeline();
+    pipeline.blend_mode  = blend_mode;
+    pipeline.alpha_write = ParseAlphaWrite(wpmat.alphawriting);
+    pipeline.depth_test  = ParseEnabled(wpmat.depthtest);
+    pipeline.depth_write = ParseEnabled(wpmat.depthwrite);
+    pipeline.cull_mode   = ParseCullMode(wpmat.cullmode);
+    material.SetPipeline(rstd::move(pipeline));
 
     // FS is always the last unit (VS may be followed by optional GS, then FS).
     const auto& fs_active = sd_units.back().preprocess_info.active_tex_slots;

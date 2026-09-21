@@ -105,13 +105,22 @@ bool SceneCamera::SetAuthoredTransforms(const SceneCameraTransforms& transforms)
 
 Matrix4d SceneCamera::GetViewMatrix() {
     CalculateViewProjectionMatrix();
-    return m_viewMat;
+    return m_camera.View();
 }
 
 Matrix4d SceneCamera::GetViewProjectionMatrix(SceneRenderViewKind view) {
     if (view == SceneRenderViewKind::Reflection) return CalculateReflectionViewProjectionMatrix();
     CalculateViewProjectionMatrix();
-    return m_viewProjectionMat;
+    return m_camera.ViewProjection();
+}
+
+auto SceneCamera::CameraSnapshot(SceneRenderViewKind view) -> vrento::CameraSnapshot<Matrix4d> {
+    if (view == SceneRenderViewKind::Reflection) {
+        CalculateReflectionViewProjectionMatrix();
+        return m_reflection_camera.Snapshot();
+    }
+    CalculateViewProjectionMatrix();
+    return m_camera.Snapshot();
 }
 
 Matrix4d SceneCamera::CalculateReflectionViewProjectionMatrix() {
@@ -133,41 +142,32 @@ Matrix4d SceneCamera::CalculateReflectionViewProjectionMatrix() {
     // WE preserves camera-up so the reflection texture remains screen-upright.
 
     const Matrix4d view = LookAt(eye, center, up);
+    m_reflection_camera.Set(view, ProjectionMatrix());
+    return m_reflection_camera.ViewProjection();
+}
+
+Matrix4d SceneCamera::ProjectionMatrix() const {
     if (m_perspective) {
-        return Perspective(Radians(m_fov), m_aspect, m_nearClip, m_farClip) * view;
+        return Perspective(Radians(m_fov), m_aspect, m_nearClip, m_farClip);
     }
-    return Ortho(-m_width / 2.0,
-                 m_width / 2.0,
-                 -m_height / 2.0,
-                 m_height / 2.0,
-                 m_nearClip,
-                 m_farClip) *
-           view;
+    return Ortho(
+        -m_width / 2.0, m_width / 2.0, -m_height / 2.0, m_height / 2.0, m_nearClip, m_farClip);
 }
 
 void SceneCamera::CalculateViewProjectionMatrix() {
+    Matrix4d view;
     if (m_lookat) {
-        m_viewMat = LookAt(m_eye, m_center, m_up);
+        view = LookAt(m_eye, m_center, m_up);
     } else if (m_node) {
         // view = inv(node.ModelTrans()) so the layer-local frame maps to
         // view origin regardless of where the node sits in the world (parent
         // chain + local translate / scale / rotate). With LookAt-only the
         // node's local scale would leak into clip space and a 9× scaled
         // layer would only see 1/9 of its quad inside the ortho viewport.
-        m_viewMat = NodeCameraFrame(*m_node).inverse();
+        view = NodeCameraFrame(*m_node).inverse();
     } else
-        m_viewMat = Matrix4d::Identity();
-
-    if (m_perspective) {
-        m_viewProjectionMat =
-            Perspective(Radians(m_fov), m_aspect, m_nearClip, m_farClip) * m_viewMat;
-    } else {
-        double left         = -m_width / 2.0f;
-        double right        = m_width / 2.0f;
-        double bottom       = -m_height / 2.0f;
-        double up           = m_height / 2.0f;
-        m_viewProjectionMat = Ortho(left, right, bottom, up, m_nearClip, m_farClip) * m_viewMat;
-    }
+        view = Matrix4d::Identity();
+    m_camera.Set(view, ProjectionMatrix());
 }
 
 void SceneCamera::Update() { CalculateViewProjectionMatrix(); }

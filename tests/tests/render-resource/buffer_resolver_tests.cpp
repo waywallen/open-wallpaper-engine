@@ -13,10 +13,12 @@ public:
     auto UpdateBuffer(owe::resource::BufferUseHandle, rstd::slice<rstd::u8>)
         -> rstd::Result<rstd::empty, owe::resource::ResourceError> {
         ++update_count;
+        if (update_count == fail_on) return rstd::Err(owe::resource::ResourceError {});
         return rstd::Ok(rstd::empty {});
     }
 
     rstd::u32 update_count {};
+    rstd::u32 fail_on {};
 };
 
 owe::SceneMesh::Submesh MakeSubmesh() {
@@ -43,6 +45,97 @@ owe::SceneMesh::Submesh MakeSubmesh() {
 }
 
 } // namespace
+
+namespace
+{
+auto MakeBuffers(owe::SceneMesh& mesh, owe::RenderItemId render_item)
+    -> owe::vulkan::DrawBufferRefs {
+    owe::vulkan::DrawBufferRefs buffers;
+    buffers.render_item       = render_item;
+    buffers.dynamic           = true;
+    buffers.content_confirmed = true;
+    auto keys = owe::vulkan::BuildDrawBufferKeys({ .render_item = render_item, .mesh = &mesh });
+    buffers.vertex_keys.push(rstd::move(keys[rstd::usize()]));
+    buffers.index_key = rstd::Some(rstd::move(keys[rstd::usize(1)]));
+    buffers.vertices.push(
+        owe::resource::BufferUseHandle { .index = rstd::u64(1), .generation = rstd::u64(1) });
+    buffers.index = rstd::Some(
+        owe::resource::BufferUseHandle { .index = rstd::u64(2), .generation = rstd::u64(1) });
+    return buffers;
+}
+} // namespace
+
+TEST(DynamicDrawBuffer, UploadsUnconfirmedContentBeforeSkippingUnchangedGeometry) {
+    owe::SceneMesh mesh(true);
+    mesh.Submeshes().push_back(MakeSubmesh());
+    owe::RenderItemId render_item { .index = rstd::u32(1), .generation = rstd::u64(2) };
+    auto              buffers = MakeBuffers(mesh, render_item);
+    buffers.content_confirmed = false;
+    owe::vulkan::DrawBufferRequest request { .render_item = render_item, .mesh = &mesh };
+    BufferWriter                   writer;
+    auto sink = rstd::dyn<owe::resource::BufferContentWriter>::from_ref(writer);
+    EXPECT_TRUE(owe::vulkan::RenderBufferResolver::updateDynamicDrawBuffers(
+        request, buffers, sink.as_mut_ref()));
+    EXPECT_EQ(writer.update_count, rstd::u32(2));
+    EXPECT_TRUE(buffers.content_confirmed);
+    EXPECT_TRUE(owe::vulkan::RenderBufferResolver::updateDynamicDrawBuffers(
+        request, buffers, sink.as_mut_ref()));
+    EXPECT_EQ(writer.update_count, rstd::u32(2));
+}
+
+TEST(DynamicDrawBuffer, RetriesUploadFailureWithoutInvalidatingLayout) {
+    owe::SceneMesh mesh(true);
+    mesh.Submeshes().push_back(MakeSubmesh());
+    owe::RenderItemId render_item { .index = rstd::u32(1), .generation = rstd::u64(2) };
+    auto              buffers  = MakeBuffers(mesh, render_item);
+    auto              original = buffers.vertex_keys[rstd::usize()].data_generation;
+    auto&             submesh  = mesh.Submeshes()[0];
+    submesh.vertex_arrays[0].ResetSize();
+    const rstd::uint32_t changed[] { 1, 0, 1 };
+    submesh.index_arrays[0].Assign(
+        rstd::usize(), rstd::slice<rstd::uint32_t>::from_raw_parts(changed, rstd::usize(3)));
+    mesh.SetDirty();
+    owe::vulkan::DrawBufferRequest request { .render_item = render_item, .mesh = &mesh };
+    BufferWriter                   writer;
+    writer.fail_on = rstd::u32(2);
+    auto sink      = rstd::dyn<owe::resource::BufferContentWriter>::from_ref(writer);
+    EXPECT_FALSE(owe::vulkan::RenderBufferResolver::updateDynamicDrawBuffers(
+        request, buffers, sink.as_mut_ref()));
+    EXPECT_EQ(buffers.vertex_keys[rstd::usize()].data_generation, original);
+    EXPECT_EQ(mesh.DirtyFlags() & owe::SceneMeshDirtyLayout, owe::SceneMeshDirtyNone);
+    writer.fail_on = rstd::u32();
+    EXPECT_TRUE(owe::vulkan::RenderBufferResolver::updateDynamicDrawBuffers(
+        request, buffers, sink.as_mut_ref()));
+    EXPECT_EQ(writer.update_count, rstd::u32(4));
+    EXPECT_TRUE(owe::vulkan::RenderBufferResolver::updateDynamicDrawBuffers(
+        request, buffers, sink.as_mut_ref()));
+    EXPECT_EQ(writer.update_count, rstd::u32(4));
+}
+
+TEST(DynamicDrawBuffer, DetectsSharedDataChangesWithoutInstanceDirtyFlag) {
+    owe::SceneMesh mesh(true);
+    mesh.Submeshes().push_back(MakeSubmesh());
+    auto              clone = mesh.CloneInstance();
+    owe::RenderItemId render_item { .index = rstd::u32(1), .generation = rstd::u64(2) };
+    auto              buffers = MakeBuffers(*clone, render_item);
+    mesh.Submeshes()[0].vertex_arrays[0].ResetSize();
+    mesh.SetDirty();
+    EXPECT_EQ(clone->DirtyFlags(), owe::SceneMeshDirtyNone);
+    owe::vulkan::DrawBufferRequest request { .render_item = render_item, .mesh = clone.get() };
+    BufferWriter                   writer;
+    auto sink = rstd::dyn<owe::resource::BufferContentWriter>::from_ref(writer);
+    EXPECT_TRUE(owe::vulkan::RenderBufferResolver::updateDynamicDrawBuffers(
+        request, buffers, sink.as_mut_ref()));
+    EXPECT_EQ(writer.update_count, rstd::u32(1));
+    mesh.Submeshes()[0].vertex_arrays[0] =
+        owe::SceneVertexArray({ { "a_Position", owe::VertexType::FLOAT3 } }, rstd::usize(2));
+    EXPECT_FALSE(owe::vulkan::RenderBufferResolver::updateDynamicDrawBuffers(
+        request, buffers, sink.as_mut_ref()));
+    EXPECT_NE(clone->DirtyFlags() & owe::SceneMeshDirtyLayout, owe::SceneMeshDirtyNone);
+    mesh.Submeshes().clear();
+    EXPECT_FALSE(owe::vulkan::RenderBufferResolver::updateDynamicDrawBuffers(
+        request, buffers, sink.as_mut_ref()));
+}
 
 TEST(DrawBufferResourceName, UsesStableSceneDrawIdentity) {
     owe::SceneDrawItemId draw { .index = rstd::u32(7), .generation = rstd::u32(11) };
@@ -73,21 +166,21 @@ TEST(DrawBufferKey, BuildsStaticKeysFromRenderItemAndGeometryGeneration) {
                                              .submesh_index = rstd::u32() };
 
     auto keys = owe::vulkan::BuildDrawBufferKeys(request, rstd::u64(99));
-    ASSERT_EQ(keys.size(), 2u);
+    ASSERT_EQ(keys.len(), rstd::usize(2));
 
     const auto& vertex = mesh.Submeshes()[0].vertex_arrays[0];
-    EXPECT_EQ(keys[0].render_item.index, render_item.index);
-    EXPECT_EQ(keys[0].render_item.generation, render_item.generation);
-    EXPECT_EQ(keys[0].role, owe::vulkan::DrawBufferRole::Vertex);
-    EXPECT_EQ(keys[0].submesh_index, rstd::u32());
-    EXPECT_EQ(keys[0].stream_index, rstd::u32());
-    EXPECT_EQ(keys[0].data_generation, vertex.DataGeneration());
-    EXPECT_EQ(keys[0].allocation_generation, rstd::u64());
+    EXPECT_EQ(keys[rstd::usize()].render_item.index, render_item.index);
+    EXPECT_EQ(keys[rstd::usize()].render_item.generation, render_item.generation);
+    EXPECT_EQ(keys[rstd::usize()].role, owe::vulkan::DrawBufferRole::Vertex);
+    EXPECT_EQ(keys[rstd::usize()].submesh_index, rstd::u32());
+    EXPECT_EQ(keys[rstd::usize()].stream_index, rstd::u32());
+    EXPECT_EQ(keys[rstd::usize()].data_generation, vertex.DataGeneration());
+    EXPECT_EQ(keys[rstd::usize()].allocation_generation, rstd::u64());
 
     const auto& index = mesh.Submeshes()[0].index_arrays[0];
-    EXPECT_EQ(keys[1].role, owe::vulkan::DrawBufferRole::Index);
-    EXPECT_EQ(keys[1].data_generation, index.DataGeneration());
-    EXPECT_EQ(keys[1].allocation_generation, rstd::u64());
+    EXPECT_EQ(keys[rstd::usize(1)].role, owe::vulkan::DrawBufferRole::Index);
+    EXPECT_EQ(keys[rstd::usize(1)].data_generation, index.DataGeneration());
+    EXPECT_EQ(keys[rstd::usize(1)].allocation_generation, rstd::u64());
 }
 
 TEST(DrawBufferKey, KeepsDynamicAllocationGenerationSeparateFromDataGeneration) {
@@ -100,11 +193,13 @@ TEST(DrawBufferKey, KeepsDynamicAllocationGenerationSeparateFromDataGeneration) 
                                              .submesh_index = rstd::u32() };
 
     auto keys = owe::vulkan::BuildDrawBufferKeys(request, rstd::u64(77));
-    ASSERT_EQ(keys.size(), 2u);
-    EXPECT_EQ(keys[0].allocation_generation, rstd::u64(77));
-    EXPECT_EQ(keys[1].allocation_generation, rstd::u64(77));
-    EXPECT_EQ(keys[0].data_generation, mesh.Submeshes()[0].vertex_arrays[0].DataGeneration());
-    EXPECT_EQ(keys[1].data_generation, mesh.Submeshes()[0].index_arrays[0].DataGeneration());
+    ASSERT_EQ(keys.len(), rstd::usize(2));
+    EXPECT_EQ(keys[rstd::usize()].allocation_generation, rstd::u64(77));
+    EXPECT_EQ(keys[rstd::usize(1)].allocation_generation, rstd::u64(77));
+    EXPECT_EQ(keys[rstd::usize()].data_generation,
+              mesh.Submeshes()[0].vertex_arrays[0].DataGeneration());
+    EXPECT_EQ(keys[rstd::usize(1)].data_generation,
+              mesh.Submeshes()[0].index_arrays[0].DataGeneration());
 }
 
 TEST(DrawBufferKey, ObservesCompletedVertexRewriteGeneration) {
@@ -126,18 +221,18 @@ TEST(DrawBufferKey, ObservesCompletedVertexRewriteGeneration) {
         .submesh_index = rstd::u32(),
     };
     auto keys = owe::vulkan::BuildDrawBufferKeys(request, rstd::u64(9));
-    ASSERT_FALSE(keys.empty());
+    ASSERT_FALSE(keys.is_empty());
     EXPECT_EQ(vertices.DataGeneration(), generation + rstd::u64(1));
-    EXPECT_EQ(keys[0].data_generation, vertices.DataGeneration());
+    EXPECT_EQ(keys[rstd::usize()].data_generation, vertices.DataGeneration());
     EXPECT_EQ(vertices.VertexCount(), rstd::usize(1));
 }
 
 TEST(DrawBufferKey, ReturnsEmptyForInvalidRequest) {
     owe::SceneMesh mesh;
-    EXPECT_TRUE(owe::vulkan::BuildDrawBufferKeys({ .mesh = nullptr }, rstd::u64(1)).empty());
+    EXPECT_TRUE(owe::vulkan::BuildDrawBufferKeys({ .mesh = nullptr }, rstd::u64(1)).is_empty());
     EXPECT_TRUE(owe::vulkan::BuildDrawBufferKeys({ .mesh = &mesh, .submesh_index = rstd::u32(1) },
                                                  rstd::u64(1))
-                    .empty());
+                    .is_empty());
 }
 
 TEST(DynamicDrawBuffer, UpdatesEveryViewBeforeDirtyDataIsConsumed) {
@@ -146,11 +241,16 @@ TEST(DynamicDrawBuffer, UpdatesEveryViewBeforeDirtyDataIsConsumed) {
     mesh.Submeshes()[0].index_arrays[0].SetRenderDataCount(rstd::usize(2));
     mesh.SetDirty();
 
-    auto make_buffers = [] {
+    auto make_buffers = [&mesh] {
         owe::vulkan::DrawBufferRefs buffers;
-        buffers.dynamic = true;
-        buffers.vertex_keys.push_back({});
-        buffers.index_key = rstd::Some(owe::vulkan::DrawBufferKey {});
+        buffers.dynamic     = true;
+        buffers.render_item = { .index = rstd::u32(3), .generation = rstd::u64(5) };
+        auto keys =
+            owe::vulkan::BuildDrawBufferKeys({ .render_item = buffers.render_item, .mesh = &mesh });
+        keys[rstd::usize()].data_generation  = rstd::u64();
+        keys[rstd::usize(1)].data_generation = rstd::u64();
+        buffers.vertex_keys.push(rstd::move(keys[rstd::usize()]));
+        buffers.index_key = rstd::Some(rstd::move(keys[rstd::usize(1)]));
         buffers.vertices.push(
             owe::resource::BufferUseHandle { .index = rstd::u64(1), .generation = rstd::u64(1) });
         buffers.index = rstd::Some(

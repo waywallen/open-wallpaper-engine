@@ -823,6 +823,7 @@ struct RenderProgram {
             next_global_descriptor_binding = Some(rstd::move(prepared).unwrap_unchecked());
         }
         PassPrepareContext prepare_context {
+            .shader_backend = (*rr.shader_reflection_cache)->Backend(),
             .resources = rstd::ref<owe::resource_registry::PreparedResourceTable>::from_raw_parts(
                 rstd::addressof(rr.resources.Prepared())),
             .graphics         = graphics.as_mut_ref(),

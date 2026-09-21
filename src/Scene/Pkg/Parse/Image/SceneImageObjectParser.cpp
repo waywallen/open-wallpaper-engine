@@ -376,7 +376,7 @@ void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj
     // The final pass owns the authored blend mode.
     auto finalMaterialState = material;
     if (color_blend_attachment_override.is_some())
-        finalMaterialState.blenmode = *color_blend_attachment_override;
+        finalMaterialState.SetBlendMode(*color_blend_attachment_override);
     SceneNodeLayer* image_effect_layer { nullptr };
     if (! material.textures.empty()) {
         auto control =

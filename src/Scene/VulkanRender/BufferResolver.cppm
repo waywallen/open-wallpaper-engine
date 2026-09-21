@@ -1,77 +1,38 @@
-module;
-
 export module wescene.vulkan_render:buffer_resolver;
-import wescene.core;
-import rstd;
-import rstd.cppstd;
-import wescene.resource_registry;
-import wescene.vulkan;
+export import vrento.draw_buffer;
 import wescene.scene;
+import wescene.resource_registry;
+import rstd;
 
 using namespace rstd::prelude;
 
 export namespace owe::vulkan
 {
-
-enum class DrawBufferRole
-{
-    Uniform,
-    Vertex,
-    Index,
-};
-
-struct DrawBufferKey {
-    RenderItemId   render_item;
-    DrawBufferRole role { DrawBufferRole::Vertex };
-    u32            submesh_index { 0 };
-    u32            stream_index { 0 };
-    u64            data_generation { 0 };
-    u64            allocation_generation { 0 };
-};
-
-struct DrawBufferRefs {
-    RenderItemId render_item;
-    u64          allocation_generation { 0 };
-    bool         dynamic { false };
-    u32          draw_count { 0 };
-
-    std::vector<DrawBufferKey> vertex_keys;
-    Option<DrawBufferKey>      index_key;
-
-    Vec<resource::BufferUseHandle>    vertices;
-    Option<resource::BufferUseHandle> index;
-
-    DrawBufferRefs()                                     = default;
-    DrawBufferRefs(const DrawBufferRefs&)                = delete;
-    DrawBufferRefs& operator=(const DrawBufferRefs&)     = delete;
-    DrawBufferRefs(DrawBufferRefs&&) noexcept            = default;
-    DrawBufferRefs& operator=(DrawBufferRefs&&) noexcept = default;
-
-    bool hasIndex() const { return index.is_some(); }
-};
+using vrento::BuildDrawBufferResourceName;
+using vrento::DrawBufferKey;
+using vrento::DrawBufferRefs;
+using vrento::DrawBufferRole;
 
 struct DrawBufferRequest {
-    RenderItemId                           render_item;
-    SceneMesh*                             mesh { nullptr };
-    u32                                    submesh_index { 0 };
-    u64                                    dynamic_allocation_generation { 0 };
-    rstd::slice<resource::BufferUseHandle> buffer_uses;
+    RenderItemId                     render_item;
+    SceneMesh*                       mesh { nullptr };
+    u32                              submesh_index {};
+    u64                              dynamic_allocation_generation {};
+    slice<resource::BufferUseHandle> buffer_uses;
 };
 
-String BuildDrawBufferResourceName(SceneDrawItemId, DrawBufferRole, u32 stream_index = u32());
-std::vector<DrawBufferKey> BuildDrawBufferKeys(const DrawBufferRequest&,
-                                               u64 allocation_generation = u64());
+auto BuildDrawBufferKeys(const DrawBufferRequest&, u64 allocation_generation = u64())
+    -> Vec<DrawBufferKey>;
 
 class RenderBufferResolver {
 public:
-    explicit RenderBufferResolver(const resource_registry::PreparedResourceTable&);
-
-    Option<DrawBufferRefs> prepareDrawBuffers(const DrawBufferRequest&);
+    explicit RenderBufferResolver(const resource_registry::PreparedResourceTable& resources)
+        : m_resolver(resources) {}
+    auto        prepareDrawBuffers(const DrawBufferRequest&) -> Option<DrawBufferRefs>;
     static bool updateDynamicDrawBuffers(const DrawBufferRequest&, DrawBufferRefs&,
-                                         rstd::mut_ref<rstd::dyn<resource::BufferContentWriter>>);
+                                         mut_ref<dyn<resource::BufferContentWriter>>);
 
 private:
-    rstd::ref<resource_registry::PreparedResourceTable> m_resources;
+    vrento::RenderBufferResolver m_resolver;
 };
-
 } // namespace owe::vulkan

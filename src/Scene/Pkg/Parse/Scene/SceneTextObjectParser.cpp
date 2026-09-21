@@ -410,8 +410,8 @@ void ParseTextObjImpl(SceneParseContext& context, wpscene::TextObject& obj) {
         material.name     = "text";
         material.textures = { atlas_url };
         material.defines  = { "g_Texture0" };
-        material.blenmode =
-            direct_text || copy_background_seed ? BlendMode::Translucent : BlendMode::Normal;
+        material.SetBlendMode(direct_text || copy_background_seed ? BlendMode::Translucent
+                                                                  : BlendMode::Normal);
         material.customShader.shader = shader;
         sp_mesh->AddMaterial(std::move(material));
     }
@@ -605,10 +605,10 @@ void ParseTextObjImpl(SceneParseContext& context, wpscene::TextObject& obj) {
             auto bg_mesh = std::make_shared<SceneMesh>();
             bg_mesh->ChangeMeshDataFrom(*scene.DefaultEffectMesh());
             SceneMaterial bg_material;
-            bg_material.name                = "text_copybackground";
-            bg_material.textures            = { rstd::cppstd::to_string(SpecTex_Default) };
-            bg_material.defines             = { "g_Texture0" };
-            bg_material.blenmode            = BlendMode::Normal;
+            bg_material.name     = "text_copybackground";
+            bg_material.textures = { rstd::cppstd::to_string(SpecTex_Default) };
+            bg_material.defines  = { "g_Texture0" };
+            bg_material.SetBlendMode(BlendMode::Normal);
             bg_material.customShader.shader = copy_background_shader;
             bg_mesh->AddMaterial(std::move(bg_material));
             bg_node->AddMesh(bg_mesh);
@@ -681,7 +681,7 @@ void ParseTextObjImpl(SceneParseContext& context, wpscene::TextObject& obj) {
             mat                 = rstd::move(material_build.material);
             si                  = rstd::move(material_build.shader_info);
             LoadConstvalue(context, mat, pt_mat, si);
-            mat.blenmode = attachment_override.unwrap_or(BlendMode::Translucent);
+            mat.SetBlendMode(attachment_override.unwrap_or(BlendMode::Translucent));
             return Some(LoadedTextMaterial {
                 .source      = std::move(pt_mat),
                 .material    = std::move(mat),
@@ -692,9 +692,9 @@ void ParseTextObjImpl(SceneParseContext& context, wpscene::TextObject& obj) {
 
         if (has_text_effect) {
             SceneMaterial final_state;
-            final_state.blenmode    = BlendMode::Normal;
-            final_state.depth_test  = false;
-            final_state.depth_write = false;
+            final_state.SetBlendMode(BlendMode::Normal);
+            final_state.SetDepthTest(false);
+            final_state.SetDepthWrite(false);
             layer->SetFullscreen(true);
             layer->SetFinalTarget(effect_final);
             layer->SetFinalMaterialState(final_state);

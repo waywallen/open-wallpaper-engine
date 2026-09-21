@@ -172,7 +172,8 @@ struct VulkanRender::Impl {
     Box<FinPass> m_finpass { Box<FinPass>::make(FinPass::Desc {}) };
     ReDrawCB     m_redraw_cb;
 
-    ShaderReflectionCache      m_shader_reflection_cache;
+    Box<dyn<ShaderBackend>>    m_shader_backend { MakeShaderBackend() };
+    ShaderReflectionCache      m_shader_reflection_cache { m_shader_backend.as_ref() };
     SceneLoadBenchRecorderView m_pending_load_bench;
 
     vvk::CommandBuffers             m_cmds;
@@ -298,17 +299,15 @@ void VulkanRender::pumpFontAtlases(Scene& scene) {
         }
         const auto fm     = face->Metrics();
         const auto pixels = face->AtlasPixels();
-        (void)pImpl->m_rendering_resources.resources.UploadFontAtlasRegion(face->AtlasUrl(),
-                                                                           pixels.data(),
-                                                                           fm.atlas_w,
-                                                                           min_x,
-                                                                           min_y,
-                                                                           max_x - min_x,
-                                                                           max_y - min_y);
-        // Clear regardless: if VkImage didn't exist yet, the pixels are
-        // already in the CPU buffer that CreateTex aliases on its first
-        // call. Re-uploading would just duplicate work.
-        face->ClearDirtyRects();
+        const bool uploaded =
+            pImpl->m_rendering_resources.resources.UploadFontAtlasRegion(face->AtlasUrl(),
+                                                                         pixels.data(),
+                                                                         fm.atlas_w,
+                                                                         min_x,
+                                                                         min_y,
+                                                                         max_x - min_x,
+                                                                         max_y - min_y);
+        if (uploaded) face->ClearDirtyRects();
     }
 }
 

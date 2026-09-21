@@ -555,7 +555,7 @@ TEST(TexSchema, ProductionParseDecodesEveryBucket) {
             continue;
         }
         auto img = image.take().unwrap_unchecked();
-        if (img->slots.empty()) {
+        if (img->content->slots.empty()) {
             ++parse_failed;
             ++per_bucket_fail[key];
             ADD_FAILURE() << "Parse returned an empty image for " << m.workshop_id << " "
@@ -563,7 +563,7 @@ TEST(TexSchema, ProductionParseDecodesEveryBucket) {
                           << " image_type=" << static_cast<int>(h.type) << ")";
             continue;
         }
-        const auto& s0 = img->slots[0];
+        const auto& s0 = img->content->slots[0];
         if (s0.width <= 0 || s0.height <= 0) {
             ++slot_dim_zero;
             ++per_bucket_fail[key];

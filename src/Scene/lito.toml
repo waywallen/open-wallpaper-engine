@@ -81,49 +81,16 @@ sources = [
   "src/Scene/Pkg/SceneObj/mod.cppm",
   "src/Scene/Pkg/SpecNames.cppm",
   "src/Scene/Pkg/mod.cppm",
-  "src/Scene/RenderGraph/DependencyGraph.cppm",
-  "src/Scene/RenderGraph/DependencyGraph.cpp",
-  "src/Scene/RenderGraph/Pass.cppm",
-  "src/Scene/RenderGraph/PassNode.cppm",
-  "src/Scene/RenderGraph/PassNode.cpp",
   "src/Scene/RenderGraph/RGraph.cppm",
-  "src/Scene/RenderGraph/RenderGraph.cppm",
-  "src/Scene/RenderGraph/RenderGraph.cpp",
-  "src/Scene/RenderGraph/TexNode.cppm",
-  "src/Scene/RenderGraph/TexNode.cpp",
-  "src/Scene/Resource/Barrier.cppm",
-  "src/Scene/Resource/Buffer.cppm",
-  "src/Scene/Resource/BufferRegistry.cppm",
-  "src/Scene/Resource/Catalog.cppm",
-  "src/Scene/Resource/Descriptor.cppm",
-  "src/Scene/Resource/Error.cppm",
-  "src/Scene/Resource/External.cppm",
-  "src/Scene/Resource/Graphics.cppm",
-  "src/Scene/Resource/Handle.cppm",
-  "src/Scene/Resource/Lifetime.cppm",
-  "src/Scene/Resource/Owner.cppm",
-  "src/Scene/Resource/Plan.cppm",
-  "src/Scene/Resource/Policy.cppm",
-  "src/Scene/Resource/Prepared.cppm",
   "src/Scene/Resource/Registry.cppm",
   "src/Scene/Resource/Resource.cppm",
-  "src/Scene/Resource/ResourceKey.cppm",
-  "src/Scene/Resource/Shader.cppm",
-  "src/Scene/Resource/ShaderRegistry.cppm",
-  "src/Scene/Resource/State.cppm",
-  "src/Scene/Resource/System.cppm",
-  "src/Scene/Resource/Texture.cppm",
-  "src/Scene/Resource/TextureRegistry.cppm",
   "src/Scene/Scene/Id.cppm",
   "src/Scene/Scene/Runtime.cppm",
   "src/Scene/Scene/Scene.cppm",
   "src/Scene/Scene/Scene.cpp",
   "src/Scene/Scene/SceneCamera.cpp",
-  "src/Scene/Scene/SceneIndexArray.cpp",
   "src/Scene/Scene/SceneNode.cpp",
   "src/Scene/Scene/SceneNodeLayer.cpp",
-  "src/Scene/Scene/SceneShader.cpp",
-  "src/Scene/Scene/SceneVertexArray.cpp",
   "src/Scene/Scene/SceneVisibility.cppm",
   "src/Scene/Scene/Uniform.cppm",
   "src/Scene/SceneUserProperty.cppm",
@@ -186,6 +153,10 @@ options = [
 ]
 
 [dependencies.owe-core]
+workspace = true
+pub = true
+
+[dependencies.vrento]
 workspace = true
 pub = true
 

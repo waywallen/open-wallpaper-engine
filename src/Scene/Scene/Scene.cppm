@@ -2,6 +2,10 @@ module;
 #include <rstd/enum.hpp>
 
 export module wescene.scene;
+export import vrento.geometry;
+export import vrento.node;
+export import vrento.material;
+export import vrento.camera;
 import eigen;
 import rstd;
 import wescene.core;
@@ -255,162 +259,23 @@ struct SceneRenderTarget {
 // SceneIndexArray.h
 // ============================================================================
 
-class SceneIndexArray : NoCopy {
-    constexpr static usize Unit_Byte_Size { sizeof(rstd::uint32_t) };
+using SceneIndexArray        = vrento::IndexArray;
+using SceneVertexWriter      = vrento::VertexWriter;
+using SceneVertexWriteResult = vrento::VertexWriteResult;
 
+class SceneVertexArray : public vrento::VertexArray {
 public:
-    SceneIndexArray(usize indexCount);
-    SceneIndexArray(slice<rstd::uint32_t> data);
-
-    SceneIndexArray(SceneIndexArray&&) noexcept;
-    ~SceneIndexArray() = default;
-
-    void Assign(usize index, slice<rstd::uint32_t> data) {
-        if (! IncreaseCheckSet((index + data.len()) * Unit_Byte_Size)) return;
-        for (usize source_index {}; source_index < data.len(); ++source_index) {
-            m_data[index + source_index] = data[source_index];
-        }
-        BumpDataGeneration();
+    using vrento::VertexArray::VertexArray;
+    using SceneVertexAttribute       = vrento::VertexArray::VertexAttribute;
+    using SceneVertexAttributeOffset = vrento::VertexArray::VertexAttributeOffset;
+    bool GetOption(std::string_view name) const {
+        auto found = m_options.find(name);
+        return found != m_options.end() && found->second;
     }
-
-    const rstd::uint32_t* Data() const { return m_data.is_empty() ? nullptr : m_data.begin(); }
-    usize                 DataCount() const { return m_size; }
-    usize                 DataSizeOf() const { return m_size * Unit_Byte_Size; }
-
-    usize RenderDataCount() const noexcept {
-        return m_render_size > m_size ? m_size : m_render_size;
-    }
-    void SetRenderDataCount(usize val) noexcept { m_render_size = val; }
-
-    usize CapacityCount() const { return m_data.len(); }
-    usize CapacitySizeof() const { return m_data.len() * Unit_Byte_Size; }
-    u64   DataGeneration() const { return m_generation; }
-
-    u32  ID() const { return m_id; }
-    void SetID(u32 id) { m_id = id; }
+    void SetOption(std::string_view name, bool value) { m_options[std::string(name)] = value; }
 
 private:
-    bool IncreaseCheckSet(usize size);
-    void BumpDataGeneration() noexcept { ++m_generation; }
-
-    Vec<rstd::uint32_t> m_data;
-    usize               m_size { 0 };
-
-    usize m_render_size { usize::MAX };
-
-    u32 m_id { u32::MAX };
-    u64 m_generation { 1 };
-};
-
-// ============================================================================
-// SceneVertexArray.h
-// ============================================================================
-
-struct SceneVertexWriteResult {
-    usize vertex_count {};
-    usize capacity {};
-    bool  overflowed { false };
-};
-
-class SceneVertexWriter : NoCopy, NoMove {
-public:
-    auto AppendZeroedVertex() noexcept -> Option<mut_ref<float[]>>;
-
-    usize Stride() const noexcept { return m_stride; }
-    usize Capacity() const noexcept { return m_capacity; }
-    usize Written() const noexcept { return m_written; }
-    bool  Overflowed() const noexcept { return m_overflowed; }
-
-private:
-    friend class SceneVertexArray;
-
-    SceneVertexWriter(mut_ref<float[]> data, usize stride) noexcept
-        : m_data(data),
-          m_stride(stride),
-          m_capacity(stride == usize() ? usize() : data.len() / stride) {}
-
-    mut_ref<float[]> m_data;
-    usize            m_stride {};
-    usize            m_capacity {};
-    usize            m_written {};
-    bool             m_overflowed { false };
-};
-
-class SceneVertexArray : NoCopy {
-public:
-    struct SceneVertexAttribute {
-        std::string name;
-        VertexType  type;
-        bool        padding { true };
-    };
-    struct SceneVertexAttributeOffset {
-        SceneVertexAttribute attr;
-        usize                offset;
-    };
-
-    SceneVertexArray(const std::vector<SceneVertexAttribute>& attrs, usize count);
-    ~SceneVertexArray() = default;
-
-    SceneVertexArray(SceneVertexArray&&) noexcept;
-    SceneVertexArray& operator=(SceneVertexArray&&) noexcept;
-
-    bool AddVertex(const float*);
-    bool SetVertex(std::string_view name, slice<float> data) noexcept;
-    bool SetVertexs(usize index, slice<float> data) noexcept;
-
-    template<typename Fill>
-    [[nodiscard]] auto RewriteVertices(Fill&& fill) -> SceneVertexWriteResult {
-        SceneVertexWriter writer(m_data.as_mut_slice().as_mut_ref(), m_oneSize);
-        try {
-            fill(writer);
-        } catch (...) {
-            (void)FinishVertexRewrite(writer);
-            throw;
-        }
-        return FinishVertexRewrite(writer);
-    }
-
-    // Drops the active size to zero without releasing capacity. Subsequent
-    // SetVertexs calls regrow it.
-    void ResetSize() noexcept;
-
-    bool GetOption(std::string_view) const;
-    void SetOption(std::string_view, bool);
-
-    const float* Data() const { return m_data.is_empty() ? nullptr : m_data.begin(); }
-    usize        DataSize() const { return m_size; }
-    usize        DataSizeOf() const { return m_size * usize(sizeof(float)); }
-    usize        VertexCount() const { return m_oneSize == usize() ? usize() : m_size / m_oneSize; }
-    usize        CapacitySize() const { return m_data.len(); }
-    usize        CapacitySizeOf() const { return m_data.len() * usize(sizeof(float)); }
-    usize        OneSize() const { return m_oneSize; }
-    usize        OneSizeOf() const { return m_oneSize * usize(sizeof(float)); }
-    u64          DataGeneration() const { return m_generation; }
-
-    const auto&                                  Attributes() const { return m_attributes; }
-    Map<std::string, SceneVertexAttributeOffset> GetAttrOffsetMap() const;
-
-    u32  ID() const { return m_id; }
-    void SetID(u32 id) { m_id = id; }
-
-    static std::size_t TypeCount(VertexType);
-    static std::size_t RealAttributeSize(const SceneVertexAttribute&);
-
-private:
-    bool TrySetSize(usize) noexcept;
-    auto FinishVertexRewrite(const SceneVertexWriter&) noexcept -> SceneVertexWriteResult;
-    void BumpDataGeneration() noexcept { ++m_generation; }
-
-    std::vector<SceneVertexAttribute> m_attributes;
-
     Map<std::string, bool> m_options;
-
-    Vec<float> m_data;
-    usize      m_oneSize { 0 };
-    usize      m_size { 0 };
-
-    u32 m_id;
-    u64 m_generation { 1 };
 };
 
 // Build a SceneVertexAttribute vector from compile-time VertexAttrSpec literals.
@@ -714,32 +579,37 @@ public:
     }
 
     bool SetBlendMode(BlendMode value) {
-        if (blenmode == value) return false;
-        blenmode = value;
-        SetPipelineDirty();
-        return true;
+        auto state       = Pipeline();
+        state.blend_mode = value;
+        return SetPipeline(rstd::move(state));
     }
     bool SetDepthTest(bool value) {
-        if (depth_test == value) return false;
-        depth_test = value;
-        SetPipelineDirty();
-        return true;
+        auto state       = Pipeline();
+        state.depth_test = value;
+        return SetPipeline(rstd::move(state));
     }
     bool SetDepthWrite(bool value) {
-        if (depth_write == value) return false;
-        depth_write = value;
-        SetPipelineDirty();
-        return true;
+        auto state        = Pipeline();
+        state.depth_write = value;
+        return SetPipeline(rstd::move(state));
     }
     bool SetDepthCompare(CompareOp value) {
-        if (depth_compare == value) return false;
-        depth_compare = value;
-        SetPipelineDirty();
-        return true;
+        auto state          = Pipeline();
+        state.depth_compare = value;
+        return SetPipeline(rstd::move(state));
     }
     bool SetCullMode(CullMode value) {
-        if (cull_mode == value) return false;
-        cull_mode = value;
+        auto state      = Pipeline();
+        state.cull_mode = value;
+        return SetPipeline(rstd::move(state));
+    }
+    const vrento::MaterialPipelineDesc& Pipeline() const { return m_pipeline.Value(); }
+    u64                                 PipelineRevision() const { return m_pipeline.Revision(); }
+    auto PipelineSnapshot() const -> vrento::MaterialPipelineSnapshot {
+        return m_pipeline.Snapshot();
+    }
+    bool SetPipeline(vrento::MaterialPipelineDesc value) {
+        if (! m_pipeline.Set(rstd::move(value))) return false;
         SetPipelineDirty();
         return true;
     }
@@ -810,17 +680,6 @@ public:
     bool hasSprite { false };
 
     SceneMaterialCustomShader      customShader;
-    BlendMode                      blenmode { BlendMode::Disable };
-    Option<bool>                   alpha_write;
-    bool                           depth_test { false };
-    bool                           depth_write { false };
-    CompareOp                      depth_compare { CompareOp::LessEqual };
-    CullMode                       cull_mode { CullMode::None };
-    bool                           depth_clamp { false };
-    bool                           depth_bias { false };
-    float                          depth_bias_constant { 0.0f };
-    float                          depth_bias_clamp { 0.0f };
-    float                          depth_bias_slope { 0.0f };
     std::shared_ptr<SceneMaterial> shadow_variant;
 
 private:
@@ -849,51 +708,36 @@ private:
     }
 
     void copyFrom(const SceneMaterial& other) {
-        name                = other.name;
-        textures            = other.textures;
-        texture_metadata    = other.texture_metadata;
-        texture_sources     = other.texture_sources.clone();
-        defines             = other.defines;
-        hasSprite           = other.hasSprite;
-        customShader        = other.customShader.Clone();
-        blenmode            = other.blenmode;
-        alpha_write         = other.alpha_write;
-        depth_test          = other.depth_test;
-        depth_write         = other.depth_write;
-        depth_compare       = other.depth_compare;
-        cull_mode           = other.cull_mode;
-        depth_clamp         = other.depth_clamp;
-        depth_bias          = other.depth_bias;
-        depth_bias_constant = other.depth_bias_constant;
-        depth_bias_clamp    = other.depth_bias_clamp;
-        depth_bias_slope    = other.depth_bias_slope;
-        shadow_variant      = other.shadow_variant;
-        m_dirty_flags.store(other.m_dirty_flags.load());
+        name                        = other.name;
+        textures                    = other.textures;
+        texture_metadata            = other.texture_metadata;
+        texture_sources             = other.texture_sources.clone();
+        defines                     = other.defines;
+        hasSprite                   = other.hasSprite;
+        customShader                = other.customShader.Clone();
+        const bool pipeline_changed = m_pipeline.Set(other.Pipeline());
+        shadow_variant              = other.shadow_variant;
+        m_dirty_flags.fetch_or(
+            other.m_dirty_flags.load() |
+            (pipeline_changed ? SceneMaterialDirtyPipeline : SceneMaterialDirtyNone));
     }
     void moveFrom(SceneMaterial&& other) {
-        name                = std::move(other.name);
-        textures            = std::move(other.textures);
-        texture_metadata    = std::move(other.texture_metadata);
-        texture_sources     = rstd::move(other.texture_sources);
-        defines             = std::move(other.defines);
-        hasSprite           = other.hasSprite;
-        customShader        = std::move(other.customShader);
-        blenmode            = other.blenmode;
-        alpha_write         = rstd::move(other.alpha_write);
-        depth_test          = other.depth_test;
-        depth_write         = other.depth_write;
-        depth_compare       = other.depth_compare;
-        cull_mode           = other.cull_mode;
-        depth_clamp         = other.depth_clamp;
-        depth_bias          = other.depth_bias;
-        depth_bias_constant = other.depth_bias_constant;
-        depth_bias_clamp    = other.depth_bias_clamp;
-        depth_bias_slope    = other.depth_bias_slope;
-        shadow_variant      = rstd::move(other.shadow_variant);
-        m_dirty_flags.store(other.m_dirty_flags.load());
+        name                        = std::move(other.name);
+        textures                    = std::move(other.textures);
+        texture_metadata            = std::move(other.texture_metadata);
+        texture_sources             = rstd::move(other.texture_sources);
+        defines                     = std::move(other.defines);
+        hasSprite                   = other.hasSprite;
+        customShader                = std::move(other.customShader);
+        const bool pipeline_changed = m_pipeline.Set(other.Pipeline());
+        shadow_variant              = rstd::move(other.shadow_variant);
+        m_dirty_flags.fetch_or(
+            other.m_dirty_flags.load() |
+            (pipeline_changed ? SceneMaterialDirtyPipeline : SceneMaterialDirtyNone));
     }
 
     std::atomic<SceneMaterialDirtyFlags> m_dirty_flags { SceneMaterialDirtyNone };
+    vrento::MaterialPipelineState        m_pipeline;
 };
 
 // ============================================================================
@@ -982,6 +826,16 @@ public:
     // ---- New submesh API ----
     const std::vector<Submesh>& Submeshes() const { return m_data->submeshes; }
     std::vector<Submesh>&       Submeshes() { return m_data->submeshes; }
+
+    auto BufferView(u32 submesh_index) const -> Option<vrento::GeometryView> {
+        if (submesh_index.to_primitive() >= m_data->submeshes.size()) return None();
+        const auto&          submesh = m_data->submeshes[submesh_index.to_primitive()];
+        vrento::GeometryView view { .dynamic = m_dynamic };
+        view.vertices.reserve(usize(submesh.vertex_arrays.size()));
+        for (const auto& vertex : submesh.vertex_arrays) view.vertices.push(vertex.BufferView());
+        if (! submesh.index_arrays.empty()) view.index = Some(submesh.index_arrays[0].BufferView());
+        return Some(rstd::move(view));
+    }
 
     // Materials are per-mesh-instance, NOT shared via ChangeMeshDataFrom — same
     // contract as the legacy m_material field.
@@ -1153,7 +1007,9 @@ public:
     // shift the node between frames.
     Eigen::Matrix4d GetViewMatrix();
     Eigen::Matrix4d
-    GetViewProjectionMatrix(SceneRenderViewKind view = SceneRenderViewKind::Primary);
+         GetViewProjectionMatrix(SceneRenderViewKind view = SceneRenderViewKind::Primary);
+    auto CameraSnapshot(SceneRenderViewKind view = SceneRenderViewKind::Primary)
+        -> vrento::CameraSnapshot<Eigen::Matrix4d>;
 
     rstd::Option<SceneNode*> GetAttachedNode() const {
         if (m_node == nullptr) return rstd::None();
@@ -1191,6 +1047,7 @@ private:
         : m_aspect(aspect), m_nearClip(near), m_farClip(far), m_fov(fov), m_perspective(true) {}
     void            CalculateViewProjectionMatrix();
     Eigen::Matrix4d CalculateReflectionViewProjectionMatrix();
+    Eigen::Matrix4d ProjectionMatrix() const;
 
     double m_width { 1.0f };
     double m_height { 1.0f };
@@ -1205,8 +1062,8 @@ private:
     Eigen::Vector3d m_center { -Eigen::Vector3d::UnitZ() };
     Eigen::Vector3d m_up { Eigen::Vector3d::UnitY() };
 
-    Eigen::Matrix4d m_viewMat { Eigen::Matrix4d::Identity() };
-    Eigen::Matrix4d m_viewProjectionMat { Eigen::Matrix4d::Identity() };
+    vrento::CameraState<Eigen::Matrix4d> m_camera;
+    vrento::CameraState<Eigen::Matrix4d> m_reflection_camera;
 
     SceneNode* m_node { nullptr };
 };
@@ -1520,26 +1377,9 @@ public:
 // SceneNode.h
 // ============================================================================
 
-// Lifetime invariant — nodes are never removed after publication.
-//
-// `m_children` / `m_parent` are written during parsing and by Scene-owned
-// runtime factories. Runtime-created nodes stay attached for the Scene's
-// lifetime; destroyLayer hides and recycles them. `SetParentAnchor` is used by
-// SceneNodeLayer::ResolveEffect to re-anchor an effect's composite
-// node onto its layer's worldNode for transform inheritance — both nodes
-// survive for the Scene's lifetime, so the re-anchor never dangles.
-//
-// post-parse mutations restricted to render thread: m_translate / m_scale /
-// m_rotation, m_visible, m_user_alpha, m_brightness, m_color, m_tex_anim,
-// m_dirty (all driven by script ticks and shader-value updates).
-//
-// Practical consequence: every non-owning `SceneNode*` reference held by
-// downstream subsystems (FieldScript::Impl::node, EngineHostState::text_setters,
-// SceneNodeLayer::m_worldNode, SceneCamera::m_node, m_parent itself)
-// is valid for the Scene's lifetime by construction. The dtor's parent
-// back-link clearing below is a defence against Scene teardown ordering,
-// where a child held by an external Arc (e.g. actuator closures)
-// can outlive its parent during the children Vec destructor.
+// Published nodes stay alive for the Scene lifetime; destroyLayer hides/recycles them.
+// Script and camera references rely on this. Post-parse writes use the render thread.
+// vrento owns tree links and detaches surviving children during teardown.
 class SceneNode : NoCopy, NoMove {
 public:
     struct ShadowParticipation {
@@ -1550,54 +1390,29 @@ public:
 
     SceneNode()
         : m_name(),
-          m_dirty(true),
           m_translate(Eigen::Vector3f::Zero()),
           m_scale { 1.0f, 1.0f, 1.0f },
-          m_rotation(Eigen::Vector3f::Zero()) {}
+          m_rotation(Eigen::Vector3f::Zero()) {
+        MarkTransDirty();
+    }
     SceneNode(const Eigen::Vector3f& translate, const Eigen::Vector3f& scale,
               const Eigen::Vector3f& rotation, const std::string& name = "")
-        : m_name(name),
-          m_dirty(true),
-          m_translate(translate),
-          m_scale(scale),
-          m_rotation(rotation) {};
-
-    // Scene-teardown safety: an external holder (SceneCamera::m_node,
-    // particle runtime bindings, actuator closures) can keep a
-    // child alive past its parent's destruction while the children Vec is being
-    // torn down. Clear the back-link so the survivor's UpdateTrans /
-    // HitTestNode falls back to local trans instead of dereferencing freed
-    // memory.
-    ~SceneNode() {
-        if (m_parent) {
-            auto& anchors = m_parent->m_transform_anchors;
-            anchors.retain([this](SceneNode* anchor) {
-                return anchor != this;
-            });
-        }
-        for (auto& c : m_children) {
-            if (c) c->m_parent = nullptr;
-        }
-        for (auto* anchor : m_transform_anchors) {
-            if (anchor && anchor->m_parent == this) anchor->m_parent = nullptr;
-        }
+        : m_name(name), m_translate(translate), m_scale(scale), m_rotation(rotation) {
+        MarkTransDirty();
     }
 
-    const auto& Camera() const { return m_cameraName; }
-    void        SetCamera(const std::string& name) { m_cameraName = name; }
-    bool        Perspective() const { return m_perspective; }
-    void        SetPerspective(bool value) { m_perspective = value; }
-    bool        Reflected() const { return m_reflected; }
-    void        SetReflected(bool value) { m_reflected = value; }
-    void        AddMesh(std::shared_ptr<SceneMesh> mesh) { m_mesh = mesh; }
-    void        AppendChild(Arc<SceneNode> sub) {
-        sub->m_parent = this;
-        // Stale ModelTrans on the child (cached without this new
-        // parent context) would persist for the rest of the frame
-        // otherwise — force a recompute on next UpdateTrans.
-        sub->MarkTransDirty();
-        m_children.push(rstd::move(sub));
-    }
+    const auto&     Camera() const { return m_cameraName; }
+    void            SetCamera(const std::string& name) { m_cameraName = name; }
+    bool            Perspective() const { return m_perspective; }
+    void            SetPerspective(bool value) { m_perspective = value; }
+    bool            Reflected() const { return m_reflected; }
+    void            SetReflected(bool value) { m_reflected = value; }
+    void            AddMesh(std::shared_ptr<SceneMesh> mesh) { m_mesh = mesh; }
+    bool            AppendChild(Arc<SceneNode> sub) { return m_node.AppendChild(rstd::move(sub)); }
+    bool            RemoveChild(SceneNode& child) { return m_node.RemoveChild(child); }
+    void            ClearChildren() { m_node.ClearChildren(); }
+    auto&           NodeState() { return m_node; }
+    const auto&     NodeState() const { return m_node; }
     auto            ChildIndex(const SceneNode& child) const -> Option<usize>;
     bool            MoveChild(SceneNode& child, usize index);
     Eigen::Matrix4d GetLocalTrans() const;
@@ -1644,27 +1459,27 @@ public:
                (m_alpha_source != nullptr && m_alpha_source->IsAlphaOverridden());
     }
     float EffectiveAlpha() const {
-        float alpha = ! m_visible && m_visibility_affects_alpha
+        float alpha = ! m_node.Visible() && m_visibility_affects_alpha
                           ? 0.0f
                           : (m_alpha_overridden ? m_user_alpha : m_base_alpha);
         if (m_alpha_source != nullptr && m_alpha_source->IsAlphaOverridden())
             alpha *= m_alpha_source->EffectiveAlpha();
         return alpha;
     }
-    bool  Visible() const { return m_visible; }
+    bool  Visible() const { return m_node.Visible(); }
     float UserAlpha() const { return m_user_alpha; }
     void  SetVisible(bool v) {
         // A sound layer is audible only while its layer is visible, which is
         // how scenes implement track selectors: the selector binds each sound
         // layer's visibility to a user property.
-        if (m_sound_control.is_some() && v != m_visible) {
+        if (m_sound_control.is_some() && v != m_node.Visible()) {
             if (v) {
                 (*m_sound_control)->Play();
             } else {
                 (*m_sound_control)->Stop();
             }
         }
-        m_visible            = v;
+        m_node.SetVisible(v);
         m_visible_overridden = true;
     }
     void SetUserAlpha(float v) {
@@ -1816,42 +1631,22 @@ public:
     }
 
     void            UpdateTrans();
-    Eigen::Matrix4d ModelTrans() const { return m_trans; };
+    Eigen::Matrix4d ModelTrans() const { return m_node.WorldMatrix(); };
 
     SceneMesh*                        Mesh() { return m_mesh.get(); }
     const std::shared_ptr<SceneMesh>& MeshShared() const { return m_mesh; }
     bool HasMaterial() const { return m_mesh && m_mesh->Material() != nullptr; };
 
-    const auto& GetChildren() const { return m_children; }
-    auto&       GetChildren() { return m_children; }
+    const auto& GetChildren() const { return m_node.Children(); }
 
     const std::string& Name() const { return m_name; }
-    SceneNode*         Parent() const { return m_parent; }
+    SceneNode*         Parent() const { return m_node.Parent(); }
 
     // Anchor for transform-only inheritance. The node does NOT join `p`'s
     // children, so TraverseNode never visits it through `p`. Used for the
     // SceneNodeLayer composite quad: the quad needs spImgNode's
     // world transform but must not be rendered twice in scene-tree traversal.
-    void SetParentAnchor(SceneNode* p) {
-        if (m_parent == p) {
-            MarkTransDirty();
-            return;
-        }
-        if (m_parent) {
-            auto& anchors = m_parent->m_transform_anchors;
-            anchors.retain([this](SceneNode* anchor) {
-                return anchor != this;
-            });
-        }
-        m_parent = p;
-        if (m_parent) {
-            auto& anchors = m_parent->m_transform_anchors;
-            bool  found { false };
-            for (auto* anchor : anchors) found = found || anchor == this;
-            if (! found) anchors.push(this);
-        }
-        MarkTransDirty();
-    }
+    bool SetParentAnchor(SceneNode* p) { return m_node.SetTransformParent(p); }
 
     // BFS over self + descendants; returns first node whose Name() matches.
     SceneNode* FindByName(std::string_view name);
@@ -1878,8 +1673,7 @@ private:
     i32                      m_id { -1 };
     std::string              m_name;
 
-    bool            m_dirty;
-    Eigen::Matrix4d m_trans;
+    vrento::NodeState<SceneNode, Eigen::Matrix4d> m_node { *this };
 
     Eigen::Vector3f m_translate { 0.0f, 0.0f, 0.0f };
     Eigen::Vector3f m_scale { 1.0f, 1.0f, 1.0f };
@@ -1888,7 +1682,6 @@ private:
     Eigen::Vector2f m_size { 0.0f, 0.0f };
     Eigen::Matrix4d m_geometry_transform { Eigen::Matrix4d::Identity() };
 
-    bool                                   m_visible { true };
     bool                                   m_visibility_affects_alpha { true };
     SceneUserVisibilityBinding             m_visible_user_binding {};
     bool                                   m_visible_overridden { false };
@@ -1916,13 +1709,6 @@ private:
     bool        m_perspective { false };
     bool        m_reflected { false };
 
-    // Raw back-link. Safe because tree topology is frozen post-parse (see
-    // class header) and the dtor clears children's m_parent before any
-    // out-of-order teardown can dereference a stale pointer.
-    SceneNode* m_parent { nullptr };
-
-    Vec<Arc<SceneNode>>             m_children;
-    Vec<SceneNode*>                 m_transform_anchors;
     std::shared_ptr<SceneNodeLayer> m_layer;
 };
 
@@ -2042,10 +1828,10 @@ public:
         m_resolved    = false;
     }
     void SetFinalMaterialState(const SceneMaterial& material) {
-        m_final_blend       = material.blenmode;
-        m_final_depth_test  = material.depth_test;
-        m_final_depth_write = material.depth_write;
-        m_final_cull_mode   = material.cull_mode;
+        m_final_blend       = material.Pipeline().blend_mode;
+        m_final_depth_test  = material.Pipeline().depth_test;
+        m_final_depth_write = material.Pipeline().depth_write;
+        m_final_cull_mode   = material.Pipeline().cull_mode;
         m_resolved          = false;
     }
     void SetFinalTarget(std::string t) {
@@ -2214,6 +2000,24 @@ struct IImageParser {
     using Funcs = TraitFuncs<&T::Parse, &T::ParseMany, &T::ParseHeader>;
 };
 
+class SceneImageSource {
+public:
+    auto Parse(ref<str> name) const -> Result<Arc<Image>, ImageParseError> {
+        auto runtime = m_runtime_images.get(name);
+        if (runtime.is_some()) return Ok((*runtime)->clone());
+        if (m_parser.is_some()) return (*m_parser)->Parse(name);
+        return Err(ImageParseError {
+            .kind    = ImageParseErrorKind::MissingContent,
+            .message = rstd::format("image parser unavailable for {}", name),
+        });
+    }
+
+private:
+    friend class Scene;
+    Option<Arc<dyn<IImageParser>>> m_parser;
+    HashMap<String, Arc<Image>>    m_runtime_images;
+};
+
 struct SceneDrawItemRecord {
     SceneDrawItemId id;
     SceneNodeId     node;
@@ -2268,17 +2072,14 @@ private:
     Vec<SceneNode*>          m_nodes;
     Vec<SceneMesh*>          m_meshes;
     Vec<SceneMaterial*>      m_materials;
-    Vec<String>              m_texture_keys;
-    Vec<String>              m_render_target_keys;
-    Vec<String>              m_camera_keys;
     Vec<SceneDrawItemRecord> m_draw_items;
 
-    HashMap<const SceneNode*, SceneNodeId>         m_node_ids;
-    HashMap<const SceneMesh*, SceneMeshId>         m_mesh_ids;
-    HashMap<const SceneMaterial*, SceneMaterialId> m_material_ids;
-    HashMap<String, SceneTextureId>                m_texture_ids;
-    HashMap<String, SceneRenderTargetId>           m_render_target_ids;
-    HashMap<String, SceneCameraId>                 m_camera_ids;
+    HashMap<const SceneNode*, SceneNodeId>          m_node_ids;
+    HashMap<const SceneMesh*, SceneMeshId>          m_mesh_ids;
+    HashMap<const SceneMaterial*, SceneMaterialId>  m_material_ids;
+    vrento::NamedIdentityIndex<SceneTextureId>      m_texture_ids;
+    vrento::NamedIdentityIndex<SceneRenderTargetId> m_render_target_ids;
+    vrento::NamedIdentityIndex<SceneCameraId>       m_camera_ids;
 };
 
 struct SceneTextureFrameView {
@@ -2352,12 +2153,7 @@ struct RenderSceneVersion {
     u64 value { 0 };
 };
 
-struct RenderItemId {
-    u32 index { u32::MAX };
-    u64 generation { 0 };
-
-    bool Valid() const noexcept { return index != u32::MAX && generation != u64(); }
-};
+using RenderItemId = vrento::RenderItemId;
 
 struct RenderTextureDescId {
     u32 index { u32::MAX };
@@ -2764,9 +2560,10 @@ public:
         return m_audio_response_demand.clone();
     }
 
-    void SetImageParser(Box<dyn<IImageParser>> parser) {
+    void SetImageParser(Arc<dyn<IImageParser>> parser) {
         m_image_parser = Some(rstd::move(parser));
     }
+    auto CaptureImageSource() const -> Arc<SceneImageSource>;
     auto ParseImage(ref<str> name) const -> Result<Arc<Image>, ImageParseError>;
     auto ParseImages(slice<String> names) const -> Vec<Result<Arc<Image>, ImageParseError>>;
     auto ParseImageHeader(ref<str> name) const -> Result<ImageHeader, ImageParseError>;
@@ -2811,6 +2608,9 @@ public:
     }
     auto Resolve(UniformSourceId source) const -> Option<ref<dyn<UniformSource>>> {
         return m_uniforms.Resolve(source);
+    }
+    auto RetainUniformSource(UniformSourceId source) const -> Option<vrento::UniformSourceOwner> {
+        return m_uniforms.Retain(source);
     }
     auto GlobalSources() const -> slice<UniformSourceAttachment> {
         return m_uniforms.GlobalSources();
@@ -2963,7 +2763,7 @@ private:
     HashMap<String, Vec<ImagePropertyBinding>>                   m_image_alpha_user_index;
     HashMap<String, Vec<Arc<dyn<SceneParticleOverrideControl>>>> m_particle_override_user_index;
     HashMap<String, Vec<Arc<dyn<SceneSoundControl>>>>            m_sound_volume_user_index;
-    Option<Box<dyn<IImageParser>>>                               m_image_parser;
+    Option<Arc<dyn<IImageParser>>>                               m_image_parser;
     Vec<Box<dyn<Any>>>                                           m_extensions;
     HashMap<String, Arc<Image>>                                  m_runtime_images;
     HashMap<String, SceneTexture>                                m_textures;

@@ -1,4 +1,6 @@
 export module wescene.vulkan_render:uniform_buffer;
+export import vrento.uniform_buffer;
+export import vrento.uniform_binding;
 import rstd;
 import rstd.cppstd;
 import wescene.resource;
@@ -10,46 +12,11 @@ using namespace rstd::prelude;
 export namespace owe::vulkan
 {
 
-struct UniformBufferUpdateError {
-    String message;
-};
-
-struct UniformSlot {
-    String              name;
-    usize               offset { 0 };
-    usize               size { 0 };
-    usize               count { 1 };
-    ShaderScalarKind    scalar_kind { ShaderScalarKind::Unknown };
-    u32                 scalar_width {};
-    u32                 vector_components { u32(1) };
-    u32                 matrix_rows {};
-    u32                 matrix_columns {};
-    u32                 matrix_stride {};
-    ShaderMatrixMajor   matrix_major { ShaderMatrixMajor::None };
-    u32                 array_stride {};
-    rstd::vec::Vec<u32> array_dimensions;
-
-    usize LogicalFloatElements() const {
-        if (scalar_kind == ShaderScalarKind::Unknown) return size / usize(sizeof(float));
-        if (matrix_rows != u32() && matrix_columns != u32()) {
-            return usize(matrix_rows.to_primitive()) * usize(matrix_columns.to_primitive()) * count;
-        }
-        return usize(vector_components.to_primitive()) * count;
-    }
-};
-
-struct UniformBufferLayout {
-    usize                       size { 0 };
-    rstd::vec::Vec<UniformSlot> slots;
-};
-
-auto CompileUniformBufferLayout(const resource::ShaderArtifactUniformBlock&)
-    -> Result<UniformBufferLayout, UniformBufferUpdateError>;
-
-auto SerializeUniformValue(mut_ref<u8[]> destination, const UniformSlot&, UniformValueView,
-                           ShaderMatrixConvention,
-                           ShaderMatrixAbi matrix_abi = ShaderMatrixAbi::NativeSpirv)
-    -> Result<empty, UniformBufferUpdateError>;
+using vrento::CompileUniformBufferLayout;
+using vrento::SerializeUniformValue;
+using vrento::UniformBufferLayout;
+using vrento::UniformBufferUpdateError;
+using vrento::UniformSlot;
 
 struct UniformBufferFrameContext {
     using Trait                  = UniformBufferFrameContext;
@@ -110,19 +77,7 @@ struct UniformBufferUpdate {
     using Funcs = TraitFuncs<&T::Update, &T::Buffer>;
 };
 
-struct BoundUniformOutput {
-    UniformOutputId output;
-    usize           slot_index { 0 };
-};
-
-struct BoundUniformSource {
-    ref<dyn<UniformSource>>               source;
-    i32                                   priority {};
-    Vec<BoundUniformOutput>               outputs;
-    Option<Box<dyn<UniformBindingLease>>> lease;
-    u64                                   version { 0 };
-    bool                                  evaluated { false };
-};
+using vrento::BoundUniformSource;
 
 struct PreparedUniformTextureMetadata {
     bool                  available { false };
@@ -160,7 +115,7 @@ struct UniformBindingPrepareContext {
         auto NodeSources(SceneNodeId node) const -> slice<UniformSourceAttachment> {
             return rstd::trait_call<3>(this, node);
         }
-        auto ResolveSource(UniformSourceId source) const -> Option<ref<dyn<UniformSource>>> {
+        auto ResolveSource(UniformSourceId source) const -> Option<vrento::UniformSourceOwner> {
             return rstd::trait_call<4>(this, source);
         }
         auto ResolveBlock(u64 identity) const -> Option<ref<UniformBlockDefinition>> {
@@ -182,7 +137,7 @@ public:
     auto DrawItemFor(ref<SceneNode>, u32 submesh_index) const -> Option<SceneDrawItemId>;
     auto GlobalSources() const -> slice<UniformSourceAttachment>;
     auto NodeSources(SceneNodeId) const -> slice<UniformSourceAttachment>;
-    auto ResolveSource(UniformSourceId) const -> Option<ref<dyn<UniformSource>>>;
+    auto ResolveSource(UniformSourceId) const -> Option<vrento::UniformSourceOwner>;
     auto ResolveBlock(u64 identity) const -> Option<ref<UniformBlockDefinition>>;
 
 private:
@@ -195,54 +150,34 @@ public:
                          Vec<BoundUniformSource>, ShaderValues, ref<SceneMaterial>,
                          Vec<PreparedUniformTextureMetadata>, SceneRenderViewKind,
                          ShaderMatrixConvention, ShaderMatrixAbi);
-
     auto Update(ref<dyn<UniformBufferFrameContext>>,
                 mut_ref<dyn<resource::BufferContentWriter>>) const
         -> Result<empty, UniformBufferUpdateError>;
-    auto Buffer() const -> resource::BufferUseHandle { return m_buffer; }
-
-    auto WriteSlot(usize slot_index, UniformValueView value) const
-        -> Result<bool, UniformBufferUpdateError>;
-    auto WriteName(std::string_view, const UniformValue&) const
-        -> Result<bool, UniformBufferUpdateError>;
+    auto Buffer() const -> resource::BufferUseHandle { return m_binding.Buffer(); }
 
 private:
     SceneDrawItemId                     m_draw_item;
-    resource::BufferUseHandle           m_buffer;
-    UniformBufferLayout                 m_layout;
-    mutable Vec<BoundUniformSource>     m_sources;
-    mutable rstd::vec::Vec<u8>          m_data;
-    mutable rstd::vec::Vec<u8>          m_base_data;
+    mutable vrento::UniformBinding      m_binding;
     ShaderValues                        m_defaults;
     ref<SceneMaterial>                  m_material;
     Vec<PreparedUniformTextureMetadata> m_textures;
-    SceneRenderViewKind                 m_render_view { SceneRenderViewKind::Primary };
-    ShaderMatrixConvention m_matrix_convention { ShaderMatrixConvention::ColumnVector };
-    ShaderMatrixAbi        m_matrix_abi { ShaderMatrixAbi::NativeSpirv };
-    mutable u64            m_material_version { 0 };
-    mutable bool           m_uploaded { false };
+    SceneRenderViewKind                 m_render_view;
+    mutable Option<u64>                 m_parameter_version;
 };
 
 class SharedUniformBufferBinding {
 public:
-    SharedUniformBufferBinding(resource::BufferUseHandle, UniformBufferLayout,
-                               Vec<BoundUniformSource>, ShaderMatrixConvention, ShaderMatrixAbi);
-
+    SharedUniformBufferBinding(resource::BufferUseHandle buffer, UniformBufferLayout layout,
+                               Vec<BoundUniformSource> sources, ShaderMatrixConvention convention,
+                               ShaderMatrixAbi abi)
+        : m_binding(buffer, rstd::move(layout), rstd::move(sources), convention, abi) {}
     auto Update(ref<dyn<UniformBufferFrameContext>>,
                 mut_ref<dyn<resource::BufferContentWriter>>) const
         -> Result<empty, UniformBufferUpdateError>;
-    auto Buffer() const -> resource::BufferUseHandle { return m_buffer; }
-    auto WriteSlot(usize slot_index, UniformValueView value) const
-        -> Result<bool, UniformBufferUpdateError>;
+    auto Buffer() const -> resource::BufferUseHandle { return m_binding.Buffer(); }
 
 private:
-    resource::BufferUseHandle       m_buffer;
-    UniformBufferLayout             m_layout;
-    mutable Vec<BoundUniformSource> m_sources;
-    mutable rstd::vec::Vec<u8>      m_data;
-    ShaderMatrixConvention          m_matrix_convention { ShaderMatrixConvention::ColumnVector };
-    ShaderMatrixAbi                 m_matrix_abi { ShaderMatrixAbi::NativeSpirv };
-    mutable bool                    m_uploaded { false };
+    mutable vrento::UniformBinding m_binding;
 };
 
 auto MakeUniformBufferBinding(
@@ -261,31 +196,3 @@ auto MakeSharedUniformBufferBinding(ref<dyn<UniformBindingPrepareContext>>,
     -> Result<Box<dyn<UniformBufferUpdate>>, UniformBufferUpdateError>;
 
 } // namespace owe::vulkan
-
-export namespace rstd
-{
-
-template<>
-struct Impl<fmt::Display, owe::vulkan::UniformBufferUpdateError>
-    : ImplBase<owe::vulkan::UniformBufferUpdateError> {
-    auto fmt(fmt::Formatter& formatter) const -> bool {
-        return formatter.write_fmt(fmt::Arguments::make("{}", this->self().message));
-    }
-};
-
-template<>
-struct Impl<fmt::Debug, owe::vulkan::UniformBufferUpdateError>
-    : ImplBase<owe::vulkan::UniformBufferUpdateError> {
-    auto fmt(fmt::Formatter& formatter) const -> bool {
-        return formatter.write_fmt(
-            fmt::Arguments::make("UniformBufferUpdateError({})", this->self().message));
-    }
-};
-
-template<>
-struct Impl<error::Error, owe::vulkan::UniformBufferUpdateError>
-    : DefaultInImpl<error::Error, owe::vulkan::UniformBufferUpdateError> {};
-
-} // namespace rstd
-
-static_assert(rstd::Impled<owe::vulkan::UniformBufferUpdateError, rstd::error::Error>);

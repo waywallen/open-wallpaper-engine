@@ -24,6 +24,36 @@ using namespace rstd::prelude;
 using namespace owe;
 using namespace owe::vulkan;
 
+namespace owe::vulkan
+{
+struct GlslangBackend {};
+} // namespace owe::vulkan
+
+namespace rstd
+{
+template<>
+struct Impl<vrento::vulkan::ShaderBackend, owe::vulkan::GlslangBackend>
+    : ImplBase<owe::vulkan::GlslangBackend> {
+    bool Preprocess(std::string_view source, ShaderType stage, SourceLang lang,
+                    std::string& output) const {
+        return owe::vulkan::Preprocess(source, stage, lang, output);
+    }
+    bool CompileAndLinkShaderUnits(std::span<const ShaderCompUnit> units,
+                                   const ShaderCompOpt&            options,
+                                   std::vector<Uni_ShaderSpv>&     output) const {
+        return owe::vulkan::CompileAndLinkShaderUnits(units, options, output);
+    }
+    bool GenReflect(std::span<const std::vector<unsigned int>> codes,
+                    std::vector<Uni_ShaderSpv>& stages, ShaderReflected& output) const {
+        return owe::vulkan::GenReflect(codes, stages, output);
+    }
+};
+} // namespace rstd
+
+auto owe::vulkan::MakeShaderBackend() -> Box<dyn<ShaderBackend>> {
+    return Box<dyn<ShaderBackend>>::make(GlslangBackend {});
+}
+
 namespace
 {
 

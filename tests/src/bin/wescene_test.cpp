@@ -1495,7 +1495,7 @@ void DumpPass(FILE* out, const std::string& tag, const owe::SceneNode& node,
                  std::string(output_rt).c_str(),
                  node.Camera().empty() ? "(empty)" : node.Camera().c_str(),
                  PredictColorMask(node.Camera()),
-                 BlendModeStr(material->blenmode));
+                 BlendModeStr(material->Pipeline().blend_mode));
     if (! material->textures.empty()) {
         std::fprintf(out, "      textures:");
         for (std::size_t i = 0; i < material->textures.size(); ++i) {

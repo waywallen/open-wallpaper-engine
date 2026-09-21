@@ -199,7 +199,7 @@ void InitContext(SceneParseContext& context, fs::VFS& vfs, const wpscene::SceneM
                  array<i32, 2> ortho_extent) {
     context.vfs = &vfs;
     auto& scene = *context.scene;
-    scene.SetImageParser(Box<dyn<IImageParser>>::make(TexImageParser(&vfs)));
+    scene.SetImageParser(Arc<dyn<IImageParser>>::make(TexImageParser(&vfs)));
     context.particle_runtime = Some(Arc<ParticleRuntime>::make());
     GenCardMesh(*scene.DefaultEffectMeshMut(), { 2.0f, 2.0f });
 
@@ -483,11 +483,13 @@ void ParseModelObjImpl(SceneParseContext& context, wpscene::ModelObject& model_o
                                                      *context.scene,
                                                      rstd::move(shadow_info));
             if (shadow_result.is_ok()) {
-                auto shadow_build                   = rstd::move(shadow_result).unwrap_unchecked();
-                shadow_build.material.depth_clamp   = true;
-                shadow_build.material.depth_compare = CompareOp::Greater;
-                shadow_build.material.depth_bias    = true;
-                shadow_build.material.depth_bias_slope = -4.0f;
+                auto shadow_build         = rstd::move(shadow_result).unwrap_unchecked();
+                auto pipeline             = shadow_build.material.Pipeline();
+                pipeline.depth_clamp      = true;
+                pipeline.depth_compare    = CompareOp::Greater;
+                pipeline.depth_bias       = true;
+                pipeline.depth_bias_slope = -4.0f;
+                shadow_build.material.SetPipeline(rstd::move(pipeline));
                 LoadConstvalue(
                     context, shadow_build.material, shadow_material, shadow_build.shader_info);
                 context.scene->ResolveMaterialTextureSources(shadow_build.material);

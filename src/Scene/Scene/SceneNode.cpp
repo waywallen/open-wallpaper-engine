@@ -35,61 +35,19 @@ void SceneNode::RotateObjectSpace(const Vector3f& rotation) {
     SetRotation({ zyx.z(), zyx.y(), zyx.x() });
 }
 
-void SceneNode::UpdateTrans() {
-    if (! m_dirty) return;
-    m_dirty = false;
+void SceneNode::UpdateTrans() { m_node.UpdateWorld(); }
 
-    if (m_parent) {
-        m_parent->UpdateTrans();
-    }
-    {
-        Affine3d trans = Affine3d::Identity();
-        if (m_parent) {
-            trans *= m_parent->ModelTrans();
-        }
-        m_trans = (trans * GetLocalTrans()).matrix();
-    }
-}
-
-void SceneNode::MarkTransDirty() {
-    if (! m_dirty) {
-        m_dirty = true;
-        for (auto& child : m_children) {
-            child->MarkTransDirty();
-        }
-        for (auto* anchor : m_transform_anchors) {
-            if (anchor) anchor->MarkTransDirty();
-        }
-    }
-}
+void SceneNode::MarkTransDirty() { m_node.SetLocalMatrix(GetLocalTrans()); }
 
 auto SceneNode::ChildIndex(const SceneNode& child) const -> Option<usize> {
-    for (usize index {}; index < m_children.len(); ++index) {
-        if (m_children[index].as_ptr() == rstd::addressof(child)) return Some(index);
-    }
-    return None();
+    return m_node.ChildIndex(child);
 }
 
-bool SceneNode::MoveChild(SceneNode& child, usize index) {
-    if (index >= m_children.len()) return false;
-    auto current = ChildIndex(child);
-    if (current.is_none() || *current == index) return false;
-
-    auto moving = rstd::move(m_children[*current]);
-    if (*current < index) {
-        for (auto cursor = *current; cursor < index; ++cursor)
-            m_children[cursor] = rstd::move(m_children[cursor + usize(1)]);
-    } else {
-        for (auto cursor = *current; cursor > index; --cursor)
-            m_children[cursor] = rstd::move(m_children[cursor - usize(1)]);
-    }
-    m_children[index] = rstd::move(moving);
-    return true;
-}
+bool SceneNode::MoveChild(SceneNode& child, usize index) { return m_node.MoveChild(child, index); }
 
 SceneNode* SceneNode::FindByName(std::string_view name) {
     if (m_name == name) return this;
-    for (auto& child : m_children) {
+    for (auto& child : GetChildren()) {
         if (auto* hit = child->FindByName(name)) return hit;
     }
     return nullptr;

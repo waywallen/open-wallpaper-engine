@@ -42,11 +42,11 @@ auto CloneTextureDesc(const rg::TextureDesc& desc) -> rg::TextureDesc {
 }
 } // namespace
 
-namespace owe::rg
+namespace
 {
 
-void doCopy(RenderGraphBuilder& builder, vulkan::CopyPass::Desc& desc, TextureNodeRef in,
-            TextureNodeRef out) {
+void doCopy(rg::RenderGraphBuilder& builder, vulkan::CopyPass::Desc& desc, rg::TextureNodeRef in,
+            rg::TextureNodeRef out) {
     builder.read(in);
     builder.write(out);
 
@@ -59,7 +59,7 @@ void doCopy(RenderGraphBuilder& builder, vulkan::CopyPass::Desc& desc, TextureNo
     desc.src_use = Some(in_state->use);
     desc.dst_use = Some(out_state->use);
 }
-} // namespace owe::rg
+} // namespace
 
 struct ExtraInfo;
 
@@ -151,7 +151,7 @@ static void AddCopyPass(ExtraInfo& extra, rg::TextureDesc in, rg::TextureDesc ou
                                                            vulkan::CopyPass::Desc& desc) {
             auto in_node  = builder.createTexture(in);
             auto out_node = builder.createTexture(out, true);
-            rg::doCopy(builder, desc, in_node, out_node);
+            doCopy(builder, desc, in_node, out_node);
             FillCopyTextureRequests(extra, desc);
         });
 }
@@ -175,7 +175,7 @@ static rg::TextureNodeRef AddCopyPass(ExtraInfo& extra, rg::TextureNodeRef in,
                 desc.name.push_str(suffix.as_str());
             }
             copy = builder.createTexture(desc, true);
-            rg::doCopy(builder, pdesc, in, copy);
+            doCopy(builder, pdesc, in, copy);
             FillCopyTextureRequests(extra, pdesc);
             pdesc.dst_matches_src = out_desc.is_none();
             if (pdesc.dst_matches_src && pdesc.src_request.is_some()) {
@@ -399,8 +399,8 @@ static SceneNodeLayer* ToGraphPass(SceneNode* node, std::string_view output, Ext
         if (imgeff != nullptr && submesh.output_override.empty() && ! submesh.preserve_output) {
             auto source_blend = imgeff->IntermediateSourceBlend();
             if (source_blend.is_some()) {
-                material_override           = std::make_shared<SceneMaterial>(*material);
-                material_override->blenmode = *source_blend;
+                material_override = std::make_shared<SceneMaterial>(*material);
+                material_override->SetBlendMode(*source_blend);
             }
         }
         std::string passName = material->name;
@@ -447,7 +447,7 @@ static SceneNodeLayer* ToGraphPass(SceneNode* node, std::string_view output, Ext
                 const bool  reuses_previous_output =
                     ! (output_target.force_clear && ! preserve_output) &&
                     (output_target.preserve_on_write || preserve_output ||
-                     LoadsPreviousAttachment(pass_material->blenmode));
+                     LoadsPreviousAttachment(pass_material->Pipeline().blend_mode));
 
                 pdesc.output = pass_output_s;
                 AddMaterialTextureReads(
@@ -484,10 +484,10 @@ static SceneNodeLayer* ToGraphPass(SceneNode* node, std::string_view output, Ext
                 pdesc.clear_output =
                     ! preserve_output &&
                     ((first_output_write && output_target.bind.screen) || pdesc.transparent_clear);
-                pdesc.preserve_output = output_state->version > usize() &&
-                                        (output_target.preserve_on_write || preserve_output);
-                const bool uses_depth =
-                    output_target.withDepth && vulkan::UsesDepthAttachment(*pass_material);
+                pdesc.preserve_output      = output_state->version > usize() &&
+                                             (output_target.preserve_on_write || preserve_output);
+                const bool uses_depth      = output_target.withDepth &&
+                                             vulkan::UsesDepthAttachment(pass_material->Pipeline());
                 pdesc.has_depth_attachment = uses_depth;
                 if (uses_depth) {
                     auto depth_name = pass_output_s + "::depth";

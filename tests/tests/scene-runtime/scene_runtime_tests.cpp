@@ -12,6 +12,7 @@ import wescene.pkg.parse;
 import wescene.scene;
 import wescene.script;
 import wescene.text;
+import wescene.utils;
 
 using namespace rstd::prelude;
 using namespace rstd::literals;
@@ -278,6 +279,76 @@ TEST(LightUniformSource, ExposesLogicalVec3Array) {
     auto            value = scene_test::Capture(frame, source, owe::LightUniformOutput::Position);
     ASSERT_EQ(value.size(), usize(12));
     for (usize index {}; index < value.size(); ++index) EXPECT_FLOAT_EQ(value[index], 0.0f);
+}
+
+TEST(SceneNodeFramework, PreservesDoublePrecisionCompositionAndInvalidation) {
+    auto            parent = Arc<owe::SceneNode>::make();
+    auto            child  = Arc<owe::SceneNode>::make();
+    owe::SceneNode  anchor;
+    Eigen::Matrix4d frame = Eigen::Matrix4d::Identity();
+    frame(0, 3)           = 100000000.125;
+    parent->SetLocalFrame(frame);
+    parent->SetRotation({ 0.2f, -0.3f, 0.4f });
+    child->SetTranslate({ 1.0f, 2.0f, 3.0f });
+    child->SetScale({ 2.0f, 3.0f, 4.0f });
+    ASSERT_TRUE(parent->AppendChild(child.clone()));
+    ASSERT_TRUE(anchor.SetParentAnchor(child.as_ptr()));
+    anchor.UpdateTrans();
+    Eigen::Matrix4d expected = parent->GetLocalTrans() * child->GetLocalTrans();
+    EXPECT_TRUE(child->ModelTrans().isApprox(expected, 1e-14));
+    EXPECT_TRUE(anchor.ModelTrans().isApprox(expected, 1e-14));
+    auto revision = child->NodeState().WorldRevision();
+    anchor.UpdateTrans();
+    EXPECT_EQ(child->NodeState().WorldRevision(), revision);
+    parent->SetTranslate({ 4.0f, 5.0f, 6.0f });
+    anchor.UpdateTrans();
+    expected = parent->GetLocalTrans() * child->GetLocalTrans();
+    EXPECT_TRUE(anchor.ModelTrans().isApprox(expected, 1e-14));
+    EXPECT_EQ(parent->GetChildren().len(), usize(1));
+    EXPECT_TRUE(child->GetChildren().is_empty());
+}
+
+TEST(SceneNodeFramework, ReparentsAndRejectsCyclesWithoutDuplicateTraversal) {
+    auto first  = Arc<owe::SceneNode>::make();
+    auto second = Arc<owe::SceneNode>::make();
+    auto child  = Arc<owe::SceneNode>::make();
+    first->SetTranslate({ 10.0f, 0.0f, 0.0f });
+    second->SetTranslate({ 20.0f, 0.0f, 0.0f });
+    first->AppendChild(child.clone());
+    child->UpdateTrans();
+    ASSERT_TRUE(second->AppendChild(child.clone()));
+    ASSERT_TRUE(second->AppendChild(child.clone()));
+    EXPECT_TRUE(first->GetChildren().is_empty());
+    EXPECT_EQ(second->GetChildren().len(), usize(1));
+    child->UpdateTrans();
+    EXPECT_DOUBLE_EQ(child->ModelTrans()(0, 3), 20.0);
+    EXPECT_FALSE(child->AppendChild(second.clone()));
+    EXPECT_FALSE(second->SetParentAnchor(child.as_ptr()));
+    second->ClearChildren();
+    child->UpdateTrans();
+    EXPECT_EQ(child->Parent(), nullptr);
+    EXPECT_DOUBLE_EQ(child->ModelTrans()(0, 3), 0.0);
+}
+
+TEST(SceneNodeFramework, InvalidatesCachedWorldAfterParentDestruction) {
+    auto           child = Arc<owe::SceneNode>::make();
+    owe::SceneNode anchor;
+    child->SetTranslate({ 3.0f, 0.0f, 0.0f });
+    {
+        owe::SceneNode parent;
+        parent.SetTranslate({ 10.0f, 0.0f, 0.0f });
+        parent.AppendChild(child.clone());
+        anchor.SetParentAnchor(&parent);
+        child->UpdateTrans();
+        anchor.UpdateTrans();
+        EXPECT_DOUBLE_EQ(child->ModelTrans()(0, 3), 13.0);
+    }
+    EXPECT_EQ(child->Parent(), nullptr);
+    EXPECT_EQ(anchor.Parent(), nullptr);
+    child->UpdateTrans();
+    anchor.UpdateTrans();
+    EXPECT_DOUBLE_EQ(child->ModelTrans()(0, 3), 3.0);
+    EXPECT_DOUBLE_EQ(anchor.ModelTrans()(0, 3), 0.0);
 }
 
 TEST(LightUniformSource, PublishesWorldDirectionAndType) {
@@ -819,6 +890,63 @@ TEST(SceneCameraProjection, AppliesViewportScaleToOrthographicExtent) {
     extent = scene.OrthographicProjectionExtent();
     EXPECT_DOUBLE_EQ(extent[usize()], 1920.0);
     EXPECT_DOUBLE_EQ(extent[usize(1)], 1080.0);
+}
+
+TEST(SceneCameraState, PublishesStableOwnedMatricesAndProjectionChanges) {
+    auto       camera = owe::SceneCamera::MakeOrthographic(200, 100, -1, 1);
+    const auto first  = camera.CameraSnapshot();
+    EXPECT_TRUE(first.view.isIdentity());
+    EXPECT_TRUE(first.view_projection.isApprox(first.projection * first.view));
+    EXPECT_EQ(camera.CameraSnapshot().revision, first.revision);
+    camera.SetWidth(400);
+    const auto changed = camera.CameraSnapshot();
+    EXPECT_EQ(changed.revision, first.revision + u64(1));
+    EXPECT_DOUBLE_EQ(first.projection(0, 0), 0.01);
+    EXPECT_DOUBLE_EQ(changed.projection(0, 0), 0.005);
+    auto clone = camera;
+    clone.SetHeight(50);
+    EXPECT_FALSE(clone.CameraSnapshot().projection.isApprox(changed.projection));
+    EXPECT_EQ(camera.CameraSnapshot().revision, changed.revision);
+    camera.Clone(clone);
+    EXPECT_EQ(camera.CameraSnapshot().revision, changed.revision + u64(1));
+}
+
+TEST(SceneCameraState, TracksParentChangesAndPreservesNodeInverse) {
+    auto parent = Arc<owe::SceneNode>::make();
+    auto child  = Arc<owe::SceneNode>::make();
+    parent->AppendChild(child.clone());
+    parent->SetTranslate({ 20, 30, 0 });
+    child->SetScale({ 9, 9, 1 });
+    auto camera = owe::SceneCamera::MakeOrthographic(200, 100, -1, 1);
+    camera.AttatchNode(child.as_ptr());
+    const auto first = camera.CameraSnapshot();
+    EXPECT_TRUE((first.view * child->ModelTrans()).isIdentity(1e-12));
+    parent->SetTranslate({ 40, 30, 0 });
+    const auto changed = camera.CameraSnapshot();
+    EXPECT_EQ(changed.revision, first.revision + u64(1));
+    EXPECT_TRUE((changed.view * child->ModelTrans()).isIdentity(1e-12));
+    EXPECT_FALSE(first.view.isApprox(changed.view));
+    EXPECT_EQ(camera.CameraSnapshot().revision, changed.revision);
+}
+
+TEST(SceneCameraState, ReflectionPreservesUpAndDoesNotReplacePrimary) {
+    auto                  camera = owe::SceneCamera::MakePerspective(1.5, 0.1, 1000, 60);
+    const Eigen::Vector3d eye(2, 4, 10), center(1, 2, 0), up(0, 1, 0);
+    camera.SetLookAt(eye, center, up);
+    const auto            primary   = camera.CameraSnapshot();
+    const auto            reflected = camera.CameraSnapshot(owe::SceneRenderViewKind::Reflection);
+    const Eigen::Vector3d reflected_eye(2, -4, 10), reflected_center(1, -2, 0);
+    EXPECT_TRUE(reflected.view.isApprox(Eigen::LookAt(reflected_eye, reflected_center, up)));
+    EXPECT_TRUE(primary.view.isApprox(Eigen::LookAt(eye, center, up)));
+    EXPECT_TRUE(reflected.projection.isApprox(primary.projection));
+    EXPECT_TRUE(reflected.view_projection.isApprox(reflected.projection * reflected.view));
+    EXPECT_EQ(camera.CameraSnapshot().revision, primary.revision);
+    EXPECT_EQ(camera.CameraSnapshot(owe::SceneRenderViewKind::Reflection).revision,
+              reflected.revision);
+    camera.SetFov(45);
+    EXPECT_EQ(camera.CameraSnapshot().revision, primary.revision + u64(1));
+    EXPECT_EQ(camera.CameraSnapshot(owe::SceneRenderViewKind::Reflection).revision,
+              reflected.revision + u64(1));
 }
 
 TEST(SceneCameraPath, UserBindingMutatesRegisteredArc) {

@@ -48,7 +48,7 @@ auto ShaderReflectionCache::Query(const SceneShader& shader)
 
     std::vector<Uni_ShaderSpv> spvs;
     ShaderReflected            reflected;
-    if (! GenReflect(shader.codes, spvs, reflected)) return rstd::None();
+    if (! m_backend->GenReflect(shader.codes, spvs, reflected)) return rstd::None();
 
     (void)m_entries.insert(key, MakeCachedReflection(std::move(spvs), std::move(reflected)));
     return m_entries.get(key);

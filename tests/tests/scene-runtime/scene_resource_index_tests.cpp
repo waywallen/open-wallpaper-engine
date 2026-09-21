@@ -104,6 +104,35 @@ TEST(SceneMesh, CloneInstanceSharesGeometryAndOwnsMaterials) {
     EXPECT_EQ(clone->MaterialSlots()[0]->name, "clone");
 }
 
+TEST(SceneResourceIndex, KeepsNamedIdentitiesWhenEarlierNamesAreAdded) {
+    owe::Scene scene;
+    scene.RegisterTexture(String::make("z/texture"_str), owe::SceneTexture { .url = "z/texture" });
+    scene.RegisterRenderTarget(String::make("z/target"_str),
+                               owe::SceneRenderTarget { .width = i32(37), .height = i32(19) });
+    auto camera =
+        Arc<owe::SceneCamera>::make(owe::SceneCamera::MakeOrthographic(37, 19, -1.0, 1.0));
+    scene.RegisterCamera(String::make("z/camera"_str), camera.clone());
+    scene.RebuildResourceIndex();
+    auto texture_id = scene.ResourceIndex().textureId("z/texture"_str).unwrap();
+    auto target_id  = scene.ResourceIndex().renderTargetId("z/target"_str).unwrap();
+    auto camera_id  = scene.ResourceIndex().cameraId("z/camera"_str).unwrap();
+    scene.RegisterTexture(String::make("a/texture"_str), owe::SceneTexture { .url = "a/texture" });
+    scene.RegisterRenderTarget(String::make("a/target"_str),
+                               owe::SceneRenderTarget { .width = i32(1), .height = i32(1) });
+    scene.RegisterCamera(
+        String::make("a/camera"_str),
+        Arc<owe::SceneCamera>::make(owe::SceneCamera::MakeOrthographic(1, 1, -1.0, 1.0)));
+    scene.RebuildResourceIndex();
+    EXPECT_EQ(scene.ResourceIndex().textureId("z/texture"_str).unwrap(), texture_id);
+    EXPECT_EQ(scene.ResourceIndex().renderTargetId("z/target"_str).unwrap(), target_id);
+    EXPECT_EQ(scene.ResourceIndex().cameraId("z/camera"_str).unwrap(), camera_id);
+    ASSERT_NE(scene.ResourceIndex().texture(texture_id), nullptr);
+    EXPECT_EQ(scene.ResourceIndex().texture(texture_id)->url, "z/texture");
+    ASSERT_NE(scene.ResourceIndex().renderTarget(target_id), nullptr);
+    EXPECT_EQ(scene.ResourceIndex().renderTarget(target_id)->width, i32(37));
+    EXPECT_EQ(scene.ResourceIndex().camera(camera_id), camera.as_ptr());
+}
+
 TEST(SceneResourceIndex, ResolvesDrawItemsAndNamedResources) {
     owe::Scene scene;
     scene.RootMut()->ID() = rstd::i32(1);
@@ -504,7 +533,7 @@ TEST(SceneResourceIndex, RebuildInvalidatesRemovedNodesWithoutRenumberingRemaini
     ASSERT_TRUE(remaining_mesh_id.is_some());
     ASSERT_TRUE(remaining_material_id.is_some());
 
-    scene.RootMut()->GetChildren().clear();
+    scene.RootMut()->ClearChildren();
     scene.RootMut()->AppendChild(remaining_node.clone());
     scene.RebuildResourceIndex();
 
@@ -606,7 +635,7 @@ TEST(SceneTextures, EnsureTextureDescriptorRegistersImportedTexture) {
     owe::Scene scene;
     EXPECT_FALSE(scene.EnsureTextureDescriptor("tex/runtime"));
 
-    scene.SetImageParser(Box<dyn<owe::IImageParser>>::make(FakeImageParser {}));
+    scene.SetImageParser(rstd::sync::Arc<dyn<owe::IImageParser>>::make(FakeImageParser {}));
     EXPECT_TRUE(scene.EnsureTextureDescriptor("tex/runtime"));
     auto texture = scene.Texture("tex/runtime"_str);
     ASSERT_TRUE(texture.is_some());
@@ -663,7 +692,7 @@ TEST(SceneTextures, SnapshotSeparatesLocatorGenerationFromContentRevision) {
 
 TEST(SceneTextures, RuntimeImageOverridesParserContent) {
     owe::Scene scene;
-    scene.SetImageParser(Box<dyn<owe::IImageParser>>::make(FakeImageParser {}));
+    scene.SetImageParser(rstd::sync::Arc<dyn<owe::IImageParser>>::make(FakeImageParser {}));
     auto image           = Arc<owe::Image>::make();
     image->header.width  = 128;
     image->header.height = 64;
@@ -714,7 +743,7 @@ TEST(SceneUserPropertyDiagnostics, StoresAndClearsByKey) {
 TEST(SceneMaterialRuntimeMutation, UpdatesShaderValuesAndTextureSlotsThroughSceneOwner) {
     owe::Scene scene;
     scene.RootMut()->ID() = rstd::i32(1);
-    scene.SetImageParser(Box<dyn<owe::IImageParser>>::make(FakeImageParser {}));
+    scene.SetImageParser(rstd::sync::Arc<dyn<owe::IImageParser>>::make(FakeImageParser {}));
 
     auto node  = rstd::sync::Arc<owe::SceneNode>::make();
     node->ID() = rstd::i32(2);
@@ -1718,6 +1747,65 @@ TEST(SceneMeshDirtyEvents, RoutesDataAndLayoutDirtyByOwner) {
     ASSERT_EQ(events.len(), usize(1));
     EXPECT_EQ(events[usize()].flags, owe::SceneMeshDirtyLayout);
     EXPECT_EQ(dynamic_mesh->DirtyFlags(), owe::SceneMeshDirtyNone);
+}
+
+TEST(SceneMaterialPipeline, PublishesOwnedStateAndRoutesEveryPipelineField) {
+    owe::SceneMaterial material;
+    auto               original  = material.PipelineSnapshot();
+    auto               pipeline  = material.Pipeline();
+    pipeline.alpha_write         = Some(false);
+    pipeline.depth_clamp         = true;
+    pipeline.depth_bias          = true;
+    pipeline.depth_bias_constant = 1.0f;
+    pipeline.depth_bias_clamp    = 2.0f;
+    pipeline.depth_bias_slope    = -4.0f;
+    ASSERT_TRUE(material.SetPipeline(pipeline));
+    EXPECT_EQ(material.PipelineRevision(), original.revision + u64(1));
+    EXPECT_EQ(material.ConsumeDirtyFlags(), owe::SceneMaterialDirtyPipeline);
+    EXPECT_FALSE(material.SetPipeline(pipeline));
+    EXPECT_EQ(material.DirtyFlags(), owe::SceneMaterialDirtyNone);
+    EXPECT_TRUE(original.value.alpha_write.is_none());
+    EXPECT_FALSE(original.value.depth_bias);
+    auto clone = material;
+    clone.ConsumeDirtyFlags();
+    ASSERT_TRUE(clone.SetDepthTest(true));
+    EXPECT_FALSE(material.Pipeline().depth_test);
+    EXPECT_TRUE(clone.Pipeline().depth_test);
+    auto revision = clone.PipelineRevision();
+    material.ConsumeDirtyFlags();
+    clone = material;
+    EXPECT_EQ(clone.PipelineRevision(), revision + u64(1));
+    EXPECT_EQ(clone.DirtyFlags(), owe::SceneMaterialDirtyPipeline);
+    EXPECT_FALSE(clone.Pipeline().depth_test);
+}
+
+TEST(SceneMaterialPipeline, MoveAssignmentInvalidatesExistingPipelineRevision) {
+    owe::SceneMaterial source;
+    source.SetCullMode(owe::CullMode::Back);
+    source.ConsumeDirtyFlags();
+    owe::SceneMaterial target;
+    target.SetDepthTest(true);
+    target.SetDepthWrite(true);
+    auto revision = target.PipelineRevision();
+    target        = rstd::move(source);
+    EXPECT_EQ(target.PipelineRevision(), revision + u64(1));
+    EXPECT_EQ(target.Pipeline().cull_mode, owe::CullMode::Back);
+    EXPECT_FALSE(target.Pipeline().depth_test);
+    EXPECT_EQ(target.DirtyFlags(), owe::SceneMaterialDirtyPipeline);
+}
+
+TEST(SceneMaterialPipeline, AssignmentDoesNotAcknowledgePendingChanges) {
+    owe::SceneMaterial source;
+    source.SetDepthTest(true);
+    source.ConsumeDirtyFlags();
+    owe::SceneMaterial target;
+    target.SetDepthTest(true);
+    target.SetResourceDirty();
+    auto revision = target.PipelineRevision();
+    target        = source;
+    EXPECT_EQ(target.PipelineRevision(), revision);
+    EXPECT_EQ(target.DirtyFlags(),
+              owe::SceneMaterialDirtyPipeline | owe::SceneMaterialDirtyResources);
 }
 
 TEST(SceneMaterialDirtyEvents, RoutesMaterialDirtyByOwner) {

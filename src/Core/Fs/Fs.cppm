@@ -263,6 +263,16 @@ public:
     VFS(const VFS&)                    = delete;
     auto operator=(const VFS&) -> VFS& = delete;
 
+    auto Snapshot() const -> rstd::sync::Arc<VFS> {
+        auto result   = rstd::sync::Arc<VFS>::make();
+        auto state    = result->m_state.lock().unwrap_unchecked();
+        state->mounts = snapshot();
+        for (const auto& mount : state->mounts) {
+            if (mount.id.value >= state->next_id) state->next_id = mount.id.value + u64(1);
+        }
+        return result;
+    }
+
     auto mount(Path mount_point, MountHandle fs, rstd::ref<rstd::str> name = {})
         -> rstd::io::Result<MountId> {
         auto normalized = rstd_try(detail::normalize_global(mount_point));

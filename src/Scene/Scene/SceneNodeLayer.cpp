@@ -84,7 +84,7 @@ void SceneNodeLayer::ResolveEffect(const SceneMesh& default_mesh, std::string_vi
             effect_output = &(*it);
 
             {
-                material.blenmode = BlendMode::Normal;
+                material.SetBlendMode(BlendMode::Normal);
                 it->sceneNode->SetCamera(effect_cam.data());
                 it->sceneNode->CopyTrans(default_node);
                 it->sceneNode->Mesh()->ChangeMeshDataFrom(default_mesh);
@@ -113,10 +113,10 @@ void SceneNodeLayer::ResolveEffect(const SceneMesh& default_mesh, std::string_vi
         m_direct_final_output = final_output;
         auto& mesh            = *(final_output->sceneNode->Mesh());
         auto& material        = *mesh.Material();
-        material.blenmode     = m_final_blend;
-        material.depth_test   = m_final_depth_test;
-        material.depth_write  = m_final_depth_write;
-        material.cull_mode    = m_final_cull_mode;
+        material.SetBlendMode(m_final_blend);
+        material.SetDepthTest(m_final_depth_test);
+        material.SetDepthWrite(m_final_depth_write);
+        material.SetCullMode(m_final_cull_mode);
         if (m_final_local) {
             final_output->sceneNode->SetCamera(std::string(effect_cam));
             final_output->sceneNode->SetParentAnchor(nullptr);

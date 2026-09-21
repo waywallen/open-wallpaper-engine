@@ -4,7 +4,7 @@ export module wescene.vulkan_render:pass_common;
 import rstd.cppstd;
 import wescene.types;
 import wescene.vulkan;
-import wescene.scene;
+import vrento.material;
 
 export namespace owe::vulkan
 {
@@ -64,15 +64,15 @@ inline bool IsDepthWritingBlendMode(BlendMode bm) {
     return false;
 }
 
-inline bool EffectiveDepthWrite(const SceneMaterial& material) {
-    return material.depth_write && IsDepthWritingBlendMode(material.blenmode);
+inline bool EffectiveDepthWrite(const vrento::MaterialPipelineDesc& material) {
+    return material.depth_write && IsDepthWritingBlendMode(material.blend_mode);
 }
 
-inline bool UsesDepthAttachment(const SceneMaterial& material) {
+inline bool UsesDepthAttachment(const vrento::MaterialPipelineDesc& material) {
     return material.depth_test || EffectiveDepthWrite(material);
 }
 
-inline void SetDepthState(const SceneMaterial&                   material,
+inline void SetDepthState(const vrento::MaterialPipelineDesc&    material,
                           VkPipelineDepthStencilStateCreateInfo& state) {
     state.depthTestEnable  = material.depth_test;
     state.depthWriteEnable = EffectiveDepthWrite(material);
@@ -87,7 +87,7 @@ inline void SetCullMode(CullMode mode, VkPipelineRasterizationStateCreateInfo& s
     }
 }
 
-inline void SetRasterState(const SceneMaterial& material, bool depth_clamp_supported,
+inline void SetRasterState(const vrento::MaterialPipelineDesc& material, bool depth_clamp_supported,
                            VkPipelineRasterizationStateCreateInfo& state) {
     SetCullMode(material.cull_mode, state);
     state.depthClampEnable        = material.depth_clamp && depth_clamp_supported;

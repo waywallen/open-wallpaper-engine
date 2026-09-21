@@ -23,6 +23,7 @@ default-members = ["viewer/SceneViewer", "viewer/WebViewer"]
 version = "0.2.10"
 
 [workspace.dependencies]
+vrento = { git = "https://github.com/vecren/vrento.git" }
 owe-core = { path = "src/Core" }
 owe-audio = { path = "src/Audio" }
 owe-types = { path = "src/Scene/types" }

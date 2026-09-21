@@ -211,7 +211,7 @@ void FinPass::prepare(Scene& scene, const Device& device, PassPrepareContext& co
                 ShaderCompUnit { ShaderType::FRAGMENT, std::string(fullscreen_fragment) },
             };
             std::vector<Uni_ShaderSpv> spvs;
-            if (! CompileAndLinkShaderUnits(
+            if (! context.shader_backend->CompileAndLinkShaderUnits(
                     units,
                     ShaderCompOpt { .target = VulkanTarget::Vulkan_1_1, .optimize = true },
                     spvs)) {

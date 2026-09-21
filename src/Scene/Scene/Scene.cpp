@@ -193,6 +193,13 @@ u32 index_from_size(std::size_t size) { return rstd::as_cast<u32>(usize(size)); 
 
 usize index_from_id(u32 index) { return usize(index.to_primitive()); }
 
+auto sorted_resource_names(slice<String> source) -> Vec<String> {
+    auto names = Vec<String>::with_capacity(source.len());
+    for (const auto& name : source) names.push(name.clone());
+    rstd::slice_::sort_unstable(names.as_mut_slice().as_mut_ref());
+    return names;
+}
+
 template<typename Id>
 bool valid_index(Id id, u32 generation, std::size_t size) {
     return id.generation == generation && id.index.to_primitive() < size;
@@ -484,14 +491,8 @@ void SceneResourceIndex::Rebuild(Scene& scene, u32 generation) {
         for (auto& mesh : m_meshes) mesh = nullptr;
         for (auto& material : m_materials) material = nullptr;
     }
-    m_texture_keys.clear();
-    m_render_target_keys.clear();
-    m_camera_keys.clear();
     m_draw_items.clear();
     m_draw_items.resize(preserved_draw_count, SceneDrawItemRecord {});
-    m_texture_ids.clear();
-    m_render_target_ids.clear();
-    m_camera_ids.clear();
 
     auto register_mesh = [this, generation](SceneMesh& mesh) {
         if (auto found = m_mesh_ids.get(&mesh); found.is_some()) {
@@ -627,45 +628,18 @@ void SceneResourceIndex::Rebuild(Scene& scene, u32 generation) {
     });
 
     auto collect_texture_ids = [generation, this]() {
-        auto names = m_scene->TextureNames();
-        m_texture_keys.reserve(names.len());
-        for (usize index {}; index < names.len(); ++index) {
-            m_texture_keys.push(names[index].clone());
-        }
-        rstd::slice_::sort_unstable(m_texture_keys.as_mut_slice().as_mut_ref());
-        for (usize i {}; i < m_texture_keys.len(); ++i) {
-            (void)m_texture_ids.insert(
-                m_texture_keys[i].clone(),
-                SceneTextureId { .index = rstd::as_cast<u32>(i), .generation = generation });
-        }
+        auto names = sorted_resource_names(m_scene->TextureNames());
+        m_texture_ids.Rebuild(names.as_slice(), generation);
     };
 
     auto collect_render_target_ids = [generation, this]() {
-        auto names = m_scene->RenderTargetNames();
-        m_render_target_keys.reserve(names.len());
-        for (usize index {}; index < names.len(); ++index) {
-            m_render_target_keys.push(names[index].clone());
-        }
-        rstd::slice_::sort_unstable(m_render_target_keys.as_mut_slice().as_mut_ref());
-        for (usize i {}; i < m_render_target_keys.len(); ++i) {
-            (void)m_render_target_ids.insert(
-                m_render_target_keys[i].clone(),
-                SceneRenderTargetId { .index = rstd::as_cast<u32>(i), .generation = generation });
-        }
+        auto names = sorted_resource_names(m_scene->RenderTargetNames());
+        m_render_target_ids.Rebuild(names.as_slice(), generation);
     };
 
     auto collect_camera_ids = [generation, this]() {
-        auto names = m_scene->CameraNames();
-        m_camera_keys.reserve(names.len());
-        for (usize index {}; index < names.len(); ++index) {
-            m_camera_keys.push(names[index].clone());
-        }
-        rstd::slice_::sort_unstable(m_camera_keys.as_mut_slice().as_mut_ref());
-        for (usize i {}; i < m_camera_keys.len(); ++i) {
-            (void)m_camera_ids.insert(
-                m_camera_keys[i].clone(),
-                SceneCameraId { .index = rstd::as_cast<u32>(i), .generation = generation });
-        }
+        auto names = sorted_resource_names(m_scene->CameraNames());
+        m_camera_ids.Rebuild(names.as_slice(), generation);
     };
 
     collect_texture_ids();
@@ -699,18 +673,15 @@ Option<SceneDrawItemId> SceneResourceIndex::drawItemFor(SceneNodeId node, u32 su
 }
 
 Option<SceneTextureId> SceneResourceIndex::textureId(ref<str> url) const {
-    auto id = m_texture_ids.get(url);
-    return id.is_some() ? Some<SceneTextureId>(**id) : None();
+    return m_texture_ids.Find(url);
 }
 
 Option<SceneRenderTargetId> SceneResourceIndex::renderTargetId(ref<str> key) const {
-    auto id = m_render_target_ids.get(key);
-    return id.is_some() ? Some<SceneRenderTargetId>(**id) : None();
+    return m_render_target_ids.Find(key);
 }
 
 Option<SceneCameraId> SceneResourceIndex::cameraId(ref<str> name) const {
-    auto id = m_camera_ids.get(name);
-    return id.is_some() ? Some<SceneCameraId>(**id) : None();
+    return m_camera_ids.Find(name);
 }
 
 Option<DrawItemView> SceneResourceIndex::resolve(SceneDrawItemId id) const {
@@ -745,32 +716,30 @@ SceneMaterial* SceneResourceIndex::material(SceneMaterialId id) const {
 }
 
 const SceneTexture* SceneResourceIndex::texture(SceneTextureId id) const {
-    if (m_scene == nullptr || ! valid_index(id, m_generation, m_texture_keys.len().to_primitive()))
-        return nullptr;
-    auto texture = m_scene->Texture(m_texture_keys[index_from_id(id.index)].as_str());
+    auto key = m_texture_ids.Resolve(id);
+    if (m_scene == nullptr || key.is_none()) return nullptr;
+    auto texture = m_scene->Texture(*key);
     return texture.is_some() ? (*texture).as_raw_ptr() : nullptr;
 }
 
 const SceneRenderTarget* SceneResourceIndex::renderTarget(SceneRenderTargetId id) const {
-    if (m_scene == nullptr ||
-        ! valid_index(id, m_generation, m_render_target_keys.len().to_primitive()))
-        return nullptr;
-    auto target = m_scene->RenderTarget(m_render_target_keys[index_from_id(id.index)].as_str());
+    auto key = m_render_target_ids.Resolve(id);
+    if (m_scene == nullptr || key.is_none()) return nullptr;
+    auto target = m_scene->RenderTarget(*key);
     return target.is_some() ? (*target).as_raw_ptr() : nullptr;
 }
 
 SceneRenderTarget* SceneResourceIndex::mutableRenderTarget(SceneRenderTargetId id) const {
-    if (m_scene == nullptr ||
-        ! valid_index(id, m_generation, m_render_target_keys.len().to_primitive()))
-        return nullptr;
-    auto target = m_scene->RenderTargetMut(m_render_target_keys[index_from_id(id.index)].as_str());
+    auto key = m_render_target_ids.Resolve(id);
+    if (m_scene == nullptr || key.is_none()) return nullptr;
+    auto target = m_scene->RenderTargetMut(*key);
     return target.is_some() ? (*target).as_raw_ptr() : nullptr;
 }
 
 SceneCamera* SceneResourceIndex::camera(SceneCameraId id) const {
-    if (m_scene == nullptr || ! valid_index(id, m_generation, m_camera_keys.len().to_primitive()))
-        return nullptr;
-    auto camera = m_scene->CameraMut(m_camera_keys[index_from_id(id.index)].as_str());
+    auto key = m_camera_ids.Resolve(id);
+    if (m_scene == nullptr || key.is_none()) return nullptr;
+    auto camera = m_scene->CameraMut(*key);
     return camera.is_some() ? (*camera).as_raw_ptr() : nullptr;
 }
 
@@ -2062,6 +2031,15 @@ bool Scene::EnsureTextureDescriptor(std::string_view key) {
     }
     RegisterTexture(String::make(name), rstd::move(texture));
     return true;
+}
+
+auto Scene::CaptureImageSource() const -> Arc<SceneImageSource> {
+    auto source = Arc<SceneImageSource>::make();
+    if (m_image_parser.is_some()) source->m_parser = Some(m_image_parser->clone());
+    for (const auto& [key, image] : m_runtime_images.iter()) {
+        (void)source->m_runtime_images.insert(key->clone(), image->clone());
+    }
+    return source;
 }
 
 auto Scene::ParseImage(ref<str> name) const -> Result<Arc<Image>, ImageParseError> {

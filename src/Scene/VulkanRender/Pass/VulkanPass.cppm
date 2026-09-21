@@ -145,6 +145,7 @@ struct PassUpdateContext {
 };
 
 struct PassPrepareContext {
+    rstd::ref<rstd::dyn<ShaderBackend>>                                   shader_backend;
     rstd::ref<resource_registry::PreparedResourceTable>                   resources;
     rstd::mut_ref<rstd::dyn<resource_registry::GraphicsResourcePreparer>> graphics;
     rstd::ref<PipelineLayoutAssignments>                                  pipeline_layouts;

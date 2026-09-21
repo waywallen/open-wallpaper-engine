@@ -89,9 +89,9 @@ struct TextureLoader {
     std::atomic<std::size_t>* loads;
 
     auto LoadTexture(rstd::ref<rstd::str> key) const
-        -> rstd::Result<rstd::sync::Arc<owe::Image>, owe::resource::ResourceError> {
+        -> rstd::Result<rstd::sync::Arc<vrento::Image>, owe::resource::ResourceError> {
         loads->fetch_add(1, std::memory_order_relaxed);
-        auto image = rstd::sync::Arc<owe::Image>::make();
+        auto image = rstd::sync::Arc<vrento::Image>::make();
         image->key = rstd::cppstd::to_string(key);
         return rstd::Ok(rstd::move(image));
     }
@@ -126,7 +126,7 @@ struct TextureContentProvider {
     }
 
     auto ResolveVideoPlayback(const owe::resource::TextureRequest&) const
-        -> rstd::Option<rstd::sync::Arc<owe::VideoPlaybackState>> {
+        -> rstd::Option<rstd::sync::Arc<rstd::dyn<vrento::VideoPlayback>>> {
         return rstd::None();
     }
 };
@@ -136,8 +136,8 @@ struct ImageBackend {
     rstd::usize transparent_creates { 0 };
     rstd::u64   generation { 0 };
 
-    auto CreateImportedTexture(rstd::ref<owe::Image>,
-                               rstd::Option<rstd::sync::Arc<owe::VideoPlaybackState>>)
+    auto CreateImportedTexture(rstd::ref<vrento::Image>,
+                               rstd::Option<rstd::sync::Arc<rstd::dyn<vrento::VideoPlayback>>>)
         -> rstd::Option<owe::vulkan::PreparedImageAllocation> {
         ++creates;
         ++generation;

@@ -117,7 +117,7 @@ PassInvalidationFlags CustomShaderPass::finalizeResourceRequests(Scene& scene) {
 
             auto* material = ResolvePassMaterial(m_desc);
             bool  has_depth_attachment =
-                rt.withDepth && material != nullptr && UsesDepthAttachment(*material);
+                rt.withDepth && material != nullptr && UsesDepthAttachment(material->Pipeline());
             if (m_desc.has_depth_attachment != has_depth_attachment) {
                 m_desc.has_depth_attachment = has_depth_attachment;
                 flags |= PassInvalidationAll;
@@ -786,7 +786,8 @@ void CustomShaderPass::prepare(Scene& scene, const Device& device, PassPrepareCo
     if (output_rt.is_none()) return;
     m_desc.depth_clear_value = (**output_rt).depth_clear_value;
     const bool has_depth_attachment =
-        m_desc.depth_only || ((**output_rt).withDepth && UsesDepthAttachment(material_ref));
+        m_desc.depth_only ||
+        ((**output_rt).withDepth && UsesDepthAttachment(material_ref.Pipeline()));
     m_desc.has_depth_attachment = has_depth_attachment;
     VkAttachmentLoadOp depthLoadOp { VK_ATTACHMENT_LOAD_OP_DONT_CARE };
     if (has_depth_attachment) {
@@ -891,16 +892,19 @@ void CustomShaderPass::prepare(Scene& scene, const Device& device, PassPrepareCo
     {
         VkPipelineColorBlendAttachmentState color_blend {};
         VkAttachmentLoadOp                  loadOp { VK_ATTACHMENT_LOAD_OP_DONT_CARE };
-        const auto                          blendmode = material_ref.blenmode;
+        const auto                          blendmode = material_ref.Pipeline().blend_mode;
         {
             VkColorComponentFlags colorMask =
                 VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT;
             const bool default_writes_alpha = ! ((*m_desc.node)->Camera().empty() ||
                                                  sstart_with((*m_desc.node)->Camera(), "global"));
             SetBlend(blendmode, color_blend);
-            const bool writes_alpha = material_ref.alpha_write.unwrap_or(
-                color_blend.blendEnable ? out_blend_alpha_write.unwrap_or(default_writes_alpha)
-                                        : default_writes_alpha);
+            const auto& alpha_write = material_ref.Pipeline().alpha_write;
+            const bool  writes_alpha =
+                alpha_write.is_some() ? *alpha_write
+                                      : (color_blend.blendEnable
+                                             ? out_blend_alpha_write.unwrap_or(default_writes_alpha)
+                                             : default_writes_alpha);
 
             if (writes_alpha) colorMask |= VK_COLOR_COMPONENT_A_BIT;
             color_blend.colorWriteMask = colorMask;
@@ -921,8 +925,9 @@ void CustomShaderPass::prepare(Scene& scene, const Device& device, PassPrepareCo
         pipeline_state.toDefault();
         pipeline_state.setSampleCount(m_desc.samples);
         SetAlphaToCoverage(blendmode, pipeline_state.multisample);
-        if (has_depth_attachment) SetDepthState(material_ref, pipeline_state.depth);
-        SetRasterState(material_ref, device.capabilities().depth_clamp, pipeline_state.raster);
+        if (has_depth_attachment) SetDepthState(material_ref.Pipeline(), pipeline_state.depth);
+        SetRasterState(
+            material_ref.Pipeline(), device.capabilities().depth_clamp, pipeline_state.raster);
         const bool          has_index = m_desc.draw_buffers.hasIndex();
         VkPrimitiveTopology topology  = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP;
         switch (mesh.Primitive()) {

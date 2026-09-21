@@ -1,4 +1,5 @@
 export module wescene.scene:id;
+export import vrento.scene_identity;
 import rstd;
 
 using namespace rstd::prelude;
@@ -7,23 +8,16 @@ export namespace owe
 {
 
 template<typename Tag>
-struct SceneResourceId {
-    u32 index { u32::MAX };
-    u32 generation { 0 };
+using SceneResourceId = vrento::SceneId<Tag>;
 
-    bool Valid() const noexcept { return index != u32::MAX && generation != u32(); }
-
-    friend bool operator==(const SceneResourceId&, const SceneResourceId&) = default;
-};
-
-struct SceneNodeIdTag;
+using SceneNodeIdTag = vrento::NodeIdTag;
 struct SceneEffectIdTag;
-struct SceneMaterialIdTag;
-struct SceneMeshIdTag;
-struct SceneDrawItemIdTag;
-struct SceneTextureIdTag;
-struct SceneRenderTargetIdTag;
-struct SceneCameraIdTag;
+using SceneMaterialIdTag     = vrento::MaterialIdTag;
+using SceneMeshIdTag         = vrento::GeometryIdTag;
+using SceneDrawItemIdTag     = vrento::DrawIdTag;
+using SceneTextureIdTag      = vrento::TextureIdTag;
+using SceneRenderTargetIdTag = vrento::RenderTargetIdTag;
+using SceneCameraIdTag       = vrento::CameraIdTag;
 
 using SceneNodeId         = SceneResourceId<SceneNodeIdTag>;
 using SceneEffectId       = SceneResourceId<SceneEffectIdTag>;

@@ -112,6 +112,7 @@ public:
 
     FontMetrics                   Metrics() const;
     std::span<const std::uint8_t> AtlasPixels() const;
+    auto                          RetainAtlasPixels() const -> owe::ImageDataPtr;
 
     std::span<const AtlasDirtyRect> DirtyRects() const noexcept;
     void                            ClearDirtyRects() noexcept;
@@ -165,10 +166,7 @@ private:
 FontCache& EnsureSceneFontCache(owe::Scene& scene);
 FontCache* SceneFontCache(owe::Scene& scene) noexcept;
 
-// Snapshot the face's atlas pixels into a renderer-consumable Image (R8,
-// single slot, single mipmap, LINEAR/CLAMP_TO_EDGE sampler). The returned
-// Image owns its pixel buffer; the FontFace can subsequently mutate or be
-// destroyed without affecting the snapshot.
+// Shares the live atlas pixels and retains their storage beyond the face's lifetime.
 auto BuildAtlasImage(const FontFace& face, ref<str> key) -> Option<Arc<owe::Image>>;
 
 // Lazily compiles the embedded text HLSL shader (one-time, process-wide
