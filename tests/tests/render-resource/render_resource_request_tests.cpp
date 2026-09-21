@@ -1,10 +1,9 @@
-#include <vulkan/vulkan_core.h>
-
 #include <cstring>
 
 #include <rstd/test/gtest.hpp>
 
 import rstd;
+import vvk;
 import rstd.cppstd;
 import wescene.scene;
 import wescene.types;

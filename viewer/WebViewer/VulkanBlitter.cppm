@@ -2,10 +2,6 @@ module;
 
 struct GLFWwindow;
 
-#if __is_target_os(macos)
-#    include <vulkan/vulkan.h>
-#endif
-
 export module viewer.web:vulkan_blitter;
 
 import rstd.cppstd;
@@ -72,6 +68,11 @@ private:
     std::uint32_t FindMemoryType(std::uint32_t type_bits, VkMemoryPropertyFlags props) const;
 
     // Instance / device.
+    rstd::Option<vvk::VulkanLoader>  loader_;
+    vvk::InstanceDispatch            instance_dispatch_ {};
+    vvk::DeviceDispatch              device_dispatch_ {};
+    vvk::Instance                    instance_owner_;
+    vvk::Device                      device_owner_;
     VkInstance                       instance_ { VK_NULL_HANDLE };
     VkSurfaceKHR                     surface_ { VK_NULL_HANDLE };
     VkPhysicalDevice                 phys_ { VK_NULL_HANDLE };
@@ -99,11 +100,6 @@ private:
     int            owned_width_ { 0 };
     int            owned_height_ { 0 };
     bool           owned_has_data_ { false };
-
-    // Function pointers loaded with vkGetDeviceProcAddr at device
-    // creation time — these come from VK_KHR_external_memory_fd which
-    // is enabled as a device extension.
-    PFN_vkGetMemoryFdPropertiesKHR pfn_GetMemoryFdProperties_ { nullptr };
 
 #if __is_target_os(macos)
     bool portability_subset_supported_ { false };

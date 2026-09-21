@@ -1,7 +1,5 @@
-module;
-#include <vulkan/vulkan.h>
-
 export module wescene.scene_wallpaper;
+import vvk;
 import rstd;
 
 export import wescene.core;

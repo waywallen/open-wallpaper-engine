@@ -4,14 +4,13 @@ module;
 #include <cstring>
 #include <unistd.h>
 
-#define GLFW_INCLUDE_VULKAN
-#include <GLFW/glfw3.h>
-
 module viewer.web;
 
 import rstd.cppstd;
 import weweb;
 import vvk;
+
+#include "GlfwVulkan.hpp"
 
 namespace weweb
 {
@@ -60,13 +59,17 @@ VulkanBlitter::VulkanBlitter() = default;
 VulkanBlitter::~VulkanBlitter() { Shutdown(); }
 
 bool VulkanBlitter::Init(GLFWwindow* window) {
+    Shutdown();
     window_ = window;
-    return CreateInstance() && CreateSurface(window) && PickPhysicalDevice() && CreateDevice() &&
-           CreateCommandPool() && CreateSwapchain() && CreateSyncObjects();
+    if (CreateInstance() && CreateSurface(window) && PickPhysicalDevice() && CreateDevice() &&
+        CreateCommandPool() && CreateSwapchain() && CreateSyncObjects())
+        return true;
+    Shutdown();
+    return false;
 }
 
 void VulkanBlitter::Shutdown() {
-    if (device_) vkDeviceWaitIdle(device_);
+    if (device_) device_dispatch_.vkDeviceWaitIdle(device_);
 
 #if __is_target_os(macos)
     DestroyCpuStaging();
@@ -75,38 +78,47 @@ void VulkanBlitter::Shutdown() {
 
     for (auto& s : img_avail_sem_)
         if (s) {
-            vkDestroySemaphore(device_, s, nullptr);
+            device_dispatch_.vkDestroySemaphore(device_, s, nullptr);
             s = VK_NULL_HANDLE;
         }
     for (auto& s : render_done_sem_)
-        if (s) vkDestroySemaphore(device_, s, nullptr);
+        if (s) device_dispatch_.vkDestroySemaphore(device_, s, nullptr);
     render_done_sem_.clear();
     for (auto& f : in_flight_fence_)
         if (f) {
-            vkDestroyFence(device_, f, nullptr);
+            device_dispatch_.vkDestroyFence(device_, f, nullptr);
             f = VK_NULL_HANDLE;
         }
 
     if (cmd_pool_ != VK_NULL_HANDLE) {
-        vkDestroyCommandPool(device_, cmd_pool_, nullptr);
+        device_dispatch_.vkDestroyCommandPool(device_, cmd_pool_, nullptr);
         cmd_pool_ = VK_NULL_HANDLE;
     }
     DestroySwapchain();
-    if (device_) {
-        vkDestroyDevice(device_, nullptr);
-        device_ = VK_NULL_HANDLE;
-    }
+    device_owner_.reset();
+    device_ = VK_NULL_HANDLE;
     if (surface_ && instance_) {
-        vkDestroySurfaceKHR(instance_, surface_, nullptr);
+        instance_dispatch_.vkDestroySurfaceKHR(instance_, surface_, nullptr);
         surface_ = VK_NULL_HANDLE;
     }
-    if (instance_) {
-        vkDestroyInstance(instance_, nullptr);
-        instance_ = VK_NULL_HANDLE;
-    }
+    instance_owner_.reset();
+    instance_          = VK_NULL_HANDLE;
+    phys_              = VK_NULL_HANDLE;
+    queue_             = VK_NULL_HANDLE;
+    window_            = nullptr;
+    frame_index_       = 0;
+    device_dispatch_   = {};
+    instance_dispatch_ = {};
+    loader_            = rstd::None();
 }
 
 bool VulkanBlitter::CreateInstance() {
+    auto loaded = vvk::VulkanLoader::Open();
+    if (loaded.is_err()) {
+        std::fprintf(stderr, "weweb: Vulkan loader open failed\n");
+        return false;
+    }
+    loader_ = rstd::Some(loaded.unwrap_unchecked());
     VkApplicationInfo app {};
     app.sType              = VK_STRUCTURE_TYPE_APPLICATION_INFO;
     app.pApplicationName   = "weweb";
@@ -126,10 +138,11 @@ bool VulkanBlitter::CreateInstance() {
 
     std::vector<VkExtensionProperties> available_exts;
     std::uint32_t                      available_count = 0;
-    VK_CHECK(vkEnumerateInstanceExtensionProperties(nullptr, &available_count, nullptr));
+    VK_CHECK(loader_.as_ref().unwrap_unchecked().global().vkEnumerateInstanceExtensionProperties(
+        nullptr, &available_count, nullptr));
     available_exts.resize(available_count);
-    VK_CHECK(
-        vkEnumerateInstanceExtensionProperties(nullptr, &available_count, available_exts.data()));
+    VK_CHECK(loader_.as_ref().unwrap_unchecked().global().vkEnumerateInstanceExtensionProperties(
+        nullptr, &available_count, available_exts.data()));
 
     std::vector<const char*> enabled_exts(glfw_exts, glfw_exts + glfw_count);
 #if __is_target_os(macos)
@@ -149,7 +162,17 @@ bool VulkanBlitter::CreateInstance() {
     }
 #endif
 
-    VK_CHECK(vkCreateInstance(&ci, nullptr, &instance_));
+    auto created = vvk::Instance::Create(
+        instance_owner_, loader_.as_ref().unwrap_unchecked().global(), ci, instance_dispatch_);
+    if (created.is_err()) {
+        const auto error = created.unwrap_err_unchecked();
+        std::fprintf(stderr,
+                     "weweb: instance creation failed (%s, VkResult=%d)\n",
+                     error.command ? error.command : "dispatch",
+                     static_cast<int>(error.api_result));
+        return false;
+    }
+    instance_ = *instance_owner_;
     return true;
 }
 
@@ -160,30 +183,31 @@ bool VulkanBlitter::CreateSurface(GLFWwindow* window) {
 
 bool VulkanBlitter::PickPhysicalDevice() {
     std::uint32_t count = 0;
-    VK_CHECK(vkEnumeratePhysicalDevices(instance_, &count, nullptr));
+    VK_CHECK(instance_dispatch_.vkEnumeratePhysicalDevices(instance_, &count, nullptr));
     if (count == 0) {
         std::fprintf(stderr, "weweb: no Vulkan physical devices\n");
         return false;
     }
     std::vector<VkPhysicalDevice> devs(count);
-    VK_CHECK(vkEnumeratePhysicalDevices(instance_, &count, devs.data()));
+    VK_CHECK(instance_dispatch_.vkEnumeratePhysicalDevices(instance_, &count, devs.data()));
 
     for (auto pd : devs) {
         std::uint32_t qcount = 0;
-        vkGetPhysicalDeviceQueueFamilyProperties(pd, &qcount, nullptr);
+        instance_dispatch_.vkGetPhysicalDeviceQueueFamilyProperties(pd, &qcount, nullptr);
         std::vector<VkQueueFamilyProperties> qfp(qcount);
-        vkGetPhysicalDeviceQueueFamilyProperties(pd, &qcount, qfp.data());
+        instance_dispatch_.vkGetPhysicalDeviceQueueFamilyProperties(pd, &qcount, qfp.data());
 
         for (std::uint32_t i = 0; i < qcount; ++i) {
             if (! (qfp[i].queueFlags & VK_QUEUE_GRAPHICS_BIT)) continue;
             VkBool32 present = VK_FALSE;
-            vkGetPhysicalDeviceSurfaceSupportKHR(pd, i, surface_, &present);
+            instance_dispatch_.vkGetPhysicalDeviceSurfaceSupportKHR(pd, i, surface_, &present);
             if (! present) continue;
 
             std::uint32_t ecount = 0;
-            vkEnumerateDeviceExtensionProperties(pd, nullptr, &ecount, nullptr);
+            instance_dispatch_.vkEnumerateDeviceExtensionProperties(pd, nullptr, &ecount, nullptr);
             std::vector<VkExtensionProperties> exts(ecount);
-            vkEnumerateDeviceExtensionProperties(pd, nullptr, &ecount, exts.data());
+            instance_dispatch_.vkEnumerateDeviceExtensionProperties(
+                pd, nullptr, &ecount, exts.data());
 #if __is_target_os(macos)
             bool has_swapchain          = false;
             bool has_portability_subset = false;
@@ -221,7 +245,7 @@ bool VulkanBlitter::PickPhysicalDevice() {
 
             phys_         = pd;
             queue_family_ = i;
-            vkGetPhysicalDeviceMemoryProperties(phys_, &mem_props_);
+            instance_dispatch_.vkGetPhysicalDeviceMemoryProperties(phys_, &mem_props_);
             return true;
         }
     }
@@ -270,13 +294,21 @@ bool VulkanBlitter::CreateDevice() {
     ci.ppEnabledExtensionNames = dev_exts;
 #endif
 
-    VK_CHECK(vkCreateDevice(phys_, &ci, nullptr, &device_));
-    vkGetDeviceQueue(device_, queue_family_, 0, &queue_);
+    auto created =
+        vvk::Device::Create(device_owner_, phys_, instance_dispatch_, ci, device_dispatch_);
+    if (created.is_err()) {
+        const auto error = created.unwrap_err_unchecked();
+        std::fprintf(stderr,
+                     "weweb: device creation failed (%s, VkResult=%d)\n",
+                     error.command ? error.command : "dispatch",
+                     static_cast<int>(error.api_result));
+        return false;
+    }
+    device_ = *device_owner_;
+    device_dispatch_.vkGetDeviceQueue(device_, queue_family_, 0, &queue_);
 
 #if ! __is_target_os(macos)
-    pfn_GetMemoryFdProperties_ = reinterpret_cast<PFN_vkGetMemoryFdPropertiesKHR>(
-        vkGetDeviceProcAddr(device_, "vkGetMemoryFdPropertiesKHR"));
-    if (! pfn_GetMemoryFdProperties_) {
+    if (! device_dispatch_.vkGetMemoryFdPropertiesKHR) {
         std::fprintf(stderr, "weweb: vkGetMemoryFdPropertiesKHR not available\n");
         return false;
     }
@@ -296,13 +328,14 @@ bool VulkanBlitter::EnsureCpuStaging(std::size_t size) {
     buffer_info.size        = static_cast<VkDeviceSize>(size);
     buffer_info.usage       = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
     buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-    if (vkCreateBuffer(device_, &buffer_info, nullptr, &cpu_staging_) != VK_SUCCESS) {
+    if (device_dispatch_.vkCreateBuffer(device_, &buffer_info, nullptr, &cpu_staging_) !=
+        VK_SUCCESS) {
         std::fprintf(stderr, "weweb: failed to create CPU paint staging buffer\n");
         return false;
     }
 
     VkMemoryRequirements requirements {};
-    vkGetBufferMemoryRequirements(device_, cpu_staging_, &requirements);
+    device_dispatch_.vkGetBufferMemoryRequirements(device_, cpu_staging_, &requirements);
     std::uint32_t memory_type =
         FindMemoryType(requirements.memoryTypeBits,
                        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
@@ -313,7 +346,7 @@ bool VulkanBlitter::EnsureCpuStaging(std::size_t size) {
     }
     if (memory_type == UINT32_MAX) {
         std::fprintf(stderr, "weweb: no host-visible memory for CPU paint staging\n");
-        vkDestroyBuffer(device_, cpu_staging_, nullptr);
+        device_dispatch_.vkDestroyBuffer(device_, cpu_staging_, nullptr);
         cpu_staging_ = VK_NULL_HANDLE;
         return false;
     }
@@ -322,19 +355,23 @@ bool VulkanBlitter::EnsureCpuStaging(std::size_t size) {
     allocate_info.sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
     allocate_info.allocationSize  = requirements.size;
     allocate_info.memoryTypeIndex = memory_type;
-    if (vkAllocateMemory(device_, &allocate_info, nullptr, &cpu_staging_mem_) != VK_SUCCESS) {
+    if (device_dispatch_.vkAllocateMemory(device_, &allocate_info, nullptr, &cpu_staging_mem_) !=
+        VK_SUCCESS) {
         std::fprintf(stderr, "weweb: failed to allocate CPU paint staging memory\n");
-        vkDestroyBuffer(device_, cpu_staging_, nullptr);
+        device_dispatch_.vkDestroyBuffer(device_, cpu_staging_, nullptr);
         cpu_staging_ = VK_NULL_HANDLE;
         return false;
     }
-    if (vkBindBufferMemory(device_, cpu_staging_, cpu_staging_mem_, 0) != VK_SUCCESS ||
-        vkMapMemory(device_, cpu_staging_mem_, 0, requirements.size, 0, &cpu_staging_mapped_) !=
+    if (device_dispatch_.vkBindBufferMemory(device_, cpu_staging_, cpu_staging_mem_, 0) !=
+            VK_SUCCESS ||
+        device_dispatch_.vkMapMemory(
+            device_, cpu_staging_mem_, 0, requirements.size, 0, &cpu_staging_mapped_) !=
             VK_SUCCESS) {
         std::fprintf(stderr, "weweb: failed to map CPU paint staging memory\n");
-        if (cpu_staging_mapped_ != nullptr) vkUnmapMemory(device_, cpu_staging_mem_);
-        vkFreeMemory(device_, cpu_staging_mem_, nullptr);
-        vkDestroyBuffer(device_, cpu_staging_, nullptr);
+        if (cpu_staging_mapped_ != nullptr)
+            device_dispatch_.vkUnmapMemory(device_, cpu_staging_mem_);
+        device_dispatch_.vkFreeMemory(device_, cpu_staging_mem_, nullptr);
+        device_dispatch_.vkDestroyBuffer(device_, cpu_staging_, nullptr);
         cpu_staging_mem_    = VK_NULL_HANDLE;
         cpu_staging_        = VK_NULL_HANDLE;
         cpu_staging_mapped_ = nullptr;
@@ -346,15 +383,15 @@ bool VulkanBlitter::EnsureCpuStaging(std::size_t size) {
 
 void VulkanBlitter::DestroyCpuStaging() {
     if (cpu_staging_mapped_ != nullptr && cpu_staging_mem_ != VK_NULL_HANDLE) {
-        vkUnmapMemory(device_, cpu_staging_mem_);
+        device_dispatch_.vkUnmapMemory(device_, cpu_staging_mem_);
     }
     cpu_staging_mapped_ = nullptr;
     if (cpu_staging_ != VK_NULL_HANDLE) {
-        vkDestroyBuffer(device_, cpu_staging_, nullptr);
+        device_dispatch_.vkDestroyBuffer(device_, cpu_staging_, nullptr);
         cpu_staging_ = VK_NULL_HANDLE;
     }
     if (cpu_staging_mem_ != VK_NULL_HANDLE) {
-        vkFreeMemory(device_, cpu_staging_mem_, nullptr);
+        device_dispatch_.vkFreeMemory(device_, cpu_staging_mem_, nullptr);
         cpu_staging_mem_ = VK_NULL_HANDLE;
     }
     cpu_staging_size_     = 0;
@@ -386,20 +423,23 @@ bool VulkanBlitter::CopyCpuStagingToOwned(int width, int height) {
         range.sType  = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE;
         range.memory = cpu_staging_mem_;
         range.size   = VK_WHOLE_SIZE;
-        if (vkFlushMappedMemoryRanges(device_, 1, &range) != VK_SUCCESS) return false;
+        if (device_dispatch_.vkFlushMappedMemoryRanges(device_, 1, &range) != VK_SUCCESS)
+            return false;
     }
-    if (vkWaitForFences(device_, 1, &in_flight_fence_[0], VK_TRUE, kFenceTimeoutNs) != VK_SUCCESS ||
-        vkWaitForFences(device_, 1, &in_flight_fence_[1], VK_TRUE, kFenceTimeoutNs) != VK_SUCCESS) {
+    if (device_dispatch_.vkWaitForFences(
+            device_, 1, &in_flight_fence_[0], VK_TRUE, kFenceTimeoutNs) != VK_SUCCESS ||
+        device_dispatch_.vkWaitForFences(
+            device_, 1, &in_flight_fence_[1], VK_TRUE, kFenceTimeoutNs) != VK_SUCCESS) {
         std::fprintf(stderr, "weweb: timed out waiting for the CPU paint copy\n");
         return false;
     }
 
     VkCommandBuffer cmd = cmd_bufs_[0];
-    vkResetCommandBuffer(cmd, 0);
+    device_dispatch_.vkResetCommandBuffer(cmd, 0);
     VkCommandBufferBeginInfo begin_info {};
     begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    if (vkBeginCommandBuffer(cmd, &begin_info) != VK_SUCCESS) return false;
+    if (device_dispatch_.vkBeginCommandBuffer(cmd, &begin_info) != VK_SUCCESS) return false;
 
     VkImageMemoryBarrier destination_barrier {};
     destination_barrier.sType                       = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
@@ -414,16 +454,16 @@ bool VulkanBlitter::CopyCpuStagingToOwned(int width, int height) {
     destination_barrier.srcAccessMask =
         owned_layout_ == VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL ? VK_ACCESS_TRANSFER_READ_BIT : 0;
     destination_barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    vkCmdPipelineBarrier(cmd,
-                         VK_PIPELINE_STAGE_TRANSFER_BIT,
-                         VK_PIPELINE_STAGE_TRANSFER_BIT,
-                         0,
-                         0,
-                         nullptr,
-                         0,
-                         nullptr,
-                         1,
-                         &destination_barrier);
+    device_dispatch_.vkCmdPipelineBarrier(cmd,
+                                          VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                          VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                          0,
+                                          0,
+                                          nullptr,
+                                          0,
+                                          nullptr,
+                                          1,
+                                          &destination_barrier);
 
     VkBufferImageCopy region {};
     region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
@@ -431,7 +471,7 @@ bool VulkanBlitter::CopyCpuStagingToOwned(int width, int height) {
     region.imageExtent                 = { static_cast<std::uint32_t>(width),
                                            static_cast<std::uint32_t>(height),
                                            1 };
-    vkCmdCopyBufferToImage(
+    device_dispatch_.vkCmdCopyBufferToImage(
         cmd, cpu_staging_, owned_image_, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
 
     VkImageMemoryBarrier source_barrier = destination_barrier;
@@ -439,25 +479,27 @@ bool VulkanBlitter::CopyCpuStagingToOwned(int width, int height) {
     source_barrier.newLayout            = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
     source_barrier.srcAccessMask        = VK_ACCESS_TRANSFER_WRITE_BIT;
     source_barrier.dstAccessMask        = VK_ACCESS_TRANSFER_READ_BIT;
-    vkCmdPipelineBarrier(cmd,
-                         VK_PIPELINE_STAGE_TRANSFER_BIT,
-                         VK_PIPELINE_STAGE_TRANSFER_BIT,
-                         0,
-                         0,
-                         nullptr,
-                         0,
-                         nullptr,
-                         1,
-                         &source_barrier);
+    device_dispatch_.vkCmdPipelineBarrier(cmd,
+                                          VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                          VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                          0,
+                                          0,
+                                          nullptr,
+                                          0,
+                                          nullptr,
+                                          1,
+                                          &source_barrier);
 
-    if (vkEndCommandBuffer(cmd) != VK_SUCCESS) return false;
-    vkResetFences(device_, 1, &in_flight_fence_[0]);
+    if (device_dispatch_.vkEndCommandBuffer(cmd) != VK_SUCCESS) return false;
+    device_dispatch_.vkResetFences(device_, 1, &in_flight_fence_[0]);
     VkSubmitInfo submit {};
     submit.sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO;
     submit.commandBufferCount = 1;
     submit.pCommandBuffers    = &cmd;
-    if (vkQueueSubmit(queue_, 1, &submit, in_flight_fence_[0]) != VK_SUCCESS) return false;
-    if (vkWaitForFences(device_, 1, &in_flight_fence_[0], VK_TRUE, kFenceTimeoutNs) != VK_SUCCESS) {
+    if (device_dispatch_.vkQueueSubmit(queue_, 1, &submit, in_flight_fence_[0]) != VK_SUCCESS)
+        return false;
+    if (device_dispatch_.vkWaitForFences(
+            device_, 1, &in_flight_fence_[0], VK_TRUE, kFenceTimeoutNs) != VK_SUCCESS) {
         std::fprintf(stderr, "weweb: timed out waiting for the CPU paint copy completion\n");
         return false;
     }
@@ -472,25 +514,27 @@ bool VulkanBlitter::CreateCommandPool() {
     ci.sType            = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
     ci.flags            = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
     ci.queueFamilyIndex = queue_family_;
-    VK_CHECK(vkCreateCommandPool(device_, &ci, nullptr, &cmd_pool_));
+    VK_CHECK(device_dispatch_.vkCreateCommandPool(device_, &ci, nullptr, &cmd_pool_));
 
     VkCommandBufferAllocateInfo ai {};
     ai.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
     ai.commandPool        = cmd_pool_;
     ai.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
     ai.commandBufferCount = kMaxFramesInFlight;
-    VK_CHECK(vkAllocateCommandBuffers(device_, &ai, cmd_bufs_));
+    VK_CHECK(device_dispatch_.vkAllocateCommandBuffers(device_, &ai, cmd_bufs_));
     return true;
 }
 
 bool VulkanBlitter::CreateSwapchain() {
     VkSurfaceCapabilitiesKHR caps {};
-    VK_CHECK(vkGetPhysicalDeviceSurfaceCapabilitiesKHR(phys_, surface_, &caps));
+    VK_CHECK(instance_dispatch_.vkGetPhysicalDeviceSurfaceCapabilitiesKHR(phys_, surface_, &caps));
 
     std::uint32_t fcount = 0;
-    VK_CHECK(vkGetPhysicalDeviceSurfaceFormatsKHR(phys_, surface_, &fcount, nullptr));
+    VK_CHECK(
+        instance_dispatch_.vkGetPhysicalDeviceSurfaceFormatsKHR(phys_, surface_, &fcount, nullptr));
     std::vector<VkSurfaceFormatKHR> formats(fcount);
-    VK_CHECK(vkGetPhysicalDeviceSurfaceFormatsKHR(phys_, surface_, &fcount, formats.data()));
+    VK_CHECK(instance_dispatch_.vkGetPhysicalDeviceSurfaceFormatsKHR(
+        phys_, surface_, &fcount, formats.data()));
 
     swap_format_     = formats[0].format;
     swap_colorspace_ = formats[0].colorSpace;
@@ -536,29 +580,30 @@ bool VulkanBlitter::CreateSwapchain() {
     ci.clipped          = VK_TRUE;
     ci.oldSwapchain     = VK_NULL_HANDLE;
 
-    VK_CHECK(vkCreateSwapchainKHR(device_, &ci, nullptr, &swapchain_));
+    VK_CHECK(device_dispatch_.vkCreateSwapchainKHR(device_, &ci, nullptr, &swapchain_));
 
     std::uint32_t scount = 0;
-    VK_CHECK(vkGetSwapchainImagesKHR(device_, swapchain_, &scount, nullptr));
+    VK_CHECK(device_dispatch_.vkGetSwapchainImagesKHR(device_, swapchain_, &scount, nullptr));
     swap_images_.resize(scount);
-    VK_CHECK(vkGetSwapchainImagesKHR(device_, swapchain_, &scount, swap_images_.data()));
+    VK_CHECK(device_dispatch_.vkGetSwapchainImagesKHR(
+        device_, swapchain_, &scount, swap_images_.data()));
 
     // Per-image render-done semaphore (see hpp comment).
     VkSemaphoreCreateInfo si {};
     si.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
     render_done_sem_.resize(scount, VK_NULL_HANDLE);
     for (std::uint32_t i = 0; i < scount; ++i) {
-        VK_CHECK(vkCreateSemaphore(device_, &si, nullptr, &render_done_sem_[i]));
+        VK_CHECK(device_dispatch_.vkCreateSemaphore(device_, &si, nullptr, &render_done_sem_[i]));
     }
     return true;
 }
 
 void VulkanBlitter::DestroySwapchain() {
     for (auto& s : render_done_sem_)
-        if (s) vkDestroySemaphore(device_, s, nullptr);
+        if (s) device_dispatch_.vkDestroySemaphore(device_, s, nullptr);
     render_done_sem_.clear();
     if (swapchain_ != VK_NULL_HANDLE) {
-        vkDestroySwapchainKHR(device_, swapchain_, nullptr);
+        device_dispatch_.vkDestroySwapchainKHR(device_, swapchain_, nullptr);
         swapchain_ = VK_NULL_HANDLE;
     }
     swap_images_.clear();
@@ -573,15 +618,15 @@ bool VulkanBlitter::CreateSyncObjects() {
 
     // render_done_sem_ is created per swapchain image in CreateSwapchain.
     for (std::uint32_t i = 0; i < kMaxFramesInFlight; ++i) {
-        VK_CHECK(vkCreateSemaphore(device_, &si, nullptr, &img_avail_sem_[i]));
-        VK_CHECK(vkCreateFence(device_, &fi, nullptr, &in_flight_fence_[i]));
+        VK_CHECK(device_dispatch_.vkCreateSemaphore(device_, &si, nullptr, &img_avail_sem_[i]));
+        VK_CHECK(device_dispatch_.vkCreateFence(device_, &fi, nullptr, &in_flight_fence_[i]));
     }
     return true;
 }
 
 bool VulkanBlitter::Resize() {
     if (! device_) return false;
-    vkDeviceWaitIdle(device_);
+    device_dispatch_.vkDeviceWaitIdle(device_);
     DestroySwapchain();
     if (! CreateSwapchain()) return false;
     return true;
@@ -604,14 +649,14 @@ bool VulkanBlitter::EnsureOwnedImage(int width, int height) {
 #if __is_target_os(macos)
     if (owned_image_ != VK_NULL_HANDLE) {
         if (in_flight_fence_[0] != VK_NULL_HANDLE &&
-            vkWaitForFences(device_, 1, &in_flight_fence_[0], VK_TRUE, kFenceTimeoutNs) !=
-                VK_SUCCESS) {
+            device_dispatch_.vkWaitForFences(
+                device_, 1, &in_flight_fence_[0], VK_TRUE, kFenceTimeoutNs) != VK_SUCCESS) {
             std::fprintf(stderr, "weweb: timed out waiting for the old CPU paint image\n");
             return false;
         }
         if (in_flight_fence_[1] != VK_NULL_HANDLE &&
-            vkWaitForFences(device_, 1, &in_flight_fence_[1], VK_TRUE, kFenceTimeoutNs) !=
-                VK_SUCCESS) {
+            device_dispatch_.vkWaitForFences(
+                device_, 1, &in_flight_fence_[1], VK_TRUE, kFenceTimeoutNs) != VK_SUCCESS) {
             std::fprintf(stderr, "weweb: timed out waiting for the old presented image\n");
             return false;
         }
@@ -631,10 +676,10 @@ bool VulkanBlitter::EnsureOwnedImage(int width, int height) {
     ii.usage         = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
     ii.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
     ii.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    VK_CHECK(vkCreateImage(device_, &ii, nullptr, &owned_image_));
+    VK_CHECK(device_dispatch_.vkCreateImage(device_, &ii, nullptr, &owned_image_));
 
     VkMemoryRequirements mr {};
-    vkGetImageMemoryRequirements(device_, owned_image_, &mr);
+    device_dispatch_.vkGetImageMemoryRequirements(device_, owned_image_, &mr);
     VkMemoryAllocateInfo mi {};
     mi.sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
     mi.allocationSize  = mr.size;
@@ -643,8 +688,8 @@ bool VulkanBlitter::EnsureOwnedImage(int width, int height) {
         std::fprintf(stderr, "weweb: no DEVICE_LOCAL memory type for owned image\n");
         return false;
     }
-    VK_CHECK(vkAllocateMemory(device_, &mi, nullptr, &owned_image_mem_));
-    VK_CHECK(vkBindImageMemory(device_, owned_image_, owned_image_mem_, 0));
+    VK_CHECK(device_dispatch_.vkAllocateMemory(device_, &mi, nullptr, &owned_image_mem_));
+    VK_CHECK(device_dispatch_.vkBindImageMemory(device_, owned_image_, owned_image_mem_, 0));
 
     owned_width_    = width;
     owned_height_   = height;
@@ -655,11 +700,11 @@ bool VulkanBlitter::EnsureOwnedImage(int width, int height) {
 
 void VulkanBlitter::DestroyOwnedImage() {
     if (owned_image_ != VK_NULL_HANDLE) {
-        vkDestroyImage(device_, owned_image_, nullptr);
+        device_dispatch_.vkDestroyImage(device_, owned_image_, nullptr);
         owned_image_ = VK_NULL_HANDLE;
     }
     if (owned_image_mem_ != VK_NULL_HANDLE) {
-        vkFreeMemory(device_, owned_image_mem_, nullptr);
+        device_dispatch_.vkFreeMemory(device_, owned_image_mem_, nullptr);
         owned_image_mem_ = VK_NULL_HANDLE;
     }
     owned_width_ = owned_height_ = 0;
@@ -705,7 +750,7 @@ bool VulkanBlitter::AcceptDmaBuf(const DmaBufFrame& frame) {
 
     // Wait for *any* in-flight GPU work on owned_image_ from a prior
     // RenderFrame blit to finish. Single-threaded design, sub-ms cost.
-    if (device_) vkDeviceWaitIdle(device_);
+    if (device_) device_dispatch_.vkDeviceWaitIdle(device_);
 
     if (! EnsureOwnedImage(frame.coded_width, frame.coded_height)) return false;
 
@@ -720,7 +765,7 @@ bool VulkanBlitter::AcceptDmaBuf(const DmaBufFrame& frame) {
     // Look up which Vulkan memory types are valid for this FD.
     VkMemoryFdPropertiesKHR fd_props {};
     fd_props.sType = VK_STRUCTURE_TYPE_MEMORY_FD_PROPERTIES_KHR;
-    VkResult fdr   = pfn_GetMemoryFdProperties_(
+    VkResult fdr   = device_dispatch_.vkGetMemoryFdPropertiesKHR(
         device_, VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT, dup_fd, &fd_props);
     if (fdr != VK_SUCCESS) {
         std::fprintf(stderr, "weweb: vkGetMemoryFdPropertiesKHR=%d\n", static_cast<int>(fdr));
@@ -777,14 +822,14 @@ bool VulkanBlitter::AcceptDmaBuf(const DmaBufFrame& frame) {
     ii.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
     VkImage temp_img = VK_NULL_HANDLE;
-    if (vkCreateImage(device_, &ii, nullptr, &temp_img) != VK_SUCCESS) {
+    if (device_dispatch_.vkCreateImage(device_, &ii, nullptr, &temp_img) != VK_SUCCESS) {
         std::fprintf(stderr, "weweb: vkCreateImage(temp dma-buf) failed\n");
         ::close(dup_fd);
         return false;
     }
 
     VkMemoryRequirements mr {};
-    vkGetImageMemoryRequirements(device_, temp_img, &mr);
+    device_dispatch_.vkGetImageMemoryRequirements(device_, temp_img, &mr);
 
     // Memory type must satisfy *both* the image's requirements AND the
     // FD's allowable types. ANDing memoryTypeBits accomplishes that.
@@ -798,7 +843,7 @@ bool VulkanBlitter::AcceptDmaBuf(const DmaBufFrame& frame) {
     }
     if (mtype == UINT32_MAX) {
         std::fprintf(stderr, "weweb: no compatible memory type for DMA-BUF\n");
-        vkDestroyImage(device_, temp_img, nullptr);
+        device_dispatch_.vkDestroyImage(device_, temp_img, nullptr);
         ::close(dup_fd);
         return false;
     }
@@ -823,32 +868,33 @@ bool VulkanBlitter::AcceptDmaBuf(const DmaBufFrame& frame) {
     mi.memoryTypeIndex = mtype;
 
     VkDeviceMemory imported_mem = VK_NULL_HANDLE;
-    VkResult       ar           = vkAllocateMemory(device_, &mi, nullptr, &imported_mem);
+    VkResult       ar = device_dispatch_.vkAllocateMemory(device_, &mi, nullptr, &imported_mem);
     if (ar != VK_SUCCESS) {
         std::fprintf(stderr, "weweb: vkAllocateMemory(import fd)=%d\n", static_cast<int>(ar));
-        vkDestroyImage(device_, temp_img, nullptr);
+        device_dispatch_.vkDestroyImage(device_, temp_img, nullptr);
         ::close(dup_fd);
         return false;
     }
     // From here on Vulkan owns the FD; we MUST NOT close dup_fd.
 
-    if (vkBindImageMemory(device_, temp_img, imported_mem, frame.planes[0].offset) != VK_SUCCESS) {
+    if (device_dispatch_.vkBindImageMemory(
+            device_, temp_img, imported_mem, frame.planes[0].offset) != VK_SUCCESS) {
         std::fprintf(stderr, "weweb: vkBindImageMemory(temp) failed\n");
-        vkFreeMemory(device_, imported_mem, nullptr);
-        vkDestroyImage(device_, temp_img, nullptr);
+        device_dispatch_.vkFreeMemory(device_, imported_mem, nullptr);
+        device_dispatch_.vkDestroyImage(device_, temp_img, nullptr);
         return false;
     }
 
     // Copy temp_img → owned_image_. Use cmd_bufs_[0] as a scratch
     // buffer; we wait for it inline.
     VkCommandBuffer cmd = cmd_bufs_[0];
-    vkResetCommandBuffer(cmd, 0);
+    device_dispatch_.vkResetCommandBuffer(cmd, 0);
     VkCommandBufferBeginInfo bi {};
     bi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    if (vkBeginCommandBuffer(cmd, &bi) != VK_SUCCESS) {
-        vkFreeMemory(device_, imported_mem, nullptr);
-        vkDestroyImage(device_, temp_img, nullptr);
+    if (device_dispatch_.vkBeginCommandBuffer(cmd, &bi) != VK_SUCCESS) {
+        device_dispatch_.vkFreeMemory(device_, imported_mem, nullptr);
+        device_dispatch_.vkDestroyImage(device_, temp_img, nullptr);
         return false;
     }
 
@@ -865,16 +911,16 @@ bool VulkanBlitter::AcceptDmaBuf(const DmaBufFrame& frame) {
     b_src.subresourceRange.layerCount = 1;
     b_src.srcAccessMask               = 0;
     b_src.dstAccessMask               = VK_ACCESS_TRANSFER_READ_BIT;
-    vkCmdPipelineBarrier(cmd,
-                         VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-                         VK_PIPELINE_STAGE_TRANSFER_BIT,
-                         0,
-                         0,
-                         nullptr,
-                         0,
-                         nullptr,
-                         1,
-                         &b_src);
+    device_dispatch_.vkCmdPipelineBarrier(cmd,
+                                          VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                                          VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                          0,
+                                          0,
+                                          nullptr,
+                                          0,
+                                          nullptr,
+                                          1,
+                                          &b_src);
 
     // owned_image_: <prev_layout> → TRANSFER_DST_OPTIMAL.
     VkImageMemoryBarrier b_dst = b_src;
@@ -883,16 +929,16 @@ bool VulkanBlitter::AcceptDmaBuf(const DmaBufFrame& frame) {
     b_dst.image                = owned_image_;
     b_dst.srcAccessMask        = 0;
     b_dst.dstAccessMask        = VK_ACCESS_TRANSFER_WRITE_BIT;
-    vkCmdPipelineBarrier(cmd,
-                         VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-                         VK_PIPELINE_STAGE_TRANSFER_BIT,
-                         0,
-                         0,
-                         nullptr,
-                         0,
-                         nullptr,
-                         1,
-                         &b_dst);
+    device_dispatch_.vkCmdPipelineBarrier(cmd,
+                                          VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                                          VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                          0,
+                                          0,
+                                          nullptr,
+                                          0,
+                                          nullptr,
+                                          1,
+                                          &b_dst);
 
     VkImageCopy region {};
     region.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
@@ -902,13 +948,13 @@ bool VulkanBlitter::AcceptDmaBuf(const DmaBufFrame& frame) {
     region.extent                    = { static_cast<std::uint32_t>(frame.coded_width),
                                          static_cast<std::uint32_t>(frame.coded_height),
                                          1 };
-    vkCmdCopyImage(cmd,
-                   temp_img,
-                   VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                   owned_image_,
-                   VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                   1,
-                   &region);
+    device_dispatch_.vkCmdCopyImage(cmd,
+                                    temp_img,
+                                    VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                                    owned_image_,
+                                    VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                    1,
+                                    &region);
 
     // owned_image_: TRANSFER_DST → TRANSFER_SRC (so RenderFrame can read).
     VkImageMemoryBarrier b_owned_src {};
@@ -923,20 +969,20 @@ bool VulkanBlitter::AcceptDmaBuf(const DmaBufFrame& frame) {
     b_owned_src.subresourceRange.layerCount = 1;
     b_owned_src.srcAccessMask               = VK_ACCESS_TRANSFER_WRITE_BIT;
     b_owned_src.dstAccessMask               = VK_ACCESS_TRANSFER_READ_BIT;
-    vkCmdPipelineBarrier(cmd,
-                         VK_PIPELINE_STAGE_TRANSFER_BIT,
-                         VK_PIPELINE_STAGE_TRANSFER_BIT,
-                         0,
-                         0,
-                         nullptr,
-                         0,
-                         nullptr,
-                         1,
-                         &b_owned_src);
+    device_dispatch_.vkCmdPipelineBarrier(cmd,
+                                          VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                          VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                          0,
+                                          0,
+                                          nullptr,
+                                          0,
+                                          nullptr,
+                                          1,
+                                          &b_owned_src);
 
-    if (vkEndCommandBuffer(cmd) != VK_SUCCESS) {
-        vkFreeMemory(device_, imported_mem, nullptr);
-        vkDestroyImage(device_, temp_img, nullptr);
+    if (device_dispatch_.vkEndCommandBuffer(cmd) != VK_SUCCESS) {
+        device_dispatch_.vkFreeMemory(device_, imported_mem, nullptr);
+        device_dispatch_.vkDestroyImage(device_, temp_img, nullptr);
         return false;
     }
 
@@ -948,17 +994,17 @@ bool VulkanBlitter::AcceptDmaBuf(const DmaBufFrame& frame) {
     // Use the in_flight_fence_[0] which CreateSyncObjects signaled
     // initially. Reset, submit, then wait — must be done before this
     // function returns since CEF reclaims the FD.
-    vkResetFences(device_, 1, &in_flight_fence_[0]);
-    if (vkQueueSubmit(queue_, 1, &submit, in_flight_fence_[0]) != VK_SUCCESS) {
+    device_dispatch_.vkResetFences(device_, 1, &in_flight_fence_[0]);
+    if (device_dispatch_.vkQueueSubmit(queue_, 1, &submit, in_flight_fence_[0]) != VK_SUCCESS) {
         std::fprintf(stderr, "weweb: vkQueueSubmit(import-copy) failed\n");
-        vkFreeMemory(device_, imported_mem, nullptr);
-        vkDestroyImage(device_, temp_img, nullptr);
+        device_dispatch_.vkFreeMemory(device_, imported_mem, nullptr);
+        device_dispatch_.vkDestroyImage(device_, temp_img, nullptr);
         return false;
     }
-    vkWaitForFences(device_, 1, &in_flight_fence_[0], VK_TRUE, kFenceTimeoutNs);
+    device_dispatch_.vkWaitForFences(device_, 1, &in_flight_fence_[0], VK_TRUE, kFenceTimeoutNs);
 
-    vkDestroyImage(device_, temp_img, nullptr);
-    vkFreeMemory(device_, imported_mem, nullptr);
+    device_dispatch_.vkDestroyImage(device_, temp_img, nullptr);
+    device_dispatch_.vkFreeMemory(device_, imported_mem, nullptr);
 
     owned_layout_   = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
     owned_has_data_ = true;
@@ -981,10 +1027,10 @@ bool VulkanBlitter::RenderFrame() {
     VkSemaphore         img_sem = img_avail_sem_[fi];
     VkCommandBuffer     cmd     = cmd_bufs_[fi];
 
-    vkWaitForFences(device_, 1, &fence, VK_TRUE, kFenceTimeoutNs);
+    device_dispatch_.vkWaitForFences(device_, 1, &fence, VK_TRUE, kFenceTimeoutNs);
 
     std::uint32_t img_idx = 0;
-    VkResult      acq     = vkAcquireNextImageKHR(
+    VkResult      acq     = device_dispatch_.vkAcquireNextImageKHR(
         device_, swapchain_, kFenceTimeoutNs, img_sem, VK_NULL_HANDLE, &img_idx);
     if (acq == VK_ERROR_OUT_OF_DATE_KHR) return false;
     if (acq != VK_SUCCESS && acq != VK_SUBOPTIMAL_KHR) {
@@ -993,13 +1039,13 @@ bool VulkanBlitter::RenderFrame() {
     }
     VkSemaphore done_sem = render_done_sem_[img_idx];
 
-    vkResetFences(device_, 1, &fence);
-    vkResetCommandBuffer(cmd, 0);
+    device_dispatch_.vkResetFences(device_, 1, &fence);
+    device_dispatch_.vkResetCommandBuffer(cmd, 0);
 
     VkCommandBufferBeginInfo bi {};
     bi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    VK_CHECK(vkBeginCommandBuffer(cmd, &bi));
+    VK_CHECK(device_dispatch_.vkBeginCommandBuffer(cmd, &bi));
 
     VkImage swap_img = swap_images_[img_idx];
 
@@ -1019,16 +1065,16 @@ bool VulkanBlitter::RenderFrame() {
     // srcStage matches the wait dstStage on img_sem (TRANSFER) so the
     // validator can chain "acquire-read → wait → barrier"; using
     // TOP_OF_PIPE produces a SYNC-HAZARD-WRITE-AFTER-READ.
-    vkCmdPipelineBarrier(cmd,
-                         VK_PIPELINE_STAGE_TRANSFER_BIT,
-                         VK_PIPELINE_STAGE_TRANSFER_BIT,
-                         0,
-                         0,
-                         nullptr,
-                         0,
-                         nullptr,
-                         1,
-                         &b);
+    device_dispatch_.vkCmdPipelineBarrier(cmd,
+                                          VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                          VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                          0,
+                                          0,
+                                          nullptr,
+                                          0,
+                                          nullptr,
+                                          1,
+                                          &b);
 
     if (owned_has_data_ && owned_image_ != VK_NULL_HANDLE) {
         VkImageBlit blit {};
@@ -1042,21 +1088,22 @@ bool VulkanBlitter::RenderFrame() {
         blit.dstOffsets[1]             = { static_cast<int32_t>(extent_.width),
                                            static_cast<int32_t>(extent_.height),
                                            1 };
-        vkCmdBlitImage(cmd,
-                       owned_image_,
-                       VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                       swap_img,
-                       VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                       1,
-                       &blit,
-                       VK_FILTER_LINEAR);
+        device_dispatch_.vkCmdBlitImage(cmd,
+                                        owned_image_,
+                                        VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                                        swap_img,
+                                        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                                        1,
+                                        &blit,
+                                        VK_FILTER_LINEAR);
     } else {
         VkClearColorValue       clear {};
         VkImageSubresourceRange r {};
         r.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
         r.levelCount = 1;
         r.layerCount = 1;
-        vkCmdClearColorImage(cmd, swap_img, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &clear, 1, &r);
+        device_dispatch_.vkCmdClearColorImage(
+            cmd, swap_img, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &clear, 1, &r);
     }
 
     // swapchain_img: TRANSFER_DST → PRESENT_SRC.
@@ -1065,18 +1112,18 @@ bool VulkanBlitter::RenderFrame() {
     bp.newLayout            = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
     bp.srcAccessMask        = VK_ACCESS_TRANSFER_WRITE_BIT;
     bp.dstAccessMask        = 0;
-    vkCmdPipelineBarrier(cmd,
-                         VK_PIPELINE_STAGE_TRANSFER_BIT,
-                         VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
-                         0,
-                         0,
-                         nullptr,
-                         0,
-                         nullptr,
-                         1,
-                         &bp);
+    device_dispatch_.vkCmdPipelineBarrier(cmd,
+                                          VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                          VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+                                          0,
+                                          0,
+                                          nullptr,
+                                          0,
+                                          nullptr,
+                                          1,
+                                          &bp);
 
-    VK_CHECK(vkEndCommandBuffer(cmd));
+    VK_CHECK(device_dispatch_.vkEndCommandBuffer(cmd));
 
     VkPipelineStageFlags wait_stage = VK_PIPELINE_STAGE_TRANSFER_BIT;
     VkSubmitInfo         submit {};
@@ -1088,7 +1135,7 @@ bool VulkanBlitter::RenderFrame() {
     submit.pCommandBuffers      = &cmd;
     submit.signalSemaphoreCount = 1;
     submit.pSignalSemaphores    = &done_sem;
-    VK_CHECK(vkQueueSubmit(queue_, 1, &submit, fence));
+    VK_CHECK(device_dispatch_.vkQueueSubmit(queue_, 1, &submit, fence));
 
     VkPresentInfoKHR present {};
     present.sType              = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
@@ -1098,7 +1145,7 @@ bool VulkanBlitter::RenderFrame() {
     present.pSwapchains        = &swapchain_;
     present.pImageIndices      = &img_idx;
 
-    VkResult pres = vkQueuePresentKHR(queue_, &present);
+    VkResult pres = device_dispatch_.vkQueuePresentKHR(queue_, &present);
     if (pres == VK_ERROR_OUT_OF_DATE_KHR || pres == VK_SUBOPTIMAL_KHR) {
         return false;
     }

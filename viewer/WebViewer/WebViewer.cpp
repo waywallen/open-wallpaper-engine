@@ -1,11 +1,6 @@
 // weweb standalone GLFW + Vulkan + CEF (OSR) viewer.
 
-#if __is_target_os(macos)
-#    define GLFW_INCLUDE_VULKAN
-#    include <vulkan/vulkan.h>
-#endif
-#include <GLFW/glfw3.h>
-
+import vvk;
 import rstd.argparse;
 import rstd.cppstd;
 import owe.audio_response;
@@ -15,6 +10,8 @@ import wavsen.audio;
 import viewer.common;
 import viewer.audio;
 import viewer.web;
+
+#include "GlfwVulkan.hpp"
 
 namespace
 {
@@ -235,9 +232,17 @@ int main(int argc, char** argv) {
 #else
     viewer::InitGlfwPlatformHint(/*force_x11=*/true);
 #endif
-#if __is_target_os(macos)
-    if (presenter_name == "vulkan") glfwInitVulkanLoader(vkGetInstanceProcAddr);
-#endif
+    Option<vvk::VulkanLoader> vulkan_loader;
+    if (presenter_name == "vulkan") {
+        auto loaded = vvk::VulkanLoader::Open();
+        if (loaded.is_err()) {
+            std::cerr << "webviewer: Vulkan loader open failed\n";
+            return 1;
+        }
+        vulkan_loader = Some(loaded.unwrap_unchecked());
+        glfwInitVulkanLoader(
+            vulkan_loader.as_ref().unwrap_unchecked().global().vkGetInstanceProcAddr);
+    }
     if (! glfwInit()) {
         std::cerr << "webviewer: glfwInit failed\n";
         return 1;

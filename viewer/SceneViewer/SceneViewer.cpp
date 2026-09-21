@@ -1,7 +1,3 @@
-#define GLFW_INCLUDE_VULKAN
-#include <vulkan/vulkan.h>
-#include <GLFW/glfw3.h>
-
 #include <cerrno>
 #if __is_target_os(macos)
 #    include <condition_variable>
@@ -16,11 +12,6 @@
 #include <thread>
 #include <unistd.h>
 
-#if __is_target_os(macos)
-extern "C" VkResult oweCreateGlfwCocoaSurface(GLFWwindow*, VkInstance, VkSurfaceKHR*, int, int);
-extern "C" void     oweConfigureGlfwCocoaLayer(GLFWwindow*, int, int);
-#endif
-
 import vvk;
 import rstd.cppstd;
 import rstd.log;
@@ -31,6 +22,13 @@ import wescene.scene_wallpaper;
 import wescene.utils;
 import viewer.common;
 import viewer.audio;
+
+#include "GlfwVulkan.hpp"
+
+#if __is_target_os(macos)
+extern "C" VkResult oweCreateGlfwCocoaSurface(GLFWwindow*, VkInstance, VkSurfaceKHR*, int, int);
+extern "C" void     oweConfigureGlfwCocoaLayer(GLFWwindow*, int, int);
+#endif
 
 using namespace std;
 using namespace rstd::prelude;

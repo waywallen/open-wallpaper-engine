@@ -10,8 +10,6 @@ module;
 
 #include <sys/prctl.h>
 #include <sys/socket.h>
-#define VK_NO_PROTOTYPES
-#include <vulkan/vulkan.h>
 
 module waywallen.scene_entry;
 

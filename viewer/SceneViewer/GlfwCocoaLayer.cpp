@@ -1,6 +1,6 @@
-#define GLFW_INCLUDE_VULKAN
-#include <GLFW/glfw3.h>
-#include <vulkan/vulkan.h>
+import vvk;
+
+#include "GlfwVulkan.hpp"
 
 #if __is_target_os(macos)
 

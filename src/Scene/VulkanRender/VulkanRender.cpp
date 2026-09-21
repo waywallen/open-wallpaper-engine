@@ -5,9 +5,9 @@ module;
 
 #include <cerrno>
 #include <unistd.h>
-#include <vulkan/vulkan.h>
 
 module wescene.vulkan_render;
+import vvk;
 import wescene.core;
 import wescene.types;
 import rstd.log;
@@ -218,8 +218,8 @@ bool VulkanRender::getDrmRenderNode(std::uint32_t& out_major, std::uint32_t& out
     pImpl->m_device->gpu().GetProperties2KHR(props);
     if (! drm.hasRender) return false;
     if (drm.renderMajor < 0 || drm.renderMinor < 0 ||
-        static_cast<std::uint64_t>(drm.renderMajor) > UINT32_MAX ||
-        static_cast<std::uint64_t>(drm.renderMinor) > UINT32_MAX) {
+        static_cast<std::uint64_t>(drm.renderMajor) > u32::MAX.to_primitive() ||
+        static_cast<std::uint64_t>(drm.renderMinor) > u32::MAX.to_primitive()) {
         return false;
     }
     out_major = static_cast<std::uint32_t>(drm.renderMajor);

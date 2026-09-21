@@ -6,9 +6,6 @@ module;
 #include <sys/sysmacros.h>
 #include <unistd.h>
 
-#define VK_NO_PROTOTYPES
-#include <vulkan/vulkan.h>
-
 module waywallen.web_producer_device;
 
 import rstd.cppstd;
@@ -202,7 +199,7 @@ bool WebProducerDevice::PickPhysicalDevice() {
             VkQueueFamilyProperties2 { .sType = VK_STRUCTURE_TYPE_QUEUE_FAMILY_PROPERTIES_2 });
         instance_dispatch_.vkGetPhysicalDeviceQueueFamilyProperties2(pd, &qcount, qfp.data());
 
-        uint32_t picked_qf = UINT32_MAX;
+        uint32_t picked_qf = rstd::u32::MAX.to_primitive();
         for (uint32_t i = 0; i < qcount; ++i) {
             // GRAPHICS_BIT implies TRANSFER_BIT; the bridge wants both
             // for vkCmdBlitImage and the producer needs no presentation
@@ -212,7 +209,7 @@ bool WebProducerDevice::PickPhysicalDevice() {
                 break;
             }
         }
-        if (picked_qf == UINT32_MAX) continue;
+        if (picked_qf == rstd::u32::MAX.to_primitive()) continue;
 
         uint32_t ecount = 0;
         instance_dispatch_.vkEnumerateDeviceExtensionProperties(pd, nullptr, &ecount, nullptr);
@@ -550,14 +547,14 @@ WebProducerDevice::ImportedFrame WebProducerDevice::Import(const ::weweb::DmaBuf
     device_dispatch_.vkGetImageMemoryRequirements(device_, img, &mr);
 
     uint32_t allowed = mr.memoryTypeBits & fd_props.memoryTypeBits;
-    uint32_t mtype   = UINT32_MAX;
+    uint32_t mtype   = rstd::u32::MAX.to_primitive();
     for (uint32_t i = 0; i < mem_props_.memoryTypeCount; ++i) {
         if (allowed & (1u << i)) {
             mtype = i;
             break;
         }
     }
-    if (mtype == UINT32_MAX) {
+    if (mtype == rstd::u32::MAX.to_primitive()) {
         std::fprintf(stderr, "WebProducerDevice: no compatible memory type for DMA-BUF\n");
         device_dispatch_.vkDestroyImage(device_, img, nullptr);
         ::close(dup_fd);
