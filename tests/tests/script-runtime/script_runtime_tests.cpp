@@ -23,8 +23,8 @@ namespace
 // can observe the JsRuntime's deferred-callback sweep through FieldScript's
 // last_value().
 FieldScript* MakeProbe(JsRuntime& rt, const char* sha, const char* src) {
-    return rt.MakeFieldScript(src,
-                              sha,
+    return rt.MakeFieldScript(rstd::cppstd::as_str(src).unwrap(),
+                              rstd::cppstd::as_str(sha).unwrap(),
                               FieldKind::Scalar,
                               /*properties_config=*/owe::MakeObject(),
                               /*initial_value=*/owe::IntoJson(0),
@@ -42,9 +42,9 @@ double Tick(JsRuntime& rt, double runtime) {
 }
 
 double LastScalar(FieldScript* fs) {
-    EXPECT_TRUE(std::holds_alternative<ScalarValue>(fs->last_value()));
-    if (! std::holds_alternative<ScalarValue>(fs->last_value())) return 0.0;
-    return std::get<ScalarValue>(fs->last_value()).v;
+    EXPECT_TRUE(fs->last_value().is_Scalar());
+    if (! fs->last_value().is_Scalar()) return 0.0;
+    return fs->last_value().as_Scalar().value.v;
 }
 
 struct ParticleControlState {
@@ -105,8 +105,8 @@ TEST(ScriptInitialization, UsesSceneOwnerOrderInsteadOfRegistrationOrder) {
             let seen = -1;
             export function init() { seen = shared.ready; }
             export function update() { return seen; }
-        )JS",
-        "test/init_order_consumer",
+        )JS"_str,
+        "test/init_order_consumer"_str,
         FieldKind::Scalar,
         owe::MakeObject(),
         owe::IntoJson(0));
@@ -114,8 +114,8 @@ TEST(ScriptInitialization, UsesSceneOwnerOrderInsteadOfRegistrationOrder) {
         R"JS(
             export function init() { shared.ready = 7; }
             export function update() { return 0; }
-        )JS",
-        "test/init_order_producer",
+        )JS"_str,
+        "test/init_order_producer"_str,
         FieldKind::Scalar,
         owe::MakeObject(),
         owe::IntoJson(0));
@@ -135,8 +135,8 @@ TEST(ScriptValueCoercion, PreservesVec4InitialAndReturnValues) {
     auto*     script = rt.MakeFieldScript(
         R"JS(
             export function update(value) { return value.add(new Vec4(1, 2, 3, 4)); }
-        )JS",
-        "test/vec4_value",
+        )JS"_str,
+        "test/vec4_value"_str,
         FieldKind::Vec4,
         owe::MakeObject(),
         owe::IntoJson("0.5 1.5 2.5 3.5"));
@@ -144,12 +144,99 @@ TEST(ScriptValueCoercion, PreservesVec4InitialAndReturnValues) {
 
     rt.TickAll();
 
-    ASSERT_TRUE(std::holds_alternative<Vec4Value>(script->last_value()));
-    const auto& value = std::get<Vec4Value>(script->last_value());
+    ASSERT_TRUE(script->last_value().is_Vec4());
+    const auto& value = script->last_value().as_Vec4().value;
     EXPECT_DOUBLE_EQ(value.x, 1.5);
     EXPECT_DOUBLE_EQ(value.y, 3.5);
     EXPECT_DOUBLE_EQ(value.z, 5.5);
     EXPECT_DOUBLE_EQ(value.w, 7.5);
+}
+
+TEST(ScriptValueCoercion, ParsesDecimalPrefixesWithoutCStringCopies) {
+    struct Case {
+        ref<str>  text;
+        Vec4Value expected;
+    };
+    const Case cases[] = {
+        { " \t\r\n\v\f+.5 -2e1 3. 4E-1"_str, { .x = .5, .y = -20, .z = 3, .w = .4 } },
+        { "1-2+.3.4"_str, { .x = 1, .y = -2, .z = .3, .w = .4 } },
+        { "1 2oops 3"_str, { .x = 1, .y = 2, .z = 1, .w = 1 } },
+        { "1 2e+ 3"_str, { .x = 1, .y = 2, .z = 1, .w = 1 } },
+        { "1,2 3"_str, { .x = 1, .y = 1, .z = 1, .w = 1 } },
+        { "1\0 2"_str, { .x = 1, .y = 1, .z = 1, .w = 1 } },
+        { "1 2e9999 3"_str, { .x = 1, .y = 1, .z = 1, .w = 1 } },
+        { "1 2e-9999 3"_str, { .x = 1, .y = 0, .z = 3, .w = 1 } },
+        { "0x1p2 3"_str, {} },
+        { "garbage"_str, {} },
+        { ""_str, {} },
+    };
+    for (const auto& test : cases) {
+        JsRuntime rt;
+        auto*     script = rt.MakeFieldScript("export function update(value) { return value; }"_str,
+                                              "test/decimal_prefix"_str,
+                                              FieldKind::Vec4,
+                                              owe::MakeObject(),
+                                              owe::Json::String(String::make(test.text)));
+        ASSERT_NE(script, nullptr);
+        rt.TickAll();
+        ASSERT_TRUE(script->last_value().is_Vec4());
+        const auto& value = script->last_value().as_Vec4().value;
+        EXPECT_DOUBLE_EQ(value.x, test.expected.x);
+        EXPECT_DOUBLE_EQ(value.y, test.expected.y);
+        EXPECT_DOUBLE_EQ(value.z, test.expected.z);
+        EXPECT_DOUBLE_EQ(value.w, test.expected.w);
+    }
+}
+
+TEST(ScriptValueCoercion, PreservesPartialVectorAndColorShapes) {
+    JsRuntime  rt;
+    const auto source = "export function update(value) { return value; }"_str;
+    auto*      vec2   = rt.MakeFieldScript(
+        source, "test/prefix_vec2"_str, FieldKind::Vec2, owe::MakeObject(), owe::IntoJson("2bad"));
+    auto* vec3 = rt.MakeFieldScript(
+        source, "test/prefix_vec3"_str, FieldKind::Vec3, owe::MakeObject(), owe::IntoJson("2bad"));
+    auto* color = rt.MakeFieldScript(source,
+                                     "test/prefix_color"_str,
+                                     FieldKind::Color,
+                                     owe::MakeObject(),
+                                     owe::IntoJson(".1 .2 .3bad .4"));
+    ASSERT_NE(vec2, nullptr);
+    ASSERT_NE(vec3, nullptr);
+    ASSERT_NE(color, nullptr);
+    rt.TickAll();
+    ASSERT_TRUE(vec2->last_value().is_Vec2());
+    EXPECT_DOUBLE_EQ(vec2->last_value().as_Vec2().value.x, 2);
+    EXPECT_DOUBLE_EQ(vec2->last_value().as_Vec2().value.y, 0);
+    ASSERT_TRUE(vec3->last_value().is_Vec3());
+    EXPECT_DOUBLE_EQ(vec3->last_value().as_Vec3().value.x, 2);
+    EXPECT_DOUBLE_EQ(vec3->last_value().as_Vec3().value.y, 2);
+    EXPECT_DOUBLE_EQ(vec3->last_value().as_Vec3().value.z, 2);
+    ASSERT_TRUE(color->last_value().is_Color());
+    EXPECT_DOUBLE_EQ(color->last_value().as_Color().value.r, .1);
+    EXPECT_DOUBLE_EQ(color->last_value().as_Color().value.g, .2);
+    EXPECT_DOUBLE_EQ(color->last_value().as_Color().value.b, .3);
+}
+
+TEST(ScriptValueCoercion, AcceptsNativeNonFiniteSpellings) {
+    JsRuntime rt;
+    auto*     script = rt.MakeFieldScript(
+        R"JS(export function update(value) {
+            return new Vec4(value.x === Infinity ? 1 : 0,
+                            value.y === -Infinity ? 1 : 0,
+                            Number.isNaN(value.z) ? 1 : 0, value.w);
+        })JS"_str,
+        "test/nonfinite_prefix"_str,
+        FieldKind::Vec4,
+        owe::MakeObject(),
+        owe::IntoJson("+inf -infinity NaN 4"));
+    ASSERT_NE(script, nullptr);
+    rt.TickAll();
+    ASSERT_TRUE(script->last_value().is_Vec4());
+    const auto& value = script->last_value().as_Vec4().value;
+    EXPECT_DOUBLE_EQ(value.x, 1);
+    EXPECT_DOUBLE_EQ(value.y, 1);
+    EXPECT_DOUBLE_EQ(value.z, 1);
+    EXPECT_DOUBLE_EQ(value.w, 4);
 }
 
 TEST(ScriptTimer, SetTimeoutFiresAfterDelay) {
@@ -166,14 +253,14 @@ TEST(ScriptTimer, SetTimeoutFiresAfterDelay) {
     ASSERT_NE(fs, nullptr);
 
     Tick(rt, 0.05);
-    ASSERT_TRUE(std::holds_alternative<ScalarValue>(fs->last_value()));
-    EXPECT_EQ(std::get<ScalarValue>(fs->last_value()).v, 0.0);
+    ASSERT_TRUE(fs->last_value().is_Scalar());
+    EXPECT_EQ(fs->last_value().as_Scalar().value.v, 0.0);
 
     Tick(rt, 0.15);
-    EXPECT_EQ(std::get<ScalarValue>(fs->last_value()).v, 1.0);
+    EXPECT_EQ(fs->last_value().as_Scalar().value.v, 1.0);
 
     Tick(rt, 0.30);
-    EXPECT_EQ(std::get<ScalarValue>(fs->last_value()).v, 1.0);
+    EXPECT_EQ(fs->last_value().as_Scalar().value.v, 1.0);
 }
 
 TEST(ScriptTimer, SetIntervalRepeats) {
@@ -190,10 +277,10 @@ TEST(ScriptTimer, SetIntervalRepeats) {
     ASSERT_NE(fs, nullptr);
 
     Tick(rt, 0.25);
-    EXPECT_EQ(std::get<ScalarValue>(fs->last_value()).v, 2.0);
+    EXPECT_EQ(fs->last_value().as_Scalar().value.v, 2.0);
 
     Tick(rt, 0.55);
-    EXPECT_EQ(std::get<ScalarValue>(fs->last_value()).v, 5.0);
+    EXPECT_EQ(fs->last_value().as_Scalar().value.v, 5.0);
 }
 
 TEST(ScriptTimer, ClearTimeoutCancels) {
@@ -211,7 +298,7 @@ TEST(ScriptTimer, ClearTimeoutCancels) {
     ASSERT_NE(fs, nullptr);
 
     Tick(rt, 0.50);
-    EXPECT_EQ(std::get<ScalarValue>(fs->last_value()).v, 0.0);
+    EXPECT_EQ(fs->last_value().as_Scalar().value.v, 0.0);
 }
 
 TEST(ScriptTimer, HandleSelfCallCancels) {
@@ -231,7 +318,7 @@ TEST(ScriptTimer, HandleSelfCallCancels) {
     ASSERT_NE(fs, nullptr);
 
     Tick(rt, 0.50);
-    EXPECT_EQ(std::get<ScalarValue>(fs->last_value()).v, 0.0);
+    EXPECT_EQ(fs->last_value().as_Scalar().value.v, 0.0);
 }
 
 TEST(ScriptCompat, RegExpLegacyCapturesSurviveTimerCallbacks) {
@@ -250,7 +337,7 @@ TEST(ScriptCompat, RegExpLegacyCapturesSurviveTimerCallbacks) {
     ASSERT_NE(fs, nullptr);
 
     Tick(rt, 0.15);
-    EXPECT_EQ(std::get<ScalarValue>(fs->last_value()).v, 2.0);
+    EXPECT_EQ(fs->last_value().as_Scalar().value.v, 2.0);
 }
 
 TEST(ScriptAudio, RegisterAudioBuffersUsesRequestedResolution) {
@@ -414,8 +501,8 @@ TEST(ScriptNodeSize, ParserSetSizeFlowsToScript) {
     auto* fs = rt.MakeFieldScript(
         R"JS(
             export function update() { return thisLayer.size.x + thisLayer.size.y * 1000; }
-        )JS",
-        "test/node_size_real",
+        )JS"_str,
+        "test/node_size_real"_str,
         FieldKind::Scalar,
         owe::MakeObject(),
         owe::IntoJson(0),
@@ -423,7 +510,7 @@ TEST(ScriptNodeSize, ParserSetSizeFlowsToScript) {
     ASSERT_NE(fs, nullptr);
 
     rt.TickAll();
-    EXPECT_EQ(std::get<ScalarValue>(fs->last_value()).v, 320.0 + 240.0 * 1000);
+    EXPECT_EQ(fs->last_value().as_Scalar().value.v, 320.0 + 240.0 * 1000);
 }
 
 TEST(ScriptNodeParent, CursorCallbackParentChainTerminatesAtUnparentedNode) {
@@ -455,8 +542,8 @@ TEST(ScriptNodeParent, CursorCallbackParentChainTerminatesAtUnparentedNode) {
                 result = typeof layer === 'undefined' ? depth : -depth;
             }
             export function update() { return result; }
-        )JS",
-        "test/parent_chain_terminates",
+        )JS"_str,
+        "test/parent_chain_terminates"_str,
         FieldKind::Scalar,
         owe::MakeObject(),
         owe::IntoJson(0),
@@ -476,8 +563,8 @@ TEST(ScriptNodeParent, DefaultLayerParentIsUndefined) {
             export function update() {
                 return typeof thisLayer.getParent() === 'undefined' ? 1 : 0;
             }
-        )JS",
-        "test/default_layer_parent",
+        )JS"_str,
+        "test/default_layer_parent"_str,
         FieldKind::Scalar,
         owe::MakeObject(),
         owe::IntoJson(0));
@@ -498,8 +585,8 @@ TEST(ScriptNodeSoftMutation, VisibleAndAlphaWrites) {
             thisLayer.alpha = 0.25;
             thisLayer.visible = false;
             export function update() {}
-        )JS",
-        "test/visible_alpha_writes",
+        )JS"_str,
+        "test/visible_alpha_writes"_str,
         FieldKind::Scalar,
         owe::MakeObject(),
         owe::IntoJson(0),
@@ -525,8 +612,8 @@ TEST(ScriptNodeSoftMutation, VisibleWritesUseSceneVisibilityOwner) {
         R"JS(
             export function init() { thisLayer.visible = false; }
             export function update() { return thisLayer.visible ? 1 : 0; }
-        )JS",
-        "test/scene_owned_visibility",
+        )JS"_str,
+        "test/scene_owned_visibility"_str,
         FieldKind::Bool,
         owe::MakeObject(),
         owe::IntoJson(true),
@@ -552,8 +639,8 @@ TEST(ScriptNodeSoftMutation, VisibleTrueRestoresUserAlpha) {
             thisLayer.visible = false;
             thisLayer.visible = true;
             export function update() {}
-        )JS",
-        "test/visible_restore",
+        )JS"_str,
+        "test/visible_restore"_str,
         FieldKind::Scalar,
         owe::MakeObject(),
         owe::IntoJson(0),
@@ -573,8 +660,8 @@ TEST(ScriptNodeSoftMutation, PerspectiveWritesNodeFlag) {
         R"JS(
             thisLayer.perspective = true;
             export function update() { return thisLayer.perspective ? 1 : 0; }
-        )JS",
-        "test/perspective_write",
+        )JS"_str,
+        "test/perspective_write"_str,
         FieldKind::Scalar,
         owe::MakeObject(),
         owe::IntoJson(0),
@@ -583,7 +670,7 @@ TEST(ScriptNodeSoftMutation, PerspectiveWritesNodeFlag) {
 
     EXPECT_TRUE(node.Perspective());
     rt.TickAll();
-    EXPECT_EQ(std::get<ScalarValue>(fs->last_value()).v, 1.0);
+    EXPECT_EQ(fs->last_value().as_Scalar().value.v, 1.0);
 }
 
 TEST(ScriptNodeSoftMutation, ImageAlignmentDispatchesRegisteredSetter) {
@@ -605,8 +692,8 @@ TEST(ScriptNodeSoftMutation, ImageAlignmentDispatchesRegisteredSetter) {
         R"JS(
             thisLayer.alignment = 'bottom';
             export function update() { return thisLayer.alignment === 'bottom' ? 1 : 0; }
-        )JS",
-        "test/image_alignment_write",
+        )JS"_str,
+        "test/image_alignment_write"_str,
         FieldKind::Scalar,
         owe::MakeObject(),
         owe::IntoJson(0),
@@ -640,8 +727,8 @@ TEST(ScriptNodeSoftMutation, ParallaxDepthDispatchesRegisteredAccessors) {
             export function update() {
                 return thisLayer.parallaxDepth.x + thisLayer.parallaxDepth.y;
             }
-        )JS",
-        "test/parallax_depth_write",
+        )JS"_str,
+        "test/parallax_depth_write"_str,
         FieldKind::Scalar,
         owe::MakeObject(),
         owe::IntoJson(0),
@@ -687,8 +774,8 @@ TEST(ScriptNodeSoftMutation, RuntimeLayersKeepIndependentPendingParallaxDepth) {
     auto first_state       = Arc<owe::UniformNodeState>::make(first.clone(), cameras.clone());
     first_state->object_id = i32(-1);
     state->SetNodeState({ .index = u32(1), .generation = u32(1) }, first_state.clone());
-    EXPECT_FLOAT_EQ(first_state->parallax.depth[0], 0.0f);
-    EXPECT_FLOAT_EQ(first_state->parallax.depth[1], 0.0f);
+    EXPECT_FLOAT_EQ(first_state->parallax.depth[rstd::usize(0)], 0.0f);
+    EXPECT_FLOAT_EQ(first_state->parallax.depth[rstd::usize(1)], 0.0f);
 }
 
 TEST(ScriptNodeSoftMutation, ImageAlignmentBindingClonesForDynamicLayer) {
@@ -710,8 +797,8 @@ TEST(ScriptNodeSoftMutation, ImageAlignmentBindingClonesForDynamicLayer) {
         R"JS(
             thisLayer.alignment = 'bottom';
             export function update() { return thisLayer.alignment === 'bottom' ? 1 : 0; }
-        )JS",
-        "test/cloned_image_alignment_write",
+        )JS"_str,
+        "test/cloned_image_alignment_write"_str,
         FieldKind::Scalar,
         owe::MakeObject(),
         owe::IntoJson(0),
@@ -749,8 +836,8 @@ TEST(ScriptNodeSoftMutation, OriginDispatchesRegisteredAccessors) {
                 const origin = thisLayer.origin;
                 return origin.x * 100 + origin.y * 10 + origin.z;
             }
-        )JS",
-        "test/node_origin_accessors",
+        )JS"_str,
+        "test/node_origin_accessors"_str,
         FieldKind::Scalar,
         owe::MakeObject(),
         owe::IntoJson(0),
@@ -770,8 +857,8 @@ TEST(ScriptNodeActuator, AlphaFieldReturnWritesNodeAlpha) {
     auto*       fs = ss.runtime().MakeFieldScript(
         R"JS(
             export function update() { return 0.125; }
-        )JS",
-        "test/alpha_field_return",
+        )JS"_str,
+        "test/alpha_field_return"_str,
         FieldKind::Scalar,
         owe::MakeObject(),
         owe::IntoJson(1.0),
@@ -794,8 +881,8 @@ TEST(ScriptNodeActuator, ColorFieldReturnWritesNodeColor) {
     auto*       fs = ss.runtime().MakeFieldScript(
         R"JS(
             export function update() { return new Vec3(0.2, 0.4, 0.6); }
-        )JS",
-        "test/color_field_return",
+        )JS"_str,
+        "test/color_field_return"_str,
         FieldKind::Vec3,
         owe::MakeObject(),
         owe::IntoJson("1 1 1"),
@@ -840,8 +927,8 @@ TEST(ScriptNodeSoftMutation, BrightnessAndColorWrites) {
             thisLayer.brightness = 1.5;
             thisLayer.color = new Vec3(1, 0.5, 0);
             export function update() {}
-        )JS",
-        "test/brightness_color",
+        )JS"_str,
+        "test/brightness_color"_str,
         FieldKind::Scalar,
         owe::MakeObject(),
         owe::IntoJson(0),
@@ -867,8 +954,8 @@ TEST(ScriptNodeSoftMutation, NoWritesLeaveOverridesUnset) {
             let a = thisLayer.alpha;
             let v = thisLayer.visible;
             export function update() {}
-        )JS",
-        "test/no_writes",
+        )JS"_str,
+        "test/no_writes"_str,
         FieldKind::Scalar,
         owe::MakeObject(),
         owe::IntoJson(0),
@@ -909,8 +996,8 @@ TEST(ScriptCursor, EnterLeaveAndMove) {
             export function cursorLeave() { leaves++; }
             export function cursorMove()  { moves++;  }
             export function update() { return enters * 1000000 + leaves * 1000 + moves; }
-        )JS",
-        "test/cursor_enter_leave_move",
+        )JS"_str,
+        "test/cursor_enter_leave_move"_str,
         FieldKind::Scalar,
         owe::MakeObject(),
         owe::IntoJson(0),
@@ -924,25 +1011,25 @@ TEST(ScriptCursor, EnterLeaveAndMove) {
     fi.cursor_y         = 100.0f / 1080.0f;
     rt.SetFrameInputs(fi);
     rt.TickAll();
-    EXPECT_EQ(std::get<ScalarValue>(fs->last_value()).v, 0.0);
+    EXPECT_EQ(fs->last_value().as_Scalar().value.v, 0.0);
 
     // Move inside: 1 enter + 1 move.
     fi.cursor_x = 500.0f / 1920.0f;
     fi.cursor_y = 500.0f / 1080.0f;
     rt.SetFrameInputs(fi);
     rt.TickAll();
-    EXPECT_EQ(std::get<ScalarValue>(fs->last_value()).v, 1'000'001);
+    EXPECT_EQ(fs->last_value().as_Scalar().value.v, 1'000'001);
 
     // Still inside (no edge): +1 move.
     rt.SetFrameInputs(fi);
     rt.TickAll();
-    EXPECT_EQ(std::get<ScalarValue>(fs->last_value()).v, 1'000'002);
+    EXPECT_EQ(fs->last_value().as_Scalar().value.v, 1'000'002);
 
     // Move outside: +1 leave (no move when outside).
     fi.cursor_x = 100.0f / 1920.0f;
     rt.SetFrameInputs(fi);
     rt.TickAll();
-    EXPECT_EQ(std::get<ScalarValue>(fs->last_value()).v, 1'001'002);
+    EXPECT_EQ(fs->last_value().as_Scalar().value.v, 1'001'002);
 }
 
 TEST(ScriptCursor, ClickAndDownUpInside) {
@@ -961,8 +1048,8 @@ TEST(ScriptCursor, ClickAndDownUpInside) {
             export function update() {
                 return down * 10000 + up * 100 + click + (last_btn + 1) * 1000000;
             }
-        )JS",
-        "test/cursor_click",
+        )JS"_str,
+        "test/cursor_click"_str,
         FieldKind::Scalar,
         owe::MakeObject(),
         owe::IntoJson(0),
@@ -979,7 +1066,7 @@ TEST(ScriptCursor, ClickAndDownUpInside) {
     rt.SetFrameInputs(fi);
     rt.TickAll();
     // 1 down, 1 click, last_btn = 0 → 1*1000000 + 1*10000 + 0*100 + 1 = 1010001
-    EXPECT_EQ(std::get<ScalarValue>(fs->last_value()).v, 1'010'001);
+    EXPECT_EQ(fs->last_value().as_Scalar().value.v, 1'010'001);
 
     // Release this frame (no press): 1 up, last_btn=0.
     fi.mouse_buttons_pressed  = 0;
@@ -987,7 +1074,7 @@ TEST(ScriptCursor, ClickAndDownUpInside) {
     fi.mouse_buttons_down     = 0;
     rt.SetFrameInputs(fi);
     rt.TickAll();
-    EXPECT_EQ(std::get<ScalarValue>(fs->last_value()).v, 1'010'101);
+    EXPECT_EQ(fs->last_value().as_Scalar().value.v, 1'010'101);
 }
 
 TEST(ScriptCursor, ClickRestartsNamedAnimationLayer) {
@@ -1021,8 +1108,8 @@ TEST(ScriptCursor, ClickRestartsNamedAnimationLayer) {
             export function update() {
                 return animation.getFrame() + (animation.isPlaying() ? 1000 : 0);
             }
-        )JS",
-        "test/cursor_animation_layer",
+        )JS"_str,
+        "test/cursor_animation_layer"_str,
         FieldKind::Scalar,
         owe::MakeObject(),
         owe::IntoJson(0),
@@ -1057,8 +1144,8 @@ TEST(ScriptCursor, ClickOutsideIsIgnored) {
             let click = 0;
             export function cursorClick() { click++; }
             export function update() { return click; }
-        )JS",
-        "test/cursor_outside_click",
+        )JS"_str,
+        "test/cursor_outside_click"_str,
         FieldKind::Scalar,
         owe::MakeObject(),
         owe::IntoJson(0),
@@ -1072,7 +1159,7 @@ TEST(ScriptCursor, ClickOutsideIsIgnored) {
     fi.mouse_buttons_pressed = 1u << 0;
     rt.SetFrameInputs(fi);
     rt.TickAll();
-    EXPECT_EQ(std::get<ScalarValue>(fs->last_value()).v, 0.0);
+    EXPECT_EQ(fs->last_value().as_Scalar().value.v, 0.0);
 }
 
 TEST(ScriptCursor, CursorOutOfWindowSuppressesEvents) {
@@ -1088,8 +1175,8 @@ TEST(ScriptCursor, CursorOutOfWindowSuppressesEvents) {
             export function cursorEnter() { n++; }
             export function cursorMove()  { n++; }
             export function update() { return n; }
-        )JS",
-        "test/cursor_out_of_window",
+        )JS"_str,
+        "test/cursor_out_of_window"_str,
         FieldKind::Scalar,
         owe::MakeObject(),
         owe::IntoJson(0),
@@ -1102,7 +1189,7 @@ TEST(ScriptCursor, CursorOutOfWindowSuppressesEvents) {
     fi.cursor_y         = 500.0f / 1080.0f;
     rt.SetFrameInputs(fi);
     rt.TickAll();
-    EXPECT_EQ(std::get<ScalarValue>(fs->last_value()).v, 0.0);
+    EXPECT_EQ(fs->last_value().as_Scalar().value.v, 0.0);
 }
 
 TEST(ScriptCursor, GlobalInputRefreshesFrameFields) {
@@ -1116,8 +1203,8 @@ TEST(ScriptCursor, GlobalInputRefreshesFrameFields) {
                        (input.cursorLeftDown ? 1000000 : 0) +
                        input.mouseButtonsDown * 10000000;
             }
-        )JS",
-        "test/global_input_refresh",
+        )JS"_str,
+        "test/global_input_refresh"_str,
         FieldKind::Scalar,
         owe::MakeObject(),
         owe::IntoJson(0));
@@ -1132,13 +1219,13 @@ TEST(ScriptCursor, GlobalInputRefreshesFrameFields) {
     fi.cursor_in_window   = true;
     rt.SetFrameInputs(fi);
     rt.TickAll();
-    EXPECT_EQ(std::get<ScalarValue>(fs->last_value()).v, 11'300'200.0);
+    EXPECT_EQ(fs->last_value().as_Scalar().value.v, 11'300'200.0);
 
     fi.cursor_x           = 0.5f;
     fi.mouse_buttons_down = 0;
     rt.SetFrameInputs(fi);
     rt.TickAll();
-    EXPECT_EQ(std::get<ScalarValue>(fs->last_value()).v, 300'400.0);
+    EXPECT_EQ(fs->last_value().as_Scalar().value.v, 300'400.0);
 }
 
 TEST(ScriptCursor, WorldPositionFlipsTopDownInputY) {
@@ -1152,8 +1239,8 @@ TEST(ScriptCursor, WorldPositionFlipsTopDownInputY) {
                     input.cursorWorldPosition.y,
                     input.cursorScreenPosition.y);
             }
-        )JS",
-        "test/global_input_world_y",
+        )JS"_str,
+        "test/global_input_world_y"_str,
         FieldKind::Vec3,
         owe::MakeObject(),
         owe::IntoJson("0.0 0.0 0.0"));
@@ -1166,8 +1253,8 @@ TEST(ScriptCursor, WorldPositionFlipsTopDownInputY) {
     rt.SetFrameInputs(fi);
     rt.TickAll();
 
-    ASSERT_TRUE(std::holds_alternative<Vec3Value>(fs->last_value()));
-    const auto& v = std::get<Vec3Value>(fs->last_value());
+    ASSERT_TRUE(fs->last_value().is_Vec3());
+    const auto& v = fs->last_value().as_Vec3().value;
     EXPECT_NEAR(v.x, 480.0, 0.001);
     EXPECT_NEAR(v.y, 810.0, 0.001);
     EXPECT_NEAR(v.z, 150.0, 0.001);
@@ -1188,8 +1275,8 @@ TEST(ScriptTexAnim, SetFramePinsAndStopsPlayback) {
             export function update() {
                 return anim.getFrame() * 10 + (anim.isPlaying() ? 1 : 0);
             }
-        )JS",
-        "test/texanim_setframe",
+        )JS"_str,
+        "test/texanim_setframe"_str,
         FieldKind::Scalar,
         owe::MakeObject(),
         owe::IntoJson(0),
@@ -1199,7 +1286,7 @@ TEST(ScriptTexAnim, SetFramePinsAndStopsPlayback) {
     rt.TickAll();
     EXPECT_EQ(node.TexAnim().current_frame, 2);
     EXPECT_FALSE(node.TexAnim().playing);
-    EXPECT_EQ(std::get<ScalarValue>(fs->last_value()).v, 20.0);
+    EXPECT_EQ(fs->last_value().as_Scalar().value.v, 20.0);
 }
 
 TEST(ScriptTexAnim, PlayResumesAutoAdvance) {
@@ -1214,8 +1301,8 @@ TEST(ScriptTexAnim, PlayResumesAutoAdvance) {
         R"JS(
             thisLayer.getTextureAnimation().play();
             export function update() {}
-        )JS",
-        "test/texanim_play",
+        )JS"_str,
+        "test/texanim_play"_str,
         FieldKind::Scalar,
         owe::MakeObject(),
         owe::IntoJson(0),
@@ -1236,8 +1323,8 @@ TEST(ScriptTexAnim, PauseFreezesAtCurrent) {
         R"JS(
             thisLayer.getTextureAnimation().pause();
             export function update() {}
-        )JS",
-        "test/texanim_pause",
+        )JS"_str,
+        "test/texanim_pause"_str,
         FieldKind::Scalar,
         owe::MakeObject(),
         owe::IntoJson(0),
@@ -1260,8 +1347,8 @@ TEST(ScriptTexAnim, UnboundLayerFallsBackToJsStub) {
             let a = thisLayer.getTextureAnimation();
             a.setFrame(7);
             export function update() { return a.getFrame(); }
-        )JS",
-        "test/texanim_unbound",
+        )JS"_str,
+        "test/texanim_unbound"_str,
         FieldKind::Scalar,
         owe::MakeObject(),
         owe::IntoJson(0),
@@ -1270,7 +1357,7 @@ TEST(ScriptTexAnim, UnboundLayerFallsBackToJsStub) {
 
     rt.TickAll();
     // JS stub records the frame in a closure local; getFrame returns it.
-    EXPECT_EQ(std::get<ScalarValue>(fs->last_value()).v, 7.0);
+    EXPECT_EQ(fs->last_value().as_Scalar().value.v, 7.0);
 }
 
 TEST(ScriptVideoTexture, ControlsStableNativePlaybackState) {
@@ -1291,8 +1378,8 @@ TEST(ScriptVideoTexture, ControlsStableNativePlaybackState) {
             export function update() {
                 return video.duration + video.getCurrentTime() + (video.isPlaying() ? 1 : 0);
             }
-        )JS",
-        "test/video_texture_control",
+        )JS"_str,
+        "test/video_texture_control"_str,
         FieldKind::Scalar,
         owe::MakeObject(),
         owe::IntoJson(0),
@@ -1334,8 +1421,8 @@ TEST(ScriptLocalStorage, InMemoryWithoutPersistencePath) {
                 let o = localStorage.get('o');
                 return v + (o ? o.a + (o.b === 'two' ? 100 : 0) : 0);
             }
-        )JS",
-        "test/ls_inmemory",
+        )JS"_str,
+        "test/ls_inmemory"_str,
         FieldKind::Scalar,
         owe::MakeObject(),
         owe::IntoJson(0),
@@ -1343,7 +1430,7 @@ TEST(ScriptLocalStorage, InMemoryWithoutPersistencePath) {
     ASSERT_NE(fs, nullptr);
 
     rt.TickAll();
-    EXPECT_EQ(std::get<ScalarValue>(fs->last_value()).v, 42 + 1 + 100);
+    EXPECT_EQ(fs->last_value().as_Scalar().value.v, 42 + 1 + 100);
 }
 
 TEST(ScriptLocalStorage, RemoveDeletesKey) {
@@ -1358,8 +1445,8 @@ TEST(ScriptLocalStorage, RemoveDeletesKey) {
                 let v = localStorage.get('k');
                 return v === undefined ? -1 : v;
             }
-        )JS",
-        "test/ls_remove",
+        )JS"_str,
+        "test/ls_remove"_str,
         FieldKind::Scalar,
         owe::MakeObject(),
         owe::IntoJson(0),
@@ -1367,7 +1454,7 @@ TEST(ScriptLocalStorage, RemoveDeletesKey) {
     ASSERT_NE(fs, nullptr);
 
     rt.TickAll();
-    EXPECT_EQ(std::get<ScalarValue>(fs->last_value()).v, -1.0);
+    EXPECT_EQ(fs->last_value().as_Scalar().value.v, -1.0);
 }
 
 TEST(ScriptLocalStorage, PersistsAcrossRuntimes) {
@@ -1375,7 +1462,7 @@ TEST(ScriptLocalStorage, PersistsAcrossRuntimes) {
 
     {
         JsRuntime rt;
-        rt.SetPersistence(path);
+        rt.SetPersistence(rstd::path::PathBuf::from(rstd::cppstd::as_str(path).unwrap()));
         FrameInputs fi {};
         rt.SetFrameInputs(fi);
         auto* fs = rt.MakeFieldScript(
@@ -1383,8 +1470,8 @@ TEST(ScriptLocalStorage, PersistsAcrossRuntimes) {
                 localStorage.set('count', 7);
                 localStorage.set('label', 'hello');
                 export function update() {}
-            )JS",
-            "test/ls_writer",
+            )JS"_str,
+            "test/ls_writer"_str,
             FieldKind::Scalar,
             owe::MakeObject(),
             owe::IntoJson(0),
@@ -1395,7 +1482,7 @@ TEST(ScriptLocalStorage, PersistsAcrossRuntimes) {
     // Fresh runtime reading the same file should see the prior writes.
     {
         JsRuntime rt;
-        rt.SetPersistence(path);
+        rt.SetPersistence(rstd::path::PathBuf::from(rstd::cppstd::as_str(path).unwrap()));
         FrameInputs fi {};
         rt.SetFrameInputs(fi);
         auto* fs = rt.MakeFieldScript(
@@ -1405,19 +1492,53 @@ TEST(ScriptLocalStorage, PersistsAcrossRuntimes) {
                     let l = localStorage.get('label');
                     return (c ?? -1) + (l === 'hello' ? 1000 : 0);
                 }
-            )JS",
-            "test/ls_reader",
+            )JS"_str,
+            "test/ls_reader"_str,
             FieldKind::Scalar,
             owe::MakeObject(),
             owe::IntoJson(0),
             nullptr);
         ASSERT_NE(fs, nullptr);
         rt.TickAll();
-        EXPECT_EQ(std::get<ScalarValue>(fs->last_value()).v, 7 + 1000);
+        EXPECT_EQ(fs->last_value().as_Scalar().value.v, 7 + 1000);
     }
 
     std::error_code ec;
     std::filesystem::remove(path, ec);
+}
+
+TEST(ScriptLocalStorage, PreservesNativePathBytes) {
+    auto directory = rstd::fs::TempDir::make("owe-localstorage"_str).unwrap();
+    auto raw_name  = rstd::ffi::CStr::from_ptr("storage-\xff.json");
+    auto name      = rstd::os::unix::ffi::OsStrExt::from_bytes(raw_name.to_bytes());
+    auto path = rstd::path::PathBuf::from(directory.path()).join(rstd::ref<rstd::path::Path>(name));
+    {
+        JsRuntime rt;
+        rt.SetPersistence(path.clone());
+        auto* script =
+            rt.MakeFieldScript("localStorage.set('count', 17); export function update() {}"_str,
+                               "test/native_writer"_str,
+                               FieldKind::Scalar,
+                               owe::MakeObject(),
+                               owe::IntoJson(0),
+                               nullptr);
+        ASSERT_NE(script, nullptr);
+    }
+    ASSERT_TRUE(rstd::fs::metadata(path).is_ok());
+    {
+        JsRuntime rt;
+        rt.SetPersistence(path.clone());
+        auto* script =
+            rt.MakeFieldScript("export function update() { return localStorage.get('count'); }"_str,
+                               "test/native_reader"_str,
+                               FieldKind::Scalar,
+                               owe::MakeObject(),
+                               owe::IntoJson(0),
+                               nullptr);
+        ASSERT_NE(script, nullptr);
+        rt.TickAll();
+        EXPECT_EQ(script->last_value().as_Scalar().value.v, 17);
+    }
 }
 
 TEST(ScriptLocalStorage, ObjectRoundTrip) {
@@ -1425,15 +1546,15 @@ TEST(ScriptLocalStorage, ObjectRoundTrip) {
 
     {
         JsRuntime rt;
-        rt.SetPersistence(path);
+        rt.SetPersistence(rstd::path::PathBuf::from(rstd::cppstd::as_str(path).unwrap()));
         FrameInputs fi {};
         rt.SetFrameInputs(fi);
         rt.MakeFieldScript(
             R"JS(
                 localStorage.set('pos', { x: 10, y: 20 });
                 export function update() {}
-            )JS",
-            "test/ls_obj_write",
+            )JS"_str,
+            "test/ls_obj_write"_str,
             FieldKind::Scalar,
             owe::MakeObject(),
             owe::IntoJson(0),
@@ -1441,7 +1562,7 @@ TEST(ScriptLocalStorage, ObjectRoundTrip) {
     }
     {
         JsRuntime rt;
-        rt.SetPersistence(path);
+        rt.SetPersistence(rstd::path::PathBuf::from(rstd::cppstd::as_str(path).unwrap()));
         FrameInputs fi {};
         rt.SetFrameInputs(fi);
         auto* fs = rt.MakeFieldScript(
@@ -1450,14 +1571,14 @@ TEST(ScriptLocalStorage, ObjectRoundTrip) {
                     let p = localStorage.get('pos');
                     return (p && p.x === 10 && p.y === 20) ? 1 : 0;
                 }
-            )JS",
-            "test/ls_obj_read",
+            )JS"_str,
+            "test/ls_obj_read"_str,
             FieldKind::Scalar,
             owe::MakeObject(),
             owe::IntoJson(0),
             nullptr);
         rt.TickAll();
-        EXPECT_EQ(std::get<ScalarValue>(fs->last_value()).v, 1.0);
+        EXPECT_EQ(fs->last_value().as_Scalar().value.v, 1.0);
     }
     std::error_code ec;
     std::filesystem::remove(path, ec);
@@ -1482,8 +1603,8 @@ TEST(ScriptNodeChildren, WalksSceneNodeChildren) {
                 return cs.length * 1000 + (cs[0] ? cs[0].origin.x : 0)
                                        + (cs[1] ? cs[1].origin.x : 0);
             }
-        )JS",
-        "test/getChildren_walk",
+        )JS"_str,
+        "test/getChildren_walk"_str,
         FieldKind::Scalar,
         owe::MakeObject(),
         owe::IntoJson(0),
@@ -1491,7 +1612,7 @@ TEST(ScriptNodeChildren, WalksSceneNodeChildren) {
     ASSERT_NE(fs, nullptr);
 
     rt.TickAll();
-    EXPECT_EQ(std::get<ScalarValue>(fs->last_value()).v, 2000 + 10 + 20);
+    EXPECT_EQ(fs->last_value().as_Scalar().value.v, 2000 + 10 + 20);
 }
 
 TEST(ScriptLayerLookup, MissingLayerHandleResolvesLater) {
@@ -1512,41 +1633,46 @@ TEST(ScriptLayerLookup, MissingLayerHandleResolvesLater) {
                 if (changed.go) late.play();
             }
             export function update() { return late.isPlaying() ? 1 : 0; }
-        )JS",
-        "test/lazy_layer_lookup",
+        )JS"_str,
+        "test/lazy_layer_lookup"_str,
         FieldKind::Scalar,
         owe::MakeObject(),
         owe::IntoJson(0),
         root.as_ptr());
     ASSERT_NE(fs, nullptr);
 
-    auto late = rstd::sync::Arc<owe::SceneNode>::make(
-        Eigen::Vector3f::Zero(), Eigen::Vector3f::Ones(), Eigen::Vector3f::Zero(), "late-sound");
+    auto late = rstd::sync::Arc<owe::SceneNode>::make(Eigen::Vector3f::Zero(),
+                                                      Eigen::Vector3f::Ones(),
+                                                      Eigen::Vector3f::Zero(),
+                                                      "late-sound"_str);
     root->AppendChild(late.clone());
-    rt.SetUserProperty("go", rstd::json::from_str(R"({"type":"bool","value":true})"_str).unwrap());
+    rt.SetUserProperty("go"_str,
+                       rstd::json::from_str(R"({"type":"bool","value":true})"_str).unwrap());
     rt.TickAll();
-    EXPECT_EQ(std::get<ScalarValue>(fs->last_value()).v, 1.0);
+    EXPECT_EQ(fs->last_value().as_Scalar().value.v, 1.0);
 }
 
 TEST(ScriptLayerLookup, GetEffectVisibleWritesSceneDirty) {
     owe::Scene scene;
     auto       root  = Box<owe::SceneNode>::make();
-    auto       layer = rstd::sync::Arc<owe::SceneNode>::make(
-        Eigen::Vector3f::Zero(), Eigen::Vector3f::Ones(), Eigen::Vector3f::Zero(), "audio-layer");
+    auto       layer = rstd::sync::Arc<owe::SceneNode>::make(Eigen::Vector3f::Zero(),
+                                                             Eigen::Vector3f::Ones(),
+                                                             Eigen::Vector3f::Zero(),
+                                                             "audio-layer"_str);
     root->AppendChild(layer.clone());
     auto root_pointer = root.get();
     scene.SetRoot(rstd::move(root));
 
-    layer->SetCamera("audio-effect-camera");
+    layer->SetCamera("audio-effect-camera"_str);
     auto camera =
         Arc<owe::SceneCamera>::make(owe::SceneCamera::MakeOrthographic(256, 256, -1.0, 1.0));
-    auto effect_layer = std::make_shared<owe::SceneNodeLayer>(
-        layer.as_ptr(), 256.0f, 256.0f, "_rt_effect_composite_test");
-    auto effect             = std::make_shared<owe::SceneImageEffect>();
-    effect->name            = "audio-color";
+    auto effect_layer = Arc<owe::SceneNodeLayer>::make(
+        layer.as_ptr(), 256.0f, 256.0f, "_rt_effect_composite_test"_str);
+    auto effect             = Arc<owe::SceneImageEffect>::make();
+    effect->name            = "audio-color"_Str;
     effect->runtime_visible = true;
     effect_layer->AddEffect(effect);
-    layer->AttachLayer(effect_layer);
+    layer->AttachLayer(effect_layer.clone());
     scene.RegisterCamera(String::make("audio-effect-camera"_str), rstd::move(camera));
 
     JsRuntime   rt;
@@ -1561,8 +1687,8 @@ TEST(ScriptLayerLookup, GetEffectVisibleWritesSceneDirty) {
                 effect.visible = false;
                 return effect.visible ? 1 : 0;
             }
-        )JS",
-        "test/layer_get_effect_visible",
+        )JS"_str,
+        "test/layer_get_effect_visible"_str,
         FieldKind::Scalar,
         owe::MakeObject(),
         owe::IntoJson(0),
@@ -1570,7 +1696,7 @@ TEST(ScriptLayerLookup, GetEffectVisibleWritesSceneDirty) {
     ASSERT_NE(fs, nullptr);
 
     rt.TickAll();
-    EXPECT_EQ(std::get<ScalarValue>(fs->last_value()).v, 0.0);
+    EXPECT_EQ(fs->last_value().as_Scalar().value.v, 0.0);
     EXPECT_FALSE(effect->runtime_visible);
     EXPECT_TRUE(scene.ConsumeRenderGraphDirty());
     EXPECT_FALSE(scene.ConsumeRenderGraphDirty());
@@ -1579,39 +1705,43 @@ TEST(ScriptLayerLookup, GetEffectVisibleWritesSceneDirty) {
 TEST(ScriptLayerLookup, EffectIndexAndMaterialWritesUseSceneMaterialOwner) {
     owe::Scene scene;
     auto       root  = Box<owe::SceneNode>::make();
-    auto       layer = Arc<owe::SceneNode>::make(
-        Eigen::Vector3f::Zero(), Eigen::Vector3f::Ones(), Eigen::Vector3f::Zero(), "color-layer");
+    auto       layer = Arc<owe::SceneNode>::make(Eigen::Vector3f::Zero(),
+                                                 Eigen::Vector3f::Ones(),
+                                                 Eigen::Vector3f::Zero(),
+                                                 "color-layer"_str);
     root->AppendChild(layer.clone());
     auto* root_pointer = root.get();
     scene.SetRoot(rstd::move(root));
 
-    layer->SetCamera("color-effect-camera");
+    layer->SetCamera("color-effect-camera"_str);
     auto camera =
         Arc<owe::SceneCamera>::make(owe::SceneCamera::MakeOrthographic(256, 256, -1.0, 1.0));
-    auto effect_layer = std::make_shared<owe::SceneNodeLayer>(
-        layer.as_ptr(), 256.0f, 256.0f, "_rt_effect_composite_color");
-    auto effect                             = std::make_shared<owe::SceneImageEffect>();
-    effect->name                            = "color";
+    auto effect_layer = Arc<owe::SceneNodeLayer>::make(
+        layer.as_ptr(), 256.0f, 256.0f, "_rt_effect_composite_color"_str);
+    auto effect                             = Arc<owe::SceneImageEffect>::make();
+    effect->name                            = "color"_Str;
     auto                        effect_node = Arc<owe::SceneNode>::make();
-    auto                        mesh        = std::make_shared<owe::SceneMesh>();
+    auto                        mesh        = Arc<owe::SceneMesh>::make();
     owe::SceneMaterial          material;
     owe::SceneShaderVariantDesc variant;
-    variant.uniform_aliases["color"]       = "g_TintColor";
-    variant.uniform_aliases["channelMask"] = "g_ChannelMask";
-    material.customShader.variant          = Some(rstd::move(variant));
-    material.customShader.constValues["g_TintColor"] =
-        owe::ShaderValue(rstd::array<float, 3> { 1.0f, 0.0f, 0.0f });
-    material.customShader.constValues["g_ChannelMask"] =
-        owe::ShaderValue(rstd::array<float, 4> { 1.0f, 1.0f, 1.0f, 1.0f });
+    (void)variant.uniform_aliases.insert("color"_Str, "g_TintColor"_Str);
+    (void)variant.uniform_aliases.insert("channelMask"_Str, "g_ChannelMask"_Str);
+    material.customShader.variant = Some(rstd::move(variant));
+    (void)material.customShader.constValues.insert(
+        "g_TintColor"_Str,
+        owe::ShaderValue(owe::ShaderValue(rstd::array<float, 3> { 1.0f, 0.0f, 0.0f })));
+    (void)material.customShader.constValues.insert(
+        "g_ChannelMask"_Str,
+        owe::ShaderValue(owe::ShaderValue(rstd::array<float, 4> { 1.0f, 1.0f, 1.0f, 1.0f })));
     mesh->AddMaterial(std::move(material));
     auto* effect_material = mesh->Material();
     effect_node->AddMesh(std::move(mesh));
-    effect->nodes.push_back(owe::SceneImageEffectNode {
+    effect->AddNode(owe::SceneImageEffectNode {
         .output    = owe::SceneEffectTarget::LayerNext(),
         .sceneNode = effect_node.clone(),
     });
     effect_layer->AddEffect(effect);
-    layer->AttachLayer(effect_layer);
+    layer->AttachLayer(effect_layer.clone());
     scene.RegisterCamera(String::make("color-effect-camera"_str), rstd::move(camera));
 
     JsRuntime rt;
@@ -1629,8 +1759,8 @@ TEST(ScriptLayerLookup, EffectIndexAndMaterialWritesUseSceneMaterialOwner) {
                 effect.getMaterial(0).channelMask = new Vec4(0, 0.25, 0.5, 0.75);
                 return thisLayer.getEffectCount() + (effect.name === "color" ? 1 : 0);
             }
-        )JS",
-        "test/layer_effect_material",
+        )JS"_str,
+        "test/layer_effect_material"_str,
         FieldKind::Scalar,
         properties,
         owe::IntoJson(0),
@@ -1640,19 +1770,19 @@ TEST(ScriptLayerLookup, EffectIndexAndMaterialWritesUseSceneMaterialOwner) {
     rt.TickAll();
     EXPECT_EQ(LastScalar(fs), 2.0);
     ASSERT_NE(effect_material, nullptr);
-    auto color = effect_material->customShader.constValues.find("g_TintColor");
-    ASSERT_NE(color, effect_material->customShader.constValues.end());
-    ASSERT_EQ(color->second.size(), usize(3));
-    EXPECT_FLOAT_EQ(color->second[usize()], 0.2f);
-    EXPECT_FLOAT_EQ(color->second[usize(1)], 0.4f);
-    EXPECT_FLOAT_EQ(color->second[usize(2)], 0.6f);
-    auto channel_mask = effect_material->customShader.constValues.find("g_ChannelMask");
-    ASSERT_NE(channel_mask, effect_material->customShader.constValues.end());
-    ASSERT_EQ(channel_mask->second.size(), usize(4));
-    EXPECT_FLOAT_EQ(channel_mask->second[usize()], 0.0f);
-    EXPECT_FLOAT_EQ(channel_mask->second[usize(1)], 0.25f);
-    EXPECT_FLOAT_EQ(channel_mask->second[usize(2)], 0.5f);
-    EXPECT_FLOAT_EQ(channel_mask->second[usize(3)], 0.75f);
+    auto color = effect_material->customShader.constValues.get("g_TintColor"_str);
+    ASSERT_TRUE(color.is_some());
+    ASSERT_EQ((**color).size(), usize(3));
+    EXPECT_FLOAT_EQ((**color)[usize()], 0.2f);
+    EXPECT_FLOAT_EQ((**color)[usize(1)], 0.4f);
+    EXPECT_FLOAT_EQ((**color)[usize(2)], 0.6f);
+    auto channel_mask = effect_material->customShader.constValues.get("g_ChannelMask"_str);
+    ASSERT_TRUE(channel_mask.is_some());
+    ASSERT_EQ((**channel_mask).size(), usize(4));
+    EXPECT_FLOAT_EQ((**channel_mask)[usize()], 0.0f);
+    EXPECT_FLOAT_EQ((**channel_mask)[usize(1)], 0.25f);
+    EXPECT_FLOAT_EQ((**channel_mask)[usize(2)], 0.5f);
+    EXPECT_FLOAT_EQ((**channel_mask)[usize(3)], 0.75f);
 }
 
 TEST(ScriptLayerLookup, MissingLayerKeepsDefaultTransformShape) {
@@ -1670,8 +1800,8 @@ TEST(ScriptLayerLookup, MissingLayerKeepsDefaultTransformShape) {
                 resolved = late.scale.x + late.origin.x + late.angles.x;
             }
             export function update() { return resolved; }
-        )JS",
-        "test/lazy_layer_default_transform",
+        )JS"_str,
+        "test/lazy_layer_default_transform"_str,
         FieldKind::Scalar,
         owe::MakeObject(),
         owe::IntoJson(0),
@@ -1679,7 +1809,7 @@ TEST(ScriptLayerLookup, MissingLayerKeepsDefaultTransformShape) {
     ASSERT_NE(fs, nullptr);
 
     rt.TickAll();
-    EXPECT_EQ(std::get<ScalarValue>(fs->last_value()).v, 1.0);
+    EXPECT_EQ(fs->last_value().as_Scalar().value.v, 1.0);
 }
 
 TEST(ScriptWEMath, SmoothStepCamelCaseAndAliases) {
@@ -1704,8 +1834,8 @@ TEST(ScriptWEMath, SmoothStepCamelCaseAndAliases) {
                        + Math.round((e - c) * 1000000)
                        + Math.round((f - d) * 1000000);
             }
-        )JS",
-        "test/wemath_smoothstep",
+        )JS"_str,
+        "test/wemath_smoothstep"_str,
         FieldKind::Scalar,
         owe::MakeObject(),
         owe::IntoJson(0),
@@ -1714,7 +1844,7 @@ TEST(ScriptWEMath, SmoothStepCamelCaseAndAliases) {
 
     rt.TickAll();
     // expected: 50 + 50*100 + 3142*10000 + 180*1e9
-    EXPECT_EQ(std::get<ScalarValue>(fs->last_value()).v,
+    EXPECT_EQ(fs->last_value().as_Scalar().value.v,
               50.0 + 50.0 * 100 + 3142.0 * 10000 + 180.0 * 1e9);
 }
 
@@ -1731,8 +1861,8 @@ TEST(ScriptModule, ImportedBindingInitializesTopLevelConstBeforeUpdate) {
             export function update() {
                 return WEColor.expandColor(colors.blue).divide(255);
             }
-        )JS",
-        "test/module_top_level_import_binding",
+        )JS"_str,
+        "test/module_top_level_import_binding"_str,
         FieldKind::Vec3,
         owe::MakeObject(),
         owe::IntoJson("0.0 0.0 0.0"),
@@ -1740,8 +1870,8 @@ TEST(ScriptModule, ImportedBindingInitializesTopLevelConstBeforeUpdate) {
     ASSERT_NE(fs, nullptr);
 
     rt.TickAll();
-    ASSERT_TRUE(std::holds_alternative<Vec3Value>(fs->last_value()));
-    const auto& value = std::get<Vec3Value>(fs->last_value());
+    ASSERT_TRUE(fs->last_value().is_Vec3());
+    const auto& value = fs->last_value().as_Vec3().value;
     EXPECT_NEAR(value.x, 110.0 / 255.0, 0.0001);
     EXPECT_NEAR(value.y, 168.0 / 255.0, 0.0001);
     EXPECT_NEAR(value.z, 1.0, 0.0001);
@@ -1760,8 +1890,8 @@ TEST(ScriptWEVector, VectorAngle2UsesDegrees) {
                     V.vectorAngle2(new Vec2(0, 1)),
                     V.vectorAngle2(V.angleVector2(-135)));
             }
-        )JS",
-        "test/wevector_vector_angle2",
+        )JS"_str,
+        "test/wevector_vector_angle2"_str,
         FieldKind::Vec3,
         owe::MakeObject(),
         owe::IntoJson("0.0 0.0 0.0"),
@@ -1769,8 +1899,8 @@ TEST(ScriptWEVector, VectorAngle2UsesDegrees) {
     ASSERT_NE(fs, nullptr);
 
     rt.TickAll();
-    ASSERT_TRUE(std::holds_alternative<Vec3Value>(fs->last_value()));
-    const auto& value = std::get<Vec3Value>(fs->last_value());
+    ASSERT_TRUE(fs->last_value().is_Vec3());
+    const auto& value = fs->last_value().as_Vec3().value;
     EXPECT_NEAR(value.x, 0.0, 0.001);
     EXPECT_NEAR(value.y, 90.0, 0.001);
     EXPECT_NEAR(value.z, -135.0, 0.001);
@@ -1788,8 +1918,8 @@ TEST(ScriptVector, InstanceMixInterpolatesVectors) {
                 let c = new Vec3(2).mix(6, 0.25);
                 return new Vec3(a.x + b.x, a.y + b.y, a.z + c.z);
             }
-        )JS",
-        "test/vector_mix",
+        )JS"_str,
+        "test/vector_mix"_str,
         FieldKind::Vec3,
         owe::MakeObject(),
         owe::IntoJson("0.0 0.0 0.0"),
@@ -1797,8 +1927,8 @@ TEST(ScriptVector, InstanceMixInterpolatesVectors) {
     ASSERT_NE(fs, nullptr);
 
     rt.TickAll();
-    ASSERT_TRUE(std::holds_alternative<Vec3Value>(fs->last_value()));
-    const auto& v = std::get<Vec3Value>(fs->last_value());
+    ASSERT_TRUE(fs->last_value().is_Vec3());
+    const auto& v = fs->last_value().as_Vec3().value;
     EXPECT_NEAR(v.x, 8.0, 0.001);
     EXPECT_NEAR(v.y, 13.0, 0.001);
     EXPECT_NEAR(v.z, 7.0, 0.001);
@@ -1815,8 +1945,8 @@ TEST(ScriptVector, Vec2ConstructorCopiesVectorComponents) {
                 let fromObject = new Vec2({ x: 3, y: 4, z: 5 });
                 return new Vec3(fromVec3.x, fromVec3.y, fromObject.length());
             }
-        )JS",
-        "test/vector_vec2_copy_ctor",
+        )JS"_str,
+        "test/vector_vec2_copy_ctor"_str,
         FieldKind::Vec3,
         owe::MakeObject(),
         owe::IntoJson("0.0 0.0 0.0"),
@@ -1824,8 +1954,8 @@ TEST(ScriptVector, Vec2ConstructorCopiesVectorComponents) {
     ASSERT_NE(fs, nullptr);
 
     rt.TickAll();
-    ASSERT_TRUE(std::holds_alternative<Vec3Value>(fs->last_value()));
-    const auto& v = std::get<Vec3Value>(fs->last_value());
+    ASSERT_TRUE(fs->last_value().is_Vec3());
+    const auto& v = fs->last_value().as_Vec3().value;
     EXPECT_NEAR(v.x, 100.0, 0.001);
     EXPECT_NEAR(v.y, 200.0, 0.001);
     EXPECT_NEAR(v.z, 5.0, 0.001);
@@ -1840,8 +1970,8 @@ TEST(ScriptVector, LengthSqrMatchesWallpaperEngineVectors) {
             export function update(value) {
                 return new Vec3(2, 3, 6).lengthSqr() + new Vec2(5, 12).lengthSqr();
             }
-        )JS",
-        "test/vector_length_sqr",
+        )JS"_str,
+        "test/vector_length_sqr"_str,
         FieldKind::Scalar,
         owe::MakeObject(),
         owe::IntoJson(0),
@@ -1849,7 +1979,7 @@ TEST(ScriptVector, LengthSqrMatchesWallpaperEngineVectors) {
     ASSERT_NE(fs, nullptr);
 
     rt.TickAll();
-    EXPECT_NEAR(std::get<ScalarValue>(fs->last_value()).v, 218.0, 0.001);
+    EXPECT_NEAR(fs->last_value().as_Scalar().value.v, 218.0, 0.001);
 }
 
 TEST(ScriptVector, NormalizeReturnsUnitVectors) {
@@ -1864,8 +1994,8 @@ TEST(ScriptVector, NormalizeReturnsUnitVectors) {
                 let z = new Vec3(0, 0, 0).normalize();
                 return new Vec3(a.x, a.y + b.y * 10, z.length());
             }
-        )JS",
-        "test/vector_normalize",
+        )JS"_str,
+        "test/vector_normalize"_str,
         FieldKind::Vec3,
         owe::MakeObject(),
         owe::IntoJson("0.0 0.0 0.0"),
@@ -1873,8 +2003,8 @@ TEST(ScriptVector, NormalizeReturnsUnitVectors) {
     ASSERT_NE(fs, nullptr);
 
     rt.TickAll();
-    ASSERT_TRUE(std::holds_alternative<Vec3Value>(fs->last_value()));
-    const auto& v = std::get<Vec3Value>(fs->last_value());
+    ASSERT_TRUE(fs->last_value().is_Vec3());
+    const auto& v = fs->last_value().as_Vec3().value;
     EXPECT_NEAR(v.x, 0.6, 0.001);
     EXPECT_NEAR(v.y, 10.8, 0.001);
     EXPECT_NEAR(v.z, 0.0, 0.001);
@@ -1892,8 +2022,8 @@ TEST(ScriptVector, EngineCanvasSizeSupportsVectorMethods) {
                 const v = engine.canvasSize.divide(2);
                 return v.x + v.y * 10000;
             }
-        )JS",
-        "test/canvas_size_vec2_methods",
+        )JS"_str,
+        "test/canvas_size_vec2_methods"_str,
         FieldKind::Scalar,
         owe::MakeObject(),
         owe::IntoJson(0),
@@ -1901,7 +2031,7 @@ TEST(ScriptVector, EngineCanvasSizeSupportsVectorMethods) {
     ASSERT_NE(fs, nullptr);
 
     rt.TickAll();
-    EXPECT_EQ(std::get<ScalarValue>(fs->last_value()).v, 1920.0 + 1080.0 * 10000);
+    EXPECT_EQ(fs->last_value().as_Scalar().value.v, 1920.0 + 1080.0 * 10000);
 }
 
 TEST(ScriptScene, InitialLayerConfigPreservesAuthoredEffects) {
@@ -1927,8 +2057,8 @@ TEST(ScriptScene, InitialLayerConfigPreservesAuthoredEffects) {
                     : -1;
             }
             export function update() { return seen; }
-        )JS",
-        "test/initial_layer_config",
+        )JS"_str,
+        "test/initial_layer_config"_str,
         FieldKind::Scalar,
         owe::MakeObject(),
         owe::IntoJson(0),
@@ -1936,13 +2066,13 @@ TEST(ScriptScene, InitialLayerConfigPreservesAuthoredEffects) {
     ASSERT_NE(fs, nullptr);
 
     rt.TickAll();
-    EXPECT_EQ(std::get<ScalarValue>(fs->last_value()).v, 2.0);
+    EXPECT_EQ(fs->last_value().as_Scalar().value.v, 2.0);
 }
 
 TEST(ScriptScene, DestroyLayerHidesSceneNode) {
     auto root  = rstd::sync::Arc<owe::SceneNode>::make();
     auto child = rstd::sync::Arc<owe::SceneNode>::make(
-        Eigen::Vector3f::Zero(), Eigen::Vector3f::Ones(), Eigen::Vector3f::Zero(), "coin");
+        Eigen::Vector3f::Zero(), Eigen::Vector3f::Ones(), Eigen::Vector3f::Zero(), "coin"_str);
     root->AppendChild(child.clone());
 
     JsRuntime   rt;
@@ -1958,8 +2088,8 @@ TEST(ScriptScene, DestroyLayerHidesSceneNode) {
                 hidden = coin.visible ? 0 : 1;
             }
             export function update() { return hidden; }
-        )JS",
-        "test/destroy_layer_hides_node",
+        )JS"_str,
+        "test/destroy_layer_hides_node"_str,
         FieldKind::Scalar,
         owe::MakeObject(),
         owe::IntoJson(0),
@@ -1968,7 +2098,7 @@ TEST(ScriptScene, DestroyLayerHidesSceneNode) {
 
     rt.TickAll();
     EXPECT_FALSE(child->Visible());
-    EXPECT_EQ(std::get<ScalarValue>(fs->last_value()).v, 1.0);
+    EXPECT_EQ(fs->last_value().as_Scalar().value.v, 1.0);
 }
 
 TEST(ScriptScene, CameraTransformsRoundTripThroughSceneOwner) {
@@ -1993,8 +2123,8 @@ TEST(ScriptScene, CameraTransformsRoundTripThroughSceneOwner) {
                 const camera = thisScene.getCameraTransforms();
                 return camera.eye.x * 100 + camera.eye.y * 10 + camera.eye.z;
             }
-        )JS",
-        "test/camera_transforms_round_trip",
+        )JS"_str,
+        "test/camera_transforms_round_trip"_str,
         FieldKind::Scalar,
         owe::MakeObject(),
         owe::IntoJson(0));
@@ -2036,8 +2166,8 @@ TEST(ScriptScene, OrthographicCameraTransformsUseAttachedNodeCoordinates) {
                 const camera = thisScene.getCameraTransforms();
                 return camera.eye.x * 100 + camera.eye.y;
             }
-        )JS",
-        "test/orthographic_camera_attached_coordinates",
+        )JS"_str,
+        "test/orthographic_camera_attached_coordinates"_str,
         FieldKind::Scalar,
         owe::MakeObject(),
         owe::IntoJson(0));
@@ -2058,9 +2188,9 @@ TEST(ScriptScene, OrthographicCameraTransformsUseAttachedNodeCoordinates) {
 TEST(ScriptScene, CreateLayerRoutesConfigurationAndLayerCloneToFactory) {
     auto root  = Arc<owe::SceneNode>::make();
     auto owner = Arc<owe::SceneNode>::make(
-        Eigen::Vector3f::Zero(), Eigen::Vector3f::Ones(), Eigen::Vector3f::Zero(), "owner");
+        Eigen::Vector3f::Zero(), Eigen::Vector3f::Ones(), Eigen::Vector3f::Zero(), "owner"_str);
     auto style = Arc<owe::SceneNode>::make(
-        Eigen::Vector3f::Zero(), Eigen::Vector3f::Ones(), Eigen::Vector3f::Zero(), "Style1");
+        Eigen::Vector3f::Zero(), Eigen::Vector3f::Ones(), Eigen::Vector3f::Zero(), "Style1"_str);
     root->AppendChild(owner.clone());
     root->AppendChild(style.clone());
 
@@ -2091,8 +2221,8 @@ TEST(ScriptScene, CreateLayerRoutesConfigurationAndLayerCloneToFactory) {
                 result = background.visible && text.visible ? 2 : -1;
             }
             export function update() { return result; }
-        )JS",
-        "test/create_layer_configuration",
+        )JS"_str,
+        "test/create_layer_configuration"_str,
         FieldKind::Scalar,
         owe::MakeObject(),
         owe::IntoJson(0),
@@ -2105,15 +2235,15 @@ TEST(ScriptScene, CreateLayerRoutesConfigurationAndLayerCloneToFactory) {
     rt.TickAll();
 
     ASSERT_EQ(configs.len(), usize(2));
-    std::string color;
-    std::string size;
-    std::string text;
-    EXPECT_TRUE(owe::GetJsonValue(configs[usize()], "color", color, false));
-    EXPECT_TRUE(owe::GetJsonValue(configs[usize()], "size", size, false));
-    EXPECT_TRUE(owe::GetJsonValue(configs[usize(1)], "text", text, false));
-    EXPECT_EQ(color, "0.1 0.2 0.3");
-    EXPECT_EQ(size, "10 20 0");
-    EXPECT_EQ(text, "template");
+    String color;
+    String size;
+    String text;
+    EXPECT_TRUE(owe::GetJsonValue(configs[usize()], "color"_str, color, false));
+    EXPECT_TRUE(owe::GetJsonValue(configs[usize()], "size"_str, size, false));
+    EXPECT_TRUE(owe::GetJsonValue(configs[usize(1)], "text"_str, text, false));
+    EXPECT_EQ(color, "0.1 0.2 0.3"_str);
+    EXPECT_EQ(size, "10 20 0"_str);
+    EXPECT_EQ(text, "template"_str);
     EXPECT_DOUBLE_EQ(LastScalar(fs), 2.0);
 }
 
@@ -2122,7 +2252,7 @@ TEST(ScriptScene, CreateLayerRestoresTheCallingFieldScriptBinding) {
     auto owner = Arc<owe::SceneNode>::make(Eigen::Vector3f { 344.0f, 328.0f, 0.0f },
                                            Eigen::Vector3f::Ones(),
                                            Eigen::Vector3f::Zero(),
-                                           "owner");
+                                           "owner"_str);
     root->AppendChild(owner.clone());
 
     Vec<Arc<owe::SceneNode>> created;
@@ -2133,8 +2263,8 @@ TEST(ScriptScene, CreateLayerRestoresTheCallingFieldScriptBinding) {
             auto node = Arc<owe::SceneNode>::make();
             root->AppendChild(node.clone());
             created.push(node.clone());
-            auto* nested = rt.MakeFieldScript(R"JS(export function init() {})JS",
-                                              "test/create_layer_nested_binding",
+            auto* nested = rt.MakeFieldScript(R"JS(export function init() {})JS"_str,
+                                              "test/create_layer_nested_binding"_str,
                                               FieldKind::Scalar,
                                               owe::MakeObject(),
                                               owe::IntoJson(0),
@@ -2152,8 +2282,8 @@ TEST(ScriptScene, CreateLayerRestoresTheCallingFieldScriptBinding) {
                 }
                 return thisLayer.origin.x;
             }
-        )JS",
-        "test/create_layer_restores_binding",
+        )JS"_str,
+        "test/create_layer_restores_binding"_str,
         FieldKind::Scalar,
         owe::MakeObject(),
         owe::IntoJson(0),
@@ -2171,9 +2301,9 @@ TEST(ScriptScene, CreateLayerRestoresTheCallingFieldScriptBinding) {
 TEST(ScriptScene, CreatedLayersCanBeSortedBeforeAnExistingLayer) {
     owe::Scene scene;
     auto       ring = Arc<owe::SceneNode>::make(
-        Eigen::Vector3f::Zero(), Eigen::Vector3f::Ones(), Eigen::Vector3f::Zero(), "ring");
+        Eigen::Vector3f::Zero(), Eigen::Vector3f::Ones(), Eigen::Vector3f::Zero(), "ring"_str);
     auto body = Arc<owe::SceneNode>::make(
-        Eigen::Vector3f::Zero(), Eigen::Vector3f::Ones(), Eigen::Vector3f::Zero(), "body");
+        Eigen::Vector3f::Zero(), Eigen::Vector3f::Ones(), Eigen::Vector3f::Zero(), "body"_str);
     scene.AttachRuntimeNode(*scene.RootMut(), ring.clone());
     scene.AttachRuntimeNode(*scene.RootMut(), body.clone());
     (void)scene.ConsumeRenderGraphDirty();
@@ -2203,8 +2333,8 @@ TEST(ScriptScene, CreatedLayersCanBeSortedBeforeAnExistingLayer) {
                        + thisScene.getLayerIndex('body');
             }
             export function update() { return result; }
-        )JS",
-        "test/sort_created_layers",
+        )JS"_str,
+        "test/sort_created_layers"_str,
         FieldKind::Scalar,
         owe::MakeObject(),
         owe::IntoJson(0),
@@ -2257,8 +2387,8 @@ TEST(ScriptScene, RegisteredAssetFactoryCreatesAndReusesDestroyedLayer) {
                 result = reused.origin.x === 0 ? 12 : -1;
             }
             export function update() { return result; }
-        )JS",
-        "test/registered_asset_factory",
+        )JS"_str,
+        "test/registered_asset_factory"_str,
         FieldKind::Scalar,
         owe::MakeObject(),
         owe::IntoJson(0),
@@ -2305,8 +2435,8 @@ TEST(ScriptScene, DirectWorkshopAssetUsesLayerFactoryWithoutFixedCloneCapacity) 
                 }
             }
             export function update() { return result; }
-        )JS",
-        "test/direct_workshop_asset_factory",
+        )JS"_str,
+        "test/direct_workshop_asset_factory"_str,
         FieldKind::Scalar,
         owe::MakeObject(),
         owe::IntoJson(0),
@@ -2345,8 +2475,8 @@ TEST(ScriptScene, ParticleInstanceAndPlaybackUseNodeCapability) {
                 const color = thisLayer.instance.colorn;
                 return color.x * 100 + color.y * 10 + color.z + (thisLayer.isPlaying() ? 1000 : 0);
             }
-        )JS",
-        "test/particle_instance_control",
+        )JS"_str,
+        "test/particle_instance_control"_str,
         FieldKind::Scalar,
         owe::MakeObject(),
         owe::IntoJson(0),
@@ -2395,8 +2525,8 @@ TEST(ScriptScene, SoundVolumeUsesSoundControl) {
             export function update() {
                 return thisLayer.volume + (thisLayer.isPlaying() ? 1 : 0);
             }
-        )JS",
-        "test/sound_volume_control",
+        )JS"_str,
+        "test/sound_volume_control"_str,
         FieldKind::Scalar,
         owe::MakeObject(),
         owe::IntoJson(0),
@@ -2420,7 +2550,7 @@ TEST(ScriptUserProperty, UserPropertyOverridesFallback) {
     // between should win.
     JsRuntime rt;
     owe::Json properties = rstd::json::from_str(R"({"x":{"user":"x1","value":0.5}})"_str).unwrap();
-    rt.SetUserProperty("x1",
+    rt.SetUserProperty("x1"_str,
                        rstd::json::from_str(R"({"type":"slider","value":-0.665})"_str).unwrap());
     FrameInputs fi {};
     fi.canvas_w = 3840.0f;
@@ -2432,8 +2562,8 @@ TEST(ScriptUserProperty, UserPropertyOverridesFallback) {
               .addSlider({ name: 'x', value: 0.5, min: 0, max: 1 })
               .finish();
             export function update() { return scriptProperties.x; }
-        )JS",
-        "test/user_prop_override",
+        )JS"_str,
+        "test/user_prop_override"_str,
         FieldKind::Scalar,
         properties,
         owe::IntoJson(0),
@@ -2446,7 +2576,7 @@ TEST(ScriptUserProperty, UserPropertyOverridesFallback) {
     // declared range. Workshop 3327063360 relies on this: x1=-0.665 fed
     // into `scriptProperties.x * canvasSize.x` produces a negative offset
     // that shifts the Clock cluster off the master-component origin.
-    EXPECT_NEAR(std::get<ScalarValue>(fs->last_value()).v, -0.665, 1e-4);
+    EXPECT_NEAR(fs->last_value().as_Scalar().value.v, -0.665, 1e-4);
 }
 
 TEST(ScriptUserProperty, FallbackWhenUserPropMissing) {
@@ -2463,8 +2593,8 @@ TEST(ScriptUserProperty, FallbackWhenUserPropMissing) {
               .addSlider({ name: 'x', value: 0.5, min: 0, max: 1 })
               .finish();
             export function update() { return scriptProperties.x; }
-        )JS",
-        "test/user_prop_fallback",
+        )JS"_str,
+        "test/user_prop_fallback"_str,
         FieldKind::Scalar,
         properties,
         owe::IntoJson(0),
@@ -2472,7 +2602,7 @@ TEST(ScriptUserProperty, FallbackWhenUserPropMissing) {
     ASSERT_NE(fs, nullptr);
 
     rt.TickAll();
-    EXPECT_NEAR(std::get<ScalarValue>(fs->last_value()).v, 0.5, 1e-4);
+    EXPECT_NEAR(fs->last_value().as_Scalar().value.v, 0.5, 1e-4);
 }
 
 TEST(ScriptUserProperty, ApplyUserPropertiesReceivesUnwrappedValue) {
@@ -2490,10 +2620,10 @@ TEST(ScriptUserProperty, ApplyUserPropertiesReceivesUnwrappedValue) {
     )JS");
     ASSERT_NE(fs, nullptr);
 
-    rt.SetUserProperty("music",
+    rt.SetUserProperty("music"_str,
                        rstd::json::from_str(R"({"type":"combo","value":"5"})"_str).unwrap());
     rt.TickAll();
-    EXPECT_EQ(std::get<ScalarValue>(fs->last_value()).v, 1.0);
+    EXPECT_EQ(fs->last_value().as_Scalar().value.v, 1.0);
 }
 
 TEST(ScriptUserProperty, DirectReadsReceiveUpdatedComboValue) {
@@ -2512,15 +2642,15 @@ TEST(ScriptUserProperty, DirectReadsReceiveUpdatedComboValue) {
     )JS");
     ASSERT_NE(fs, nullptr);
 
-    rt.SetUserProperty("timeofday",
+    rt.SetUserProperty("timeofday"_str,
                        rstd::json::from_str(R"({"type":"combo","value":"1"})"_str).unwrap());
     rt.TickAll();
-    EXPECT_EQ(std::get<ScalarValue>(fs->last_value()).v, 0.0);
+    EXPECT_EQ(fs->last_value().as_Scalar().value.v, 0.0);
 
-    rt.SetUserProperty("timeofday",
+    rt.SetUserProperty("timeofday"_str,
                        rstd::json::from_str(R"({"type":"combo","value":"2"})"_str).unwrap());
     rt.TickAll();
-    EXPECT_EQ(std::get<ScalarValue>(fs->last_value()).v, 1.0);
+    EXPECT_EQ(fs->last_value().as_Scalar().value.v, 1.0);
 }
 
 TEST(ScriptUserProperty, TextInputValueRemainsAString) {
@@ -2538,10 +2668,10 @@ TEST(ScriptUserProperty, TextInputValueRemainsAString) {
     )JS");
     ASSERT_NE(fs, nullptr);
 
-    rt.SetUserProperty("text",
+    rt.SetUserProperty("text"_str,
                        rstd::json::from_str(R"({"type":"textinput","value":"true"})"_str).unwrap());
     rt.TickAll();
-    EXPECT_EQ(std::get<ScalarValue>(fs->last_value()).v, 1.0);
+    EXPECT_EQ(fs->last_value().as_Scalar().value.v, 1.0);
 }
 
 TEST(ScriptMedia, DispatchesPropertiesPlaybackAndThumbnailEvents) {
@@ -2578,14 +2708,14 @@ TEST(ScriptMedia, DispatchesPropertiesPlaybackAndThumbnailEvents) {
     ASSERT_NE(fs, nullptr);
 
     rt.SetMediaStatus(MediaStatus { .state            = 1,
-                                    .title            = "Song",
-                                    .artist           = "Artist",
-                                    .album            = "Album",
-                                    .album_artist     = "Album Artist",
-                                    .art_url          = "/tmp/cover.png",
-                                    .previous_art_url = "/tmp/previous.png" });
+                                    .title            = "Song"_Str,
+                                    .artist           = "Artist"_Str,
+                                    .album            = "Album"_Str,
+                                    .album_artist     = "Album Artist"_Str,
+                                    .art_url          = "/tmp/cover.png"_Str,
+                                    .previous_art_url = "/tmp/previous.png"_Str });
     rt.TickAll();
-    EXPECT_EQ(std::get<ScalarValue>(fs->last_value()).v, 1.0);
+    EXPECT_EQ(fs->last_value().as_Scalar().value.v, 1.0);
 }
 
 TEST(ScriptUserProperty, ScriptedOriginLandsAtCenter) {
@@ -2611,8 +2741,8 @@ TEST(ScriptUserProperty, ScriptedOriginLandsAtCenter) {
                 value.y = scriptProperties.y * engine.canvasSize.y;
                 return value;
             }
-        )JS",
-        "test/workshop_3327_repro",
+        )JS"_str,
+        "test/workshop_3327_repro"_str,
         FieldKind::Vec3,
         properties,
         owe::IntoJson("1315.0 1419.0 0.0"),
@@ -2620,8 +2750,8 @@ TEST(ScriptUserProperty, ScriptedOriginLandsAtCenter) {
     ASSERT_NE(fs, nullptr);
 
     rt.TickAll();
-    ASSERT_TRUE(std::holds_alternative<Vec3Value>(fs->last_value()));
-    const auto& v = std::get<Vec3Value>(fs->last_value());
+    ASSERT_TRUE(fs->last_value().is_Vec3());
+    const auto& v = fs->last_value().as_Vec3().value;
     EXPECT_NEAR(v.x, 1920.0, 0.5);
     EXPECT_NEAR(v.y, 1080.0, 0.5);
 }
@@ -2647,8 +2777,8 @@ TEST(ScriptAnimation, AnimatedRotationPassThroughStaysSynchronized) {
     scene.RootMut()->AppendChild(peer.clone());
     JsRuntime rt;
     auto*     fs = rt.MakeFieldScript(
-        "export function update(value) { return value; }",
-        "test/animated_rotation_passthrough",
+        "export function update(value) { return value; }"_str,
+        "test/animated_rotation_passthrough"_str,
         FieldKind::Vec3,
         owe::MakeObject(),
         owe::IntoJson("0 0 0"),
@@ -2659,7 +2789,7 @@ TEST(ScriptAnimation, AnimatedRotationPassThroughStaysSynchronized) {
         scene.Runtime().Advance(rstd::f64(delta));
         scene.TickNodeFieldAnimations();
         rt.TickAll();
-        apply(fs->last_value());
+        apply->operator()(fs->last_value());
         EXPECT_TRUE(node->Rotation().isApprox(peer->Rotation(), 0.00001f));
     }
     playback->Pause();
@@ -2667,20 +2797,20 @@ TEST(ScriptAnimation, AnimatedRotationPassThroughStaysSynchronized) {
     scene.Runtime().Advance(rstd::f64(1.0));
     scene.TickNodeFieldAnimations();
     rt.TickAll();
-    apply(fs->last_value());
+    apply->operator()(fs->last_value());
     EXPECT_TRUE(node->Rotation().isApprox(peer->Rotation(), 0.00001f));
     playback->Stop();
     peer_playback->Stop();
     scene.TickNodeFieldAnimations();
     rt.TickAll();
-    apply(fs->last_value());
+    apply->operator()(fs->last_value());
     EXPECT_TRUE(node->Rotation().isZero(0.00001f));
     playback->Play();
     peer_playback->Play();
     scene.Runtime().Advance(rstd::f64(1.0));
     scene.TickNodeFieldAnimations();
     rt.TickAll();
-    apply(fs->last_value());
+    apply->operator()(fs->last_value());
     EXPECT_TRUE(node->Rotation().isApprox(peer->Rotation(), 0.00001f));
     EXPECT_GT(node->Rotation().y(), 0.0f);
 }
@@ -2698,8 +2828,8 @@ TEST(ScriptAnimation, AnimatedValueRefreshPrecedesEventOverrides) {
     JsRuntime rt;
     auto*     fs = rt.MakeFieldScript(
         "export function animationEvent(event, value) { return value + 0.5; } "
-        "export function update(value) { return value; }",
-        "test/animated_value_event",
+        "export function update(value) { return value; }"_str,
+        "test/animated_value_event"_str,
         FieldKind::Scalar,
         owe::MakeObject(),
         owe::IntoJson(0),
@@ -2710,7 +2840,7 @@ TEST(ScriptAnimation, AnimatedValueRefreshPrecedesEventOverrides) {
     events.push({ .node = node.as_ptr(), .event = { .name = String::make("beat"_str) } });
     rt.TickAll(events.as_slice());
     EXPECT_DOUBLE_EQ(LastScalar(fs), 0.75);
-    MakeNodeAlphaApply(node.clone())(fs->last_value());
+    MakeNodeAlphaApply(node.clone())->operator()(fs->last_value());
     events.clear();
     node->TickFieldAnimations(0.5, events);
     rt.TickAll();
@@ -2815,8 +2945,8 @@ TEST(ScriptAnimation, BroadcastsMarkersAndControlsSharedPlayback) {
                     secondary.name === "secondary" ? 100 : 0;
                 return value + animation.getFrame() + animation.rate + secondary.getFrame() + metadata;
             }
-        )JS",
-        "test/animation_controller",
+        )JS"_str,
+        "test/animation_controller"_str,
         FieldKind::Scalar,
         owe::MakeObject(),
         owe::IntoJson(0),
@@ -2825,8 +2955,8 @@ TEST(ScriptAnimation, BroadcastsMarkersAndControlsSharedPlayback) {
         R"JS(
             export function animationEvent(event) { return event.frame + 1; }
             export function update(value) { return value; }
-        )JS",
-        "test/animation_peer",
+        )JS"_str,
+        "test/animation_peer"_str,
         FieldKind::Scalar,
         owe::MakeObject(),
         owe::IntoJson(0),
@@ -2835,8 +2965,8 @@ TEST(ScriptAnimation, BroadcastsMarkersAndControlsSharedPlayback) {
         R"JS(
             export function animationEvent() { return 99; }
             export function update(value) { return value; }
-        )JS",
-        "test/animation_unrelated",
+        )JS"_str,
+        "test/animation_unrelated"_str,
         FieldKind::Scalar,
         owe::MakeObject(),
         owe::IntoJson(0),
@@ -2880,8 +3010,8 @@ TEST(ScriptAnimation, SeparatesLayerAndCurrentPropertyLookup) {
                 return thisObject !== thisLayer && propertyAnimation.frameCount === 1 &&
                     layerAnimation.frameCount === 24 ? 1 : 0;
             }
-        )JS",
-        "test/animation_property_scope",
+        )JS"_str,
+        "test/animation_property_scope"_str,
         FieldKind::Scalar,
         owe::MakeObject(),
         owe::IntoJson(0),
@@ -2895,8 +3025,8 @@ TEST(ScriptAnimation, SeparatesLayerAndCurrentPropertyLookup) {
             export function update() {
                 return thisObject !== thisLayer && animation.name === "layer-track" ? 1 : 0;
             }
-        )JS",
-        "test/animation_material_property_scope",
+        )JS"_str,
+        "test/animation_material_property_scope"_str,
         FieldKind::Scalar,
         owe::MakeObject(),
         owe::IntoJson(0),
@@ -2909,8 +3039,8 @@ TEST(ScriptAnimation, SeparatesLayerAndCurrentPropertyLookup) {
             export function update() {
                 return thisObject !== thisLayer && animation.name === "layer-track" ? 1 : 0;
             }
-        )JS",
-        "test/animation_scene_property_scope",
+        )JS"_str,
+        "test/animation_scene_property_scope"_str,
         FieldKind::Scalar,
         owe::MakeObject(),
         owe::IntoJson(0),
@@ -2944,8 +3074,8 @@ TEST(ScriptAnimation, TimerKeepsCurrentPropertyAnimation) {
                 return value;
             }
             export function update() { return observed; }
-        )JS",
-        "test/animation_timer_property_scope",
+        )JS"_str,
+        "test/animation_timer_property_scope"_str,
         FieldKind::Scalar,
         owe::MakeObject(),
         owe::IntoJson(0),
@@ -2999,8 +3129,8 @@ TEST(ScriptNodeSize, UnsetFallsBackTo100x100) {
     auto* fs = rt.MakeFieldScript(
         R"JS(
             export function update() { return thisLayer.size.x + thisLayer.size.y * 1000; }
-        )JS",
-        "test/node_size_unset",
+        )JS"_str,
+        "test/node_size_unset"_str,
         FieldKind::Scalar,
         owe::MakeObject(),
         owe::IntoJson(0),
@@ -3008,7 +3138,7 @@ TEST(ScriptNodeSize, UnsetFallsBackTo100x100) {
     ASSERT_NE(fs, nullptr);
 
     rt.TickAll();
-    EXPECT_EQ(std::get<ScalarValue>(fs->last_value()).v, 100.0 + 100.0 * 1000);
+    EXPECT_EQ(fs->last_value().as_Scalar().value.v, 100.0 + 100.0 * 1000);
 }
 
 TEST(ScriptTimer, ClearIntervalStops) {
@@ -3028,8 +3158,64 @@ TEST(ScriptTimer, ClearIntervalStops) {
     ASSERT_NE(fs, nullptr);
 
     Tick(rt, 0.25); // fires at 0.1, 0.2 → n=2
-    EXPECT_EQ(std::get<ScalarValue>(fs->last_value()).v, 2.0);
+    EXPECT_EQ(fs->last_value().as_Scalar().value.v, 2.0);
 
     Tick(rt, 1.50); // would have fired many more, but update cleared it
-    EXPECT_EQ(std::get<ScalarValue>(fs->last_value()).v, 2.0);
+    EXPECT_EQ(fs->last_value().as_Scalar().value.v, 2.0);
+}
+
+TEST(ScriptActuator, OwnsMoveOnlyMutableCapture) {
+    auto     owner = Box<int>::make(0);
+    auto*    count = owner.get();
+    Actuator actuator(nullptr, [owner = rstd::move(owner)](const ScriptValue&) mutable {
+        ++*owner;
+    });
+    actuator.apply->operator()(ScriptValue::Empty());
+    actuator.apply->operator()(ScriptValue::Empty());
+    EXPECT_EQ(*count, 2);
+}
+
+TEST(ScriptEnumeration, DefersScriptsAddedDuringEnumeration) {
+    JsRuntime runtime;
+    ASSERT_NE(MakeProbe(runtime, "enumeration/first", "export function update() { return 1; }"),
+              nullptr);
+    struct State {
+        JsRuntime* runtime;
+        int        count;
+    };
+    State state { &runtime, 0 };
+    runtime.ForEachScript(
+        [](FieldScript*, void* opaque) {
+            auto& state = *static_cast<State*>(opaque);
+            ++state.count;
+            for (int i = 0; i < 64; ++i) {
+                auto key = std::to_string(i);
+                EXPECT_NE(MakeProbe(*state.runtime,
+                                    key.c_str(),
+                                    "export function update() { return 2; }"),
+                          nullptr);
+            }
+        },
+        &state);
+    EXPECT_EQ(state.count, 1);
+    state.count = 0;
+    runtime.ForEachScript(
+        [](FieldScript*, void* opaque) {
+            ++static_cast<State*>(opaque)->count;
+        },
+        &state);
+    EXPECT_EQ(state.count, 65);
+}
+
+TEST(ScriptSource, AcceptsBorrowedSubstringWithoutTerminator) {
+    JsRuntime runtime;
+    auto      storage = "export function update() { return 42; }trailing invalid source"_Str;
+    auto      source =
+        storage.as_str().get(usize(), "export function update() { return 42; }"_str.len()).unwrap();
+    auto* script = runtime.MakeFieldScript(
+        source, "bounded-source"_str, FieldKind::Scalar, owe::MakeObject(), owe::IntoJson(0));
+    ASSERT_NE(script, nullptr);
+    runtime.TickAll();
+    ASSERT_TRUE(script->last_value().is_Scalar());
+    EXPECT_EQ(script->last_value().as_Scalar().value.v, 42.0);
 }

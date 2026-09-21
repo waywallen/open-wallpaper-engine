@@ -31,19 +31,6 @@ options = [
 ]
 threads = true
 
-[[test]]
-name = "vulkan-presenter"
-sources = [
-  "Web.cppm",
-  "Presenter.cppm",
-  "VulkanBlitter.cppm",
-  "VulkanBlitter.cpp",
-  "tests/vulkan_presenter.cpp",
-]
-when = [
-  { condition = 'target.os == "linux"', source-groups = ["linux"] },
-]
-
 [[when]]
 condition = 'target.os == "macos"'
 

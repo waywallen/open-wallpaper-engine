@@ -26,7 +26,3 @@ pub = true
 [dependencies.rstd-std]
 workspace = true
 pub = true
-
-[dependencies.rstd-cppstd]
-workspace = true
-pub = true

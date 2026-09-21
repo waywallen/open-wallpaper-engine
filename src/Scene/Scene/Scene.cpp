@@ -9,11 +9,12 @@ import rstd.log;
 import rstd.cppstd;
 
 using namespace rstd::prelude;
+using rstd::sync::atomic::Atomic;
+using rstd::sync::atomic::Ordering;
 using namespace rstd::literals;
 using rstd::collections::BTreeSet;
 using rstd::collections::HashMap;
 using rstd::collections::HashSet;
-using rstd::cppstd::as_str;
 using rstd::sync::Arc;
 using rstd::sync::Mutex;
 using rstd::sync::Weak;
@@ -170,13 +171,13 @@ bool AudioResponseDemand::Active() const {
 namespace
 {
 u32 next_scene_resource_generation() {
-    static std::atomic<rstd::uint32_t> next { 1 };
-    return u32(next.fetch_add(1, std::memory_order_relaxed));
+    static Atomic<u32> next { u32(1) };
+    return next.fetch_add(u32(1), Ordering::Relaxed);
 }
 
 u64 next_render_scene_version() {
-    static std::atomic<rstd::uint64_t> next { 1 };
-    return u64(next.fetch_add(1, std::memory_order_relaxed));
+    static Atomic<u64> next { u64(1) };
+    return next.fetch_add(u64(1), Ordering::Relaxed);
 }
 
 template<typename T>
@@ -189,7 +190,7 @@ bool same_ids(const HashSet<T>& lhs, const HashSet<T>& rhs) {
     return true;
 }
 
-u32 index_from_size(std::size_t size) { return rstd::as_cast<u32>(usize(size)); }
+u32 index_from_size(rstd::size_t size) { return rstd::as_cast<u32>(usize(size)); }
 
 usize index_from_id(u32 index) { return usize(index.to_primitive()); }
 
@@ -201,12 +202,12 @@ auto sorted_resource_names(slice<String> source) -> Vec<String> {
 }
 
 template<typename Id>
-bool valid_index(Id id, u32 generation, std::size_t size) {
+bool valid_index(Id id, u32 generation, rstd::size_t size) {
     return id.generation == generation && id.index.to_primitive() < size;
 }
 
 template<typename Id>
-bool valid_render_index(Id id, u64 generation, std::size_t size) {
+bool valid_render_index(Id id, u64 generation, rstd::size_t size) {
     return id.generation == generation && id.index.to_primitive() < size;
 }
 
@@ -237,7 +238,7 @@ float cubic(float p0, float p1, float p2, float p3, float t) {
 i32 curve_end(const SceneAnimationCurve& curve) {
     i32  end {};
     auto absorb_last = [&end](slice<SceneAnimationKey> keys) {
-        if (! keys.is_empty()) end = std::max(end, keys[keys.len() - usize(1)].frame);
+        if (! keys.is_empty()) end = rstd::cmp::max(keys[keys.len() - usize(1)].frame, end);
     };
     absorb_last(curve.c0.as_slice());
     absorb_last(curve.c1.as_slice());
@@ -265,7 +266,7 @@ float eval_segment(const SceneAnimationKey& a, const SceneAnimationKey& b, float
     float p2y = p3y + (b.back_enabled ? b.back_y : 0.0f);
 
     if (! (p0x <= p1x && p1x <= p2x && p2x <= p3x)) {
-        float linear_t = std::clamp((frame - p0x) / dt, 0.0f, 1.0f);
+        float linear_t = rstd::cmp::min(1.0f, rstd::cmp::max(0.0f, (frame - p0x) / dt));
         return std::lerp(a.value, b.value, linear_t);
     }
 
@@ -274,7 +275,7 @@ float eval_segment(const SceneAnimationKey& a, const SceneAnimationKey& b, float
     for (int i = 0; i < 16; ++i) {
         float mid = (lo + hi) * 0.5f;
         float x   = cubic(p0x, p1x, p2x, p3x, mid);
-        if (std::abs(x - frame) <= 0.00001f) {
+        if (f32(x - frame).abs().to_primitive() <= 0.00001f) {
             lo = hi = mid;
             break;
         }
@@ -321,7 +322,8 @@ SceneCameraLookAtKey eval_lookat_track(const SceneCameraLookAtTrack& track, floa
         const auto& b = track.keys[i];
         if (frame > b.frame) continue;
         float dt = b.frame - a.frame;
-        float t  = dt > 0.0f ? std::clamp((frame - a.frame) / dt, 0.0f, 1.0f) : 1.0f;
+        float t =
+            dt > 0.0f ? rstd::cmp::min(1.0f, rstd::cmp::max(0.0f, (frame - a.frame) / dt)) : 1.0f;
         return {
             .frame  = frame,
             .eye    = lerp_vec3(a.eye, b.eye, t),
@@ -336,17 +338,17 @@ Option<SceneCameraLookAtKey> eval_lookat_tracks(slice<SceneCameraLookAtTrack> tr
                                                 double runtime, float fps) {
     float total = 0.0f;
     for (usize index {}; index < tracks.len(); ++index)
-        total += std::max(tracks[index].duration, 0.0f);
+        total += rstd::cmp::max(0.0f, tracks[index].duration);
     if (total <= 0.0f) return None();
 
     float frame = static_cast<float>(runtime) * (fps > 0.0f ? fps : 1.0f);
-    frame       = std::fmod(frame, total);
+    frame       = (f32(frame) % f32(total)).to_primitive();
     if (frame < 0.0f) frame += total;
 
     float offset = 0.0f;
     for (usize index {}; index < tracks.len(); ++index) {
         const auto& track    = tracks[index];
-        float       duration = std::max(track.duration, 0.0f);
+        float       duration = rstd::cmp::max(0.0f, track.duration);
         if (duration <= 0.0f) continue;
         if (frame <= offset + duration) return Some(eval_lookat_track(track, frame - offset));
         offset += duration;
@@ -368,28 +370,30 @@ ShaderValue eval_shader_value_animation(const SceneShaderValueAnimation& animati
         animation.base.size() == usize())
         return animation.base;
 
-    std::vector<float> value(animation.base.size().to_primitive());
-    for (std::size_t i = 0; i < value.size(); ++i) value[i] = animation.base[usize(i)];
+    Vec<float> value;
+    value.resize(animation.base.size(), 0.0f);
+    for (rstd::size_t i = 0; i < value.len().to_primitive(); ++i)
+        value[usize(i)] = animation.base[usize(i)];
 
-    if (value.size() == 1) {
-        value[0] = (**animation.track).EvaluateScalar(value[0]);
+    if (value.len().to_primitive() == 1) {
+        value[usize(0)] = (**animation.track).EvaluateScalar(value[usize(0)]);
         return ShaderValue(UniformValueView {
             .data   = value.data(),
-            .size   = usize(value.size()),
+            .size   = usize(value.len().to_primitive()),
             .layout = animation.base.View().layout,
         });
     }
 
-    Eigen::Vector3f base { value[0],
-                           value.size() > 1 ? value[1] : 0.0f,
-                           value.size() > 2 ? value[2] : 0.0f };
+    Eigen::Vector3f base { value[usize(0)],
+                           value.len().to_primitive() > 1 ? value[usize(1)] : 0.0f,
+                           value.len().to_primitive() > 2 ? value[usize(2)] : 0.0f };
     auto            animated = (**animation.track).EvaluateVec3(base);
-    value[0]                 = animated.x();
-    if (value.size() > 1) value[1] = animated.y();
-    if (value.size() > 2) value[2] = animated.z();
+    value[usize(0)]          = animated.x();
+    if (value.len().to_primitive() > 1) value[usize(1)] = animated.y();
+    if (value.len().to_primitive() > 2) value[usize(2)] = animated.z();
     return ShaderValue(UniformValueView {
         .data   = value.data(),
-        .size   = usize(value.size()),
+        .size   = usize(value.len().to_primitive()),
         .layout = animation.base.View().layout,
     });
 }
@@ -416,10 +420,10 @@ void collect_linked_ids_from_node(SceneNode* node, Scene& scene, BTreeSet<i32>& 
         for (auto& prefill : effect_layer->PrefillNodes()) {
             collect_linked_ids_from_node(prefill.sceneNode.as_ptr(), scene, out);
         }
-        auto collect_effect = [&](const std::shared_ptr<SceneImageEffect>& effect) {
+        auto collect_effect = [&](const auto& effect) {
             if (! effect) return;
-            for (auto& effect_node : effect->nodes) {
-                collect_linked_ids_from_node(effect_node.sceneNode.as_ptr(), scene, out);
+            for (auto& effect_node : effect->Nodes()) {
+                collect_linked_ids_from_node(effect_node->sceneNode.as_ptr(), scene, out);
             }
         };
         for (usize i {}; i < effect_layer->EffectCount(); ++i) {
@@ -451,8 +455,8 @@ void ensure_snapshot_link_render_targets(Scene& scene, const BTreeSet<i32>& link
     for (auto next = ids.next(); next.is_some(); next = ids.next()) {
         auto id    = **next;
         auto layer = WallpaperLayerId { .value = id };
-        auto key   = GenLinkTex(static_cast<std::ptrdiff_t>(id.to_primitive()));
-        if (scene.RenderTarget(as_str(key).unwrap()).is_some()) continue;
+        auto key   = GenLinkTex(rstd::as_cast<isize>(id));
+        if (scene.RenderTarget(key.as_str()).is_some()) continue;
         auto* source = scene.RegisteredLayerLinkSource(layer);
         if (source == nullptr) {
             rstd_error("linked layer {} has no registered composite producer", id);
@@ -534,12 +538,12 @@ void SceneResourceIndex::Rebuild(Scene& scene, u32 generation) {
         SceneMeshId mesh_id = register_mesh(*mesh);
         const auto& slots   = mesh->MaterialSlots();
         const auto& parts   = mesh->Submeshes();
-        for (std::size_t smi = 0; smi < parts.size(); ++smi) {
-            const auto& submesh    = parts[smi];
+        for (rstd::size_t smi = 0; smi < parts.len().to_primitive(); ++smi) {
+            const auto& submesh    = parts[usize(smi)];
             auto        slot_index = submesh.material_slot.to_primitive();
-            if (slot_index >= slots.size() || ! slots[slot_index]) continue;
+            if (slot_index >= slots.len().to_primitive() || ! slots[usize(slot_index)]) continue;
 
-            SceneMaterialId material_id   = register_material(*slots[slot_index]);
+            SceneMaterialId material_id   = register_material(*slots[usize(slot_index)]);
             auto            submesh_index = rstd::as_cast<u32>(usize(smi));
             auto preserved = preserved_draw_ids.get(draw_item_key(node_id, submesh_index));
             SceneDrawItemId draw_id =
@@ -563,7 +567,7 @@ void SceneResourceIndex::Rebuild(Scene& scene, u32 generation) {
 
     auto register_node = [&](SceneNode& node) {
         auto       id       = scene.RegisterNode(node);
-        const auto required = static_cast<std::size_t>(id.index.to_primitive()) + 1;
+        const auto required = static_cast<rstd::size_t>(id.index.to_primitive()) + 1;
         if (m_nodes.len().to_primitive() < required) m_nodes.resize(usize(required), nullptr);
         m_nodes[index_from_id(id.index)] = &node;
         (void)m_node_ids.insert(&node, id);
@@ -584,11 +588,13 @@ void SceneResourceIndex::Rebuild(Scene& scene, u32 generation) {
             }
             for (usize ei {}; ei < layer->EffectCount(); ++ei) {
                 auto& effect = layer->GetEffect(ei);
-                for (auto& effect_node : effect->nodes) self(self, effect_node.sceneNode.as_ptr());
+                for (auto& effect_node : effect->Nodes())
+                    self(self, effect_node->sceneNode.as_ptr());
             }
-            auto collect_internal = [&](const std::shared_ptr<SceneImageEffect>& effect) {
+            auto collect_internal = [&](const auto& effect) {
                 if (! effect) return;
-                for (auto& effect_node : effect->nodes) self(self, effect_node.sceneNode.as_ptr());
+                for (auto& effect_node : effect->Nodes())
+                    self(self, effect_node->sceneNode.as_ptr());
             };
             collect_internal(layer->FinalResolveEffect());
             collect_internal(layer->PublishedEffect());
@@ -691,11 +697,11 @@ Option<DrawItemView> SceneResourceIndex::resolve(SceneDrawItemId id) const {
     auto*       me   = mesh(item.mesh);
     auto*       ma   = material(item.material);
     if (n == nullptr || me == nullptr || ma == nullptr) return None();
-    if (item.submesh_index.to_primitive() >= me->Submeshes().size()) return None();
+    if (item.submesh_index.to_primitive() >= me->Submeshes().len().to_primitive()) return None();
     return Some<DrawItemView>(
         DrawItemView { .node          = n,
                        .mesh          = me,
-                       .submesh       = &me->Submeshes()[item.submesh_index.to_primitive()],
+                       .submesh       = &me->Submeshes()[usize(item.submesh_index.to_primitive())],
                        .material      = ma,
                        .submesh_index = item.submesh_index });
 }
@@ -793,7 +799,7 @@ void RenderSceneSnapshot::Rebuild(Scene& scene, RenderSceneVersion version) {
             .id               = id,
             .scene_texture    = scene_id,
             .key              = key.clone(),
-            .desc             = desc.is_some() ? **desc : SceneTexture {},
+            .desc             = desc.is_some() ? (**desc).clone() : SceneTexture {},
             .content_revision = scene.TextureContentRevision(key.as_str()),
             .video_control    = rstd::move(video_control),
         });
@@ -820,7 +826,7 @@ void RenderSceneSnapshot::Rebuild(Scene& scene, RenderSceneVersion version) {
             .id                  = id,
             .scene_render_target = scene_id,
             .key                 = key.clone(),
-            .desc                = desc.is_some() ? **desc : SceneRenderTarget {},
+            .desc                = desc.is_some() ? (**desc).clone() : SceneRenderTarget {},
         });
     }
 
@@ -842,9 +848,8 @@ void RenderSceneSnapshot::Rebuild(Scene& scene, RenderSceneVersion version) {
         const auto* node = index.node(item.node);
         Option<RenderTargetDescId> output_override;
         if (auto view = index.resolve(item.id)) {
-            if (view->submesh != nullptr && ! view->submesh->output_override.empty()) {
-                output_override = renderTargetDescId(
-                    rstd::cppstd::as_str(view->submesh->output_override).unwrap());
+            if (view->submesh != nullptr && ! view->submesh->output_override.is_empty()) {
+                output_override = renderTargetDescId(view->submesh->output_override.as_str());
             }
         }
 
@@ -872,7 +877,7 @@ void RenderSceneSnapshot::Rebuild(Scene& scene, RenderSceneVersion version) {
         }
         m_shadow_casters.push(RenderShadowCasterRecord {
             .render_item    = id,
-            .material       = view->material->shadow_variant,
+            .material       = (*view->material->shadow_variant).clone(),
             .instance_count = rstd::as_cast<u32>(m_shadow_definitions[usize()].viewports.len()),
         });
     }
@@ -880,8 +885,8 @@ void RenderSceneSnapshot::Rebuild(Scene& scene, RenderSceneVersion version) {
     auto linked_ids = m_linked_layer_ids.iter();
     for (auto next = linked_ids.next(); next.is_some(); next = linked_ids.next()) {
         auto id      = **next;
-        auto key     = GenLinkTex(static_cast<std::ptrdiff_t>(id.to_primitive()));
-        auto desc_id = renderTargetDescId(rstd::cppstd::as_str(key).unwrap());
+        auto key     = GenLinkTex(rstd::as_cast<isize>(id));
+        auto desc_id = renderTargetDescId(key.as_str());
         if (! desc_id) continue;
 
         auto record_index = rstd::as_cast<u32>(m_link_sources.len());
@@ -890,7 +895,7 @@ void RenderSceneSnapshot::Rebuild(Scene& scene, RenderSceneVersion version) {
             .source_layer      = WallpaperLayerId { .value = id },
             .scene_node        = scene.RegisteredLayerLinkSourceId(WallpaperLayerId { .value = id })
                                      .unwrap_or(SceneNodeId {}),
-            .render_target_key = String::make(rstd::cppstd::as_str(key).unwrap()),
+            .render_target_key = rstd::move(key),
             .render_target     = *desc_id,
         });
     }
@@ -1017,7 +1022,7 @@ namespace
 {
 double next_animation_pass(double at, double after, double period) {
     if (period <= 0.0) return at;
-    double turns = std::floor((after - at) / period) + 1.0;
+    double turns = f64((after - at) / period).floor().to_primitive() + 1.0;
     if (turns < 0.0) turns = 0.0;
     double pass = at + turns * period;
     while (pass <= after) pass += period;
@@ -1030,7 +1035,7 @@ void SceneAnimationPlayback::Advance(double runtime, Vec<SceneAnimationEvent>& o
     double delta = runtime;
     if (m_last_runtime.is_some()) {
         if (runtime < *m_last_runtime) {
-            m_position_seconds = std::max(runtime, 0.0);
+            m_position_seconds = rstd::cmp::max(0.0, runtime);
             m_previous_frame   = m_position_seconds * static_cast<double>(m_clip->Fps()) - 0.5;
             delta              = 0.0;
         } else {
@@ -1108,19 +1113,19 @@ void SceneAnimationPlayback::Stop() {
 void SceneAnimationPlayback::SetFrame(i32 frame) { SetFrame(rstd::as_cast<float>(frame)); }
 
 void SceneAnimationPlayback::SetFrame(float frame) {
-    if (! std::isfinite(frame)) return;
-    float value = std::max(frame, 0.0f);
-    if (m_clip->End() > i32()) value = std::min(value, rstd::as_cast<float>(m_clip->End()));
+    if (! f32(frame).is_finite()) return;
+    float value = rstd::cmp::max(0.0f, frame);
+    if (m_clip->End() > i32()) value = rstd::cmp::min(rstd::as_cast<float>(m_clip->End()), value);
     m_position_seconds = static_cast<double>(value) / static_cast<double>(m_clip->Fps());
     m_previous_frame   = static_cast<double>(value);
 }
 
 void SceneAnimationPlayback::SetRate(float rate) {
-    if (std::isfinite(rate) && rate > 0.0f) m_rate = rate;
+    if (f32(rate).is_finite() && rate > 0.0f) m_rate = rate;
 }
 
 i32 SceneAnimationPlayback::Frame() const {
-    return i32(static_cast<std::int32_t>(std::floor(Sample().current)));
+    return i32(static_cast<rstd::int32_t>(f32(Sample().current).floor().to_primitive()));
 }
 
 double SceneAnimationPlayback::Duration() const {
@@ -1137,14 +1142,14 @@ auto SceneAnimationPlayback::Sample() const -> SceneAnimationSample {
     const float end_frame = rstd::as_cast<float>(end);
     if (m_mirror) {
         const float period = 2.0f * end_frame;
-        frame              = std::fmod(frame, period);
+        frame              = (f32(frame) % f32(period)).to_primitive();
         if (frame < 0.0f) frame += period;
         frame = frame <= end_frame ? frame : period - frame;
     } else if (m_loop) {
-        frame = std::fmod(frame, end_frame);
+        frame = (f32(frame) % f32(end_frame)).to_primitive();
         if (frame < 0.0f) frame += end_frame;
     } else {
-        frame = std::clamp(frame, 0.0f, end_frame);
+        frame = rstd::cmp::min(end_frame, rstd::cmp::max(0.0f, frame));
     }
     return { .current = frame, .end = end, .wraps = m_loop && m_clip->WrapLoop() };
 }
@@ -1214,31 +1219,22 @@ void SceneNode::SetFieldAnimation(String field, SceneNodeAnimationTarget target,
 }
 
 void SceneNode::SetOriginAnimation(SceneAnimationTrack track) {
-    SetFieldAnimation(String::make("origin"_str),
-                      SceneNodeAnimationTarget::Origin,
-                      rstd::move(track),
-                      m_translate,
-                      0.0f);
+    SetFieldAnimation(
+        "origin"_Str, SceneNodeAnimationTarget::Origin, rstd::move(track), m_translate, 0.0f);
 }
 
 void SceneNode::SetScaleAnimation(SceneAnimationTrack track) {
-    SetFieldAnimation(String::make("scale"_str),
-                      SceneNodeAnimationTarget::Scale,
-                      rstd::move(track),
-                      m_scale,
-                      0.0f);
+    SetFieldAnimation(
+        "scale"_Str, SceneNodeAnimationTarget::Scale, rstd::move(track), m_scale, 0.0f);
 }
 
 void SceneNode::SetRotationAnimation(SceneAnimationTrack track) {
-    SetFieldAnimation(String::make("angles"_str),
-                      SceneNodeAnimationTarget::Rotation,
-                      rstd::move(track),
-                      m_rotation,
-                      0.0f);
+    SetFieldAnimation(
+        "angles"_Str, SceneNodeAnimationTarget::Rotation, rstd::move(track), m_rotation, 0.0f);
 }
 
 void SceneNode::SetAlphaAnimation(SceneAnimationTrack track) {
-    SetFieldAnimation(String::make("alpha"_str),
+    SetFieldAnimation("alpha"_Str,
                       SceneNodeAnimationTarget::Alpha,
                       rstd::move(track),
                       Eigen::Vector3f::Zero(),
@@ -1327,7 +1323,7 @@ bool SceneCameraPath::ApplyQueueClip(float frame) {
     if (camera.is_none() || queue.is_empty()) return false;
     const auto& clip   = queue[queue_index];
     auto        sample = SceneAnimationSample {
-        .current = std::clamp(frame, 0.0f, rstd::as_cast<float>(clip.length)),
+        .current = rstd::cmp::min(rstd::as_cast<float>(clip.length), rstd::cmp::max(0.0f, frame)),
         .end     = clip.length,
     };
     auto evaluate_vec3 = [&](const Option<Arc<SceneAnimationCurve>>& curve,
@@ -1350,7 +1346,7 @@ bool SceneCameraPath::ApplyQueueClip(float frame) {
         float fov = evaluate_scalar(clip.fov, queue_base_fov);
         if (fov > 0.0f) (**camera).SetFov(fov);
     } else {
-        float zoom = std::max(evaluate_scalar(clip.zoom, queue_base_zoom), 0.001f);
+        float zoom = rstd::cmp::max(0.001f, evaluate_scalar(clip.zoom, queue_base_zoom));
         (**camera).SetWidth(default_width / static_cast<double>(zoom));
         (**camera).SetHeight(default_height / static_cast<double>(zoom));
     }
@@ -1372,7 +1368,7 @@ bool SceneCameraPath::TickQueue(double runtime) {
     while (delta > 0.0) {
         const auto& clip      = queue[queue_index];
         double      duration  = clip.Duration();
-        double      remaining = std::max(duration - queue_elapsed, 0.0);
+        double      remaining = rstd::cmp::max(0.0, duration - queue_elapsed);
         if (remaining > 0.0 && delta < remaining) {
             queue_elapsed += delta;
             break;
@@ -1444,7 +1440,7 @@ bool SceneCameraPath::Tick(double runtime) {
         if (fov > 0.0f) value.SetFov(fov);
     } else {
         float zoom = zoom_track.is_some() ? zoom_track->EvaluateScalar(zoom_base) : zoom_base;
-        zoom       = std::max(zoom, 0.001f);
+        zoom       = rstd::cmp::max(0.001f, zoom);
         value.SetWidth(default_width / static_cast<double>(zoom));
         value.SetHeight(default_height / static_cast<double>(zoom));
     }
@@ -1496,7 +1492,7 @@ SceneNodeId Scene::RegisterNode(SceneNode& node, Option<WallpaperLayerId> wallpa
 }
 
 SceneEffectId Scene::RegisterEffect(SceneNodeId owner, SceneNodeLayer& layer,
-                                    std::shared_ptr<SceneImageEffect> effect) {
+                                    Arc<SceneImageEffect> effect) {
     if (! effect) return {};
     if (! owner.Valid() || owner.generation != m_resource_generation) return {};
     if (! effect->id.Valid() || effect->id.generation != m_resource_generation) {
@@ -1511,7 +1507,7 @@ SceneEffectId Scene::RegisterEffect(SceneNodeId owner, SceneNodeLayer& layer,
                                  ImageEffectRecord {
                                      .owner  = owner,
                                      .layer  = rstd::addressof(layer),
-                                     .effect = effect,
+                                     .effect = effect.clone(),
                                  });
     return effect->id;
 }
@@ -1534,9 +1530,7 @@ void Scene::RegisterTexture(String name, SceneTexture texture) {
         (void)m_texture_content_revisions.insert(name.clone(), u64(1));
     }
     if (texture.isVideo) {
-        auto control_key = texture.url.empty()
-                               ? name.clone()
-                               : String::make(rstd::cppstd::as_str(texture.url).unwrap());
+        auto control_key = texture.url.is_empty() ? name.clone() : texture.url.clone();
         if (! m_video_controls.contains_key(control_key.as_str())) {
             (void)m_video_controls.insert(rstd::move(control_key), Arc<VideoPlaybackState>::make());
         }
@@ -1558,8 +1552,8 @@ auto Scene::VideoControl(ref<str> name) const -> Option<Arc<VideoPlaybackState>>
     auto control = m_video_controls.get(name);
     if (control.is_some()) return Some((*control)->clone());
     auto texture = m_textures.get(name);
-    if (texture.is_none() || ! (**texture).isVideo || (**texture).url.empty()) return None();
-    auto key = rstd::cppstd::as_str((**texture).url).unwrap();
+    if (texture.is_none() || ! (**texture).isVideo || (**texture).url.is_empty()) return None();
+    auto key = (**texture).url.as_str();
     control  = m_video_controls.get(key);
     return control.is_some() ? Some((*control)->clone()) : None<Arc<VideoPlaybackState>>();
 }
@@ -1621,8 +1615,7 @@ void Scene::RegisterTransformUpdater(Box<dyn<FnMut<void(f64)>>> updater) {
     m_transform_updaters.push(rstd::move(updater));
 }
 
-void Scene::RegisterShaderUserBinding(String key, std::shared_ptr<SceneMaterial> material,
-                                      String uniform) {
+void Scene::RegisterShaderUserBinding(String key, Arc<SceneMaterial> material, String uniform) {
     auto bindings = m_shader_user_index.get_mut(key.as_str());
     if (bindings.is_none()) {
         (void)m_shader_user_index.insert(key.clone(), Vec<ShaderUserBinding> {});
@@ -1670,13 +1663,12 @@ auto Scene::MaterialTextureUserBindings(ref<str> key) const -> slice<MaterialTex
 namespace
 {
 
-auto MakeImagePropertyBinding(const Arc<SceneNode>&                 node,
-                              slice<std::shared_ptr<SceneMaterial>> materials)
+auto MakeImagePropertyBinding(const Arc<SceneNode>& node, slice<Arc<SceneMaterial>> materials)
     -> Scene::ImagePropertyBinding {
     Scene::ImagePropertyBinding binding { .node = node.clone() };
     binding.materials.reserve(materials.len());
     for (usize index {}; index < materials.len(); ++index) {
-        binding.materials.emplace_back(materials[index]);
+        binding.materials.push(materials[index].clone());
     }
     return binding;
 }
@@ -1684,7 +1676,7 @@ auto MakeImagePropertyBinding(const Arc<SceneNode>&                 node,
 } // namespace
 
 void Scene::RegisterImageColorUserBinding(String key, const Arc<SceneNode>& node,
-                                          slice<std::shared_ptr<SceneMaterial>> materials) {
+                                          slice<Arc<SceneMaterial>> materials) {
     auto bindings = m_image_color_user_index.get_mut(key.as_str());
     if (bindings.is_none()) {
         (void)m_image_color_user_index.insert(key.clone(), Vec<ImagePropertyBinding> {});
@@ -1694,7 +1686,7 @@ void Scene::RegisterImageColorUserBinding(String key, const Arc<SceneNode>& node
 }
 
 void Scene::RegisterImageAlphaUserBinding(String key, const Arc<SceneNode>& node,
-                                          slice<std::shared_ptr<SceneMaterial>> materials) {
+                                          slice<Arc<SceneMaterial>> materials) {
     auto bindings = m_image_alpha_user_index.get_mut(key.as_str());
     if (bindings.is_none()) {
         (void)m_image_alpha_user_index.insert(key.clone(), Vec<ImagePropertyBinding> {});
@@ -1771,16 +1763,14 @@ bool Scene::SetActiveCameraTransforms(const SceneCameraTransforms& transforms) {
 
 bool SceneMaterial::SetShaderValueAnimation(String uniform_name, Arc<SceneAnimationTrack> track) {
     if (uniform_name.is_empty() || track->Empty()) return false;
-    auto uniform_key = rstd::cppstd::to_string(uniform_name.as_str());
+    auto uniform_key = uniform_name.as_str();
 
     ShaderValue base;
-    if (auto it = customShader.constValues.find(uniform_key);
-        it != customShader.constValues.end()) {
-        base = it->second;
+    if (auto it = customShader.constValues.get(uniform_key); it.is_some()) {
+        base = **it;
     } else if (customShader.shader) {
-        if (auto it = customShader.shader->default_uniforms.find(uniform_key);
-            it != customShader.shader->default_uniforms.end()) {
-            base = ShapeShaderValue(uniform_key, it->second);
+        if (auto it = (*customShader.shader)->default_uniforms.get(uniform_key); it.is_some()) {
+            base = ShapeShaderValue(uniform_key, **it);
         }
     }
     if (base.size() == usize()) return false;
@@ -1793,9 +1783,9 @@ bool SceneMaterial::SetShaderValueAnimation(String uniform_name, Arc<SceneAnimat
 
 auto SceneMaterialCustomShader::Clone() const -> SceneMaterialCustomShader {
     SceneMaterialCustomShader cloned {
-        .shader        = shader,
-        .constValues   = constValues,
-        .variant       = variant.is_some() ? Some<SceneShaderVariantDesc>(*variant) : None(),
+        .shader      = shader.clone(),
+        .constValues = constValues.clone(),
+        .variant     = variant.is_some() ? Some<SceneShaderVariantDesc>(variant->clone()) : None(),
         .value_version = value_version,
     };
     struct PlaybackClone {
@@ -1859,14 +1849,14 @@ bool SceneMaterial::TickShaderValueAnimations() {
     bool changed = false;
     customShader.valueAnimations.iter_mut().for_each([&](auto entry) {
         auto [name, animation]   = entry;
-        auto        uniform_name = rstd::cppstd::to_string(name->as_str());
+        auto        uniform_name = name->as_str();
         ShaderValue value        = eval_shader_value_animation(*animation);
-        if (auto it = customShader.constValues.find(uniform_name);
-            it != customShader.constValues.end() && shader_values_equal(it->second, value)) {
+        if (auto it = customShader.constValues.get(uniform_name);
+            it.is_some() && shader_values_equal(**it, value)) {
             return;
         }
-        customShader.constValues[uniform_name] = std::move(value);
-        changed                                = true;
+        (void)customShader.constValues.insert(name->clone(), rstd::move(value));
+        changed = true;
     });
     if (changed) TouchShaderValues();
     return changed;
@@ -1884,21 +1874,22 @@ void SceneTextureAnimationRegistry::Rebuild(const Scene& scene) {
         if (draw.is_none() || draw->node == nullptr || draw->material == nullptr) continue;
 
         Entry entry { .node = draw->node };
-        for (std::size_t index = 0; index < draw->material->textures.size(); ++index) {
-            const auto& texture_key = draw->material->textures[index];
-            auto        texture     = scene.Texture(rstd::cppstd::as_str(texture_key).unwrap());
+        for (rstd::size_t index = 0; index < draw->material->textures.len().to_primitive();
+             ++index) {
+            const auto& texture_key = draw->material->textures[usize(index)];
+            auto        texture     = scene.Texture(texture_key.as_str());
             if (texture.is_none() || ! (**texture).isSprite ||
                 (**texture).spriteAnim.numFrames() == usize()) {
                 continue;
             }
 
-            auto texture_name = String::make(rstd::cppstd::as_str(texture_key).unwrap());
+            auto texture_name = String::make(texture_key.as_str());
             auto animation    = m_animations.get_mut(texture_name.as_str());
             if (animation.is_none()) {
                 auto previous_animation = previous.remove(texture_name.as_str());
-                auto value              = previous_animation.is_some()
-                                              ? rstd::move(*previous_animation)
-                                              : Animation { .sprite = (**texture).spriteAnim };
+                auto value = previous_animation.is_some()
+                                 ? rstd::move(*previous_animation)
+                                 : Animation { .sprite = (**texture).spriteAnim.clone() };
                 (void)m_animations.insert(texture_name.clone(), rstd::move(value));
                 animation = m_animations.get_mut(texture_name.as_str());
             }
@@ -1970,7 +1961,7 @@ auto SceneTextureAnimationRegistry::Frame(SceneDrawItemId draw, usize texture_in
     const auto&        override = (**entry).node->TexAnim();
     const SpriteFrame* frame;
     if (override.current_frame >= 0) {
-        const auto selected = usize(static_cast<std::size_t>(override.current_frame)) %
+        const auto selected = usize(static_cast<rstd::size_t>(override.current_frame)) %
                               (**animation).sprite.numFrames();
         frame               = rstd::addressof((**animation).sprite.GetFrame(selected));
     } else if (! override.playing) {
@@ -1985,7 +1976,7 @@ auto SceneTextureAnimationRegistry::Frame(SceneDrawItemId draw, usize texture_in
                          frame->yAxis[usize()],
                          frame->yAxis[usize(1)] },
         .translation = { frame->x, frame->y },
-        .image_slot  = usize(static_cast<std::size_t>(frame->imageId)),
+        .image_slot  = usize(static_cast<rstd::size_t>(frame->imageId)),
         .revision    = (**animation).revision,
     });
 }
@@ -2014,20 +2005,20 @@ bool Scene::SortLayer(SceneNode& node, usize index) {
     return true;
 }
 
-bool Scene::EnsureTextureDescriptor(std::string_view key) {
-    auto name = rstd::cppstd::as_str(key).unwrap();
-    if (key.empty() || IsSpecTex(name)) return true;
+bool Scene::EnsureTextureDescriptor(ref<str> key) {
+    auto name = key;
+    if (key.is_empty() || IsSpecTex(name)) return true;
     if (m_textures.contains_key(name)) return true;
-    auto header = ParseImageHeader(rstd::cppstd::as_str(key).unwrap());
+    auto header = ParseImageHeader(key);
     if (header.is_err()) return false;
 
     SceneTexture texture;
-    texture.url     = std::string(key);
+    texture.url     = rstd::into(key);
     texture.sample  = header->sample;
     texture.isVideo = header->type == ImageType::VIDEO;
     if (header->isSprite) {
         texture.isSprite   = true;
-        texture.spriteAnim = header->spriteAnim;
+        texture.spriteAnim = header->spriteAnim.clone();
     }
     RegisterTexture(String::make(name), rstd::move(texture));
     return true;
@@ -2090,7 +2081,7 @@ auto Scene::ParseImages(slice<String> names) const -> Vec<Result<Arc<Image>, Ima
 
 auto Scene::ParseImageHeader(ref<str> name) const -> Result<ImageHeader, ImageParseError> {
     auto runtime = m_runtime_images.get(name);
-    if (runtime.is_some()) return Ok((**runtime)->header);
+    if (runtime.is_some()) return Ok((**runtime)->header.clone());
     if (m_image_parser.is_none()) {
         return Err(ImageParseError {
             .kind    = ImageParseErrorKind::MissingContent,
@@ -2112,41 +2103,42 @@ void Scene::RegisterRuntimeImage(String name, Arc<Image> image) {
 
 bool Scene::SetMaterialShaderValue(SceneMaterial& material, ref<str> uniform_name,
                                    const ShaderValue& value) {
-    return material.SetShaderValue(rstd::cppstd::to_string(uniform_name), value);
+    return material.SetShaderValue(uniform_name, value);
 }
 
 bool Scene::SetMaterialShaderValueByKey(SceneMaterial& material, ref<str> material_key,
                                         const ShaderValue& value) {
-    auto uniform_name = rstd::cppstd::to_string(material_key);
+    auto uniform_name = material_key;
     if (material.customShader.variant.is_some()) {
         const auto& aliases = material.customShader.variant->uniform_aliases;
-        if (auto alias = aliases.find(uniform_name); alias != aliases.end()) {
-            uniform_name = alias->second;
+        if (auto alias = aliases.get(material_key); alias.is_some()) {
+            uniform_name = (**alias).as_str();
         }
     }
-    return material.SetShaderValue(std::move(uniform_name), value);
+    return material.SetShaderValue(uniform_name, value);
 }
 
 void Scene::ResolveMaterialTextureSources(SceneMaterial& material) {
-    material.texture_sources.resize(usize(material.textures.size()), SceneMaterialTextureSource {});
-    for (std::size_t index = 0; index < material.textures.size(); ++index) {
-        const auto& texture = material.textures[index];
+    material.texture_sources.resize(usize(material.textures.len().to_primitive()),
+                                    SceneMaterialTextureSource {});
+    for (rstd::size_t index = 0; index < material.textures.len().to_primitive(); ++index) {
+        const auto& texture = material.textures[usize(index)];
         auto&       source  = material.texture_sources[usize(index)];
         if (source.kind == SceneMaterialTextureSourceKind::LayerPrevious &&
-            source.binding_key == rstd::cppstd::as_str(texture).unwrap()) {
+            source.binding_key == texture.as_str()) {
             continue;
         }
         source             = {};
-        source.key         = String::make(rstd::cppstd::as_str(texture).unwrap());
+        source.key         = String::make(texture.as_str());
         source.binding_key = source.key.clone();
-        if (texture.empty()) continue;
+        if (texture.is_empty()) continue;
 
-        auto name = rstd::cppstd::as_str(texture).unwrap();
+        auto name = texture.as_str();
         if (auto linked = ParseImageLayerCompositeId(name); linked.is_some()) {
             source.kind            = SceneMaterialTextureSourceKind::LayerOutput;
             source.wallpaper_layer = rstd::as_cast<i32>(*linked);
-            auto key               = GenLinkTex(linked->to_primitive());
-            source.key             = String::make(rstd::cppstd::as_str(key).unwrap());
+            auto key               = GenLinkTex(rstd::as_cast<isize>(*linked));
+            source.key             = rstd::move(key);
             source.layer =
                 RegisteredLayerLinkSourceId(WallpaperLayerId { .value = source.wallpaper_layer });
             continue;
@@ -2216,31 +2208,32 @@ void Scene::ResolveMaterialTextureSources(SceneMaterial& material) {
 bool Scene::SetMaterialLayerPreviousSource(SceneMaterial& material, u32 slot, SceneNodeId layer,
                                            ref<str> composite_target) {
     auto index = usize(slot.to_primitive());
-    if (index >= usize(material.textures.size())) return false;
-    material.texture_sources.resize(usize(material.textures.size()), SceneMaterialTextureSource {});
-    auto& source = material.texture_sources[index];
-    source.kind  = SceneMaterialTextureSourceKind::LayerPrevious;
-    source.key   = String::make(composite_target);
-    source.binding_key =
-        String::make(rstd::cppstd::as_str(material.textures[index.to_primitive()]).unwrap());
-    source.layer = Some(layer);
+    if (index >= usize(material.textures.len().to_primitive())) return false;
+    material.texture_sources.resize(usize(material.textures.len().to_primitive()),
+                                    SceneMaterialTextureSource {});
+    auto& source       = material.texture_sources[index];
+    source.kind        = SceneMaterialTextureSourceKind::LayerPrevious;
+    source.key         = String::make(composite_target);
+    source.binding_key = material.textures[index].clone();
+    source.layer       = Some(layer);
     return true;
 }
 
 SceneMaterialTextureSlotMutation Scene::SetMaterialTextureSlot(SceneMaterial& material, u32 slot,
-                                                               std::string_view texture) {
+                                                               ref<str> texture) {
     if (! EnsureTextureDescriptor(texture)) return {};
 
-    auto slot_index = static_cast<std::size_t>(slot.to_primitive());
-    if (material.textures.size() <= slot_index) material.textures.resize(slot_index + 1);
-    if (material.texture_metadata.size() <= slot_index) {
-        material.texture_metadata.resize(slot_index + 1);
+    auto slot_index = static_cast<rstd::size_t>(slot.to_primitive());
+    if (material.textures.len().to_primitive() <= slot_index)
+        material.textures.resize(usize(slot_index + 1), String {});
+    if (material.texture_metadata.len().to_primitive() <= slot_index) {
+        material.texture_metadata.resize(usize(slot_index + 1), SceneMaterialTextureMetadata {});
     }
-    auto& current = material.textures[slot_index];
-    if (current == texture) return {};
+    auto& current = material.textures[usize(slot_index)];
+    if (current.as_str() == texture) return {};
 
-    current                               = std::string(texture);
-    material.texture_metadata[slot_index] = {};
+    current                                      = rstd::into(texture);
+    material.texture_metadata[usize(slot_index)] = {};
     ResolveMaterialTextureSources(material);
     material.SetTextureBindingsDirty();
     if (m_resource_index.Empty()) RebuildResourceIndex();
@@ -2253,7 +2246,7 @@ SceneMaterialTextureSlotMutation Scene::SetMaterialTextureSlot(SceneMaterial& ma
 
 SceneMaterialShaderVariantMutation
 Scene::SetMaterialShaderVariant(SceneMaterial& material, SceneShaderVariantMutation mutation) {
-    if (! material.SetShaderVariant(std::move(mutation.shader), std::move(mutation.variant)))
+    if (! material.SetShaderVariant(rstd::move(mutation.shader), rstd::move(mutation.variant)))
         return {};
 
     ResolveMaterialTextureSources(material);
@@ -2378,30 +2371,30 @@ bool Scene::SetNodeVisible(SceneNode& node, bool visible) {
     return was_elidable != is_elidable;
 }
 
-bool Scene::ApplyUserNodeVisibilityBindings(std::string_view key, const Json& property) {
+bool Scene::ApplyUserNodeVisibilityBindings(ref<str> key, const Json& property) {
     bool requires_graph_rebuild = false;
     if (m_resource_index.Empty()) RebuildResourceIndex();
     auto nodes = m_resource_index.Nodes();
     for (usize index {}; index < nodes.len(); ++index) {
         auto* node = nodes[index];
         if (node == nullptr) continue;
-        if (auto visible = ResolveSceneUserVisibilityBinding(
-                node->VisibleUserBinding(), rstd::cppstd::as_str(key).unwrap(), property)) {
+        if (auto visible =
+                ResolveSceneUserVisibilityBinding(node->VisibleUserBinding(), key, property)) {
             requires_graph_rebuild |= SetNodeVisible(*node, *visible);
         }
     }
     return requires_graph_rebuild;
 }
 
-Option<SceneImageEffectRef> Scene::FindNodeImageEffect(const SceneNode& node,
-                                                       std::string_view name) {
+Option<SceneImageEffectRef> Scene::FindNodeImageEffect(const SceneNode& node, ref<str> name) {
     if (! node.HasLayer()) return None();
     const auto& effect_layer = node.Layer();
     if (! effect_layer) return None();
-    auto effect = effect_layer->FindEffect(name);
-    if (! effect) return None();
-    auto owner = RegisterNode(const_cast<SceneNode&>(node));
-    auto id    = RegisterEffect(owner, *effect_layer, rstd::move(effect));
+    auto found = effect_layer->FindEffect(name);
+    if (! found) return None();
+    auto effect = rstd::move(*found);
+    auto owner  = RegisterNode(const_cast<SceneNode&>(node));
+    auto id     = RegisterEffect(owner, *effect_layer, rstd::move(effect));
     return id.Valid() ? Some(SceneImageEffectRef { .id = id }) : None();
 }
 
@@ -2409,7 +2402,7 @@ Option<SceneImageEffectRef> Scene::FindNodeImageEffect(const SceneNode& node, us
     if (! node.HasLayer()) return None();
     const auto& effect_layer = node.Layer();
     if (! effect_layer || index >= effect_layer->EffectCount()) return None();
-    auto effect = effect_layer->GetEffect(index);
+    auto effect = effect_layer->GetEffect(index).clone();
     if (! effect) return None();
     auto owner = RegisterNode(const_cast<SceneNode&>(node));
     auto id    = RegisterEffect(owner, *effect_layer, rstd::move(effect));
@@ -2426,7 +2419,7 @@ String Scene::ImageEffectName(const SceneImageEffectRef& ref) const {
     if (! ref.id.Valid() || ref.id.generation != m_resource_generation) return {};
     auto record = m_image_effects.get(scene_id_key(ref.id.index, ref.id.generation));
     if (record.is_none() || ! (**record).effect) return {};
-    return String::make(rstd::cppstd::as_str((**record).effect->name).unwrap());
+    return (**record).effect->name.clone();
 }
 
 bool Scene::ImageEffectRuntimeVisible(const SceneImageEffectRef& ref) const {
@@ -2438,10 +2431,9 @@ bool Scene::ImageEffectRuntimeVisible(const SceneImageEffectRef& ref) const {
 SceneMaterial* Scene::ImageEffectMaterial(const SceneImageEffectRef& ref, usize index) {
     if (! ref.id.Valid() || ref.id.generation != m_resource_generation) return nullptr;
     auto record = m_image_effects.get(scene_id_key(ref.id.index, ref.id.generation));
-    if (record.is_none() || ! (**record).effect || index >= usize((**record).effect->nodes.size()))
+    if (record.is_none() || ! (**record).effect || index >= (**record).effect->Nodes().len())
         return nullptr;
-    auto node = (**record).effect->nodes.begin();
-    std::advance(node, index.to_primitive());
+    auto& node = (**record).effect->Nodes()[index];
     if (! node->sceneNode || ! node->sceneNode->HasMaterial()) return nullptr;
     return node->sceneNode->Mesh()->Material();
 }
@@ -2455,24 +2447,24 @@ bool Scene::SetImageEffectRuntimeVisible(const SceneImageEffectRef& ref, bool vi
     return true;
 }
 
-bool Scene::ApplyUserImageEffectVisibilityBindings(std::string_view key, const Json& property) {
+bool Scene::ApplyUserImageEffectVisibilityBindings(ref<str> key, const Json& property) {
     if (m_resource_index.Empty()) RebuildResourceIndex();
 
-    bool                                  requires_graph_rebuild = false;
-    std::unordered_set<SceneImageEffect*> visited;
-    auto                                  nodes = m_resource_index.Nodes();
+    bool                       requires_graph_rebuild = false;
+    HashSet<SceneImageEffect*> visited;
+    auto                       nodes = m_resource_index.Nodes();
     for (usize node_index {}; node_index < nodes.len(); ++node_index) {
         auto* node = nodes[node_index];
         if (node == nullptr || ! node->HasLayer()) continue;
         auto& effect_layer = node->Layer();
         for (usize i {}; i < effect_layer->EffectCount(); ++i) {
             auto& effect = effect_layer->GetEffect(i);
-            if (! effect || ! visited.insert(effect.get()).second) continue;
-            auto visible = ResolveSceneUserVisibilityBinding(
-                effect->visible_user_binding, rstd::cppstd::as_str(key).unwrap(), property);
+            if (! effect || ! visited.insert(effect.as_ptr().as_raw_ptr())) continue;
+            auto visible =
+                ResolveSceneUserVisibilityBinding(effect->visible_user_binding, key, property);
             if (! visible) continue;
             auto owner = RegisterNode(*node);
-            auto id    = RegisterEffect(owner, *effect_layer, effect);
+            auto id    = RegisterEffect(owner, *effect_layer, effect.clone());
             if (SetImageEffectRuntimeVisible({ .id = id }, *visible)) {
                 requires_graph_rebuild = true;
             }
@@ -2481,11 +2473,11 @@ bool Scene::ApplyUserImageEffectVisibilityBindings(std::string_view key, const J
     return requires_graph_rebuild;
 }
 
-bool Scene::ApplyUserLightVisibilityBindings(std::string_view key, const Json& property) {
+bool Scene::ApplyUserLightVisibilityBindings(ref<str> key, const Json& property) {
     bool changed = false;
     for (auto& light : m_lights) {
-        auto visible = ResolveSceneUserVisibilityBinding(
-            light->visibleUserBinding(), rstd::cppstd::as_str(key).unwrap(), property);
+        auto visible =
+            ResolveSceneUserVisibilityBinding(light->visibleUserBinding(), key, property);
         if (! visible) continue;
         changed |= light->runtimeVisible() != *visible;
         light->setRuntimeVisible(*visible);
@@ -2517,14 +2509,13 @@ auto Scene::ShadowDefinitions() const -> slice<SceneShadowDefinition> {
     return m_shadow_definitions.as_slice();
 }
 
-bool Scene::ApplyUserCameraPathVisibilityBindings(std::string_view key, const Json& property) {
-    auto paths = m_camera_path_user_index.get(rstd::cppstd::as_str(key).unwrap());
+bool Scene::ApplyUserCameraPathVisibilityBindings(ref<str> key, const Json& property) {
+    auto paths = m_camera_path_user_index.get(key);
     if (paths.is_none()) return false;
 
     bool changed = false;
     for (const auto& path : **paths) {
-        auto enabled = ResolveSceneUserVisibilityBinding(
-            path->visible_user_binding, rstd::cppstd::as_str(key).unwrap(), property);
+        auto enabled = ResolveSceneUserVisibilityBinding(path->visible_user_binding, key, property);
         if (! enabled) continue;
         changed |= path->enabled != *enabled;
         path->SetEnabled(*enabled);
@@ -2749,8 +2740,8 @@ void Scene::CaptureCameraPathViewports() {
 
 void Scene::EnablePlanarReflection() {
     m_planar_reflection_enabled = true;
-    const auto key              = rstd::cppstd::to_string(WE_REFLECTION_PREFIX);
-    if (RenderTarget(as_str(key).unwrap()).is_some()) return;
+    const auto key              = WE_REFLECTION_PREFIX;
+    if (RenderTarget(key).is_some()) return;
 
     i32  width   = m_ortho[usize()];
     i32  height  = m_ortho[usize(1)];
@@ -2759,7 +2750,7 @@ void Scene::EnablePlanarReflection() {
         width  = (**primary).width;
         height = (**primary).height;
     }
-    RegisterRenderTarget(String::make(as_str(key).unwrap()),
+    RegisterRenderTarget(rstd::into(key),
                          SceneRenderTarget {
                              .width             = width,
                              .height            = height,
@@ -2769,19 +2760,18 @@ void Scene::EnablePlanarReflection() {
                          });
 }
 
-std::string Scene::EnsureLinkRenderTarget(WallpaperLayerId source_layer,
-                                          const SceneNode& source_node) {
-    auto link_key = GenLinkTex(static_cast<std::ptrdiff_t>(source_layer.value.to_primitive()));
-    if (RenderTarget(as_str(link_key).unwrap()).is_none()) {
+String Scene::EnsureLinkRenderTarget(WallpaperLayerId source_layer, const SceneNode& source_node) {
+    auto link_key = GenLinkTex(rstd::as_cast<isize>(source_layer.value));
+    if (RenderTarget(link_key.as_str()).is_none()) {
         auto      sz     = source_node.Size();
         auto      extent = m_layer_link_source_extents.get(source_layer.value);
         const i32 width  = extent.is_some() ? (**extent)[usize()]
-                                            : i32(sz.x() > 0 ? static_cast<std::int32_t>(sz.x())
+                                            : i32(sz.x() > 0 ? static_cast<rstd::int32_t>(sz.x())
                                                              : m_ortho[usize()].to_primitive());
         const i32 height = extent.is_some() ? (**extent)[usize(1)]
-                                            : i32(sz.y() > 0 ? static_cast<std::int32_t>(sz.y())
+                                            : i32(sz.y() > 0 ? static_cast<rstd::int32_t>(sz.y())
                                                              : m_ortho[usize(1)].to_primitive());
-        RegisterRenderTarget(String::make(as_str(link_key).unwrap()),
+        RegisterRenderTarget(String::make(link_key.as_str()),
                              SceneRenderTarget {
                                  .width                  = width,
                                  .height                 = height,

@@ -3,18 +3,17 @@ module;
 #include <rstd/macro.hpp>
 module wescene.vulkan_render;
 import rstd.log;
-import rstd.cppstd;
 import wescene.vulkan;
 import wescene.scene;
 
 using namespace owe::vulkan;
 using namespace rstd::prelude;
-using rstd::cppstd::as_str;
+using namespace rstd::literals;
 
 namespace
 {
 
-constexpr std::string_view fullscreen_vertex = R"(#version 320 es
+constexpr auto fullscreen_vertex = R"(#version 320 es
 layout(location = 0) out vec2 v_Texcoord;
 
 const vec2 k_Position[4] = vec2[4](
@@ -33,9 +32,9 @@ void main()
     v_Texcoord = k_Texcoord[gl_VertexIndex];
     gl_Position = vec4(k_Position[gl_VertexIndex], 0.0, 1.0);
 }
-)";
+)"_str;
 
-constexpr std::string_view fullscreen_fragment = R"(#version 320 es
+constexpr auto fullscreen_fragment = R"(#version 320 es
 layout(location = 0) in vec2 v_Texcoord;
 layout(location = 0) out vec4 out_FragColor;
 layout(set = 1, binding = 1) uniform sampler2D u_Texture;
@@ -47,11 +46,11 @@ void main()
     // historical FinPass implementation.
     out_FragColor = vec4(texture(u_Texture, v_Texcoord).rgb, 1.0);
 }
-)";
+)"_str;
 
 } // namespace
 
-FinPass::FinPass(Desc&& desc): m_desc(std::move(desc)) {}
+FinPass::FinPass(Desc&& desc): m_desc(rstd::move(desc)) {}
 FinPass::~FinPass() {}
 
 void FinPass::setPresentFormat(VkFormat format) {
@@ -64,10 +63,10 @@ void FinPass::setPresentFormat(VkFormat format) {
     m_present_framebuffer_extent = {};
 }
 
-bool FinPass::setFrameSurface(
-    owe::FrameSurfaceLease                                                lease,
-    rstd::mut_ref<rstd::dyn<resource_registry::ExternalResourcePreparer>> resources,
-    const DeviceCapabilities& capabilities, rstd::uint32_t graphics_queue_family) {
+bool FinPass::setFrameSurface(owe::FrameSurfaceLease                                    lease,
+                              mut_ref<dyn<resource_registry::ExternalResourcePreparer>> resources,
+                              const DeviceCapabilities& capabilities,
+                              rstd::uint32_t            graphics_queue_family) {
     if (m_desc.external_use.is_none() || m_desc.result_use.is_none()) return false;
     m_frame_graphics_path = false;
     if (m_graphics_path && lease.format == m_present_format) {
@@ -88,28 +87,28 @@ bool FinPass::setFrameSurface(
     }
     return true;
 }
-bool FinPass::setResultRequest(rstd::Option<TextureRequest> request) {
-    return SetTextureRequestIfChanged(m_desc.result_request, std::move(request));
+bool FinPass::setResultRequest(Option<TextureRequest> request) {
+    return SetTextureRequestIfChanged(m_desc.result_request, rstd::move(request));
 }
 
 void FinPass::resetResourceUses() {
-    m_desc.result_use      = rstd::None();
-    m_desc.external_use    = rstd::None();
-    m_desc.pipeline_use    = rstd::None();
-    m_desc.render_pass_use = rstd::None();
-    m_desc.descriptor_use  = rstd::None();
+    m_desc.result_use      = None();
+    m_desc.external_use    = None();
+    m_desc.pipeline_use    = None();
+    m_desc.render_pass_use = None();
+    m_desc.descriptor_use  = None();
 }
 
 void FinPass::declareResources(ResourceDeclarationContext& context) {
     resetResourceUses();
     if (m_desc.result_request.is_some()) {
-        m_desc.result_use = rstd::Some(
+        m_desc.result_use = Some(
             context.AddTexture(m_desc.result_request->clone(), resource::ResourceAccess::Read));
     }
-    m_desc.external_use = rstd::Some(context.ReserveExternal());
+    m_desc.external_use = Some(context.ReserveExternal());
     if (m_present_format != VK_FORMAT_UNDEFINED) {
-        m_desc.pipeline_use    = rstd::Some(context.ReservePipeline());
-        m_desc.render_pass_use = rstd::Some(context.ReserveRenderPass());
+        m_desc.pipeline_use    = Some(context.ReservePipeline());
+        m_desc.render_pass_use = Some(context.ReserveRenderPass());
     }
 }
 
@@ -155,20 +154,19 @@ auto FinPass::pipelineLayoutRequirement(const PreparedPassResources&) const
     return Ok(Some(rstd::move(requirement)));
 }
 
-std::vector<PassTextureRequestDiagnostic> FinPass::textureRequestDiagnostics() const {
-    std::vector<PassTextureRequestDiagnostic> out;
-    out.push_back(PassTextureRequestDiagnostic {
-        .role    = "frame-result",
-        .name    = std::string(m_desc.result),
+Vec<PassTextureRequestDiagnostic> FinPass::textureRequestDiagnostics() const {
+    Vec<PassTextureRequestDiagnostic> out;
+    out.push(PassTextureRequestDiagnostic {
+        .role    = "frame-result"_Str,
+        .name    = m_desc.result.clone(),
         .use     = m_desc.result_use,
-        .request = m_desc.result_request.is_some() ? rstd::Some(m_desc.result_request->clone())
-                                                   : rstd::None<TextureRequest>(),
+        .request = m_desc.result_request.is_some() ? Some(m_desc.result_request->clone())
+                                                   : None<TextureRequest>(),
     });
     return out;
 }
 
-bool FinPass::prepareResourceStates(
-    rstd::mut_ref<rstd::dyn<resource_registry::TextureStatePreparer>> states) {
+bool FinPass::prepareResourceStates(mut_ref<dyn<resource_registry::TextureStatePreparer>> states) {
     m_desc.result_barrier.Clear();
     if (m_desc.result_use.is_none()) return false;
 #if __is_target_os(macos)
@@ -188,8 +186,8 @@ bool FinPass::prepareResourceStates(
 
 void FinPass::prepare(Scene& scene, const Device& device, PassPrepareContext& context) {
     m_device      = &device;
-    auto tex_name = std::string(m_desc.result);
-    if (scene.RenderTarget(as_str(tex_name).unwrap()).is_none()) {
+    auto tex_name = m_desc.result.as_str();
+    if (scene.RenderTarget(tex_name).is_none()) {
         rstd_error("FinPass: scene render target \"{}\" not found", tex_name);
         return;
     }
@@ -199,20 +197,20 @@ void FinPass::prepare(Scene& scene, const Device& device, PassPrepareContext& co
         rstd_error("FinPass: prepared texture \"{}\" unavailable", tex_name);
         return;
     }
-    m_desc.descriptor_use = rstd::None();
+    m_desc.descriptor_use = None();
 
     if (m_graphics_path) {
         if (m_desc.pipeline_use.is_none() || m_desc.render_pass_use.is_none()) {
             rstd_error("FinPass: graphics resources were not declared");
             m_graphics_path = false;
         } else {
-            std::vector<ShaderCompUnit> units {
-                ShaderCompUnit { ShaderType::VERTEX, std::string(fullscreen_vertex) },
-                ShaderCompUnit { ShaderType::FRAGMENT, std::string(fullscreen_fragment) },
+            rstd::array<ShaderCompUnit, 2> units {
+                ShaderCompUnit { ShaderType::VERTEX, rstd::into(fullscreen_vertex) },
+                ShaderCompUnit { ShaderType::FRAGMENT, rstd::into(fullscreen_fragment) },
             };
-            std::vector<Uni_ShaderSpv> spvs;
+            Vec<Uni_ShaderSpv> spvs;
             if (! context.shader_backend->CompileAndLinkShaderUnits(
-                    units,
+                    units.as_slice(),
                     ShaderCompOpt { .target = VulkanTarget::Vulkan_1_1, .optimize = true },
                     spvs)) {
                 rstd_error("FinPass: fullscreen shader compilation failed");
@@ -238,7 +236,7 @@ void FinPass::prepare(Scene& scene, const Device& device, PassPrepareContext& co
                     };
                     PipelineResourceRequest request {
                         .pipeline_layout = *layout,
-                        .shader_stages   = std::move(spvs),
+                        .shader_stages   = rstd::move(spvs),
                         .color_blend     = color_blend,
                         .depth           = defaults.depth,
                         .raster          = defaults.raster,
@@ -258,7 +256,7 @@ void FinPass::prepare(Scene& scene, const Device& device, PassPrepareContext& co
                         .has_depth_attachment = false,
                     };
                     auto prepared = context.graphics->PreparePipeline(
-                        *m_desc.pipeline_use, *m_desc.render_pass_use, device, std::move(request));
+                        *m_desc.pipeline_use, *m_desc.render_pass_use, device, rstd::move(request));
                     if (prepared.is_err()) {
                         auto error = rstd::move(prepared).unwrap_err_unchecked();
                         rstd_error("FinPass: fullscreen pipeline preparation failed: {}",
@@ -271,15 +269,13 @@ void FinPass::prepare(Scene& scene, const Device& device, PassPrepareContext& co
                             m_graphics_path = false;
                         } else {
                             m_present_render_pass = **(**render_pass).physical;
-                            auto images =
-                                rstd::vec::Vec<resource_registry::DescriptorImageBinding>::make();
+                            auto images = Vec<resource_registry::DescriptorImageBinding>::make();
                             images.push(resource_registry::DescriptorImageBinding {
                                 .binding = 1,
                                 .image   = (**prepared_result).image.getActive(),
                                 .layout  = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                             });
-                            auto buffers =
-                                rstd::vec::Vec<resource_registry::DescriptorBufferBinding>::make();
+                            auto buffers = Vec<resource_registry::DescriptorBufferBinding>::make();
                             auto descriptor = context.graphics->PrepareDescriptor(
                                 device,
                                 *layout,
@@ -294,7 +290,7 @@ void FinPass::prepare(Scene& scene, const Device& device, PassPrepareContext& co
                                 m_graphics_path = false;
                             } else {
                                 m_desc.descriptor_use =
-                                    rstd::Some(rstd::move(descriptor).unwrap_unchecked());
+                                    Some(rstd::move(descriptor).unwrap_unchecked());
                             }
                         }
                     }

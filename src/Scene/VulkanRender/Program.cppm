@@ -6,8 +6,8 @@ export module wescene.vulkan_render:program;
 import wescene.core;
 import wescene.types;
 import rstd;
-import rstd.log;
 import rstd.cppstd;
+import rstd.log;
 import wescene.load_bench;
 import wescene.resource_registry;
 import wescene.vulkan;
@@ -32,23 +32,23 @@ export namespace owe::vulkan
 class DeclaredShaderArtifactProvider {
 public:
     explicit DeclaredShaderArtifactProvider(const ResourceDeclarationContext& declarations)
-        : m_declarations(rstd::ref<ResourceDeclarationContext>::from_raw_parts(
-              rstd::addressof(declarations))) {}
+        : m_declarations(
+              ref<ResourceDeclarationContext>::from_raw_parts(rstd::addressof(declarations))) {}
 
     auto LoadShader(const resource::ShaderRequest& request)
-        -> rstd::Result<resource::ShaderArtifact, resource::ResourceError> {
+        -> Result<resource::ShaderArtifact, resource::ResourceError> {
         auto artifact = m_declarations->ShaderArtifact(request);
         if (artifact.is_none()) {
-            return rstd::Err(resource::ResourceError {
+            return Err(resource::ResourceError {
                 .kind    = resource::ResourceErrorKind::MissingContent,
                 .message = rstd::format("shader artifact {} unavailable", request.name),
             });
         }
-        return rstd::Ok((**artifact).clone());
+        return Ok((**artifact).clone());
     }
 
 private:
-    rstd::ref<ResourceDeclarationContext> m_declarations;
+    ref<ResourceDeclarationContext> m_declarations;
 };
 
 inline bool SameProgramRenderItemId(owe::RenderItemId lhs, owe::RenderItemId rhs) {
@@ -56,24 +56,24 @@ inline bool SameProgramRenderItemId(owe::RenderItemId lhs, owe::RenderItemId rhs
 }
 
 struct PreparedPassDiagnostic {
-    bool                                      frame_pass { false };
-    Option<rg::NodeHandle>                    graph_node;
-    std::string                               pass_name;
-    Option<rg::PassNode::Type>                pass_type;
-    Option<RenderItemId>                      render_item;
-    PassInvalidationFlags                     invalidation_flags { PassInvalidationNone };
-    Option<PipelineCacheKey>                  pipeline_cache_key;
-    bool                                      pipeline_cache_hit { false };
-    u64                                       pipeline_cache_observed_count { 0 };
-    Option<RenderPassCacheKey>                render_pass_cache_key;
-    bool                                      render_pass_cache_hit { false };
-    u64                                       render_pass_cache_observed_count { 0 };
-    Option<FramebufferCacheKey>               framebuffer_cache_key;
-    bool                                      framebuffer_cache_hit { false };
-    u64                                       framebuffer_cache_observed_count { 0 };
-    std::vector<std::string>                  release_textures;
-    std::vector<PassTextureRequestDiagnostic> texture_requests;
-    bool                                      prepared { false };
+    bool                              frame_pass { false };
+    Option<rg::NodeHandle>            graph_node;
+    String                            pass_name;
+    Option<rg::PassNode::Type>        pass_type;
+    Option<RenderItemId>              render_item;
+    PassInvalidationFlags             invalidation_flags { PassInvalidationNone };
+    Option<PipelineCacheKey>          pipeline_cache_key;
+    bool                              pipeline_cache_hit { false };
+    u64                               pipeline_cache_observed_count { 0 };
+    Option<RenderPassCacheKey>        render_pass_cache_key;
+    bool                              render_pass_cache_hit { false };
+    u64                               render_pass_cache_observed_count { 0 };
+    Option<FramebufferCacheKey>       framebuffer_cache_key;
+    bool                              framebuffer_cache_hit { false };
+    u64                               framebuffer_cache_observed_count { 0 };
+    Vec<String>                       release_textures;
+    Vec<PassTextureRequestDiagnostic> texture_requests;
+    bool                              prepared { false };
 };
 
 enum class RenderProgramPrepareStatus
@@ -98,7 +98,7 @@ struct RenderProgram {
     struct ProgramPassHandle {
         PreparedPassKind kind { PreparedPassKind::Graph };
         rg::PassHandle   graph;
-        rstd::usize      frame_index { 0 };
+        usize            frame_index { 0 };
     };
 
     struct PreparedPassRecord {
@@ -107,7 +107,7 @@ struct RenderProgram {
         String                          pass_name;
         Option<owe::rg::PassNode::Type> pass_type;
         ProgramPassHandle               pass;
-        rstd::vec::Vec<String>          release_textures;
+        Vec<String>                     release_textures;
         PassResourceUses                resources;
         PassInvalidationFlags           invalidation_flags { PassInvalidationNone };
 
@@ -153,64 +153,64 @@ struct RenderProgram {
     };
 
     struct RenderPassScope {
-        rstd::Option<rstd::usize>   single;
-        rstd::vec::Vec<rstd::usize> scoped_passes;
+        Option<usize> single;
+        Vec<usize>    scoped_passes;
     };
 
-    rstd::vec::Vec<PreparedPassRecord>                      pass_records;
-    rstd::vec::Vec<RenderPassScope>                         scopes;
-    owe::resource::ResourcePlan                             resource_plan;
-    rstd::usize                                             graph_texture_count { 0 };
-    rstd::Option<rstd::mut_ref<owe::rg::RenderGraph>>       graph;
-    rstd::vec::Vec<rstd::mut_ref<VulkanPass>>               frame_passes;
-    rstd::Option<rstd::mut_ref<PrePass>>                    frame_prepass;
-    rstd::Option<rstd::mut_ref<FinPass>>                    frame_finpass;
-    rstd::vec::Vec<Box<dyn<UniformBufferUpdate>>>           uniform_update_owners;
-    rstd::vec::Vec<ref<dyn<UniformBufferUpdate>>>           uniform_updates;
-    resource_registry::DescriptorBindingRecordState         descriptor_record_state;
-    PipelineLayoutAssignments                               pipeline_layout_assignments;
-    Option<resource::DescriptorBindingHandle>               global_descriptor_binding;
-    rstd::Option<resource_registry::ResourcePrepareSession> resource_prepare_session;
-    bool                                                    loaded { false };
+    Vec<PreparedPassRecord>                           pass_records;
+    Vec<RenderPassScope>                              scopes;
+    owe::resource::ResourcePlan                       resource_plan;
+    usize                                             graph_texture_count { 0 };
+    Option<mut_ref<owe::rg::RenderGraph>>             graph;
+    Vec<mut_ref<VulkanPass>>                          frame_passes;
+    Option<mut_ref<PrePass>>                          frame_prepass;
+    Option<mut_ref<FinPass>>                          frame_finpass;
+    Vec<Box<dyn<UniformBufferUpdate>>>                uniform_update_owners;
+    Vec<ref<dyn<UniformBufferUpdate>>>                uniform_updates;
+    resource_registry::DescriptorBindingRecordState   descriptor_record_state;
+    PipelineLayoutAssignments                         pipeline_layout_assignments;
+    Option<resource::DescriptorBindingHandle>         global_descriptor_binding;
+    Option<resource_registry::ResourcePrepareSession> resource_prepare_session;
+    bool                                              loaded { false };
 
     void clear() {
         uniform_updates.clear();
         uniform_update_owners.clear();
-        resource_prepare_session = rstd::None();
+        resource_prepare_session = None();
         pipeline_layout_assignments.entries.clear();
         global_descriptor_binding = None();
         scopes.clear();
         pass_records.clear();
         resource_plan       = {};
-        graph_texture_count = rstd::usize();
-        graph               = rstd::None();
+        graph_texture_count = usize();
+        graph               = None();
         frame_passes.clear();
-        frame_prepass = rstd::None();
-        frame_finpass = rstd::None();
+        frame_prepass = None();
+        frame_finpass = None();
         loaded        = false;
     }
 
-    auto resolve(const PreparedPassRecord& record) -> rstd::Option<VulkanPass&> {
+    auto resolve(const PreparedPassRecord& record) -> Option<VulkanPass&> {
         if (record.pass.kind == PreparedPassKind::Frame) {
-            if (record.pass.frame_index >= frame_passes.len()) return rstd::None();
-            return rstd::Some<VulkanPass&>(*frame_passes[record.pass.frame_index]);
+            if (record.pass.frame_index >= frame_passes.len()) return None();
+            return Some<VulkanPass&>(*frame_passes[record.pass.frame_index]);
         }
-        if (graph.is_none()) return rstd::None();
+        if (graph.is_none()) return None();
         auto resolved = (*graph)->getPass(record.pass.graph);
-        if (resolved.is_none()) return rstd::None();
-        return rstd::Some<VulkanPass&>(static_cast<VulkanPass&>(*resolved));
+        if (resolved.is_none()) return None();
+        return Some<VulkanPass&>(static_cast<VulkanPass&>(*resolved));
     }
 
-    auto resolve(const PreparedPassRecord& record) const -> rstd::Option<const VulkanPass&> {
+    auto resolve(const PreparedPassRecord& record) const -> Option<const VulkanPass&> {
         if (record.pass.kind == PreparedPassKind::Frame) {
-            if (record.pass.frame_index >= frame_passes.len()) return rstd::None();
-            return rstd::Some<const VulkanPass&>(*frame_passes[record.pass.frame_index]);
+            if (record.pass.frame_index >= frame_passes.len()) return None();
+            return Some<const VulkanPass&>(*frame_passes[record.pass.frame_index]);
         }
-        if (graph.is_none()) return rstd::None();
+        if (graph.is_none()) return None();
         auto resolved =
             static_cast<const owe::rg::RenderGraph&>(**graph).getPass(record.pass.graph);
-        if (resolved.is_none()) return rstd::None();
-        return rstd::Some<const VulkanPass&>(static_cast<const VulkanPass&>(*resolved));
+        if (resolved.is_none()) return None();
+        return Some<const VulkanPass&>(static_cast<const VulkanPass&>(*resolved));
     }
 
     bool buildFromGraph(owe::rg::RenderGraph& graph) {
@@ -224,14 +224,12 @@ struct RenderProgram {
         auto plan              = graph.resourcePlan();
 
         clear();
-        this->graph =
-            rstd::Some(rstd::mut_ref<owe::rg::RenderGraph>::from_raw_parts(rstd::addressof(graph)));
-        resource_plan       = rstd::move(plan);
+        this->graph   = Some(mut_ref<owe::rg::RenderGraph>::from_raw_parts(rstd::addressof(graph)));
+        resource_plan = rstd::move(plan);
         graph_texture_count = resource_plan.textures.len();
-        pass_records =
-            rstd::vec::Vec<PreparedPassRecord>::with_capacity(nodes.len() + rstd::usize(2));
+        pass_records        = Vec<PreparedPassRecord>::with_capacity(nodes.len() + usize(2));
 
-        for (rstd::usize i {}; i < nodes.len(); ++i) {
+        for (usize i {}; i < nodes.len(); ++i) {
             auto id    = nodes[i];
             auto state = graph.passState(id);
             rstd_assert(state.is_some());
@@ -260,40 +258,37 @@ struct RenderProgram {
     void injectFramePasses(PrePass& prepass, FinPass& finpass) {
         prepass.resetResourceUses();
         finpass.resetResourceUses();
-        frame_prepass =
-            rstd::Some(rstd::mut_ref<PrePass>::from_raw_parts(rstd::addressof(prepass)));
-        frame_finpass =
-            rstd::Some(rstd::mut_ref<FinPass>::from_raw_parts(rstd::addressof(finpass)));
+        frame_prepass = Some(mut_ref<PrePass>::from_raw_parts(rstd::addressof(prepass)));
+        frame_finpass = Some(mut_ref<FinPass>::from_raw_parts(rstd::addressof(finpass)));
         frame_passes.clear();
-        frame_passes.push(rstd::mut_ref<VulkanPass>::from_raw_parts(rstd::addressof(prepass)));
-        frame_passes.push(rstd::mut_ref<VulkanPass>::from_raw_parts(rstd::addressof(finpass)));
-        auto combined =
-            rstd::vec::Vec<PreparedPassRecord>::with_capacity(pass_records.len() + rstd::usize(2));
+        frame_passes.push(mut_ref<VulkanPass>::from_raw_parts(rstd::addressof(prepass)));
+        frame_passes.push(mut_ref<VulkanPass>::from_raw_parts(rstd::addressof(finpass)));
+        auto combined = Vec<PreparedPassRecord>::with_capacity(pass_records.len() + usize(2));
         combined.push(PreparedPassRecord {
             .kind      = PreparedPassKind::Frame,
-            .pass_name = String::make("frame/pre"_str),
+            .pass_name = "frame/pre"_Str,
             .pass =
                 ProgramPassHandle {
                     .kind        = PreparedPassKind::Frame,
-                    .frame_index = rstd::usize(),
+                    .frame_index = usize(),
                 },
         });
         for (auto& record : pass_records) combined.push(rstd::move(record));
         combined.push(PreparedPassRecord {
             .kind      = PreparedPassKind::Frame,
-            .pass_name = String::make("frame/fin"_str),
+            .pass_name = "frame/fin"_Str,
             .pass =
                 ProgramPassHandle {
                     .kind        = PreparedPassKind::Frame,
-                    .frame_index = rstd::usize(1),
+                    .frame_index = usize(1),
                 },
         });
         pass_records = rstd::move(combined);
     }
 
-    std::vector<PreparedPassDiagnostic> diagnostics() const {
-        std::vector<PreparedPassDiagnostic> out;
-        out.reserve(pass_records.len().to_primitive());
+    Vec<PreparedPassDiagnostic> diagnostics() const {
+        Vec<PreparedPassDiagnostic> out;
+        out.reserve(pass_records.len());
         for (const auto& record : pass_records) {
             auto pass        = resolve(record);
             auto render_item = Option<RenderItemId> {};
@@ -301,15 +296,10 @@ struct RenderProgram {
                 auto id = pass->renderItemId();
                 if (id.is_some()) render_item = Some<RenderItemId>(*id);
             }
-            auto release_textures = std::vector<std::string> {};
-            release_textures.reserve(record.release_textures.len().to_primitive());
-            for (const auto& texture : record.release_textures) {
-                release_textures.push_back(rstd::cppstd::to_string(texture.as_str()));
-            }
-            out.push_back(PreparedPassDiagnostic {
+            out.push(PreparedPassDiagnostic {
                 .frame_pass         = record.kind == PreparedPassKind::Frame,
                 .graph_node         = record.graph_node,
-                .pass_name          = rstd::cppstd::to_string(record.pass_name.as_str()),
+                .pass_name          = record.pass_name.clone(),
                 .pass_type          = record.pass_type,
                 .render_item        = render_item,
                 .invalidation_flags = record.invalidation_flags,
@@ -326,10 +316,10 @@ struct RenderProgram {
                 .framebuffer_cache_hit = pass && pass->framebufferCacheHit(),
                 .framebuffer_cache_observed_count =
                     pass ? pass->framebufferCacheObservedCount() : u64(),
-                .release_textures = rstd::move(release_textures),
-                .texture_requests = pass ? pass->textureRequestDiagnostics()
-                                         : std::vector<PassTextureRequestDiagnostic> {},
-                .prepared         = pass && pass->prepared(),
+                .release_textures = record.release_textures.clone(),
+                .texture_requests =
+                    pass ? pass->textureRequestDiagnostics() : Vec<PassTextureRequestDiagnostic> {},
+                .prepared = pass && pass->prepared(),
             });
         }
         return out;
@@ -416,8 +406,8 @@ struct RenderProgram {
             if (target.is_none()) continue;
             auto& rt = **target;
             if (rt.bind.screen || ! rt.bind.enable) continue;
-            auto bind_rt = scene.RenderTarget(as_str(rt.bind.name).unwrap());
-            if (rt.bind.name.empty() || bind_rt.is_none()) {
+            auto bind_rt = scene.RenderTarget(rt.bind.name.as_str());
+            if (rt.bind.name.is_empty() || bind_rt.is_none()) {
                 rstd_error("unknonw render target bind: {}", rt.bind.name);
                 continue;
             }
@@ -433,14 +423,11 @@ struct RenderProgram {
                 rstd_error("wrong size for render target: {}", names[index].as_str());
             }
 
-            const auto physical_width =
-                std::clamp(std::max(rt.width, i32(1)),
-                           i32(1),
-                           rstd::as_cast<i32>(max_framebuffer_extent.width));
+            const auto physical_width = rstd::cmp::min(
+                rstd::cmp::max(rt.width, i32(1)), rstd::as_cast<i32>(max_framebuffer_extent.width));
             const auto physical_height =
-                std::clamp(std::max(rt.height, i32(1)),
-                           i32(1),
-                           rstd::as_cast<i32>(max_framebuffer_extent.height));
+                rstd::cmp::min(rstd::cmp::max(rt.height, i32(1)),
+                               rstd::as_cast<i32>(max_framebuffer_extent.height));
             const bool physical_size_changed =
                 rt.physical_width != physical_width || rt.physical_height != physical_height;
             rt.physical_width  = physical_width;
@@ -456,11 +443,9 @@ struct RenderProgram {
             }
 
             if (rt.has_mipmap) {
-                rt.mipmap_level =
-                    std::max(3u,
-                             static_cast<unsigned>(std::floor(std::log2(rstd::as_cast<double>(
-                                 std::min(rt.physical_width, rt.physical_height)))))) -
-                    2u;
+                auto min_extent = rstd::cmp::min(rt.physical_width, rt.physical_height);
+                auto level      = rstd::as_cast<u32>(rstd::as_cast<f64>(min_extent).log2().floor());
+                rt.mipmap_level = (rstd::cmp::max(u32(3), level) - u32(2)).to_primitive();
             }
         }
         if (msaa_samples != VK_SAMPLE_COUNT_1_BIT) {
@@ -478,43 +463,43 @@ struct RenderProgram {
         auto& finpass        = **frame_finpass;
         auto  prepass_handle = ProgramPassHandle {
             .kind        = PreparedPassKind::Frame,
-            .frame_index = rstd::usize(),
+            .frame_index = usize(),
         };
         auto finpass_handle = ProgramPassHandle {
             .kind        = PreparedPassKind::Frame,
-            .frame_index = rstd::usize(1),
+            .frame_index = usize(1),
         };
 
-        const auto key    = rstd::cppstd::to_string(owe::SpecTex_Default);
-        auto       target = scene.RenderTarget(as_str(key).unwrap());
+        const auto key    = owe::SpecTex_Default;
+        auto       target = scene.RenderTarget(key);
         if (target.is_none()) {
-            if (prepass.setResultRequest(rstd::None())) {
+            if (prepass.setResultRequest(None())) {
                 invalidatePass(prepass_handle,
                                ToPassInvalidationFlags(PassInvalidation::Resources) |
                                    ToPassInvalidationFlags(PassInvalidation::Framebuffer));
             }
-            if (finpass.setResultRequest(rstd::None())) {
+            if (finpass.setResultRequest(None())) {
                 invalidatePass(finpass_handle,
                                ToPassInvalidationFlags(PassInvalidation::Resources));
             }
             return;
         }
 
-        const auto&                  rt = **target;
-        rstd::Option<TextureRequest> msaa_request;
-        auto                         samples = TextureSampleCount(rt.sample_count);
+        const auto&            rt = **target;
+        Option<TextureRequest> msaa_request;
+        auto                   samples = TextureSampleCount(rt.sample_count);
         if (samples != VK_SAMPLE_COUNT_1_BIT) {
             auto twin_name = MsaaTwinName(key, samples);
-            msaa_request   = rstd::Some(MakeMsaaTextureRequest(twin_name, rt, samples));
+            msaa_request   = Some(MakeMsaaTextureRequest(twin_name.as_str(), rt, samples));
         }
 
-        if (prepass.setResultRequest(rstd::Some(MakeRenderTargetNoMipTextureRequest(key, rt)),
-                                     std::move(msaa_request))) {
+        if (prepass.setResultRequest(Some(MakeRenderTargetNoMipTextureRequest(key, rt)),
+                                     rstd::move(msaa_request))) {
             invalidatePass(prepass_handle,
                            ToPassInvalidationFlags(PassInvalidation::Resources) |
                                ToPassInvalidationFlags(PassInvalidation::Framebuffer));
         }
-        if (finpass.setResultRequest(rstd::Some(MakeRenderTargetTextureRequest(key, rt)))) {
+        if (finpass.setResultRequest(Some(MakeRenderTargetTextureRequest(key, rt)))) {
             invalidatePass(finpass_handle, ToPassInvalidationFlags(PassInvalidation::Resources));
         }
     }
@@ -541,10 +526,10 @@ struct RenderProgram {
                                                     *diagnostic.use, diagnostic.request->clone())) {
                     continue;
                 }
-                auto request_name = rstd::cppstd::as_string_view(diagnostic.request->name.as_str());
+                auto request_name = diagnostic.request->name.as_str();
                 for (auto& entry : resource_plan.textures) {
                     if (entry.request.kind != diagnostic.request->kind ||
-                        rstd::cppstd::as_string_view(entry.request.name.as_str()) != request_name) {
+                        entry.request.name.as_str() != request_name) {
                         continue;
                     }
                     entry.request = diagnostic.request->clone();
@@ -559,7 +544,7 @@ struct RenderProgram {
                       SceneLoadBenchRecorderView load_bench    = {}) -> RenderProgramPrepareStatus {
         auto prepare_span = SceneLoadSpan(load_bench, &SceneLoadProbeIds::render_resources_prepare);
         loaded            = false;
-        resource_prepare_session = rstd::None();
+        resource_prepare_session = None();
         if (rr.shader_reflection_cache.is_none()) {
             rstd_error("shader artifact compiler unavailable");
             return RenderProgramPrepareStatus::Failed;
@@ -591,21 +576,18 @@ struct RenderProgram {
         SnapshotImportedTextureProvider imported_textures(
             render_scene, ref<Scene>::from_raw_parts(rstd::addressof(scene)));
         SnapshotTexturePrepareObserver texture_observer(load_bench);
-        auto                           content =
-            rstd::dyn<owe::resource::TextureContentProvider>::from_ref(imported_textures);
-        auto observer =
-            rstd::dyn<owe::resource::TexturePrepareObserver>::from_ref(texture_observer);
-        auto buffer_content =
-            rstd::dyn<owe::resource::BufferContentProvider>::from_ref(declarations);
+        auto content  = dyn<owe::resource::TextureContentProvider>::from_ref(imported_textures);
+        auto observer = dyn<owe::resource::TexturePrepareObserver>::from_ref(texture_observer);
+        auto buffer_content = dyn<owe::resource::BufferContentProvider>::from_ref(declarations);
         DeclaredShaderArtifactProvider declared_shaders(declarations);
         auto                           shader_artifacts =
-            rstd::dyn<owe::resource::ShaderArtifactProvider>::from_ref(declared_shaders);
+            dyn<owe::resource::ShaderArtifactProvider>::from_ref(declared_shaders);
         auto started =
             rr.resources.BeginPreparePlan(resource_plan,
                                           owe::resource_registry::ResourceContentProviders {
-                                              .texture = rstd::Some(content),
-                                              .buffer  = rstd::Some(buffer_content.as_mut_ref()),
-                                              .shader  = rstd::Some(shader_artifacts.as_mut_ref()),
+                                              .texture = Some(content),
+                                              .buffer  = Some(buffer_content.as_mut_ref()),
+                                              .shader  = Some(shader_artifacts.as_mut_ref()),
                                           },
                                           sections,
                                           Some(observer.as_mut_ref()));
@@ -623,27 +605,26 @@ struct RenderProgram {
         auto prepare_span = SceneLoadSpan(load_bench, &SceneLoadProbeIds::render_resources_prepare);
         if (resource_prepare_session.is_none()) return RenderProgramPrepareStatus::Failed;
         SnapshotTexturePrepareObserver texture_observer(load_bench);
-        auto                           observer =
-            rstd::dyn<owe::resource::TexturePrepareObserver>::from_ref(texture_observer);
+        auto observer = dyn<owe::resource::TexturePrepareObserver>::from_ref(texture_observer);
         auto progress = rr.resources.ContinuePreparePlan(*resource_prepare_session,
                                                          Some(observer.as_mut_ref()));
         if (progress.is_err()) {
             auto error = rstd::move(progress).unwrap_err_unchecked();
             rstd_error("prepare resource plan failed: {}", error.message);
-            resource_prepare_session = rstd::None();
+            resource_prepare_session = None();
             return RenderProgramPrepareStatus::Failed;
         }
         if (progress.unwrap_unchecked() == resource_registry::ResourcePrepareProgress::BatchReady) {
             return RenderProgramPrepareStatus::BatchReady;
         }
-        resource_prepare_session = rstd::None();
+        resource_prepare_session = None();
         return finishPrepare(scene, device, rr);
     }
 
     auto finishPrepare(owe::Scene& scene, const Device& device, RenderingResources& rr)
         -> RenderProgramPrepareStatus {
-        auto state_preparer = rstd::dyn<owe::resource_registry::TextureStatePreparer>::from_ref(
-            rr.resources.States());
+        auto state_preparer =
+            dyn<owe::resource_registry::TextureStatePreparer>::from_ref(rr.resources.States());
         for (auto& record : pass_records) {
             auto pass = resolve(record);
             if (pass.is_none()) continue;
@@ -724,7 +705,7 @@ struct RenderProgram {
         if (layout_assignment_changed) loaded = false;
         pipeline_layout_assignments = rstd::move(next_layout_assignments);
         auto graphics =
-            rstd::dyn<owe::resource_registry::GraphicsResourcePreparer>::from_ref(rr.resources);
+            dyn<owe::resource_registry::GraphicsResourcePreparer>::from_ref(rr.resources);
 
         auto global_uses = Vec<GlobalDescriptorBufferUse>::make();
         for (auto& record : pass_records) {
@@ -824,10 +805,10 @@ struct RenderProgram {
         }
         PassPrepareContext prepare_context {
             .shader_backend = (*rr.shader_reflection_cache)->Backend(),
-            .resources = rstd::ref<owe::resource_registry::PreparedResourceTable>::from_raw_parts(
+            .resources      = ref<owe::resource_registry::PreparedResourceTable>::from_raw_parts(
                 rstd::addressof(rr.resources.Prepared())),
             .graphics         = graphics.as_mut_ref(),
-            .pipeline_layouts = rstd::ref<PipelineLayoutAssignments>::from_raw_parts(
+            .pipeline_layouts = ref<PipelineLayoutAssignments>::from_raw_parts(
                 rstd::addressof(pipeline_layout_assignments)),
         };
         for (auto& record : pass_records) {
@@ -889,7 +870,7 @@ struct RenderProgram {
 
     void abortPrepare(RenderingResources& rr) {
         rr.resources.AbortPreparePlan();
-        resource_prepare_session = rstd::None();
+        resource_prepare_session = None();
         loaded                   = false;
     }
 
@@ -947,46 +928,45 @@ struct RenderProgram {
 
     void rebuildScopes() {
         scopes.clear();
-        auto pending_scope_passes = rstd::vec::Vec<rstd::usize>::make();
+        auto pending_scope_passes = Vec<usize>::make();
 
         auto flushScopePasses = [&]() {
             if (pending_scope_passes.is_empty()) return;
             RenderPassScope scope;
             scope.scoped_passes = rstd::move(pending_scope_passes);
             scopes.push(rstd::move(scope));
-            pending_scope_passes = rstd::vec::Vec<rstd::usize>::make();
+            pending_scope_passes = Vec<usize>::make();
         };
 
-        for (rstd::usize index {}; index < pass_records.len(); ++index) {
+        for (usize index {}; index < pass_records.len(); ++index) {
             auto& record = pass_records[index];
             auto  pass   = resolve(record);
             if (pass.is_none()) continue;
             if (pass->supportsRenderScope()) {
                 bool can_join = false;
                 if (! pending_scope_passes.is_empty()) {
-                    auto previous =
-                        resolve(pass_records[pending_scope_passes[pending_scope_passes.len() -
-                                                                  rstd::usize(1)]]);
+                    auto previous = resolve(
+                        pass_records[pending_scope_passes[pending_scope_passes.len() - usize(1)]]);
                     can_join = previous && pass->canJoinRenderScopeAfter(*previous);
                 }
                 if (can_join) {
-                    pending_scope_passes.push(rstd::usize(index));
+                    pending_scope_passes.push(usize(index));
                 } else {
                     flushScopePasses();
-                    pending_scope_passes.push(rstd::usize(index));
+                    pending_scope_passes.push(usize(index));
                 }
                 continue;
             }
 
             flushScopePasses();
-            scopes.push(RenderPassScope { .single = rstd::Some(index) });
+            scopes.push(RenderPassScope { .single = Some(index) });
         }
 
         flushScopePasses();
     }
 
     template<typename Callback>
-    void withRecordContext(rstd::usize index, RenderingResources& rr, Callback&& callback) {
+    void withRecordContext(usize index, RenderingResources& rr, Callback&& callback) {
         if (index >= pass_records.len()) return;
         auto pass = resolve(pass_records[index]);
         if (pass.is_none()) return;
@@ -996,12 +976,10 @@ struct RenderProgram {
                                      ? rr.resources.Prepared().Resolve(*global_descriptor_binding)
                                      : None<ref<resource_registry::PreparedDescriptorBinding>>();
         PassRecordContext context {
-            .command =
-                rstd::mut_ref<vvk::CommandBuffer>::from_raw_parts(rstd::addressof(rr.command)),
-            .resources =
-                rstd::ref<PreparedPassResources>::from_raw_parts(rstd::addressof(resources)),
+            .command   = mut_ref<vvk::CommandBuffer>::from_raw_parts(rstd::addressof(rr.command)),
+            .resources = ref<PreparedPassResources>::from_raw_parts(rstd::addressof(resources)),
             .descriptor_state =
-                rstd::mut_ref<resource_registry::DescriptorBindingRecordState>::from_raw_parts(
+                mut_ref<resource_registry::DescriptorBindingRecordState>::from_raw_parts(
                     rstd::addressof(descriptor_record_state)),
             .global_descriptor = global_descriptor,
         };
@@ -1010,7 +988,7 @@ struct RenderProgram {
 
     bool update(const SceneFrame& frame, VkExtent2D extent,
                 ref<dyn<SceneTextureAnimationView>> textures, RenderingResources& rr) {
-        auto buffer_writer = rstd::dyn<resource::BufferContentWriter>::from_ref(rr.resources);
+        auto buffer_writer = dyn<resource::BufferContentWriter>::from_ref(rr.resources);
         ProgramUniformFrameContext frame_context(
             frame,
             { static_cast<float>(extent.width), static_cast<float>(extent.height) },
@@ -1070,10 +1048,10 @@ struct RenderProgram {
 
             auto& scoped_passes = scope.scoped_passes;
             if (scoped_passes.is_empty()) continue;
-            if (scoped_passes.len() == rstd::usize(1)) {
-                auto pass = resolve(pass_records[scoped_passes[rstd::usize()]]);
+            if (scoped_passes.len() == usize(1)) {
+                auto pass = resolve(pass_records[scoped_passes[usize()]]);
                 if (pass && pass->prepared()) {
-                    withRecordContext(scoped_passes[rstd::usize()],
+                    withRecordContext(scoped_passes[usize()],
                                       rr,
                                       [](VulkanPass& target, PassRecordContext& context) {
                                           target.record(context);
@@ -1082,8 +1060,8 @@ struct RenderProgram {
                 continue;
             }
 
-            if (! std::all_of(scoped_passes.begin(), scoped_passes.end(), [&](auto index) {
-                    auto pass = resolve(pass_records[index]);
+            if (! scoped_passes.iter().all([&](auto index) {
+                    auto pass = resolve(pass_records[*index]);
                     return pass && pass->prepared();
                 })) {
                 continue;
@@ -1094,21 +1072,19 @@ struct RenderProgram {
                     target.prepareRenderScopeDraw(context);
                 });
             }
-            withRecordContext(scoped_passes[rstd::usize()],
-                              rr,
-                              [](VulkanPass& target, PassRecordContext& context) {
-                                  target.beginRenderScope(context);
-                              });
+            withRecordContext(
+                scoped_passes[usize()], rr, [](VulkanPass& target, PassRecordContext& context) {
+                    target.beginRenderScope(context);
+                });
             for (auto index : scoped_passes) {
                 withRecordContext(index, rr, [](VulkanPass& target, PassRecordContext& context) {
                     target.recordRenderScopeDraw(context);
                 });
             }
-            withRecordContext(scoped_passes[rstd::usize()],
-                              rr,
-                              [](VulkanPass& target, PassRecordContext& context) {
-                                  target.endRenderScope(context);
-                              });
+            withRecordContext(
+                scoped_passes[usize()], rr, [](VulkanPass& target, PassRecordContext& context) {
+                    target.endRenderScope(context);
+                });
         }
         return true;
     }

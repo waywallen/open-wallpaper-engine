@@ -19,6 +19,7 @@ import rstd.argparse;
 import rstd.cppstd;
 import rstd.log;
 import wescene.cli;
+import wescene.fs;
 import wescene.json;
 import wescene.rgraph;
 import wescene.scene_wallpaper;
@@ -28,42 +29,54 @@ import waywallen.bridge_audio;
 import waywallen.bridge_ex_swapchain;
 import waywallen.bridge_session;
 
+using rstd::sync::Mutex;
+using rstd::time::Duration;
+
+using rstd::ffi::CStr;
+
 namespace
 {
 
 using namespace rstd::prelude;
 using namespace rstd::literals;
+using rstd::collections::BTreeSet;
+using rstd::cppstd::as_str;
+using rstd::ffi::CString;
+using rstd::io::error::Error;
+using rstd::path::PathBuf;
+using rstd::sync::Arc;
+using rstd::sync::Weak;
 
 struct Options {
-    std::string ipc_path;
-    uint32_t    width { 1920 };
-    uint32_t    height { 1080 };
-    std::string initial_scene;
-    std::string initial_assets;
-    std::string workshop_id;
-    uint32_t    initial_fps { 30 };
-    bool        test_pattern { false };
-    float       initial_volume { 1.0f };
-    float       initial_playback_rate { 1.0f };
-    bool        settings_enable_audio { true };
-    bool        property_enable_audio { true };
-    std::string render_node;
-    std::string video_hwdec;
+    String   ipc_path;
+    uint32_t width { 1920 };
+    uint32_t height { 1080 };
+    PathBuf  initial_scene;
+    PathBuf  initial_assets;
+    String   workshop_id;
+    uint32_t initial_fps { 30 };
+    bool     test_pattern { false };
+    float    initial_volume { 1.0f };
+    float    initial_playback_rate { 1.0f };
+    bool     settings_enable_audio { true };
+    bool     property_enable_audio { true };
+    String   render_node;
+    String   video_hwdec;
 
-    rstd::string::String load_bench_output;
+    String load_bench_output;
     // 1 disables MSAA. Clamped against device caps in VulkanRender::init.
-    uint32_t                                     msaa_samples { 1 };
-    rstd::json::Map                              initial_user_properties;
-    std::shared_ptr<owe::wpscene::SceneDocument> initial_scene_document;
+    uint32_t                                 msaa_samples { 1 };
+    rstd::json::Map                          initial_user_properties;
+    Option<Arc<owe::wpscene::SceneDocument>> initial_scene_document;
 };
 
 constexpr const char* kSettingsEnableAudioKey = "enable_audio";
 constexpr const char* kPropertyEnableAudioKey = "waywallen.enable_audio";
 constexpr const char* kPlaybackSpeedKey       = "waywallen.playback_speed";
 
-[[noreturn]] void die(const std::string& msg) {
+[[noreturn]] void die(ref<str> msg) {
     rstd_error("waywallen-wescene-renderer: {}", msg);
-    std::exit(1);
+    rstd::process::exit(i32(1));
 }
 
 const char* diagnostic_code_name(owe::SceneUserPropertyDiagnosticCode code) {
@@ -80,27 +93,27 @@ const char* diagnostic_code_name(owe::SceneUserPropertyDiagnosticCode code) {
 }
 
 bool env_flag_enabled(const char* name) {
-    const char* value = std::getenv(name);
-    if (! value || ! *value) return false;
-    return std::strcmp(value, "0") != 0 && std::strcmp(value, "false") != 0 &&
-           std::strcmp(value, "FALSE") != 0 && std::strcmp(value, "off") != 0 &&
-           std::strcmp(value, "OFF") != 0;
+    auto value = rstd::env::var_os(rstd::ffi::CStr::from_ptr(name).to_str().unwrap());
+    if (! value || value->is_empty()) return false;
+    auto bytes = value->as_os_str().as_encoded_bytes();
+    return bytes != "0"_str.as_bytes() && bytes != "false"_str.as_bytes() &&
+           bytes != "FALSE"_str.as_bytes() && bytes != "off"_str.as_bytes() &&
+           bytes != "OFF"_str.as_bytes();
 }
 
-std::string shader_cache_dir() {
-    auto                configured = rstd::env::var("XDG_CACHE_HOME"_str).ok();
-    rstd::path::PathBuf path;
+PathBuf shader_cache_dir() {
+    auto    configured = rstd::env::var_os("XDG_CACHE_HOME"_str);
+    PathBuf path;
     if (configured.is_some() && ! configured->is_empty()) {
-        path = rstd::path::PathBuf::from(rstd::move(configured).unwrap_unchecked());
+        path = PathBuf::from(rstd::move(configured).unwrap_unchecked());
     } else {
-        auto home = rstd::env::var("HOME"_str).ok();
+        auto home = rstd::env::var_os("HOME"_str);
         if (home.is_none() || home->is_empty()) return {};
-        path = rstd::path::PathBuf::from(rstd::move(home).unwrap_unchecked());
+        path = PathBuf::from(rstd::move(home).unwrap_unchecked());
         path.push(".cache"_str);
     }
     path.push("wescene-renderer"_str);
-    auto text = path.as_path().to_str();
-    return text.is_some() ? rstd::cppstd::to_string(*text) : std::string {};
+    return path;
 }
 
 const char* pass_type_name(owe::rg::PassNode::Type type) {
@@ -140,55 +153,58 @@ const char* texture_lifetime_name(owe::resource::TextureLifetimeClass lifetime) 
     return "unknown";
 }
 
-std::string render_item_text(const rstd::Option<owe::RenderItemId>& id) {
-    if (id.is_none()) return "-";
-    return std::to_string(id->index.to_primitive()) + "/" +
-           std::to_string(id->generation.to_primitive());
+String render_item_text(const Option<owe::RenderItemId>& id) {
+    if (id.is_none()) return "-"_Str;
+    return rstd::format("{}/{}", id->index, id->generation);
 }
 
-std::string texture_request_text(const owe::vulkan::PassTextureRequestDiagnostic& diagnostic) {
-    if (! diagnostic.request) return "none";
+String texture_request_text(const owe::vulkan::PassTextureRequestDiagnostic& diagnostic) {
+    if (! diagnostic.request) return "none"_Str;
     const auto& request = *diagnostic.request;
-    std::string text    = std::string(texture_request_kind_name(request.kind)) + " name='" +
-                          rstd::cppstd::to_string(request.name.as_str()) + "'";
+    auto        text    = rstd::format(
+        "{} name='{}'", as_str(texture_request_kind_name(request.kind)).unwrap(), request.name);
     if (request.source) {
-        text += " source=" + std::to_string(request.source->index.to_primitive()) + "/" +
-                std::to_string(request.source->generation.to_primitive());
+        text.push_str(
+            rstd::format(" source={}/{}", request.source->index, request.source->generation)
+                .as_str());
     }
     if (request.definition) {
         const auto& definition = *request.definition;
-        text += " definition=" + std::to_string(definition.width.to_primitive()) + "x" +
-                std::to_string(definition.height.to_primitive());
-        text += " usage=" + std::string(texture_usage_name(definition.usage));
-        text += " mip=" + std::to_string(definition.mip_levels.to_primitive());
-        text += " samples=" + std::to_string(definition.samples.to_primitive());
+        text.push_str(rstd::format(" definition={}x{} usage={} mip={} samples={}",
+                                   definition.width,
+                                   definition.height,
+                                   as_str(texture_usage_name(definition.usage)).unwrap(),
+                                   definition.mip_levels,
+                                   definition.samples)
+                          .as_str());
     }
-    text += " lifetime=" + std::string(texture_lifetime_name(request.lifetime));
+    text.push_str(
+        rstd::format(" lifetime={}", as_str(texture_lifetime_name(request.lifetime)).unwrap())
+            .as_str());
     return text;
 }
 
-void log_prepared_pass_diagnostics(std::vector<owe::vulkan::PreparedPassDiagnostic> diagnostics) {
+void log_prepared_pass_diagnostics(Vec<owe::vulkan::PreparedPassDiagnostic> diagnostics) {
     rstd_info("waywallen-wescene-renderer: prepared pass diagnostics: {} pass(es)",
-              diagnostics.size());
+              diagnostics.len());
     for (const auto& diagnostic : diagnostics) {
-        const std::string graph_node =
-            diagnostic.graph_node.is_some()
-                ? std::to_string(diagnostic.graph_node->index.to_primitive())
-                : "-";
-        const std::string pass_type = diagnostic.pass_type.is_some()
-                                          ? pass_type_name(*diagnostic.pass_type)
-                                          : (diagnostic.frame_pass ? "frame" : "unknown");
-        const std::string pipeline_cache_key =
-            diagnostic.pipeline_cache_key ? std::to_string(diagnostic.pipeline_cache_key->value)
-                                          : "-";
-        const std::string render_pass_cache_key =
+        const String graph_node = diagnostic.graph_node.is_some()
+                                      ? rstd::format("{}", diagnostic.graph_node->index)
+                                      : "-"_Str;
+        const char*  pass_type  = diagnostic.pass_type.is_some()
+                                      ? pass_type_name(*diagnostic.pass_type)
+                                      : (diagnostic.frame_pass ? "frame" : "unknown");
+        const String pipeline_cache_key =
+            diagnostic.pipeline_cache_key ? rstd::format("{}", diagnostic.pipeline_cache_key->value)
+                                          : "-"_Str;
+        const String render_pass_cache_key =
             diagnostic.render_pass_cache_key
-                ? std::to_string(diagnostic.render_pass_cache_key->value)
-                : "-";
-        const std::string framebuffer_cache_key =
+                ? rstd::format("{}", diagnostic.render_pass_cache_key->value)
+                : "-"_Str;
+        const String framebuffer_cache_key =
             diagnostic.framebuffer_cache_key
-                ? std::to_string(diagnostic.framebuffer_cache_key->value)
-                : "-";
+                ? rstd::format("{}", diagnostic.framebuffer_cache_key->value)
+                : "-"_Str;
         rstd_info("waywallen-wescene-renderer: pass '{}' type={} graph={} render_item={} "
                   "dirty={} pipeline_key={} pipeline_seen={} pipeline_count={} "
                   "render_pass_key={} render_pass_seen={} render_pass_count={} "
@@ -209,7 +225,7 @@ void log_prepared_pass_diagnostics(std::vector<owe::vulkan::PreparedPassDiagnost
                   diagnostic.framebuffer_cache_hit,
                   diagnostic.framebuffer_cache_observed_count,
                   diagnostic.prepared,
-                  diagnostic.release_textures.size());
+                  diagnostic.release_textures.len());
         for (const auto& texture : diagnostic.texture_requests) {
             rstd_info("waywallen-wescene-renderer:   texture role={} slot={} binding='{}' {}",
                       texture.role,
@@ -218,10 +234,6 @@ void log_prepared_pass_diagnostics(std::vector<owe::vulkan::PreparedPassDiagnost
                       texture_request_text(texture));
         }
     }
-}
-
-std::string ToStdString(const rstd::string::String& value) {
-    return rstd::cppstd::to_string(value.as_str());
 }
 
 template<typename T>
@@ -235,55 +247,54 @@ Options parse_args(int argc, char** argv) {
     using namespace rstd::argparse;
 
     auto command = Command::make("waywallen-wescene-renderer"_str);
-    auto ipc     = command.add_arg(Arg<rstd::string::String>::value("ipc"_str, string_parser())
+    auto ipc     = command.add_arg(Arg<String>::value("ipc"_str, string_parser())
                                        .long_name("ipc"_str)
                                        .help("Unix-domain socket path for daemon IPC"_str)
                                        .required());
-    auto path    = command.add_arg(Arg<rstd::string::String>::value("path"_str, string_parser())
+    auto path    = command.add_arg(Arg<String>::value("path"_str, string_parser())
                                        .long_name("path"_str)
                                        .help("Wallpaper Engine .pkg path (canonical resource)"_str)
                                        .default_value(""_str));
-    auto assets  = command.add_arg(Arg<rstd::string::String>::value("assets"_str, string_parser())
+    auto assets  = command.add_arg(Arg<String>::value("assets"_str, string_parser())
                                        .long_name("assets"_str)
                                        .help("Optional Wallpaper Engine assets directory"_str)
                                        .default_value(""_str));
-    auto workshop_id =
-        command.add_arg(Arg<rstd::string::String>::value("workshop_id"_str, string_parser())
-                            .long_name("workshop_id"_str)
-                            .help("Optional Steam workshop id (informational)"_str)
-                            .default_value(""_str));
+    auto workshop_id = command.add_arg(Arg<String>::value("workshop_id"_str, string_parser())
+                                           .long_name("workshop_id"_str)
+                                           .help("Optional Steam workshop id (informational)"_str)
+                                           .default_value(""_str));
     auto render_node =
-        command.add_arg(Arg<rstd::string::String>::value("render-node"_str, string_parser())
+        command.add_arg(Arg<String>::value("render-node"_str, string_parser())
                             .long_name("render-node"_str)
                             .help("DRM render-node path to pin Vulkan device selection to "
                                   "(empty => let Vulkan pick the default)"_str)
                             .default_value(""_str));
     auto hwdec =
-        command.add_arg(Arg<rstd::string::String>::value("hwdec"_str, string_parser())
+        command.add_arg(Arg<String>::value("hwdec"_str, string_parser())
                             .long_name("hwdec"_str)
                             .help("Video texture decoder mode: auto, vulkan, vaapi, or none"_str)
                             .default_value(""_str));
     auto load_bench_output =
-        command.add_arg(Arg<rstd::string::String>::value("load-bench-output"_str, string_parser())
+        command.add_arg(Arg<String>::value("load-bench-output"_str, string_parser())
                             .long_name("load-bench-output"_str)
                             .help("Write scene load probe report to FILE"_str)
                             .value_name("FILE"_str)
                             .default_value(""_str));
-    command.add_arg(Arg<rstd::string::String>::value("remaining"_str, string_parser())
+    command.add_arg(Arg<String>::value("remaining"_str, string_parser())
                         .num_args(NumArgs::any())
                         .allow_hyphen_values());
 
     auto parsed = owe::cli::ParseArgs(rstd::move(command), argc, argv);
-    if (parsed.is_err()) std::exit(parsed.unwrap_err().code);
+    if (parsed.is_err()) rstd::process::exit(i32(parsed.unwrap_err().code));
     auto matches = rstd::move(parsed).unwrap();
 
     Options options;
-    options.ipc_path       = ToStdString(ArgValue(matches, ipc));
-    options.initial_scene  = ToStdString(ArgValue(matches, path));
-    options.initial_assets = ToStdString(ArgValue(matches, assets));
-    options.workshop_id    = ToStdString(ArgValue(matches, workshop_id));
-    options.render_node    = ToStdString(ArgValue(matches, render_node));
-    options.video_hwdec    = ToStdString(ArgValue(matches, hwdec));
+    options.ipc_path       = ArgValue(matches, ipc).clone();
+    options.initial_scene  = PathBuf::from(ArgValue(matches, path).as_str());
+    options.initial_assets = PathBuf::from(ArgValue(matches, assets).as_str());
+    options.workshop_id    = ArgValue(matches, workshop_id).clone();
+    options.render_node    = ArgValue(matches, render_node).clone();
+    options.video_hwdec    = ArgValue(matches, hwdec).clone();
 
     options.load_bench_output = ArgValue(matches, load_bench_output).clone();
     return options;
@@ -293,7 +304,9 @@ Options parse_args(int argc, char** argv) {
 // settings have <10 entries today).
 const char* kv_get(const ww_kv_list_t& kv, const char* key) {
     for (uint32_t i = 0; i < kv.count; ++i) {
-        if (kv.data[i].key && std::strcmp(kv.data[i].key, key) == 0) return kv.data[i].value;
+        if (kv.data[i].key &&
+            (CStr::from_ptr(kv.data[i].key).to_bytes() == CStr::from_ptr(key).to_bytes()))
+            return kv.data[i].value;
     }
     return nullptr;
 }
@@ -301,29 +314,39 @@ const char* kv_get(const ww_kv_list_t& kv, const char* key) {
 // Parse a setting string as f32; falls back to `def` on parse error
 // or a NULL pointer.
 float parse_f32(const char* s, float def) {
-    if (! s || ! *s) return def;
-    char* end = nullptr;
-    errno     = 0;
-    double v  = std::strtod(s, &end);
-    if (errno != 0 || end == s) return def;
-    return static_cast<float>(v);
+    if (! s) return def;
+    auto text = as_str(s);
+    if (text.is_err()) return def;
+    auto value = rstd::from_str<f32>(*text);
+    return value.is_ok() && value->is_finite() ? value->to_primitive() : def;
 }
 
 bool parse_bool_wire(const char* raw, bool& out) {
     if (! raw) return false;
-    std::string s     = raw;
-    const auto  first = s.find_first_not_of(" \t\r\n");
-    if (first == std::string::npos) return false;
-    const auto last = s.find_last_not_of(" \t\r\n");
-    s               = s.substr(first, last - first + 1);
-    for (char& ch : s) {
-        if (ch >= 'A' && ch <= 'Z') ch = static_cast<char>(ch - 'A' + 'a');
+    auto parsed = as_str(raw);
+    if (parsed.is_err()) return false;
+    auto text       = parsed.unwrap();
+    auto bytes      = text.as_bytes();
+    auto whitespace = [](u8 ch) {
+        return ch == u8(' ') || ch == u8('\t') || ch == u8('\r') || ch == u8('\n');
+    };
+    usize first {};
+    auto  last = bytes.len();
+    while (first < last && whitespace(bytes[first])) ++first;
+    while (last > first && whitespace(bytes[last - usize(1)])) --last;
+    if (first == last) return false;
+    auto normalized = Vec<u8>::with_capacity(last - first);
+    for (auto index = first; index < last; ++index) {
+        auto ch = bytes[index];
+        if (ch >= u8('A') && ch <= u8('Z')) ch += u8('a' - 'A');
+        normalized.push(rstd::move(ch));
     }
-    if (s == "true" || s == "1" || s == "yes" || s == "on") {
+    auto s = String::from_utf8(rstd::move(normalized)).unwrap();
+    if (s == "true"_str || s == "1"_str || s == "yes"_str || s == "on"_str) {
         out = true;
         return true;
     }
-    if (s == "false" || s == "0" || s == "no" || s == "off") {
+    if (s == "false"_str || s == "0"_str || s == "no"_str || s == "off"_str) {
         out = false;
         return true;
     }
@@ -349,16 +372,17 @@ bool parse_user_property_bool(const owe::Json& raw, bool& out) {
     return false;
 }
 
-bool parse_playback_rate_wire(const char* raw, float& out) {
-    if (! raw || ! *raw) return false;
-    char* end  = nullptr;
-    errno      = 0;
-    double pct = std::strtod(raw, &end);
-    if (errno != 0 || end == raw || ! f64(pct).is_finite()) return false;
-    while (*end && std::isspace(static_cast<unsigned char>(*end))) ++end;
-    if (*end || pct < 10.0 || pct > 400.0) return false;
-    out = static_cast<float>(pct / 100.0);
+bool parse_playback_rate(ref<str> text, float& out) {
+    auto pct = rstd::from_str<f64>(text.trim_ascii());
+    if (pct.is_err() || ! pct->is_finite() || *pct < f64(10.0) || *pct > f64(400.0)) return false;
+    out = static_cast<float>(pct->to_primitive() / 100.0);
     return true;
+}
+
+bool parse_playback_rate_wire(const char* raw, float& out) {
+    if (! raw) return false;
+    auto text = as_str(raw);
+    return text.is_ok() && parse_playback_rate(*text, out);
 }
 
 bool parse_user_property_playback_rate(const owe::Json& raw, float& out) {
@@ -373,35 +397,31 @@ bool parse_user_property_playback_rate(const owe::Json& raw, float& out) {
         return true;
     }
     if (value.is_string()) {
-        auto text = rstd::cppstd::to_string(*value.as_str());
-        return parse_playback_rate_wire(text.c_str(), out);
+        return parse_playback_rate(*value.as_str(), out);
     }
     return false;
 }
 
 int32_t parse_i32(const char* s, int32_t def) {
-    if (! s || ! *s) return def;
-    char* end = nullptr;
-    errno     = 0;
-    long v    = std::strtol(s, &end, 10);
-    if (errno != 0 || end == s) return def;
-    return static_cast<int32_t>(v);
+    if (! s) return def;
+    auto text = as_str(s);
+    if (text.is_err()) return def;
+    return rstd::from_str<i32>(*text).unwrap_or(i32(def)).to_primitive();
+}
+
+auto parse_u32_value(const char* s) -> Option<u32> {
+    if (! s) return None();
+    auto text = as_str(s);
+    if (text.is_err()) return None();
+    return rstd::from_str<u32>(*text).ok();
 }
 
 uint32_t parse_u32(const char* s, uint32_t def) {
-    if (! s || ! *s) return def;
-    while (*s && std::isspace(static_cast<unsigned char>(*s))) ++s;
-    if (*s == '-') return def;
-    char* end       = nullptr;
-    errno           = 0;
-    unsigned long v = std::strtoul(s, &end, 10);
-    if (errno != 0 || end == s) return def;
-    return static_cast<uint32_t>(v);
+    return parse_u32_value(s).unwrap_or(u32(def)).to_primitive();
 }
 
-bool resolve_render_node_to_uuid(const std::string&                 path,
-                                 std::array<uint8_t, VK_UUID_SIZE>& out_uuid,
-                                 std::string&                       err_msg) {
+bool resolve_render_node_to_uuid(ref<str> path, rstd::array<uint8_t, VK_UUID_SIZE>& out_uuid,
+                                 String& err_msg) {
     VkApplicationInfo app {};
     app.sType            = VK_STRUCTURE_TYPE_APPLICATION_INFO;
     app.pApplicationName = "wescene-render-node-probe";
@@ -413,35 +433,40 @@ bool resolve_render_node_to_uuid(const std::string&                 path,
     ici.ppEnabledExtensionNames = nullptr;
     auto loaded                 = vvk::VulkanLoader::Open();
     if (loaded.is_err()) {
-        err_msg = "Vulkan loader open failed";
+        err_msg = "Vulkan loader open failed"_Str;
         return false;
     }
     auto                  loader = loaded.unwrap_unchecked();
     vvk::InstanceDispatch dispatch {};
     vvk::Instance         instance;
     if (vvk::Instance::Create(instance, loader.global(), ici, dispatch).is_err()) {
-        err_msg = "Vulkan instance creation failed";
+        err_msg = "Vulkan instance creation failed"_Str;
         return false;
     }
     const VkInstance inst = *instance;
 
     ww_bridge_vk_dt_t dt {};
     if (ww_bridge_vk_dt_load(&dt, dispatch.resolver, inst) != 0) {
-        err_msg = "ww_bridge_vk_dt_load failed";
+        err_msg = "ww_bridge_vk_dt_load failed"_Str;
         return false;
     }
 
-    int rc = ww_bridge_vk_resolve_render_node(&dt, inst, path.c_str(), out_uuid.data());
+    int rc = ww_bridge_vk_resolve_render_node(
+        &dt,
+        inst,
+        CString::make(Vec<u8>::from(path.as_bytes())).unwrap().as_ptr(),
+        out_uuid.data());
 
     if (rc == 0) return true;
     if (rc == -ENOENT) {
-        err_msg = "no Vulkan device with VK_EXT_physical_device_drm matches " + path;
+        err_msg = rstd::format("no Vulkan device with VK_EXT_physical_device_drm matches {}", path);
     } else if (rc == -ENOTSUP) {
-        err_msg = "Vulkan instance lacks vkGetPhysicalDeviceProperties2 chain";
+        err_msg = "Vulkan instance lacks vkGetPhysicalDeviceProperties2 chain"_Str;
     } else if (rc < 0) {
-        err_msg = std::string("ww_bridge_vk_resolve_render_node: ") + ::strerror(-rc);
+        err_msg = rstd::format("ww_bridge_vk_resolve_render_node: {}",
+                               Error::from_raw_os_error(i32(-rc)));
     } else {
-        err_msg = "ww_bridge_vk_resolve_render_node returned " + std::to_string(rc);
+        err_msg = rstd::format("ww_bridge_vk_resolve_render_node returned {}", rc);
     }
     return false;
 }
@@ -450,7 +475,7 @@ bool resolve_render_node_to_uuid(const std::string&                 path,
 // Host state shared between reader thread and main thread.
 // ---------------------------------------------------------------------------
 
-using BridgeSubscriptions = std::shared_ptr<ww_wescene::BridgeSubscriptionController>;
+using BridgeSubscriptions = Option<Arc<ww_wescene::BridgeSubscriptionController>>;
 
 struct ClearColorPublishState {
     bool                          ready { false };
@@ -458,8 +483,8 @@ struct ClearColorPublishState {
 };
 
 struct HostState {
-    int                                      sock { -1 };
-    std::weak_ptr<ww_wescene::BridgeSession> session;
+    int                             sock { -1 };
+    Weak<ww_wescene::BridgeSession> session { Weak<ww_wescene::BridgeSession>::make() };
     // Non-owning pointer; the unique_ptr lives inside VulkanRender.
     ww_wescene::BridgeExSwapchain* swapchain { nullptr };
     // Non-owning pointer to the SceneWallpaper that lives in main's
@@ -483,14 +508,14 @@ struct HostState {
     u64                              last_audio_sequence {};
     f32                              base_volume { 1.0f };
 
-    rstd::sync::Mutex<BridgeSubscriptions> subscriptions { BridgeSubscriptions {} };
+    Mutex<BridgeSubscriptions> subscriptions { BridgeSubscriptions {} };
 
     // Daemon enforces "Ready before any ReportState" during the spawn
     // handshake; the scene-load path can fire `setOnClearColor` (and
     // thus a ReportState send) earlier than `ww_bridge_pool_advertise_caps`
     // (which is what actually triggers Ready). Stash any clear-colour
     // emitted before Ready, and flush after advertise_caps succeeds.
-    rstd::sync::Mutex<ClearColorPublishState> clear_color { ClearColorPublishState {} };
+    Mutex<ClearColorPublishState> clear_color { ClearColorPublishState {} };
 };
 
 void signal_shutdown(HostState& s) {
@@ -503,8 +528,8 @@ void set_audio_response_demand(HostState& s, bool active) {
     if (! active && s.wp) {
         s.wp->endAudioResponse();
     }
-    auto subscriptions = *s.subscriptions.lock().unwrap();
-    if (subscriptions && ! subscriptions->set("audio", active)) {
+    auto subscriptions = s.subscriptions.lock().unwrap()->clone();
+    if (subscriptions && ! (*subscriptions)->set("audio"_str, active)) {
         rstd_warn("waywallen-wescene-renderer: failed to update audio subscription");
     }
 }
@@ -614,7 +639,9 @@ void set_fps(HostState& s, uint32_t fps) {
     s.wp->setFps(fps);
 }
 
-std::string bridge_string(char* value) { return value ? std::string(value) : std::string(); }
+String bridge_string(const char* value) {
+    return value ? String::make(rstd::cppstd::as_str(value).unwrap()) : String {};
+}
 
 void apply_control(HostState& s, ww_bridge_control_t& msg) {
     switch (msg.op) {
@@ -630,25 +657,29 @@ void apply_control(HostState& s, ww_bridge_control_t& msg) {
             const char* key = settings.data[i].key;
             const char* val = settings.data[i].value;
             if (! key || ! val) continue;
-            if (std::strcmp(key, "volume") == 0) {
+            if ((CStr::from_ptr(key).to_bytes() == CStr::from_ptr("volume").to_bytes())) {
                 // Wire format is u32 0..100; engine takes 0..1 ratio.
                 set_base_volume(s, parse_f32(val, 100.0f) / 100.0f);
-            } else if (std::strcmp(key, "fps") == 0) {
-                char*         end = nullptr;
-                unsigned long n   = std::strtoul(val, &end, 10);
-                if (end != val) set_fps(s, static_cast<uint32_t>(n));
-            } else if (std::strcmp(key, kSettingsEnableAudioKey) == 0) {
+            } else if ((CStr::from_ptr(key).to_bytes() == CStr::from_ptr("fps").to_bytes())) {
+                if (auto n = parse_u32_value(val)) set_fps(s, n->to_primitive());
+            } else if ((CStr::from_ptr(key).to_bytes() ==
+                        CStr::from_ptr(kSettingsEnableAudioKey).to_bytes())) {
                 set_settings_enable_audio(s, val);
-            } else if (std::strcmp(key, kPropertyEnableAudioKey) == 0) {
+            } else if ((CStr::from_ptr(key).to_bytes() ==
+                        CStr::from_ptr(kPropertyEnableAudioKey).to_bytes())) {
                 set_property_enable_audio(s, val);
-            } else if (std::strcmp(key, kPlaybackSpeedKey) == 0) {
+            } else if ((CStr::from_ptr(key).to_bytes() ==
+                        CStr::from_ptr(kPlaybackSpeedKey).to_bytes())) {
                 set_playback_rate(s, val);
-            } else if (std::strcmp(key, "test_pattern") == 0) {
+            } else if ((CStr::from_ptr(key).to_bytes() ==
+                        CStr::from_ptr("test_pattern").to_bytes())) {
                 // Wescene's test_pattern flag is set on initial spawn
                 // through RenderInit; runtime toggling is not wired
                 // (would require respawn). Log and ignore.
             } else {
-                if (s.wp) s.wp->setUserPropertyRaw(key, val);
+                if (s.wp)
+                    s.wp->setUserPropertyRaw(rstd::cppstd::as_str(key).unwrap(),
+                                             rstd::cppstd::as_str(val).unwrap());
             }
         }
         break;
@@ -701,8 +732,8 @@ void apply_control(HostState& s, ww_bridge_control_t& msg) {
         break;
     }
     case WW_EVT_IN_EVENT_SUBSCRIPTIONS_APPLIED: {
-        auto subscriptions = *s.subscriptions.lock().unwrap();
-        if (subscriptions) subscriptions->applied(msg.u.event_subscriptions_applied.result);
+        auto subscriptions = s.subscriptions.lock().unwrap()->clone();
+        if (subscriptions) (*subscriptions)->applied(msg.u.event_subscriptions_applied.result);
         break;
     }
     case WW_EVT_IN_AUDIO_WINDOW: {
@@ -710,12 +741,12 @@ void apply_control(HostState& s, ww_bridge_control_t& msg) {
         bool                  ended = false;
         if (! ww_wescene::DecodeAudioWindow(msg, audio, ended)) break;
         if (! s.audio_response_demand.load(rstd::sync::atomic::Ordering::Acquire)) break;
-        auto        subscriptions = *s.subscriptions.lock().unwrap();
+        auto        subscriptions = s.subscriptions.lock().unwrap()->clone();
         const auto& wire          = msg.u.audio_window.window;
         const bool  fresh         = u64(wire.generation) > s.last_audio_generation ||
                                     (u64(wire.generation) == s.last_audio_generation &&
                                      u64(wire.sequence) > s.last_audio_sequence);
-        if (fresh && subscriptions && subscriptions->acceptsAudio(wire.subscription_revision) &&
+        if (fresh && subscriptions && (*subscriptions)->acceptsAudio(wire.subscription_revision) &&
             s.wp) {
             if (ended)
                 s.wp->endAudioResponse();
@@ -782,8 +813,11 @@ int run(int argc, char** argv) {
     ::prctl(PR_SET_PDEATHSIG, SIGTERM);
 
     HostState host;
-    host.sock = ww_bridge_connect(opts.ipc_path.c_str());
-    if (host.sock < 0) die("ww_bridge_connect: " + std::string(::strerror(-host.sock)));
+    host.sock = ww_bridge_connect(
+        CString::make(Vec<u8>::from(opts.ipc_path.as_str().as_bytes())).unwrap().as_ptr());
+    if (host.sock < 0)
+        die(rstd::format("ww_bridge_connect: {}", Error::from_raw_os_error(i32(-host.sock)))
+                .as_str());
 
     {
         waywallen_renderer_init_t init {};
@@ -800,7 +834,7 @@ int run(int argc, char** argv) {
             };
             ww_bridge_send_init_nack(host.sock, &rejection);
             waywallen_renderer_init_free(&init);
-            die(std::string(reason) + " rc=" + std::to_string(rc));
+            die(rstd::format("{} rc={}", as_str(reason).unwrap(), rc).as_str());
         }
 
         // Scene .pkg path + assets + workshop_id arrive via CLI argv
@@ -814,16 +848,18 @@ int run(int argc, char** argv) {
             if (resolution == static_cast<int32_t>(WW_RESOLUTION_ORIGIN))
                 resolution = static_cast<int32_t>(WW_RESOLUTION_1080P);
             uint32_t custom_extent = parse_u32(kv_get(init.settings, "custom_extent"), 1080u);
-            if (! opts.initial_scene.empty()) {
+            if (! opts.initial_scene.is_empty()) {
                 auto scene_doc = [&] {
                     if (load_bench.is_none())
-                        return owe::wpscene::LoadSceneDocumentFromSource(opts.initial_scene);
+                        return owe::wpscene::LoadSceneDocumentFromSource(
+                            opts.initial_scene.as_path());
 
                     auto& context  = **load_bench;
                     auto  recorder = context.session().recorder();
                     auto  loaded   = [&] {
                         auto span = recorder.span(context.ids().preload_scene_document);
-                        return owe::wpscene::LoadSceneDocumentFromSource(opts.initial_scene);
+                        return owe::wpscene::LoadSceneDocumentFromSource(
+                            opts.initial_scene.as_path());
                     }();
                     auto batch = recorder.drain();
                     if (batch.is_ok()) {
@@ -835,14 +871,14 @@ int run(int argc, char** argv) {
                 }();
                 if (scene_doc) {
                     opts.initial_scene_document =
-                        std::make_shared<owe::wpscene::SceneDocument>(rstd::move(*scene_doc));
+                        Some(Arc<owe::wpscene::SceneDocument>::make(rstd::move(*scene_doc)));
                 }
             }
             if (opts.initial_scene_document &&
-                opts.initial_scene_document->metadata.canvas_extent) {
-                const auto extent = *opts.initial_scene_document->metadata.canvas_extent;
-                opts.width        = extent[0].to_primitive();
-                opts.height       = extent[1].to_primitive();
+                (*opts.initial_scene_document)->metadata.canvas_extent) {
+                const auto extent = *(*opts.initial_scene_document)->metadata.canvas_extent;
+                opts.width        = extent[usize(0)].to_primitive();
+                opts.height       = extent[usize(1)].to_primitive();
                 rstd_info(
                     "waywallen-wescene-renderer: scene canvas {}x{}", opts.width, opts.height);
             } else {
@@ -860,12 +896,10 @@ int run(int argc, char** argv) {
             rstd_info("waywallen-wescene-renderer: render extent {}x{}", opts.width, opts.height);
         }
         if (const char* v = kv_get(init.settings, "fps"); v && *v) {
-            char*         end = nullptr;
-            unsigned long n   = std::strtoul(v, &end, 10);
-            if (end != v) opts.initial_fps = static_cast<uint32_t>(n);
+            if (auto n = parse_u32_value(v)) opts.initial_fps = n->to_primitive();
         }
         if (const char* v = kv_get(init.settings, "test_pattern"); v && *v) {
-            opts.test_pattern = (std::strcmp(v, "0") != 0);
+            opts.test_pattern = ((CStr::from_ptr(v).to_bytes() != CStr::from_ptr("0").to_bytes()));
         }
         // Wire format is u32 0..100; engine takes 0..1 ratio.
         opts.initial_volume = parse_f32(kv_get(init.settings, "volume"), 100.0f) / 100.0f;
@@ -873,27 +907,26 @@ int run(int argc, char** argv) {
             parse_bool(kv_get(init.settings, kSettingsEnableAudioKey), true);
         // CLI `--render-node` wins over Init kv (mirroring mpv/video).
         // Empty ⇒ let SceneWallpaper pick the default Vulkan device.
-        if (opts.render_node.empty()) {
+        if (opts.render_node.is_empty()) {
             if (const char* v = kv_get(init.settings, "render_node"); v && *v) {
-                opts.render_node = v;
+                opts.render_node = String::make(as_str(v).unwrap());
             }
         }
-        if (opts.video_hwdec.empty()) {
+        if (opts.video_hwdec.is_empty()) {
             if (const char* v = kv_get(init.settings, "hwdec"); v && *v) {
-                opts.video_hwdec = v;
+                opts.video_hwdec = String::make(as_str(v).unwrap());
             }
         }
-        if (opts.video_hwdec.empty()) opts.video_hwdec = "auto";
+        if (opts.video_hwdec.is_empty()) opts.video_hwdec = "auto"_Str;
         if (const char* v = kv_get(init.settings, "msaa"); v && *v) {
-            char*         end = nullptr;
-            unsigned long n   = std::strtoul(v, &end, 10);
-            if (end != v) opts.msaa_samples = static_cast<uint32_t>(n);
+            if (auto n = parse_u32_value(v)) opts.msaa_samples = n->to_primitive();
         }
         // Per-item user-property overrides arrive as a raw JSON object
         // (the DB column verbatim) — decoupled from the schema-validated
         // plugin settings above so no name collision is possible.
         if (init.user_properties && *init.user_properties) {
-            auto parsed_result = owe::ParseJson(init.user_properties, { .allow_comments = true });
+            auto parsed_result = owe::ParseJson(rstd::cppstd::as_str(init.user_properties).unwrap(),
+                                                { .allow_comments = true });
             if (parsed_result.is_err()) {
                 rstd_warn("init.user_properties is invalid JSON; ignored: {}",
                           parsed_result.unwrap_err());
@@ -905,9 +938,9 @@ int run(int argc, char** argv) {
                     auto object = parsed.as_object();
                     (*object)->iter().for_each([&](auto entry) {
                         auto [entry_key, entry_value] = entry;
-                        std::string k = rstd::cppstd::to_string(entry_key->as_str());
-                        const auto& v = *entry_value;
-                        if (k == kPropertyEnableAudioKey) {
+                        auto        k                 = entry_key->as_str();
+                        const auto& v                 = *entry_value;
+                        if (k == as_str(kPropertyEnableAudioKey).unwrap()) {
                             bool enabled = true;
                             if (parse_user_property_bool(v, enabled)) {
                                 opts.property_enable_audio = enabled;
@@ -918,7 +951,7 @@ int run(int argc, char** argv) {
                             }
                             return;
                         }
-                        if (k == kPlaybackSpeedKey) {
+                        if (k == as_str(kPlaybackSpeedKey).unwrap()) {
                             float rate = 1.0f;
                             if (parse_user_property_playback_rate(v, rate)) {
                                 opts.initial_playback_rate = rate;
@@ -929,9 +962,7 @@ int run(int argc, char** argv) {
                             }
                             return;
                         }
-                        opts.initial_user_properties.insert(
-                            ::alloc::string::String::make(rstd::cppstd::as_str(k).unwrap()),
-                            v.clone());
+                        opts.initial_user_properties.insert(String::make(k), v.clone());
                     });
                 }
             }
@@ -941,14 +972,14 @@ int run(int argc, char** argv) {
     }
 
     owe::SceneWallpaper wp;
-    if (! wp.init()) die("SceneWallpaper::init failed");
+    if (! wp.init()) die("SceneWallpaper::init failed"_str);
     wp.setAudioClientIdentity({
-        .application_name = WAYWALLEN_AUDIO_APPLICATION_NAME,
-        .application_id   = WAYWALLEN_AUDIO_APPLICATION_ID,
-        .stream_prefix    = WAYWALLEN_AUDIO_STREAM_PREFIX,
-        .component        = "wescene",
-        .media_name       = "Waywallen Scene Renderer",
-        .media_role       = "music",
+        .application_name = bridge_string(WAYWALLEN_AUDIO_APPLICATION_NAME),
+        .application_id   = bridge_string(WAYWALLEN_AUDIO_APPLICATION_ID),
+        .stream_prefix    = bridge_string(WAYWALLEN_AUDIO_STREAM_PREFIX),
+        .component        = "wescene"_Str,
+        .media_name       = "Waywallen Scene Renderer"_Str,
+        .media_role       = "music"_Str,
     });
 
     host.wp          = &wp;
@@ -975,7 +1006,7 @@ int run(int argc, char** argv) {
             clear->pending = Some(rstd::array<float, 3> { r, g, b });
             return;
         }
-        auto session = host.session.lock();
+        auto session = host.session.upgrade();
         if (! session) return;
         if (int rc = session->sendClearColor(r, g, b, 1.0f); rc != 0) {
             rstd_warn("waywallen-wescene-renderer: report_state(clear_color) failed ({})", rc);
@@ -994,15 +1025,16 @@ int run(int argc, char** argv) {
     });
     if (env_flag_enabled("OWE_DUMP_PREPARED_PASSES")) {
         wp.setOnFirstFrame([&wp] {
-            wp.requestPreparedPassDiagnostics(log_prepared_pass_diagnostics);
+            wp.requestPreparedPassDiagnostics(
+                owe::RenderPassDiagnosticCallback::make(&log_prepared_pass_diagnostics));
         });
     }
 
     owe::SceneWallpaperConfig wp_config;
-    wp_config.source_pkg_path = opts.initial_scene;
-    wp_config.assets_dir      = opts.initial_assets;
+    wp_config.source_pkg_path = opts.initial_scene.clone();
+    wp_config.assets_dir      = opts.initial_assets.clone();
     wp_config.cache_dir       = shader_cache_dir();
-    wp_config.scene_document  = opts.initial_scene_document;
+    wp_config.scene_document  = opts.initial_scene_document.clone();
     wp_config.load_bench      = load_bench.clone();
     wp_config.user_properties = rstd::move(opts.initial_user_properties);
     wp_config.fps             = opts.initial_fps;
@@ -1019,7 +1051,7 @@ int run(int argc, char** argv) {
     const bool msaa_enabled = opts.msaa_samples > 1;
     auto       factory =
         [&host, msaa_enabled](
-            const owe::RenderInitInfo::ExSwapchainHandles& h) -> std::unique_ptr<owe::ExSwapchain> {
+            const owe::RenderInitInfo::ExSwapchainHandles& h) -> Option<owe::ExSwapchainOwner> {
         ww_pool_vulkan_init_t pi {};
         pi.instance           = h.instance;
         pi.physical_device    = h.physical_device;
@@ -1054,27 +1086,28 @@ int run(int argc, char** argv) {
         ww_pool_t* pool = nullptr;
         if (int rc = ww_bridge_pool_create(WW_POOL_BACKEND_VULKAN, &pi, &pool); rc != 0) {
             rstd_error("waywallen-wescene-renderer: ww_bridge_pool_create failed: {}", rc);
-            return nullptr;
+            return None();
         }
-        auto session = ww_wescene::BridgeSession::Adopt(pool, host.sock);
-        if (! session) {
+        auto adopted = ww_wescene::BridgeSession::Adopt(pool, host.sock);
+        if (! adopted) {
             int error = errno;
             ww_bridge_pool_destroy(pool);
             rstd_error("waywallen-wescene-renderer: bridge session socket dup failed: {}", error);
-            return nullptr;
+            return None();
         }
         (void)h; // Vulkan handles no longer needed by BridgeExSwapchain.
-        auto sw        = std::make_unique<ww_wescene::BridgeExSwapchain>(session);
-        host.session   = session;
-        host.swapchain = sw.get();
-        return sw;
+        auto session   = adopted.unwrap();
+        auto sw        = owe::ExSwapchain::Make<ww_wescene::BridgeExSwapchain>(session.clone());
+        host.session   = session.downgrade();
+        host.swapchain = &static_cast<ww_wescene::BridgeExSwapchain&>(sw->AsSwapchain());
+        return Some(rstd::move(sw));
     };
 
-    std::array<uint8_t, VK_UUID_SIZE> chosen_uuid {};
-    bool                              have_uuid = false;
-    if (! opts.render_node.empty()) {
-        std::string err;
-        if (resolve_render_node_to_uuid(opts.render_node, chosen_uuid, err)) {
+    rstd::array<uint8_t, VK_UUID_SIZE> chosen_uuid {};
+    bool                               have_uuid = false;
+    if (! opts.render_node.is_empty()) {
+        String err;
+        if (resolve_render_node_to_uuid(opts.render_node.as_str(), chosen_uuid, err)) {
             have_uuid = true;
             rstd_info("waywallen-wescene-renderer: render_node={} pinning Vulkan device by UUID",
                       opts.render_node);
@@ -1088,27 +1121,30 @@ int run(int argc, char** argv) {
 
     {
         owe::RenderInitInfo info;
-        info.offscreen                    = true;
-        info.offscreen_tiling             = owe::TexTiling::OPTIMAL;
-        info.width                        = static_cast<uint16_t>(opts.width);
-        info.height                       = static_cast<uint16_t>(opts.height);
-        info.video_hwdec                  = opts.video_hwdec;
-        info.video_render_node            = opts.render_node;
-        info.msaa_samples                 = opts.msaa_samples;
-        info.surface_info.createSurfaceOp = [](VkInstance, VkSurfaceKHR*) -> VkResult {
-            return VK_SUCCESS;
-        };
-        info.ex_swapchain_factory = rstd::move(factory);
+        info.offscreen         = true;
+        info.offscreen_tiling  = owe::TexTiling::OPTIMAL;
+        info.width             = static_cast<uint16_t>(opts.width);
+        info.height            = static_cast<uint16_t>(opts.height);
+        info.video_hwdec       = opts.video_hwdec.clone();
+        info.video_render_node = opts.render_node.clone();
+        info.msaa_samples      = opts.msaa_samples;
+        info.surface_info.createSurfaceOp =
+            Some(owe::CreateSurfaceCallback::make([](VkInstance, VkSurfaceKHR*) -> VkResult {
+                return VK_SUCCESS;
+            }));
+        info.ex_swapchain_factory =
+            Some(Box<dyn<FnOnce<Option<owe::ExSwapchainOwner>(
+                     const owe::RenderInitInfo::ExSwapchainHandles&)>>>::make(rstd::move(factory)));
         if (have_uuid) {
-            info.uuid = std::span<const std::uint8_t>(chosen_uuid.data(), chosen_uuid.size());
+            info.uuid = Some(chosen_uuid);
         }
         wp.initVulkan(rstd::move(info));
     }
 
     if (! wp.waitVulkanInited(/*timeout_ms*/ 10000))
-        die("VulkanRender did not finish init within 10s");
+        die("VulkanRender did not finish init within 10s"_str);
     if (host.session.expired() || ! host.swapchain)
-        die("ex_swapchain_factory did not produce a bridge session / swapchain");
+        die("ex_swapchain_factory did not produce a bridge session / swapchain"_str);
 
     host.swapchain->setOnFirstNegotiated([&] {
         if (host.paused.load(rstd::sync::atomic::Ordering::Acquire)) {
@@ -1120,23 +1156,25 @@ int run(int argc, char** argv) {
     });
 
     // Bridge sends ready + release_syncobj + format_caps in one go.
-    auto session = host.session.lock();
-    if (! session) die("bridge session expired before advertise");
+    auto session = host.session.upgrade();
+    if (! session) die("bridge session expired before advertise"_str);
     if (int rc = session->advertiseCaps(
             opts.width, opts.height, WW_MEM_HINT_DEVICE_LOCAL | WW_MEM_HINT_HOST_VISIBLE);
         rc != 0)
-        die("ww_bridge_pool_advertise_caps failed: " + std::to_string(rc));
+        die(rstd::format("ww_bridge_pool_advertise_caps failed: {}", rc).as_str());
 
     rstd_info("waywallen-wescene-renderer: ready, advertise sent to daemon");
 
-    auto subscriptions = std::make_shared<ww_wescene::BridgeSubscriptionController>(session);
-    *host.subscriptions.lock().unwrap() = subscriptions;
-    std::vector<std::string> event_kinds { "pointer", "mpris" };
+    auto subscriptions = Arc<ww_wescene::BridgeSubscriptionController>::make(session.clone());
+    *host.subscriptions.lock().unwrap() = Some(subscriptions.clone());
+    auto event_kinds                    = BTreeSet<String>::make();
+    event_kinds.insert("pointer"_Str);
+    event_kinds.insert("mpris"_Str);
     if (host.audio_response_demand.load(rstd::sync::atomic::Ordering::Acquire)) {
-        event_kinds.emplace_back("audio");
+        event_kinds.insert("audio"_Str);
     }
     if (! subscriptions->replace(rstd::move(event_kinds))) {
-        die("failed to register renderer event subscriptions");
+        die("failed to register renderer event subscriptions"_str);
     }
 
     // Flip the clear-colour gate now that Ready has been emitted. Replay
@@ -1159,18 +1197,18 @@ int run(int argc, char** argv) {
     auto reader = rstd::thread::spawn([&]() {
         reader_loop(host);
     });
-    if (reader.is_err()) die("failed to spawn bridge reader thread");
+    if (reader.is_err()) die("failed to spawn bridge reader thread"_str);
     auto reader_handle = rstd::move(reader).unwrap_unchecked();
 
     // Idle until shutdown; the reader thread dispatches live controls.
     while (! host.shutdown.load(rstd::sync::atomic::Ordering::Acquire)) {
-        rstd::thread::sleep(rstd::time::Duration::from_millis(u64(100)));
+        rstd::thread::sleep(Duration::from_millis(u64(100)));
     }
 
     ::shutdown(host.sock, SHUT_RD);
     rstd::move(reader_handle).join().unwrap();
-    (void)subscriptions->replace({});
-    host.subscriptions.lock().unwrap()->reset();
+    (void)subscriptions->replace(BTreeSet<String>::make());
+    host.subscriptions.lock().unwrap()->take();
     session.reset();
     ww_bridge_close(host.sock);
 

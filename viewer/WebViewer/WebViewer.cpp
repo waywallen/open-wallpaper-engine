@@ -11,7 +11,11 @@ import viewer.common;
 import viewer.audio;
 import viewer.web;
 
-#include "GlfwVulkan.hpp"
+import viewer.glfw_vulkan;
+
+using rstd::time::Duration;
+
+using namespace viewer::glfw;
 
 namespace
 {
@@ -19,16 +23,20 @@ namespace
 using namespace rstd::prelude;
 using namespace rstd::argparse;
 using namespace rstd::literals;
+using rstd::ffi::CStr;
+using rstd::ffi::OsStr;
+using rstd::io::eprintln;
+using rstd::os::unix::ffi::OsStrExt;
+using rstd::path::Path;
+using rstd::path::PathBuf;
 
 struct WebViewerArgs {
-    std::string workshop;
-    std::string presenter;
-    i32         width;
-    i32         height;
-    i32         remote_debugging_port;
+    String workshop;
+    String presenter;
+    i32    width;
+    i32    height;
+    i32    remote_debugging_port;
 };
-
-std::string ToStdString(const String& value) { return rstd::cppstd::to_string(value.as_str()); }
 
 template<typename T>
 const T& Value(const Matches& matches, const ArgKey<T>& key) {
@@ -71,8 +79,8 @@ auto ParseWebViewerArgs(int argc, char** argv) -> Result<WebViewerArgs, owe::cli
     if (parsed.is_err()) return Err(parsed.unwrap_err());
     auto matches = rstd::move(parsed).unwrap();
     return Ok(WebViewerArgs {
-        .workshop              = ToStdString(Value(matches, workshop)),
-        .presenter             = ToStdString(Value(matches, presenter)),
+        .workshop              = Value(matches, workshop).clone(),
+        .presenter             = Value(matches, presenter).clone(),
         .width                 = Value(matches, width),
         .height                = Value(matches, height),
         .remote_debugging_port = Value(matches, remote_debugging_port),
@@ -88,9 +96,9 @@ struct ViewerCtx {
 // CEF mouse button codes match cef_mouse_button_type_t: 0=L, 1=M, 2=R.
 int CefButtonFromGlfw(int glfw_button) {
     switch (glfw_button) {
-    case GLFW_MOUSE_BUTTON_LEFT: return 0;
-    case GLFW_MOUSE_BUTTON_MIDDLE: return 1;
-    case GLFW_MOUSE_BUTTON_RIGHT: return 2;
+    case viewer::glfw::MouseButtonLeft: return 0;
+    case viewer::glfw::MouseButtonMiddle: return 1;
+    case viewer::glfw::MouseButtonRight: return 2;
     default: return -1;
     }
 }
@@ -103,7 +111,7 @@ void OnFramebufferSize(GLFWwindow* w, int /*fb_w*/, int /*fb_h*/) {
 void OnCursorPos(GLFWwindow* w, double x, double y) {
     auto* ctx = static_cast<ViewerCtx*>(glfwGetWindowUserPointer(w));
     if (! ctx || ! ctx->host) return;
-    bool left = glfwGetMouseButton(w, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
+    bool left = glfwGetMouseButton(w, viewer::glfw::MouseButtonLeft) == viewer::glfw::Press;
     ctx->host->OnMouseMove(static_cast<int>(x), static_cast<int>(y), left);
 }
 
@@ -114,8 +122,11 @@ void OnMouseButton(GLFWwindow* w, int button, int action, int /*mods*/) {
     if (cef_btn < 0) return;
     double x = 0, y = 0;
     glfwGetCursorPos(w, &x, &y);
-    ctx->host->OnMouseButton(
-        static_cast<int>(x), static_cast<int>(y), cef_btn, action == GLFW_PRESS, /*click_count=*/1);
+    ctx->host->OnMouseButton(static_cast<int>(x),
+                             static_cast<int>(y),
+                             cef_btn,
+                             action == viewer::glfw::Press,
+                             /*click_count=*/1);
 }
 
 void OnScroll(GLFWwindow* w, double dx, double dy) {
@@ -132,7 +143,7 @@ void OnScroll(GLFWwindow* w, double dx, double dy) {
 
 void OnFocus(GLFWwindow* w, int focused) {
     auto* ctx = static_cast<ViewerCtx*>(glfwGetWindowUserPointer(w));
-    if (ctx && ctx->host) ctx->host->OnFocus(focused == GLFW_TRUE);
+    if (ctx && ctx->host) ctx->host->OnFocus(focused == viewer::glfw::TrueValue);
 }
 
 struct WindowMetrics {
@@ -166,20 +177,24 @@ WindowMetrics GetWindowMetrics(GLFWwindow* window) {
 }
 
 #if __is_target_os(macos)
-std::filesystem::path CefFrameworkRoot(const std::filesystem::path& exe_dir) {
-    std::vector<std::filesystem::path> candidates;
-    if (const char* override_path = std::getenv("OWE_CEF_FRAMEWORK_PATH");
-        override_path != nullptr && override_path[0] != '\0') {
-        std::filesystem::path path(override_path);
-        if (path.filename() == "Chromium Embedded Framework") path = path.parent_path();
-        candidates.push_back(std::move(path));
+PathBuf CefFrameworkRoot(const PathBuf& exe_dir) {
+    Vec<PathBuf> candidates;
+    if (auto override_path = rstd::env::var_os("OWE_CEF_FRAMEWORK_PATH"_str);
+        override_path && ! override_path->is_empty()) {
+        auto path = PathBuf::from(rstd::move(*override_path));
+        auto name = path.as_path().file_name();
+        if (name && *name == ref<OsStr>("Chromium Embedded Framework"_str)) {
+            auto parent = path.as_path().parent();
+            path        = parent ? PathBuf::from(*parent) : PathBuf {};
+        }
+        candidates.push(rstd::move(path));
     }
-    candidates.push_back(exe_dir / "../Frameworks/Chromium Embedded Framework.framework");
-    candidates.push_back(exe_dir / "Chromium Embedded Framework.framework");
-    candidates.push_back(exe_dir / "../Chromium Embedded Framework.framework");
+    candidates.push(exe_dir.join("../Frameworks/Chromium Embedded Framework.framework"_str));
+    candidates.push(exe_dir.join("Chromium Embedded Framework.framework"_str));
+    candidates.push(exe_dir.join("../Chromium Embedded Framework.framework"_str));
     for (const auto& candidate : candidates) {
-        std::error_code error;
-        if (std::filesystem::is_directory(candidate / "Resources", error)) return candidate;
+        auto metadata = rstd::fs::metadata(candidate.join("Resources"_str).as_path());
+        if (metadata.is_ok() && metadata->is_dir()) return candidate.clone();
     }
     return {};
 }
@@ -201,23 +216,22 @@ int main(int argc, char** argv) {
     if (parsed_args.is_err()) return parsed_args.unwrap_err().code;
     auto args = rstd::move(parsed_args).unwrap();
 
-    auto workshop_dir = std::filesystem::path(args.workshop);
-    if (! std::filesystem::is_directory(workshop_dir)) {
-        std::cerr << "webviewer: not a directory: " << workshop_dir.string() << "\n";
+    auto workshop_dir = PathBuf::from(args.workshop.as_str());
+    auto metadata     = rstd::fs::metadata(workshop_dir.as_path());
+    if (metadata.is_err() || ! metadata->is_dir()) {
+        eprintln("webviewer: not a directory: {}", workshop_dir.as_path().as_os_str().display());
         return 2;
     }
 
-    auto presenter_name = args.presenter;
+    auto presenter_name = args.presenter.as_str();
 #if defined(__linux__)
-    if (presenter_name != "vulkan" && presenter_name != "egl") {
-        std::cerr << "webviewer: --presenter must be 'vulkan' or 'egl', got '" << presenter_name
-                  << "'\n";
+    if (presenter_name != "vulkan"_str && presenter_name != "egl"_str) {
+        eprintln("webviewer: --presenter must be 'vulkan' or 'egl', got '{}'", presenter_name);
         return 2;
     }
 #else
-    if (presenter_name != "vulkan") {
-        std::cerr << "webviewer: macOS requires --presenter vulkan, got '" << presenter_name
-                  << "'\n";
+    if (presenter_name != "vulkan"_str) {
+        eprintln("webviewer: macOS requires --presenter vulkan, got '{}'", presenter_name);
         return 2;
     }
 #endif
@@ -233,49 +247,53 @@ int main(int argc, char** argv) {
     viewer::InitGlfwPlatformHint(/*force_x11=*/true);
 #endif
     Option<vvk::VulkanLoader> vulkan_loader;
-    if (presenter_name == "vulkan") {
+    if (presenter_name == "vulkan"_str) {
         auto loaded = vvk::VulkanLoader::Open();
         if (loaded.is_err()) {
-            std::cerr << "webviewer: Vulkan loader open failed\n";
+            eprintln("webviewer: Vulkan loader open failed");
             return 1;
         }
         vulkan_loader = Some(loaded.unwrap_unchecked());
-        glfwInitVulkanLoader(
+        viewer::glfw::glfwInitVulkanLoader(
             vulkan_loader.as_ref().unwrap_unchecked().global().vkGetInstanceProcAddr);
     }
     if (! glfwInit()) {
-        std::cerr << "webviewer: glfwInit failed\n";
+        eprintln("webviewer: glfwInit failed");
         return 1;
     }
-    if (presenter_name == "vulkan" && ! glfwVulkanSupported()) {
-        std::cerr << "webviewer: glfw says Vulkan is not supported\n";
+    if (presenter_name == "vulkan"_str && ! glfwVulkanSupported()) {
+        eprintln("webviewer: glfw says Vulkan is not supported");
         glfwTerminate();
         return 1;
     }
     // The presenter owns the graphics context/device.
-    glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+    glfwWindowHint(viewer::glfw::ClientApi, viewer::glfw::NoApi);
 #if __is_target_os(macos)
-    glfwWindowHint(GLFW_COCOA_RETINA_FRAMEBUFFER, GLFW_TRUE);
+    glfwWindowHint(viewer::glfw::CocoaRetinaFramebuffer, viewer::glfw::TrueValue);
 #endif
 
     int         w_width  = args.width.to_primitive();
     int         w_height = args.height.to_primitive();
-    GLFWwindow* window =
-        glfwCreateWindow(w_width, w_height, manifest.title.c_str(), nullptr, nullptr);
+    GLFWwindow* window = glfwCreateWindow(w_width,
+                                          w_height,
+                                          rstd::cppstd::to_string(manifest.title.as_str()).c_str(),
+                                          nullptr,
+                                          nullptr);
     if (! window) {
-        std::cerr << "webviewer: glfwCreateWindow failed\n";
+        eprintln("webviewer: glfwCreateWindow failed");
         glfwTerminate();
         return 1;
     }
 
-    std::unique_ptr<weweb::Presenter> presenter;
-    if (presenter_name == "vulkan") {
-        presenter = std::make_unique<weweb::VulkanBlitter>();
+    Option<Box<dyn<weweb::PresenterObject>>> presenter_owner;
+    if (presenter_name == "vulkan"_str) {
+        presenter_owner = Some(weweb::Presenter::Make<weweb::VulkanBlitter>());
 #if defined(__linux__)
     } else {
-        presenter = std::make_unique<weweb::EglPresenter>();
+        presenter_owner = Some(weweb::Presenter::Make<weweb::EglPresenter>());
 #endif
     }
+    auto* presenter = &(*presenter_owner)->AsPresenter();
     if (! presenter->Init(window)) {
         glfwDestroyWindow(window);
         glfwTerminate();
@@ -285,12 +303,12 @@ int main(int argc, char** argv) {
     auto exe_dir = viewer::ExecutableDir(argv[0]);
 
     weweb::BrowserHost::InitOptions opts;
-    opts.resources_dir = exe_dir;
-    opts.locales_dir   = exe_dir / "locales";
+    opts.resources_dir = exe_dir.clone();
+    opts.locales_dir   = exe_dir.join("locales"_str);
 #if __is_target_os(macos)
-    if (auto framework_root = CefFrameworkRoot(exe_dir); ! framework_root.empty()) {
-        opts.resources_dir = framework_root / "Resources";
-        opts.locales_dir   = opts.resources_dir / "locales";
+    if (auto framework_root = CefFrameworkRoot(exe_dir); ! framework_root.is_empty()) {
+        opts.resources_dir = framework_root.join("Resources"_str);
+        opts.locales_dir   = opts.resources_dir.join("locales"_str);
     }
 #endif
     if (int port = args.remote_debugging_port.to_primitive(); port > 0) {
@@ -308,7 +326,7 @@ int main(int argc, char** argv) {
     // Hook platform-specific CEF frame handles into the presenter's import
     // path. Each callback is synchronous: CEF reclaims its frame resource
     // immediately after the callback returns.
-    weweb::Presenter* presenter_ptr = presenter.get();
+    weweb::Presenter* presenter_ptr = presenter;
 #if defined(__linux__)
     host.SetAcceleratedPaintCallback([presenter_ptr](const weweb::DmaBufFrame& frame) {
         presenter_ptr->AcceptDmaBuf(frame);
@@ -354,7 +372,7 @@ int main(int argc, char** argv) {
 
     ViewerCtx ctx;
     ctx.host      = &host;
-    ctx.presenter = presenter.get();
+    ctx.presenter = presenter;
     glfwSetWindowUserPointer(window, &ctx);
     glfwSetFramebufferSizeCallback(window, OnFramebufferSize);
     glfwSetCursorPosCallback(window, OnCursorPos);
@@ -382,7 +400,7 @@ int main(int argc, char** argv) {
             audio_response.end();
         } else {
             if (! audio_capture.is_inited() && ! audio_capture.init()) {
-                std::cerr << "webviewer: audio capture init failed\n";
+                eprintln("webviewer: audio capture init failed");
             }
         }
         if (audio_capture.is_inited() && (audio_tick++ & 1u) == 0) {
@@ -391,12 +409,12 @@ int main(int argc, char** argv) {
             auto                          window = owe::audio::PcmWindow {};
             if (audio_capture.snapshot(captured)) window = viewer::ConvertAudioWindow(captured);
             if (window.frames != 0 && audio_response.analyze(window, response)) {
-                std::array<float, 128> arr {};
-                for (std::size_t i = 0; i < 64; ++i) {
-                    arr[i]      = response.left[rstd::usize(i)];
-                    arr[64 + i] = response.right[rstd::usize(i)];
+                array<float, 128> arr {};
+                for (usize i {}; i < usize(64); ++i) {
+                    arr[i]             = response.left[i];
+                    arr[usize(64) + i] = response.right[i];
                 }
-                host.PushAudioData(arr.data(), arr.size());
+                host.PushAudioData(arr.as_slice());
             }
         }
 
@@ -412,7 +430,7 @@ int main(int argc, char** argv) {
             if (metrics.framebuffer_width > 0 && metrics.framebuffer_height > 0 &&
                 metrics.logical_width > 0 && metrics.logical_height > 0) {
                 if (! presenter->Resize()) {
-                    std::cerr << "webviewer: presenter Resize failed\n";
+                    eprintln("webviewer: presenter Resize failed");
                     break;
                 }
 #if __is_target_os(macos)
@@ -423,7 +441,7 @@ int main(int argc, char** argv) {
 #endif
                 ctx.need_swapchain_recreate = false;
             } else {
-                std::this_thread::sleep_for(std::chrono::milliseconds(16));
+                rstd::thread::sleep(Duration::from_millis(u64(16)));
                 continue;
             }
         }

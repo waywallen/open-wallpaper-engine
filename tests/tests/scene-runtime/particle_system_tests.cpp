@@ -10,6 +10,7 @@ import wescene.pkg.parse;
 import wescene.scene;
 
 using namespace rstd::prelude;
+using rstd::sync::Arc;
 using namespace rstd::literals;
 
 namespace
@@ -381,9 +382,9 @@ TEST(ParticleSubSystem, DerivesMeshCapacityFromItsOwnInstancePool) {
 
 TEST(ParticleSubSystem, PlaybackResetClearsAndRestartsIndependentStorage) {
     owe::Scene             scene;
-    auto                   mesh = std::make_shared<owe::SceneMesh>();
+    auto                   mesh = Arc<owe::SceneMesh>::make();
     owe::ParticleSubSystem subsystem(scene,
-                                     mesh,
+                                     mesh.clone(),
                                      u32(4),
                                      f64(1.0),
                                      u32(1),
@@ -393,7 +394,7 @@ TEST(ParticleSubSystem, PlaybackResetClearsAndRestartsIndependentStorage) {
     auto                   playback = rstd::sync::Arc<owe::ParticlePlaybackState>::make();
     subsystem.SetPlaybackState(playback.clone());
     subsystem.AddInitializer(owe::ParticleParser::GenInitializer(
-        owe::ParseJson(R"({"name":"lifetimerandom","min":10,"max":10})").unwrap(), u32(4)));
+        owe::ParseJson(R"({"name":"lifetimerandom","min":10,"max":10})"_str).unwrap(), u32(4)));
     subsystem.AddEmitter(Box<dyn<particle::ParticleEmitterProgram>>::make(
         owe::SphereEmitterProgram(subsystem.SpawnPipeline(),
                                   owe::ParticleSphereEmitterArgs {
@@ -429,7 +430,7 @@ TEST(ParticleSubSystem, ConvertsWorldSpaceFollowAnchorsIntoChildLocalSpace) {
     parent_node->AppendChild(child_node.clone());
 
     owe::ParticleSubSystem parent(scene,
-                                  std::make_shared<owe::SceneMesh>(),
+                                  Arc<owe::SceneMesh>::make(),
                                   u32(1),
                                   f64(),
                                   u32(1),
@@ -443,7 +444,7 @@ TEST(ParticleSubSystem, ConvertsWorldSpaceFollowAnchorsIntoChildLocalSpace) {
                                   true);
     parent.SetOwnerNode(parent_node.as_ptr());
     parent.AddInitializer(owe::ParticleParser::GenInitializer(
-        owe::ParseJson(R"({"name":"lifetimerandom","min":10,"max":10})").unwrap(), u32(1)));
+        owe::ParseJson(R"({"name":"lifetimerandom","min":10,"max":10})"_str).unwrap(), u32(1)));
     parent.AddEmitter(Box<dyn<particle::ParticleEmitterProgram>>::make(
         owe::SphereEmitterProgram(parent.SpawnPipeline(),
                                   owe::ParticleSphereEmitterArgs {
@@ -453,7 +454,7 @@ TEST(ParticleSubSystem, ConvertsWorldSpaceFollowAnchorsIntoChildLocalSpace) {
                                   usize())));
 
     auto child = Box<owe::ParticleSubSystem>::make(scene,
-                                                   std::make_shared<owe::SceneMesh>(),
+                                                   Arc<owe::SceneMesh>::make(),
                                                    u32(1),
                                                    f64(),
                                                    u32(1),
@@ -481,15 +482,15 @@ TEST(ParticleSubSystem, ConvertsWorldSpaceFollowAnchorsIntoChildLocalSpace) {
 }
 
 TEST(ParticleInstanceOverride, TracksProvidedControlpoints) {
-    auto json = owe::ParseJson(R"({"size":2,"controlpoint1":"120 240 0"})").unwrap();
+    auto json = owe::ParseJson(R"({"size":2,"controlpoint1":"120 240 0"})"_str).unwrap();
     owe::wpscene::ParticleInstanceoverride override;
 
     ASSERT_TRUE(override.FromJosn(json));
-    EXPECT_TRUE(override.controlpoint[0].is_none());
-    ASSERT_TRUE(override.controlpoint[1].is_some());
-    EXPECT_FLOAT_EQ((*override.controlpoint[1])[0], 120.0f);
-    EXPECT_FLOAT_EQ((*override.controlpoint[1])[1], 240.0f);
-    EXPECT_TRUE(override.controlpoint[2].is_none());
+    EXPECT_TRUE(override.controlpoint[usize(0)].is_none());
+    ASSERT_TRUE(override.controlpoint[usize(1)].is_some());
+    EXPECT_FLOAT_EQ((*override.controlpoint[usize(1)])[usize(0)], 120.0f);
+    EXPECT_FLOAT_EQ((*override.controlpoint[usize(1)])[usize(1)], 240.0f);
+    EXPECT_TRUE(override.controlpoint[usize(2)].is_none());
 }
 
 TEST(ParticleInstanceModifiers, SharesStateAndFiltersDisabledOverrides) {
@@ -524,9 +525,9 @@ TEST(ParticleInstanceModifiers, SharesStateAndFiltersDisabledOverrides) {
 
 TEST(ParticleSubSystem, ResolvesWorldControlpointOverridesThroughOwnerTransform) {
     owe::Scene             scene;
-    auto                   mesh = std::make_shared<owe::SceneMesh>();
+    auto                   mesh = Arc<owe::SceneMesh>::make();
     owe::ParticleSubSystem subsystem(scene,
-                                     mesh,
+                                     mesh.clone(),
                                      u32(1),
                                      f64(),
                                      u32(1),
@@ -545,9 +546,9 @@ TEST(ParticleSubSystem, ResolvesWorldControlpointOverridesThroughOwnerTransform)
                                                           Eigen::Vector3f { 2.0f, 4.0f, 1.0f },
                                                           Eigen::Vector3f::Zero());
     auto override = rstd::sync::Arc<owe::wpscene::ParticleInstanceoverride>::make();
-    override->enabled         = true;
-    override->controlpoint[1] = Some(std::array<float, 3> { 120.0f, 240.0f, 0.0f });
-    override->controlpoint[3] = Some(std::array<float, 3> { 3.0f, 4.0f, 0.0f });
+    override->enabled                = true;
+    override->controlpoint[usize(1)] = Some(rstd::array<float, 3> { 120.0f, 240.0f, 0.0f });
+    override->controlpoint[usize(3)] = Some(rstd::array<float, 3> { 3.0f, 4.0f, 0.0f });
     subsystem.SetOwnerNode(owner.as_ptr());
     subsystem.SetInstanceModifiers(owe::ParticleInstanceModifiers(
         override.clone(), owe::wpscene::Particle::EFlags { 0 }, true));
@@ -562,9 +563,9 @@ TEST(ParticleSubSystem, ResolvesWorldControlpointOverridesThroughOwnerTransform)
 
 TEST(ParticleSubSystem, ResolvesWorldSpaceControlpointsForSimulation) {
     owe::Scene             scene;
-    auto                   mesh = std::make_shared<owe::SceneMesh>();
+    auto                   mesh = Arc<owe::SceneMesh>::make();
     owe::ParticleSubSystem subsystem(scene,
-                                     mesh,
+                                     mesh.clone(),
                                      u32(1),
                                      f64(),
                                      u32(1),
@@ -592,9 +593,9 @@ TEST(ParticleSubSystem, ResolvesWorldSpaceControlpointsForSimulation) {
 
 TEST(ParticleSubSystem, AppliesVortexAroundWorldSpaceOwner) {
     owe::Scene             scene;
-    auto                   mesh = std::make_shared<owe::SceneMesh>();
+    auto                   mesh = Arc<owe::SceneMesh>::make();
     owe::ParticleSubSystem subsystem(scene,
-                                     mesh,
+                                     mesh.clone(),
                                      u32(1),
                                      f64(),
                                      u32(1),
@@ -610,14 +611,14 @@ TEST(ParticleSubSystem, AppliesVortexAroundWorldSpaceOwner) {
                                                           Eigen::Vector3f::Ones(),
                                                           Eigen::Vector3f::Zero());
     auto override = rstd::sync::Arc<owe::wpscene::ParticleInstanceoverride>::make();
-    override->enabled              = true;
-    override->controlpointangle[1] = std::array<float, 3> { 1.57079632679f, 0.0f, 0.0f };
+    override->enabled                     = true;
+    override->controlpointangle[usize(1)] = rstd::array<float, 3> { 1.57079632679f, 0.0f, 0.0f };
     subsystem.SetOwnerNode(owner.as_ptr());
     auto modifiers = owe::ParticleInstanceModifiers(
         override.clone(), owe::wpscene::Particle::EFlags { 0 }, true);
     subsystem.SetInstanceModifiers(modifiers.Clone());
     subsystem.AddInitializer(owe::ParticleParser::GenInitializer(
-        owe::ParseJson(R"({"name":"lifetimerandom","min":10,"max":10})").unwrap(), u32(1)));
+        owe::ParseJson(R"({"name":"lifetimerandom","min":10,"max":10})"_str).unwrap(), u32(1)));
     subsystem.AddEmitter(Box<dyn<particle::ParticleEmitterProgram>>::make(
         owe::BoxEmitterProgram(subsystem.SpawnPipeline(),
                                owe::ParticleBoxEmitterArgs {
@@ -625,11 +626,14 @@ TEST(ParticleSubSystem, AppliesVortexAroundWorldSpaceOwner) {
                                    .instantaneous = u32(1),
                                },
                                usize())));
-    subsystem.AddOperator(owe::ParticleParser::GenOperator(
-        owe::ParseJson(R"({"name":"movement"})").unwrap(), modifiers.Clone(), subsystem, usize()));
+    subsystem.AddOperator(
+        owe::ParticleParser::GenOperator(owe::ParseJson(R"({"name":"movement"})"_str).unwrap(),
+                                         modifiers.Clone(),
+                                         subsystem,
+                                         usize()));
     subsystem.AddOperator(owe::ParticleParser::GenOperator(
         owe::ParseJson(
-            R"({"name":"vortex_v2","controlpoint":1,"flags":2,"ringpulldistance":250,"ringradius":256,"ringwidth":5,"speedinner":0,"speedouter":2500})")
+            R"({"name":"vortex_v2","controlpoint":1,"flags":2,"ringpulldistance":250,"ringradius":256,"ringwidth":5,"speedinner":0,"speedouter":2500})"_str)
             .unwrap(),
         modifiers.Clone(),
         subsystem,
@@ -645,9 +649,9 @@ TEST(ParticleSubSystem, AppliesVortexAroundWorldSpaceOwner) {
 
 TEST(ParticleSubSystem, UsesEmitterPeriodLimitForImplicitControlpointSequenceCount) {
     owe::Scene             scene;
-    auto                   mesh = std::make_shared<owe::SceneMesh>();
+    auto                   mesh = Arc<owe::SceneMesh>::make();
     owe::ParticleSubSystem subsystem(scene,
-                                     mesh,
+                                     mesh.clone(),
                                      u32(4),
                                      f64(),
                                      u32(1),
@@ -657,14 +661,15 @@ TEST(ParticleSubSystem, UsesEmitterPeriodLimitForImplicitControlpointSequenceCou
 
     subsystem.ControlpointsMut()[usize(1)].base_offset = Eigen::Vector3d { 300.0, 0.0, 0.0 };
     subsystem.AddInitializer(owe::ParticleParser::GenInitializer(
-        owe::ParseJson(R"({"name":"lifetimerandom","min":1,"max":1})").unwrap(), u32(4)));
+        owe::ParseJson(R"({"name":"lifetimerandom","min":1,"max":1})"_str).unwrap(), u32(4)));
     auto sequence = owe::ParticleParser::GenInitializer(
-        owe::ParseJson(R"({"name":"mapsequencebetweencontrolpoints"})").unwrap(), u32(4));
+        owe::ParseJson(R"({"name":"mapsequencebetweencontrolpoints"})"_str).unwrap(), u32(4));
     ASSERT_EQ(sequence.SequenceCount(), Some(u32(4)));
     subsystem.SetRopeSequenceCount(*sequence.SequenceCount());
     subsystem.AddInitializer(rstd::move(sequence));
     auto explicit_sequence = owe::ParticleParser::GenInitializer(
-        owe::ParseJson(R"({"name":"mapsequencebetweencontrolpoints","count":3})").unwrap(), u32(4));
+        owe::ParseJson(R"({"name":"mapsequencebetweencontrolpoints","count":3})"_str).unwrap(),
+        u32(4));
     EXPECT_EQ(explicit_sequence.SequenceCount(), Some(u32(3)));
     EXPECT_EQ(subsystem.RopeSequenceCount(), Some(u32(4)));
     subsystem.AddEmitter(Box<dyn<particle::ParticleEmitterProgram>>::make(
@@ -687,9 +692,9 @@ TEST(ParticleSubSystem, UsesEmitterPeriodLimitForImplicitControlpointSequenceCou
 
 TEST(ParticleSubSystem, MapsParentParticlesIntoStaticChildControlpoints) {
     owe::Scene             scene;
-    auto                   parent_mesh = std::make_shared<owe::SceneMesh>();
+    auto                   parent_mesh = Arc<owe::SceneMesh>::make();
     owe::ParticleSubSystem parent(scene,
-                                  parent_mesh,
+                                  parent_mesh.clone(),
                                   u32(1),
                                   f64(),
                                   u32(1),
@@ -697,7 +702,7 @@ TEST(ParticleSubSystem, MapsParentParticlesIntoStaticChildControlpoints) {
                                   owe::ParticleSubSystem::SpawnType::STATIC,
                                   owe::ParticleAnimationSpec {});
     parent.AddInitializer(owe::ParticleParser::GenInitializer(
-        owe::ParseJson(R"({"name":"lifetimerandom","min":1,"max":1})").unwrap(), u32(2)));
+        owe::ParseJson(R"({"name":"lifetimerandom","min":1,"max":1})"_str).unwrap(), u32(2)));
     parent.AddEmitter(Box<dyn<particle::ParticleEmitterProgram>>::make(
         owe::SphereEmitterProgram(parent.SpawnPipeline(),
                                   owe::ParticleSphereEmitterArgs {
@@ -708,7 +713,7 @@ TEST(ParticleSubSystem, MapsParentParticlesIntoStaticChildControlpoints) {
 
     auto child =
         Box<owe::ParticleSubSystem>::make(scene,
-                                          std::make_shared<owe::SceneMesh>(),
+                                          Arc<owe::SceneMesh>::make(),
                                           u32(1),
                                           f64(),
                                           u32(1),
@@ -727,4 +732,24 @@ TEST(ParticleSubSystem, MapsParentParticlesIntoStaticChildControlpoints) {
     EXPECT_TRUE(child_system->Controlpoints()[usize()].offset.isZero());
     EXPECT_TRUE(child_system->Controlpoints()[usize(1)].offset.isApprox(
         Eigen::Vector3d { 50.0, 0.0, 0.0 }));
+}
+
+TEST(ParticleInstanceModifiers, CloneRetainsReadOnlyBindingsAfterSourceReplacement) {
+    owe::wpscene::ParticleInstanceoverride source;
+    auto                                   json = rstd::json::from_str(R"({
+        "controlpointangle0":{"animation":{"c0":[{"frame":0,"value":7}]}}
+    })"_str)
+                                                      .unwrap();
+    ASSERT_TRUE(source.FromJosn(json));
+    auto copy = source.clone();
+    ASSERT_NE(copy.FieldBindingsView(), nullptr);
+    EXPECT_EQ(copy.FieldBindingsView(), source.FieldBindingsView());
+    auto identity = copy.FieldBindingsView()->Get("controlpointangle0"_str).unwrap()->identity;
+    ASSERT_TRUE(source.FromJosn(owe::Json::Object(rstd::json::Map::make())));
+    EXPECT_NE(copy.FieldBindingsView(), source.FieldBindingsView());
+    EXPECT_TRUE(source.FieldBindingsView()->IsEmpty());
+    auto binding = copy.FieldBindingsView()->Get("controlpointangle0"_str).unwrap();
+    EXPECT_EQ(binding->identity, identity);
+    ASSERT_TRUE(binding->animation.is_some());
+    EXPECT_FLOAT_EQ(binding->animation->c0[usize()].value, 7.0f);
 }

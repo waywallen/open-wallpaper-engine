@@ -1,12 +1,14 @@
 export module owe.user_property;
 
-import rstd.cppstd;
+import rstd;
+
 import wescene.json;
+using namespace rstd::prelude;
 
 export namespace owe
 {
 
-Json MakeUserPropertyWirePatch(std::string_view value);
+Json MakeUserPropertyWirePatch(ref<str> value);
 Json MergeUserPropertyDescriptor(const Json& schema, const Json& patch);
 
 } // namespace owe

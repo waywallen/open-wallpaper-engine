@@ -14,7 +14,6 @@ import owe.user_property;
 import rstd;
 import rstd.bench;
 import rstd.log;
-import rstd.cppstd;
 import wavsen.audio;
 import wescene.fs;
 import wescene.load_bench;
@@ -30,8 +29,14 @@ import wescene.vulkan_render;
 using namespace owe;
 using namespace rstd::prelude;
 using namespace rstd::literals;
+using rstd::ffi::OsStr;
+using rstd::path::Path;
+using rstd::path::PathBuf;
 using rstd::sync::Arc;
 using rstd::sync::atomic::Atomic;
+using rstd::sync::mpmc::RecvTimeoutError;
+using rstd::time::Duration;
+using rstd::time::Instant;
 
 namespace owe
 {
@@ -42,7 +47,7 @@ class RenderMsg final {
               (SetScene, (Box<Scene> scene; Arc<UniformRuntimeInput> uniform_input;
                           Option<SceneLoadBenchHandle> load_bench; Option<u64> random_seed;)),
               (SetFillMode, (FillMode mode;)), (SetSpeed, (f32 speed;)),
-              (SetUserProperty, (std::string key; Json property;)),
+              (SetUserProperty, (String key; Json property;)),
               (SetMediaStatus, (MediaStatus status;)),
               (SetAudioResponseDemandCallback, (AudioResponseDemandCallback callback;)),
               (SetAudioResponseEnabled, (bool enabled;)),
@@ -59,15 +64,14 @@ class MainMsg final {
               (SetAudioClientIdentity, (SceneAudioClientIdentity identity;)),
               (AudioDeviceEvent, (wavsen::audio::AudioDeviceEvent event;)),
               (SetFillMode, (FillMode mode;)), (SetSpeed, (f32 speed;)),
-              (SetUserProperty, (std::string key; Json value;)),
+              (SetUserProperty, (String key; Json value;)),
               (SetFirstFrameCallback, (FirstFrameCallback cb;)),
               (SetUserPropertyDiagnosticCallback, (UserPropertyDiagnosticCallback cb;)),
               (UserPropertyDiagnostics, (Vec<SceneUserPropertyDiagnostic> diagnostics;)),
               (SceneClearColorChanged, (f32 r; f32 g; f32 b;)),
-              (PreparedPassDiagnostics, (RenderPassDiagnosticCallback                cb;
-                                         std::vector<vulkan::PreparedPassDiagnostic> diagnostics;)),
+              (PreparedPassDiagnostics,
+               (RenderPassDiagnosticCallback cb; Vec<vulkan::PreparedPassDiagnostic> diagnostics;)),
               (Stop, (bool stop; u32 fade_ms { 0 }; bool scale_audio { false };)),
-              (PauseAudio, (u64 generation { 0 };)),
               (LoadBenchBatch,
                (Option<SceneLoadBenchHandle> context; rstd::bench::probe::ProbeBatch batch;)),
               (LoadBenchFinish, (Option<SceneLoadBenchHandle> context;)),
@@ -117,15 +121,15 @@ float LocalTimeOfDay() {
 Json MakeUserPropertyDescriptor(Json value) {
     if (value.get("value"_str).is_some()) return value;
     auto object = rstd::json::Map::make();
-    object.insert(::alloc::string::String::make("value"_str), rstd::move(value));
+    object.insert("value"_Str, rstd::move(value));
     return Json::Object(rstd::move(object));
 }
 
-Json RawUserProperty(std::string_view value) { return MakeUserPropertyWirePatch(value); }
+Json RawUserProperty(ref<str> value) { return MakeUserPropertyWirePatch(value); }
 
 Json InitialUserProperty(Json value) {
     if (value.is_string()) {
-        auto raw = rstd::cppstd::to_string(*value.as_str());
+        auto raw = *value.as_str();
         return RawUserProperty(raw);
     }
     return MakeUserPropertyDescriptor(rstd::move(value));
@@ -154,32 +158,31 @@ vulkan::PassInvalidationFlags MaterialDirtyToPassInvalidationFlags(SceneMaterial
     return out;
 }
 
-Json RuntimeTextureProperty(std::string value) {
+Json RuntimeTextureProperty(ref<str> value) {
     auto object = rstd::json::Map::make();
-    object.insert(::alloc::string::String::make("type"_str), JsonFromStd("scenetexture"));
-    object.insert(::alloc::string::String::make("value"_str), JsonFromStd(value));
+    object.insert("type"_Str, rstd::into<owe::Json>("scenetexture"_Str));
+    object.insert("value"_Str, rstd::into<owe::Json>(String::make(value)));
     return Json::Object(rstd::move(object));
 }
 
 owe::script::MediaStatus ToScriptMediaStatus(const MediaStatus& status) {
     return owe::script::MediaStatus { .state            = status.state,
-                                      .title            = status.title,
-                                      .artist           = status.artist,
-                                      .album            = status.album,
-                                      .album_artist     = status.album_artist,
-                                      .art_url          = status.art_url,
-                                      .previous_art_url = status.previous_art_url };
+                                      .title            = status.title.clone(),
+                                      .artist           = status.artist.clone(),
+                                      .album            = status.album.clone(),
+                                      .album_artist     = status.album_artist.clone(),
+                                      .art_url          = status.art_url.clone(),
+                                      .previous_art_url = status.previous_art_url.clone() };
 }
 
-void MergeProjectUserProperties(const std::filesystem::path& project_dir, rstd::json::Map& out) {
-    const auto    project_path = project_dir / "project.json";
-    std::ifstream is(project_path);
-    if (! is) return;
-
-    std::string source(std::istreambuf_iterator<char>(is), {});
-    auto        parsed = ParseJson(source, { .allow_comments = true });
+void MergeProjectUserProperties(ref<Path> project_dir, rstd::json::Map& out) {
+    auto project_path = PathBuf::from(project_dir).join("project.json"_str);
+    auto source       = rstd::fs::read_to_string(project_path);
+    if (source.is_err()) return;
+    auto parsed = ParseJson(source->as_str(), { .allow_comments = true });
     if (parsed.is_err()) {
-        rstd_warn("Can't parse {}: {}", project_path.string(), parsed.unwrap_err());
+        rstd_warn(
+            "Can't parse {}: {}", project_path.as_path().to_string_lossy(), parsed.unwrap_err());
         return;
     }
     auto root    = parsed.unwrap();
@@ -192,14 +195,13 @@ void MergeProjectUserProperties(const std::filesystem::path& project_dir, rstd::
 
     (*object)->iter().for_each([&](auto entry) {
         auto [entry_key, entry_value] = entry;
-        const auto  raw_key           = rstd::cppstd::as_string_view(entry_key->as_str());
+        const auto  raw_key           = entry_key->as_str();
         const auto& value             = *entry_value;
-        std::string key               = CanonicalSceneUserPropertyKey(raw_key);
-        auto        current           = out.get(rstd::cppstd::as_str(key).unwrap());
+        auto        key               = CanonicalSceneUserPropertyKey(raw_key);
+        auto        current           = out.get(key);
         auto        descriptor = current.is_some() ? MergeUserPropertyDescriptor(value, **current)
                                                    : MakeUserPropertyDescriptor(value.clone());
-        out.insert(::alloc::string::String::make(rstd::cppstd::as_str(key).unwrap()),
-                   rstd::move(descriptor));
+        out.insert(::alloc::string::String::make(key), rstd::move(descriptor));
     });
 }
 
@@ -207,11 +209,11 @@ rstd::json::Map NormalizeUserProperties(const rstd::json::Map& input) {
     auto out = rstd::json::Map::make();
     input.iter().for_each([&](auto entry) {
         auto [entry_key, entry_value] = entry;
-        const auto  key               = rstd::cppstd::as_string_view(entry_key->as_str());
+        const auto  key               = entry_key->as_str();
         const auto& value             = *entry_value;
-        std::string canonical         = CanonicalSceneUserPropertyKey(key);
-        if (key == canonical || out.get(rstd::cppstd::as_str(canonical).unwrap()).is_none()) {
-            out.insert(::alloc::string::String::make(rstd::cppstd::as_str(canonical).unwrap()),
+        auto        canonical         = CanonicalSceneUserPropertyKey(key);
+        if (key == canonical || out.get(canonical).is_none()) {
+            out.insert(::alloc::string::String::make(canonical),
                        InitialUserProperty(value.clone()));
         }
     });
@@ -257,7 +259,6 @@ public:
     void on(MainMsg::SceneClearColorChanged_payload&&);
     void on(MainMsg::PreparedPassDiagnostics_payload&&);
     void on(MainMsg::Stop_payload&&);
-    void on(MainMsg::PauseAudio_payload&&);
     void on(MainMsg::LoadBenchBatch_payload&&);
     void on(MainMsg::LoadBenchFinish_payload&&);
     void on(MainMsg::FirstFrame_payload&&);
@@ -289,7 +290,7 @@ private:
     FirstFrameCallback               m_first_frame_callback;
     UserPropertyDiagnosticCallback   m_user_property_diagnostic_cb;
     ClearColorCallback               m_clear_color_cb;
-    u64                              m_audio_pause_generation {};
+    Option<Instant>                  m_audio_pause_deadline;
     bool                             m_audio_activated {};
 
     Option<SceneLoadBenchHandle>               m_load_bench;
@@ -374,8 +375,7 @@ public:
 
     void setMainSender(MainSender main_tx) { m_main_tx = Some(rstd::move(main_tx)); }
 
-    FrameTimer frame_timer { [] {
-    } };
+    FrameTimer frame_timer;
     FpsCounter fps_counter;
 
 private:
@@ -422,7 +422,7 @@ private:
     Option<rstd::bench::probe::ProbeRecorder> m_load_bench_recorder;
 
     // Strong ref kept here, weak copy captured by the swapchain callback.
-    std::shared_ptr<RenderSender> m_swapchain_tx;
+    Option<Arc<RenderSender>> m_swapchain_tx;
 };
 
 auto SceneRenderController::sender() const -> RenderSender {
@@ -479,10 +479,9 @@ void SceneRenderController::start() {
                 RSTD_CASE_PAYLOAD(RequestPreparedPassDiagnostics, value) { on(rstd::move(value)); }
                 RSTD_CASE(Shutdown) {
                     frame_timer.Stop();
-                    frame_timer.SetCallback([] {
-                    });
-                    m_swapchain_tx.reset();
-                    shutdown = true;
+                    frame_timer.SetCallback(None());
+                    m_swapchain_tx = None();
+                    shutdown       = true;
                 }
             }
             if (shutdown) break;
@@ -495,12 +494,11 @@ void SceneRenderController::start() {
 void SceneRenderController::stop() {
     if (! m_thread) {
         frame_timer.Stop();
-        frame_timer.SetCallback([] {
-        });
-        m_swapchain_tx.reset();
-        m_tx      = None();
-        m_rx      = None();
-        m_main_tx = None();
+        frame_timer.SetCallback(None());
+        m_swapchain_tx = None();
+        m_tx           = None();
+        m_rx           = None();
+        m_main_tx      = None();
         return;
     }
     if (rstd::thread::current_id() == m_thread->thread().id()) {
@@ -767,11 +765,11 @@ void SceneRenderController::on(RenderMsg::SetUserProperty_payload&& m) {
     SceneUserPropertyMutation mutation;
     {
         auto apply_span = SceneLoadSpan(load_bench, &SceneLoadProbeIds::render_user_property_apply);
-        mutation        = SceneUserPropertyApplier::Apply(*m_scene, m.key, m.property);
+        mutation        = SceneUserPropertyApplier::Apply(*m_scene, m.key.as_str(), m.property);
     }
 
     if (mutation.diagnostics_changed && m_main_tx) {
-        auto diagnostics = CollectSceneUserPropertyDiagnostics(*m_scene, m.key);
+        auto diagnostics = CollectSceneUserPropertyDiagnostics(*m_scene, m.key.as_str());
         (void)m_main_tx->send(MainMsg::UserPropertyDiagnostics(rstd::move(diagnostics)));
     }
     if (mutation.clear_color.is_some() && m_main_tx) {
@@ -799,9 +797,11 @@ void SceneRenderController::on(RenderMsg::SetMediaStatus_payload&& m) {
     owe::script::SetSceneMediaStatus(*m_scene, ToScriptMediaStatus(m.status));
 
     (void)SceneUserPropertyApplier::ApplyTexture(
-        *m_scene, "$mediaThumbnail", RuntimeTextureProperty(m.status.art_url));
+        *m_scene, "$mediaThumbnail"_str, RuntimeTextureProperty(m.status.art_url.as_str()));
     (void)SceneUserPropertyApplier::ApplyTexture(
-        *m_scene, "$mediaPreviousThumbnail", RuntimeTextureProperty(m.status.previous_art_url));
+        *m_scene,
+        "$mediaPreviousThumbnail"_str,
+        RuntimeTextureProperty(m.status.previous_art_url.as_str()));
     if (renderInited() && m_rg.is_some()) refreshPreparedMaterialDirtyEvents();
 }
 
@@ -867,13 +867,15 @@ void SceneRenderController::on(RenderMsg::Init_payload&& m) {
     // round-trip it through this message.
     if (auto* sw = m_render->exSwapchain()) {
         if (m_tx) {
-            m_swapchain_tx                   = std::make_shared<RenderSender>(*m_tx);
-            std::weak_ptr<RenderSender> weak = m_swapchain_tx;
-            sw->setOnReadyChanged([weak](const ExSwapchainReadyEvent& e) {
-                if (auto tx = weak.lock()) {
-                    (void)tx->send(RenderMsg::SwapchainReady(e.ready, u32(e.width), u32(e.height)));
-                }
-            });
+            m_swapchain_tx = Some(Arc<RenderSender>::make(*m_tx));
+            auto weak      = (*m_swapchain_tx).downgrade();
+            sw->setOnReadyChanged(Some(ExSwapchainReadyCallback::make(
+                [weak = rstd::move(weak)](const ExSwapchainReadyEvent& e) {
+                    if (auto tx = weak.upgrade()) {
+                        (void)tx->send(
+                            RenderMsg::SwapchainReady(e.ready, u32(e.width), u32(e.height)));
+                    }
+                })));
         }
     }
 
@@ -933,7 +935,7 @@ void SceneRuntimeController::publishClearColor(array<float, 3> fallback) {
     if (! m_clear_color_cb) return;
     auto color = schemeColor();
     auto value = color.is_some() ? *color : fallback;
-    m_clear_color_cb(value[usize()], value[usize(1)], value[usize(2)]);
+    (*m_clear_color_cb)->operator()(value[usize()], value[usize(1)], value[usize(2)]);
 }
 
 void SceneRuntimeController::ensureLoadBench(const Option<SceneLoadBenchHandle>& context) {
@@ -1018,8 +1020,20 @@ void SceneRuntimeController::startMainLoop() {
     auto thread   = rstd::thread::spawn([this, rx = rstd::move(rx)]() mutable {
         rstd_info("main loop started");
         while (true) {
-            auto received = rx.recv();
-            if (received.is_err()) break;
+            if (m_audio_pause_deadline && Instant::now() >= *m_audio_pause_deadline) {
+                m_audio_pause_deadline = None();
+                m_sound_manager->pause();
+            }
+            auto received = [&]() -> Result<MainMsg, RecvTimeoutError> {
+                if (m_audio_pause_deadline) return rx.recv_deadline(*m_audio_pause_deadline);
+                auto message = rx.recv();
+                if (message.is_err()) return Err(RecvTimeoutError::Disconnected);
+                return Ok(rstd::move(message).unwrap());
+            }();
+            if (received.is_err()) {
+                if (received.unwrap_err() == RecvTimeoutError::Timeout) continue;
+                break;
+            }
 
             auto message  = rstd::move(received).unwrap();
             bool shutdown = false;
@@ -1043,7 +1057,6 @@ void SceneRuntimeController::startMainLoop() {
                 RSTD_CASE_PAYLOAD(SceneClearColorChanged, value) { on(rstd::move(value)); }
                 RSTD_CASE_PAYLOAD(PreparedPassDiagnostics, value) { on(rstd::move(value)); }
                 RSTD_CASE_PAYLOAD(Stop, value) { on(rstd::move(value)); }
-                RSTD_CASE_PAYLOAD(PauseAudio, value) { on(rstd::move(value)); }
                 RSTD_CASE_PAYLOAD(LoadBenchBatch, value) { on(rstd::move(value)); }
                 RSTD_CASE_PAYLOAD(LoadBenchFinish, value) { on(rstd::move(value)); }
                 RSTD_CASE_PAYLOAD(FirstFrame, value) { on(rstd::move(value)); }
@@ -1082,10 +1095,10 @@ void SceneRuntimeController::onLoadScene() {
     if (m_render_capabilities.is_some() && m_render_controller->renderInited()) {
         if (! m_audio_activated) {
             auto tx = sender();
-            m_sound_manager->activate(
-                [tx = rstd::move(tx)](wavsen::audio::AudioDeviceEvent event) mutable {
+            m_sound_manager->activate(wavsen::audio::AudioDeviceEventSink::make(
+                [tx = rstd::move(tx)](wavsen::audio::AudioDeviceEvent event) {
                     (void)tx.send(MainMsg::AudioDeviceEvent(rstd::move(event)));
-                });
+                }));
             m_audio_activated = true;
         }
         loadScene();
@@ -1133,13 +1146,12 @@ void SceneRuntimeController::on(MainMsg::SetMuted_payload&& m) {
 
 void SceneRuntimeController::on(MainMsg::SetAudioClientIdentity_payload&& m) {
     auto identity = wavsen::audio::AudioClientIdentity {
-        .application_name =
-            String::make(rstd::cppstd::as_str(m.identity.application_name).unwrap()),
-        .application_id = String::make(rstd::cppstd::as_str(m.identity.application_id).unwrap()),
-        .stream_prefix  = String::make(rstd::cppstd::as_str(m.identity.stream_prefix).unwrap()),
-        .component      = String::make(rstd::cppstd::as_str(m.identity.component).unwrap()),
-        .media_name     = String::make(rstd::cppstd::as_str(m.identity.media_name).unwrap()),
-        .media_role     = String::make(rstd::cppstd::as_str(m.identity.media_role).unwrap()),
+        .application_name = rstd::move(m.identity.application_name),
+        .application_id   = rstd::move(m.identity.application_id),
+        .stream_prefix    = rstd::move(m.identity.stream_prefix),
+        .component        = rstd::move(m.identity.component),
+        .media_name       = rstd::move(m.identity.media_name),
+        .media_role       = rstd::move(m.identity.media_role),
     };
     if (! m_sound_manager->set_identity(rstd::move(identity))) {
         rstd_warn("audio identity cannot change after audio shutdown");
@@ -1165,22 +1177,20 @@ void SceneRuntimeController::on(MainMsg::SetSpeed_payload&& m) {
 }
 
 void SceneRuntimeController::on(MainMsg::SetUserProperty_payload&& m) {
-    const std::string property = CanonicalSceneUserPropertyKey(m.key);
-    auto              current  = m_user_properties.get(rstd::cppstd::as_str(property).unwrap());
-    Json              prop = current.is_some() ? MergeUserPropertyDescriptor(**current, m.value)
-                                               : MakeUserPropertyDescriptor(rstd::move(m.value));
-    m_config.user_properties.insert(
-        ::alloc::string::String::make(rstd::cppstd::as_str(property).unwrap()), prop.clone());
-    m_user_properties.insert(::alloc::string::String::make(rstd::cppstd::as_str(property).unwrap()),
-                             prop.clone());
-    if (property == "schemecolor") {
+    auto property = CanonicalSceneUserPropertyKey(m.key.as_str());
+    auto current  = m_user_properties.get(property);
+    Json prop     = current.is_some() ? MergeUserPropertyDescriptor(**current, m.value)
+                                      : MakeUserPropertyDescriptor(rstd::move(m.value));
+    m_config.user_properties.insert(::alloc::string::String::make(property), prop.clone());
+    m_user_properties.insert(::alloc::string::String::make(property), prop.clone());
+    if (property == "schemecolor"_str) {
         auto color = ResolveSceneUserPropertyColor(prop);
         if (color.is_some() && m_clear_color_cb) {
             const auto value = *color;
-            m_clear_color_cb(value[usize()], value[usize(1)], value[usize(2)]);
+            (*m_clear_color_cb)->operator()(value[usize()], value[usize(1)], value[usize(2)]);
         }
     }
-    m_render_controller->post(RenderMsg::SetUserProperty(property, rstd::move(prop)));
+    m_render_controller->post(RenderMsg::SetUserProperty(rstd::into(property), rstd::move(prop)));
 }
 
 void SceneRuntimeController::on(MainMsg::SetFirstFrameCallback_payload&& m) {
@@ -1192,42 +1202,35 @@ void SceneRuntimeController::on(MainMsg::SetUserPropertyDiagnosticCallback_paylo
 }
 
 void SceneRuntimeController::on(MainMsg::UserPropertyDiagnostics_payload&& m) {
-    if (m_user_property_diagnostic_cb) m_user_property_diagnostic_cb(rstd::move(m.diagnostics));
+    if (m_user_property_diagnostic_cb)
+        (*m_user_property_diagnostic_cb)->operator()(rstd::move(m.diagnostics));
 }
 
 void SceneRuntimeController::on(MainMsg::SceneClearColorChanged_payload&& m) {
     if (schemeColor().is_none() && m_clear_color_cb) {
-        m_clear_color_cb(m.r.to_primitive(), m.g.to_primitive(), m.b.to_primitive());
+        (*m_clear_color_cb)->operator()(m.r.to_primitive(), m.g.to_primitive(), m.b.to_primitive());
     }
 }
 
 void SceneRuntimeController::on(MainMsg::PreparedPassDiagnostics_payload&& m) {
-    if (m.cb) m.cb(rstd::move(m.diagnostics));
+    m.cb->call_once(rstd::move(m.diagnostics));
 }
 
 void SceneRuntimeController::on(MainMsg::Stop_payload&& m) {
-    const u64 generation = ++m_audio_pause_generation;
+    m_audio_pause_deadline = None();
     if (m.stop) {
         if (m.scale_audio) m_sound_manager->set_volume_scale(f32(), m.fade_ms);
         if (m.fade_ms == u32() || ! m.scale_audio) {
             m_sound_manager->pause();
         } else {
-            auto tx    = sender();
-            auto delay = m.fade_ms.to_primitive();
-            std::thread([tx = rstd::move(tx), generation, delay]() mutable {
-                std::this_thread::sleep_for(std::chrono::milliseconds(delay));
-                (void)tx.send(MainMsg::PauseAudio(u64(generation)));
-            }).detach();
+            m_audio_pause_deadline =
+                Some(Instant::now() + Duration::from_millis(rstd::into<u64>(m.fade_ms)));
         }
     } else {
         m_sound_manager->play();
         if (m.scale_audio) m_sound_manager->set_volume_scale(f32(1.0f), m.fade_ms);
     }
     m_render_controller->post(RenderMsg::Stop(m.stop));
-}
-
-void SceneRuntimeController::on(MainMsg::PauseAudio_payload&& m) {
-    if (m.generation == m_audio_pause_generation) m_sound_manager->pause();
 }
 
 void SceneRuntimeController::on(MainMsg::LoadBenchBatch_payload&& m) {
@@ -1247,12 +1250,12 @@ void SceneRuntimeController::on(MainMsg::FirstFrame_payload&& m) {
         BenchContext(m_load_bench).run_id() == BenchContext(m.context).run_id()) {
         finishLoadBench();
     }
-    if (m_first_frame_callback) m_first_frame_callback();
+    if (m_first_frame_callback) (*m_first_frame_callback)->operator()();
 }
 
 void SceneRuntimeController::loadScene() {
     ensureLoadBench(m_config.load_bench);
-    if (m_config.source_pkg_path.empty() || m_config.assets_dir.empty()) {
+    if (m_config.source_pkg_path.is_empty() || m_config.assets_dir.is_empty()) {
         finishLoadBench();
         return;
     }
@@ -1271,7 +1274,7 @@ void SceneRuntimeController::loadScene() {
         Random::seed(static_cast<Seed>(m_config.random_seed->to_primitive()));
     }
 
-    rstd_info("loading scene: {}", m_config.source_pkg_path);
+    rstd_info("loading scene: {}", m_config.source_pkg_path.as_path().to_string_lossy());
 
     {
         auto span = SceneLoadSpan(loadBenchView(), &SceneLoadProbeIds::load_audio);
@@ -1286,7 +1289,7 @@ void SceneRuntimeController::loadScene() {
     {
         auto span = SceneLoadSpan(loadBenchView(), &SceneLoadProbeIds::load_vfs_assets);
         if (! vfs.is_mounted("assets"_str)) {
-            auto assets = fs::make_physical_fs(fs::ToPath(m_config.assets_dir));
+            auto assets = fs::make_physical_fs(m_config.assets_dir.as_path());
             if (assets.is_err() ||
                 vfs.mount("/assets"_str, rstd::move(assets).unwrap_unchecked(), "assets"_str)
                     .is_err()) {
@@ -1296,15 +1299,31 @@ void SceneRuntimeController::loadScene() {
             }
         }
     }
-    std::filesystem::path pkgPath_fs { m_config.source_pkg_path };
-    pkgPath_fs.replace_extension("pkg");
-    std::string pkgPath  = pkgPath_fs.native();
-    std::string pkgEntry = pkgPath_fs.filename().replace_extension("json").native();
-    std::string pkgDir   = pkgPath_fs.parent_path().native();
-    std::string scene_id = pkgPath_fs.parent_path().filename().native();
+    struct SourcePaths {
+        PathBuf package;
+        PathBuf entry;
+        PathBuf directory;
+        String  id;
+    };
+    auto source_paths = [&] {
+        auto package = m_config.source_pkg_path.clone();
+        (void)package.set_extension("pkg"_str);
+        auto entry =
+            PathBuf::from(package.as_path().file_name().unwrap_or(ref<OsStr> {}).to_os_string());
+        (void)entry.set_extension("json"_str);
+        auto directory = PathBuf::from(package.as_path().parent().unwrap_or(ref<Path> {}));
+        auto id        = String::make(
+            directory.as_path().file_name().unwrap_or(ref<OsStr> {}).to_str().unwrap());
+        return SourcePaths {
+            .package   = rstd::move(package),
+            .entry     = rstd::move(entry),
+            .directory = rstd::move(directory),
+            .id        = rstd::move(id),
+        };
+    }();
     {
         auto span = SceneLoadSpan(loadBenchView(), &SceneLoadProbeIds::load_project_properties);
-        MergeProjectUserProperties(pkgPath_fs.parent_path(), m_user_properties);
+        MergeProjectUserProperties(source_paths.directory.as_path(), m_user_properties);
     }
 
     // load pkgfile. Read pkg version stamp before move-mounting so we can
@@ -1313,33 +1332,34 @@ void SceneRuntimeController::loadScene() {
     wpscene::SceneVersion pkg_v = wpscene::kSceneVersionUnknown;
     {
         auto span        = SceneLoadSpan(loadBenchView(), &SceneLoadProbeIds::load_package);
-        auto wfs         = fs::WPPkgFs::open(fs::ToPath(pkgPath));
+        auto wfs         = fs::WPPkgFs::open(source_paths.package.as_path());
         bool pkg_mounted = false;
         if (wfs.is_ok()) {
             auto stamp  = wfs->pkg_version_stamp();
-            pkg_v       = wpscene::ParsePkgVersionStamp(std::string_view(
-                reinterpret_cast<const char*>(stamp.data()), stamp.size().to_primitive()));
+            pkg_v       = wpscene::ParsePkgVersionStamp(stamp);
             pkg_mounted = vfs.mount("/assets"_str, wfs->mount_handle()).is_ok();
         }
         if (! pkg_mounted) {
-            rstd_info("load pkg file {} failed, fallback to use dir", pkgPath);
+            rstd_info("load pkg file {} failed, fallback to use dir",
+                      source_paths.package.as_path().to_string_lossy());
             pkg_v      = wpscene::kSceneVersionUnknown;
-            auto loose = fs::make_physical_fs(fs::ToPath(pkgDir));
+            auto loose = fs::make_physical_fs(source_paths.directory.as_path());
             if (loose.is_err() ||
                 vfs.mount("/assets"_str, rstd::move(loose).unwrap_unchecked()).is_err()) {
-                rstd_error("can't load pkg directory: {}", pkgDir);
+                rstd_error("can't load pkg directory: {}",
+                           source_paths.directory.as_path().to_string_lossy());
                 abort_load();
                 return;
             }
         }
     }
     {
-        const std::string base { "/assets/" };
-        auto              scene_doc = m_config.scene_document;
+        auto scene_entry = PathBuf::from("/assets"_str).join(source_paths.entry.as_path());
+        auto scene_doc   = m_config.scene_document.clone();
         if (! scene_doc) {
             auto span   = SceneLoadSpan(loadBenchView(), &SceneLoadProbeIds::load_scene_document);
-            auto loaded = wpscene::LoadSceneDocumentFromVfs(vfs, base + pkgEntry, pkg_v);
-            if (loaded) scene_doc = std::make_shared<wpscene::SceneDocument>(rstd::move(*loaded));
+            auto loaded = wpscene::LoadSceneDocumentFromVfs(vfs, scene_entry.as_path(), pkg_v);
+            if (loaded) scene_doc = Some(Arc<wpscene::SceneDocument>::make(rstd::move(*loaded)));
         }
         if (! scene_doc) {
             rstd_error("Not supported scene type");
@@ -1347,15 +1367,14 @@ void SceneRuntimeController::loadScene() {
             return;
         }
         Option<rstd::path::PathBuf> shader_cache_dir;
-        if (! m_config.cache_dir.empty()) {
-            shader_cache_dir =
-                Some(rstd::path::PathBuf::from(rstd::cppstd::as_str(m_config.cache_dir).unwrap()));
-            rstd_info("shader cache folder: {}", m_config.cache_dir);
+        if (! m_config.cache_dir.is_empty()) {
+            shader_cache_dir = Some(m_config.cache_dir.clone());
+            rstd_info("shader cache folder: {}", m_config.cache_dir.as_path().to_string_lossy());
         }
         SceneParser parser;
         auto        parsed = parser.Parse(
-            rstd::cppstd::as_str(scene_id).unwrap(),
-            rstd::ref<wpscene::SceneDocument>::from_raw_parts(scene_doc.get()),
+            source_paths.id.as_str(),
+            rstd::ref<wpscene::SceneDocument>::from_raw_parts((*scene_doc).as_ptr()),
             rstd::mut_ref<fs::VFS>::from_raw_parts(&vfs),
             rstd::mut_ref<wavsen::audio::SoundManager>::from_raw_parts(m_sound_manager.get()),
             SceneParseOptions {
@@ -1389,15 +1408,13 @@ void SceneRuntimeController::loadScene() {
             initial_mutation = SceneUserPropertyApplier::ApplyAll(*scene, m_user_properties);
         }
         if (initial_mutation.diagnostics_changed && m_user_property_diagnostic_cb) {
-            m_user_property_diagnostic_cb(
-                CloneUserPropertyDiagnostics(scene->UserPropertyDiagnostics()));
+            (*m_user_property_diagnostic_cb)
+                ->operator()(CloneUserPropertyDiagnostics(scene->UserPropertyDiagnostics()));
         }
-        if (! m_config.cache_dir.empty()) {
-            std::filesystem::path ls_dir =
-                std::filesystem::path(m_config.cache_dir) / "script_localstorage";
-            std::error_code ec;
-            std::filesystem::create_directories(ls_dir, ec);
-            std::string ls_file = (ls_dir / (scene_id + ".json")).native();
+        if (! m_config.cache_dir.is_empty()) {
+            auto ls_dir = m_config.cache_dir.join("script_localstorage"_str);
+            (void)rstd::fs::create_dir_all(ls_dir);
+            auto ls_file = ls_dir.join(rstd::format("{}.json", source_paths.id.as_str()).as_str());
             owe::script::SetScenePersistence(*scene, rstd::move(ls_file));
         }
 
@@ -1430,9 +1447,9 @@ bool SceneRuntimeController::init() {
     {
         auto& frameTimer = m_render_controller->frame_timer;
         auto  rtx        = m_render_controller->sender();
-        frameTimer.SetCallback([rtx]() mutable {
+        frameTimer.SetCallback(Some(FrameTimer::Callback::make([rtx]() mutable {
             (void)rtx.send(RenderMsg::Draw());
-        });
+        })));
         frameTimer.SetRequiredFps(u16(15));
         frameTimer.Run();
     }
@@ -1458,7 +1475,7 @@ SceneRuntimeController::~SceneRuntimeController() {
 
 } // namespace owe
 
-SceneWallpaper::SceneWallpaper(): m_runtime(std::make_unique<SceneRuntimeController>()) {}
+SceneWallpaper::SceneWallpaper(): m_runtime(Box<SceneRuntimeController>::make()) {}
 
 SceneWallpaper::~SceneWallpaper() = default;
 
@@ -1537,12 +1554,12 @@ void SceneWallpaper::setAudioPcmWindow(audio::PcmWindow window) {
 
 void SceneWallpaper::endAudioResponse() { m_runtime->post(RenderMsg::EndAudioResponse()); }
 
-void SceneWallpaper::setUserPropertyRaw(std::string_view name, std::string value) {
-    m_runtime->post(MainMsg::SetUserProperty(std::string(name), RawUserProperty(value)));
+void SceneWallpaper::setUserPropertyRaw(ref<str> name, ref<str> value) {
+    m_runtime->post(MainMsg::SetUserProperty(String::make(name), RawUserProperty(value)));
 }
 
-void SceneWallpaper::setUserPropertyJson(std::string_view name, Json value) {
-    m_runtime->post(MainMsg::SetUserProperty(std::string(name), rstd::move(value)));
+void SceneWallpaper::setUserPropertyJson(ref<str> name, Json value) {
+    m_runtime->post(MainMsg::SetUserProperty(String::make(name), rstd::move(value)));
 }
 
 void SceneWallpaper::setOnClearColor(ClearColorCallback cb) {
@@ -1574,11 +1591,11 @@ bool SceneWallpaper::getDrmRenderNode(uint32_t& out_major, uint32_t& out_minor) 
 }
 
 bool SceneWallpaper::waitVulkanInited(uint32_t timeout_ms) {
-    auto deadline = rstd::time::Instant::now() + rstd::time::Duration::from_millis(u64(timeout_ms));
+    auto deadline = Instant::now() + Duration::from_millis(u64(timeout_ms));
     auto rh       = m_runtime->renderController();
-    while (rstd::time::Instant::now() < deadline) {
+    while (Instant::now() < deadline) {
         if (rh->renderInited()) return true;
-        rstd::thread::sleep(rstd::time::Duration::from_millis(u64(2)));
+        rstd::thread::sleep(Duration::from_millis(u64(2)));
     }
     return rh->renderInited();
 }

@@ -3,7 +3,6 @@ module;
 module owe.user_property;
 
 import rstd;
-import rstd.cppstd;
 
 using namespace rstd::prelude;
 using namespace rstd::literals;
@@ -16,8 +15,8 @@ namespace
 
 Json MakeDescriptor(Json value) {
     auto object = rstd::json::Map::make();
-    object.insert(::alloc::string::String::make("value"_str), std::move(value));
-    return Json::Object(std::move(object));
+    object.insert("value"_Str, rstd::move(value));
+    return Json::Object(rstd::move(object));
 }
 
 String DescriptorType(const Json& descriptor) {
@@ -32,16 +31,14 @@ Json ParseWireValue(const Json& schema, const Json& value) {
     const auto type = DescriptorType(schema);
     if (type.is_empty() || type == "textinput"_str) return value.clone();
 
-    auto raw = rstd::cppstd::as_string_view(*value.as_str());
-    auto parsed =
-        rstd::json::from_str(rstd::cppstd::as_str(raw).unwrap(), { .allow_comments = true });
+    auto parsed = rstd::json::from_str(*value.as_str(), { .allow_comments = true });
     return parsed.is_ok() ? parsed.unwrap() : value.clone();
 }
 
 } // namespace
 
-Json MakeUserPropertyWirePatch(std::string_view value) {
-    return MakeDescriptor(JsonFromStd(value));
+Json MakeUserPropertyWirePatch(ref<str> value) {
+    return MakeDescriptor(rstd::into<Json>(String::make(value)));
 }
 
 Json MergeUserPropertyDescriptor(const Json& schema, const Json& patch) {
@@ -52,8 +49,8 @@ Json MergeUserPropertyDescriptor(const Json& schema, const Json& patch) {
     Json descriptor   = schema.is_object() ? schema.clone() : MakeDescriptor(value->clone());
     auto object       = descriptor.as_object_mut();
     Json merged_value = typed_patch ? value->clone() : ParseWireValue(schema, *value);
-    if (object.is_none()) return MakeDescriptor(std::move(merged_value));
-    (*object)->insert(::alloc::string::String::make("value"_str), std::move(merged_value));
+    if (object.is_none()) return MakeDescriptor(rstd::move(merged_value));
+    (*object)->insert("value"_Str, rstd::move(merged_value));
     return descriptor;
 }
 

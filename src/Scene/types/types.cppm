@@ -3,13 +3,19 @@ module;
 export module wescene.types;
 import wescene.core;
 import rstd;
-import rstd.cppstd;
 export import vrento.texture_types;
 export import vrento.vertex_types;
 export import vrento.shader_types;
 export import vrento.graphics_types;
 export import vrento.video_playback;
 export import vrento.image;
+
+using namespace rstd::prelude;
+using namespace rstd::literals;
+using rstd::collections::HashMap;
+using rstd::sync::Arc;
+using rstd::sync::atomic::Atomic;
+using rstd::sync::atomic::Ordering;
 
 export namespace owe
 {
@@ -60,15 +66,16 @@ enum class ImageType
     // existing ImageHeader::type slot without colliding.
     VIDEO = 100,
 };
-std::string ToString(const ImageType&);
+ref<str> ToString(const ImageType&);
 
 using vrento::TextureFormat;
-std::string ToString(const TextureFormat&);
+ref<str> ToString(const TextureFormat&);
 
 using vrento::BlendMode;
 
 using vrento::CullMode;
 
+using vrento::ShaderCode;
 using vrento::ShaderType;
 
 using vrento::ShaderScalarKind;
@@ -108,56 +115,53 @@ public:
     auto operator=(const VideoPlaybackState&) -> VideoPlaybackState& = delete;
     auto operator=(VideoPlaybackState&&) -> VideoPlaybackState&      = delete;
 
-    void Play() { m_playing.store(true, rstd::sync::atomic::Ordering::Release); }
-    void Pause() { m_playing.store(false, rstd::sync::atomic::Ordering::Release); }
+    void Play() { m_playing.store(true, Ordering::Release); }
+    void Pause() { m_playing.store(false, Ordering::Release); }
     void Stop() {
         Pause();
-        Seek(rstd::f64());
+        Seek(f64());
     }
-    void Seek(rstd::f64 seconds) {
-        if (! seconds.is_finite() || seconds < rstd::f64()) seconds = rstd::f64();
-        m_current_time.store(seconds, rstd::sync::atomic::Ordering::Release);
-        m_seek_seconds.store(seconds, rstd::sync::atomic::Ordering::Release);
-        m_seek_sequence.fetch_add(rstd::u64(1), rstd::sync::atomic::Ordering::AcqRel);
+    void Seek(f64 seconds) {
+        if (! seconds.is_finite() || seconds < f64()) seconds = f64();
+        m_current_time.store(seconds, Ordering::Release);
+        m_seek_seconds.store(seconds, Ordering::Release);
+        m_seek_sequence.fetch_add(u64(1), Ordering::AcqRel);
     }
-    void SetRate(rstd::f64 rate) {
-        if (! rate.is_finite() || rate <= rstd::f64()) return;
-        m_rate.store(rate, rstd::sync::atomic::Ordering::Release);
+    void SetRate(f64 rate) {
+        if (! rate.is_finite() || rate <= f64()) return;
+        m_rate.store(rate, Ordering::Release);
     }
 
     auto Snapshot() const -> VideoPlaybackSnapshot {
         return VideoPlaybackSnapshot {
-            .playing       = m_playing.load(rstd::sync::atomic::Ordering::Acquire),
-            .rate          = m_rate.load(rstd::sync::atomic::Ordering::Acquire),
-            .seek_sequence = m_seek_sequence.load(rstd::sync::atomic::Ordering::Acquire),
-            .seek_seconds  = m_seek_seconds.load(rstd::sync::atomic::Ordering::Acquire),
+            .playing       = m_playing.load(Ordering::Acquire),
+            .rate          = m_rate.load(Ordering::Acquire),
+            .seek_sequence = m_seek_sequence.load(Ordering::Acquire),
+            .seek_seconds  = m_seek_seconds.load(Ordering::Acquire),
         };
     }
 
-    void PublishTime(rstd::f64 current, rstd::Option<rstd::f64> duration) {
-        m_current_time.store(current, rstd::sync::atomic::Ordering::Release);
-        m_duration.store(duration.unwrap_or(rstd::f64(-1.0)),
-                         rstd::sync::atomic::Ordering::Release);
+    void PublishTime(f64 current, Option<f64> duration) {
+        m_current_time.store(current, Ordering::Release);
+        m_duration.store(duration.unwrap_or(f64(-1.0)), Ordering::Release);
     }
-    auto CurrentTime() const -> rstd::f64 {
-        return m_current_time.load(rstd::sync::atomic::Ordering::Acquire);
-    }
-    auto Duration() const -> rstd::Option<rstd::f64> {
-        auto value = m_duration.load(rstd::sync::atomic::Ordering::Acquire);
-        return value >= rstd::f64() ? rstd::Some(value) : rstd::None<rstd::f64>();
+    auto CurrentTime() const -> f64 { return m_current_time.load(Ordering::Acquire); }
+    auto Duration() const -> Option<f64> {
+        auto value = m_duration.load(Ordering::Acquire);
+        return value >= f64() ? Some(value) : None<f64>();
     }
 
 private:
-    rstd::sync::atomic::Atomic<bool>      m_playing { true };
-    rstd::sync::atomic::Atomic<rstd::f64> m_rate { rstd::f64(1.0) };
-    rstd::sync::atomic::Atomic<rstd::u64> m_seek_sequence {};
-    rstd::sync::atomic::Atomic<rstd::f64> m_seek_seconds {};
-    rstd::sync::atomic::Atomic<rstd::f64> m_current_time {};
-    rstd::sync::atomic::Atomic<rstd::f64> m_duration { rstd::f64(-1.0) };
+    Atomic<bool> m_playing { true };
+    Atomic<f64>  m_rate { f64(1.0) };
+    Atomic<u64>  m_seek_sequence {};
+    Atomic<f64>  m_seek_seconds {};
+    Atomic<f64>  m_current_time {};
+    Atomic<f64>  m_duration { f64(-1.0) };
 };
 
 struct SharedVideoPlayback {
-    rstd::sync::Arc<VideoPlaybackState> state;
+    Arc<VideoPlaybackState> state;
 };
 
 using vrento::VertexType;
@@ -166,57 +170,81 @@ using vrento::VertexType;
 
 template<typename EnumT>
 class BitFlags {
-    static_assert(std::is_enum_v<EnumT>, "Flags can only be specialized for enum types");
-
-    using UnderlyingT = typename std::make_unsigned_t<typename std::underlying_type_t<EnumT>>;
+    static_assert(rstd::mtp::is_enum<EnumT>, "BitFlags requires an enum");
+    static constexpr rstd::size_t bit_count = sizeof(rstd::mtp::underlying<EnumT>) * 8;
+    static_assert(bit_count <= 64, "BitFlags supports enums up to 64 bits");
+    static constexpr u64 mask = u64::MAX >> u64(64 - bit_count);
 
 public:
-    constexpr BitFlags() noexcept: bits_(0u) {}
-    constexpr BitFlags(UnderlyingT val) noexcept: bits_(val) {}
+    constexpr BitFlags() noexcept = default;
+    constexpr BitFlags(rstd::uint64_t value) noexcept: bits_(u64(value) & mask) {}
 
-    BitFlags& set(EnumT e, bool value = true) noexcept {
-        bits_.set(underlying(e), value);
+    BitFlags& set(EnumT value, bool enabled = true) noexcept {
+        auto bit = bit_mask(static_cast<rstd::uint64_t>(value));
+        bits_    = enabled ? bits_ | bit : bits_ & ~bit;
         return *this;
     }
-    BitFlags& reset(EnumT e) noexcept {
-        set(e, false);
-        return *this;
-    }
+    BitFlags& reset(EnumT value) noexcept { return set(value, false); }
     BitFlags& reset() noexcept {
-        bits_.reset();
+        bits_ = u64();
         return *this;
     }
-    [[nodiscard]] bool                  all() const noexcept { return bits_.all(); }
-    [[nodiscard]] bool                  any() const noexcept { return bits_.any(); }
-    [[nodiscard]] bool                  none() const noexcept { return bits_.none(); }
-    [[nodiscard]] constexpr std::size_t size() const noexcept { return bits_.size(); }
-    [[nodiscard]] std::size_t           count() const noexcept { return bits_.count(); }
-    constexpr bool                      operator[](EnumT e) const { return bits_[underlying(e)]; }
-    constexpr bool                      operator[](UnderlyingT t) const { return bits_[t]; }
-    auto                                to_string() const { return bits_.to_string(); }
+    bool                   all() const noexcept { return bits_ == mask; }
+    bool                   any() const noexcept { return bits_ != u64(); }
+    bool                   none() const noexcept { return bits_ == u64(); }
+    constexpr rstd::size_t size() const noexcept { return bit_count; }
+    rstd::size_t           count() const noexcept { return bits_.count_ones().to_primitive(); }
+    constexpr bool         operator[](EnumT value) const {
+        return (*this)[static_cast<rstd::uint64_t>(value)];
+    }
+    constexpr bool operator[](rstd::uint64_t index) const {
+        return (bits_ & bit_mask(index)) != u64();
+    }
+    auto to_string() const -> String {
+        String text;
+        text.reserve(usize(bit_count));
+        for (rstd::size_t index = bit_count; index > 0; --index)
+            text.push_str((*this)[index - 1] ? "1"_str : "0"_str);
+        return text;
+    }
 
 private:
-    static constexpr UnderlyingT         underlying(EnumT e) { return static_cast<UnderlyingT>(e); }
-    std::bitset<sizeof(UnderlyingT) * 8> bits_;
+    static constexpr u64 bit_mask(rstd::uint64_t index) {
+        if (index >= bit_count) rstd::panic { "BitFlags index out of range" };
+        return u64(1) << u64(index);
+    }
+    u64 bits_ {};
 };
 
 // ---------- SpriteAnimation (was SpriteAnimation.hpp) ---------------------
 
 struct SpriteFrame {
-    std::int32_t imageId { 0 };
-    float        frametime { 0 };
-    float        x { 0 };
-    float        y { 0 };
-    float        width { 1 };
-    float        height { 1 };
-    float        rate { 1 }; // real h / w
+    rstd::int32_t imageId { 0 };
+    float         frametime { 0 };
+    float         x { 0 };
+    float         y { 0 };
+    float         width { 1 };
+    float         height { 1 };
+    float         rate { 1 }; // real h / w
 
-    rstd::array<float, 2> xAxis { 1.0f, 0.0f };
-    rstd::array<float, 2> yAxis { 0.0f, 1.0f };
+    array<float, 2> xAxis { 1.0f, 0.0f };
+    array<float, 2> yAxis { 0.0f, 1.0f };
 };
 
 class SpriteAnimation {
 public:
+    SpriteAnimation() = default;
+    SpriteAnimation(const SpriteAnimation& other)
+        : m_curFrame(other.m_curFrame),
+          m_remainTime(other.m_remainTime),
+          m_frames(other.m_frames.clone()) {}
+    SpriteAnimation(SpriteAnimation&&) noexcept            = default;
+    SpriteAnimation& operator=(SpriteAnimation&&) noexcept = default;
+    SpriteAnimation& operator=(const SpriteAnimation& other) {
+        if (this != &other) *this = other.clone();
+        return *this;
+    }
+    auto        clone() const -> SpriteAnimation { return SpriteAnimation(*this); }
     const auto& GetAnimateFrame(double newtime) {
         if ((m_remainTime -= newtime) < 0.0f) {
             SwitchToNext();
@@ -227,60 +255,86 @@ public:
         return frame;
     }
     const auto& GetCurFrame() const { return m_frames.at(m_curFrame); }
-    void        AppendFrame(const SpriteFrame& frame) { m_frames.push_back(frame); }
+    void        AppendFrame(const SpriteFrame& frame) { m_frames.emplace_back(frame); }
     // Read a specific frame without advancing the internal cursor. Used by
     // the script-driven setFrame() override path.
-    const SpriteFrame& GetFrame(usize i) const { return m_frames.at(i.to_primitive()); }
+    const SpriteFrame& GetFrame(usize i) const { return m_frames.at(i); }
 
-    usize numFrames() const { return usize(m_frames.size()); }
-    usize CurrentFrameIndex() const { return usize(m_curFrame); }
+    usize numFrames() const { return m_frames.len(); }
+    usize CurrentFrameIndex() const { return m_curFrame; }
 
 private:
     void SwitchToNext() {
-        if (m_curFrame + 1 >= m_frames.size())
-            m_curFrame = 0;
+        if (m_curFrame + usize(1) >= m_frames.len())
+            m_curFrame = usize();
         else
             m_curFrame++;
     }
-    std::size_t m_curFrame { 0 };
-    double      m_remainTime { 0 };
+    usize  m_curFrame;
+    double m_remainTime { 0 };
 
-    std::vector<SpriteFrame> m_frames;
+    Vec<SpriteFrame> m_frames;
 };
 
 // ---------- Image (was Image.hpp) -----------------------------------------
 
 union ImageExtra {
-    int32_t val { 0 };
-    char    str[125];
+    rstd::int32_t val { 0 };
+    char          str[125];
 };
 
+} // namespace owe
+
+export namespace rstd
+{
+template<>
+struct Impl<Copy, owe::ImageExtra> {};
+} // namespace rstd
+
+export namespace owe
+{
 using vrento::ImageData;
 using vrento::ImageDataPtr;
 
 struct ImageHeader {
-    std::int32_t width { 0 };
-    std::int32_t height { 0 };
-    std::int32_t mapWidth { 0 };
-    std::int32_t mapHeight { 0 };
+    rstd::int32_t width { 0 };
+    rstd::int32_t height { 0 };
+    rstd::int32_t mapWidth { 0 };
+    rstd::int32_t mapHeight { 0 };
 
     bool mipmap_larger { false };
     bool mipmap_pow2 { false };
 
     ImageType     type { ImageType::UNKNOWN };
     TextureFormat format { TextureFormat::RGBA8 };
-    std::int32_t  count { 0 };
+    rstd::int32_t count { 0 };
 
     bool          isSprite { false };
     TextureSample sample;
 
-    SpriteAnimation                             spriteAnim;
-    std::unordered_map<std::string, ImageExtra> extraHeader;
+    SpriteAnimation             spriteAnim;
+    HashMap<String, ImageExtra> extraHeader;
+
+    auto clone() const -> ImageHeader {
+        return { .width         = width,
+                 .height        = height,
+                 .mapWidth      = mapWidth,
+                 .mapHeight     = mapHeight,
+                 .mipmap_larger = mipmap_larger,
+                 .mipmap_pow2   = mipmap_pow2,
+                 .type          = type,
+                 .format        = format,
+                 .count         = count,
+                 .isSprite      = isSprite,
+                 .sample        = sample,
+                 .spriteAnim    = spriteAnim.clone(),
+                 .extraHeader   = extraHeader.clone() };
+    }
 };
 
 struct Image : NoCopy, NoMove {
-    ImageHeader                    header;
-    rstd::sync::Arc<vrento::Image> content { rstd::sync::Arc<vrento::Image>::make() };
+    ImageHeader        header;
+    Arc<vrento::Image> content { Arc<vrento::Image>::make() };
 
     void FinalizeContent() {
         content->header = vrento::ImageHeader {
@@ -307,20 +361,9 @@ struct Impl<vrento::VideoPlayback, owe::SharedVideoPlayback> : ImplBase<owe::Sha
 };
 } // namespace rstd
 
-// Small OS utility — dlopen/dlsym wrapper. Lives here so wescene-vulkan-runtime
-// can reach it without dragging wescene-base in. hash_combine is co-located
-// for the same reason (TextureCache key hashing).
+// Shared dlopen/dlsym wrapper.
 export namespace utils
 {
-
-template<typename T>
-inline void hash_combine(std::size_t& seed, const T& val) {
-    seed ^= std::hash<T>()(val) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
-}
-template<typename T>
-inline void hash_combine_fast(std::size_t& seed, const T& val) {
-    seed ^= std::hash<T>()(val) << 1u;
-}
 
 class DynamicLibrary : NoCopy {
 public:

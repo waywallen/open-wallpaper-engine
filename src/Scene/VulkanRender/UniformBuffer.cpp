@@ -4,10 +4,11 @@ module;
 
 module wescene.vulkan_render;
 import rstd;
-import rstd.cppstd;
 import rstd.log;
 import wescene.resource;
 import wescene.scene;
+
+using rstd::collections::HashMap;
 
 using namespace rstd::prelude;
 using namespace rstd::literals;
@@ -163,12 +164,10 @@ auto UniformBufferBinding::Update(ref<dyn<UniformBufferFrameContext>>         fr
     const auto  version  = material.customShader.value_version;
     if (m_parameter_version.is_none() || *m_parameter_version != version) {
         auto parameters = Vec<vrento::UniformParameter>::make();
-        for (const auto& [name, value] : m_defaults)
-            parameters.push(
-                vrento::UniformParameter { rstd::cppstd::as_str(name).unwrap(), value.View() });
-        for (const auto& [name, value] : material.customShader.constValues)
-            parameters.push(
-                vrento::UniformParameter { rstd::cppstd::as_str(name).unwrap(), value.View() });
+        for (const auto& [name, value] : m_defaults.iter())
+            parameters.push(vrento::UniformParameter { name->as_str(), value->View() });
+        for (const auto& [name, value] : material.customShader.constValues.iter())
+            parameters.push(vrento::UniformParameter { name->as_str(), value->View() });
         auto set = m_binding.SetParameters(parameters.as_slice());
         if (set.is_err()) return Err(rstd::move(set).unwrap_err_unchecked());
         m_parameter_version = Some(u64(version));
@@ -199,7 +198,7 @@ auto MakeSharedUniformBufferBinding(ref<dyn<UniformBindingPrepareContext>>      
     auto definition = prepare->ResolveBlock(block.identity);
     if (definition.is_none() || (**definition).scope != UniformBlockScope::Shared) {
         return Err(UniformBufferUpdateError {
-            .message = String::make("shared uniform block definition is unavailable"_str),
+            .message = "shared uniform block definition is unavailable"_Str,
         });
     }
     auto layout_result = CompileUniformBufferLayout(block);
@@ -210,7 +209,7 @@ auto MakeSharedUniformBufferBinding(ref<dyn<UniformBindingPrepareContext>>      
         auto source = prepare->ResolveSource(attachment.source);
         if (source.is_none()) {
             return Err(UniformBufferUpdateError {
-                .message = String::make("shared uniform source is unavailable"_str),
+                .message = "shared uniform source is unavailable"_Str,
             });
         }
         auto prepared = vrento::PrepareUniformSource(
@@ -237,13 +236,13 @@ auto MakeUniformBufferBinding(ref<dyn<UniformBindingPrepareContext>> prepare,
     auto draw = prepare->ResolveDraw(draw_item);
     if (draw.is_none()) {
         return Err(UniformBufferUpdateError {
-            .message = String::make("uniform binding scene data is unavailable"_str),
+            .message = "uniform binding scene data is unavailable"_Str,
         });
     }
     auto material = material_override.unwrap_or(draw->material);
     if (! material->customShader.shader) {
         return Err(UniformBufferUpdateError {
-            .message = String::make("uniform binding shader metadata is unavailable"_str),
+            .message = "uniform binding shader metadata is unavailable"_Str,
         });
     }
 
@@ -256,14 +255,14 @@ auto MakeUniformBufferBinding(ref<dyn<UniformBindingPrepareContext>> prepare,
     auto ranked =
         vrento::RankUniformSources(prepare->GlobalSources(), prepare->NodeSources(draw->node_id));
 
-    auto sources = Vec<BoundUniformSource>::with_capacity(ranked.len());
-    rstd::collections::HashMap<usize, usize> slot_sources;
-    usize                                    source_ordinal { 0 };
+    auto                  sources = Vec<BoundUniformSource>::with_capacity(ranked.len());
+    HashMap<usize, usize> slot_sources;
+    usize                 source_ordinal { 0 };
     for (const auto& candidate : ranked) {
         auto source = prepare->ResolveSource(candidate.source);
         if (source.is_none()) {
             return Err(UniformBufferUpdateError {
-                .message = String::make("scene uniform source is unavailable"_str),
+                .message = "scene uniform source is unavailable"_Str,
             });
         }
         auto prepared = vrento::PrepareUniformSource(
@@ -287,12 +286,12 @@ auto MakeUniformBufferBinding(ref<dyn<UniformBindingPrepareContext>> prepare,
         ++source_ordinal;
     }
 
-    const auto&          shader = *material->customShader.shader;
+    const auto&          shader = **material->customShader.shader;
     UniformBufferBinding binding(draw->draw_item,
                                  buffer,
                                  rstd::move(layout),
                                  rstd::move(sources),
-                                 shader.default_uniforms,
+                                 shader.default_uniforms.clone(),
                                  material,
                                  rstd::move(textures),
                                  render_view,

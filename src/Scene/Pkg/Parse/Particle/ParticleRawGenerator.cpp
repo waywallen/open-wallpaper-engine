@@ -6,7 +6,6 @@ module wescene.pkg.parse;
 
 import eigen;
 import rstd;
-import rstd.cppstd;
 import rstd.log;
 import wescene.core;
 import wescene.particle;
@@ -95,19 +94,17 @@ struct ExtractInstance {
     }
 };
 
-auto FindAttrSlot(
-    const owe::Map<std::string, SceneVertexArray::SceneVertexAttributeOffset>& attributes,
-    ref<str> name) noexcept -> AttrSlot {
-    auto found = attributes.find(rstd::cppstd::as_string_view(name));
-    if (found == attributes.end()) return {};
+auto FindAttrSlot(const SceneVertexArray& vertices, ref<str> name) noexcept -> AttrSlot {
+    auto found = vertices.AttributeOffset(name);
+    if (found.is_none()) return {};
     return {
-        .offset  = found->second.offset / usize(sizeof(float)),
+        .offset  = *found / usize(sizeof(float)),
         .enabled = true,
     };
 }
 
 auto ResolvePointVertexLayout(const SceneVertexArray& vertices) -> PointVertexLayout {
-    const auto attributes = vertices.GetAttrOffsetMap();
+    const auto& attributes = vertices;
     return {
         .position    = FindAttrSlot(attributes, WE_IN_POSITION),
         .texcoord    = FindAttrSlot(attributes, WE_IN_TEXCOORDVEC4),
@@ -118,7 +115,7 @@ auto ResolvePointVertexLayout(const SceneVertexArray& vertices) -> PointVertexLa
 }
 
 auto ResolveRopeVertexLayout(const SceneVertexArray& vertices, GOption option) -> RopeVertexLayout {
-    const auto attributes = vertices.GetAttrOffsetMap();
+    const auto& attributes = vertices;
     return {
         .position       = FindAttrSlot(attributes, WE_IN_POSITIONVEC4),
         .endpoint       = FindAttrSlot(attributes, WE_IN_TEXCOORDVEC4),
@@ -160,9 +157,10 @@ void Write4(mut_ref<float[]> data, AttrSlot slot, const Eigen::Vector3f& source,
 }
 
 // Four corner UVs without geometry shader variant (in order of index array (0,1,3)(1,2,3)).
-const std::array<std::array<float, 2>, 4> g_corners {
-    { { 0.0f, 1.0f }, { 1.0f, 1.0f }, { 1.0f, 0.0f }, { 0.0f, 0.0f } }
-};
+const array<array<float, 2>, 4> g_corners { array<float, 2> { 0.0f, 1.0f },
+                                            array<float, 2> { 1.0f, 1.0f },
+                                            array<float, 2> { 1.0f, 0.0f },
+                                            array<float, 2> { 0.0f, 0.0f } };
 
 void WriteColor(mut_ref<float[]> data, AttrSlot slot, const ExtractParticle& value) noexcept {
     Write4(data, slot, value.color[0], value.color[1], value.color[2], value.alpha);
@@ -173,7 +171,8 @@ auto AnimationLifetime(const ExtractParticle& value, ParticleAnimationSpec anima
     if (value.lifetime <= 0.0f) return 0.0f;
     switch (animation.mode) {
     case ParticleAnimationMode::RANDOMONE:
-        return std::clamp(value.random, 0.0f, std::nextafter(1.0f, 0.0f));
+        return rstd::cmp::min(f32(1.0f).next_down().to_primitive(),
+                              rstd::cmp::max(0.0f, value.random));
     case ParticleAnimationMode::SEQUENCE:
         if (value.initial_lifetime == 0.0f) return 0.0f;
         return (1.0f - (value.lifetime / value.initial_lifetime)) * animation.sequence_multiplier;
@@ -186,9 +185,10 @@ void GenParticlePointData(slice<ExtractInstance> instances, const ParticleSubSys
                           SceneVertexWriter& writer) noexcept {
     // GS_ENABLED=0 (no geometry shader) variant: CPU expands each particle into a 4-vertex quad.
     // a_TexCoordVec4 = (corner_u, corner_v, rz, size)，a_TexCoordC2 = (rx, ry)。
-    static const std::array<std::array<float, 2>, 4> corners {
-        { { 0.0f, 1.0f }, { 1.0f, 1.0f }, { 1.0f, 0.0f }, { 0.0f, 0.0f } }
-    };
+    static const array<array<float, 2>, 4> corners { array<float, 2> { 0.0f, 1.0f },
+                                                     array<float, 2> { 1.0f, 1.0f },
+                                                     array<float, 2> { 1.0f, 0.0f },
+                                                     array<float, 2> { 0.0f, 0.0f } };
     for (const auto& instance : instances) {
         if (subsystem.InstanceState(instance.instance_index).no_live_particle) continue;
         for (auto slot : instance.slots) {
@@ -240,8 +240,8 @@ void GenParticlePointData(slice<ExtractInstance> instances, const ParticleSubSys
                        render_position[2]);
                 Write4(data,
                        layout.texcoord,
-                       corner[0],
-                       corner[1],
+                       corner[usize(0)],
+                       corner[usize(1)],
                        value.rotation[2],
                        value.size * 0.5f);
                 Write2(data, layout.texcoord_c2, value.rotation[0], value.rotation[1]);
@@ -269,24 +269,25 @@ void GenRopeParticleData(slice<ExtractInstance> instances, const ParticleSubSyst
                          SceneVertexWriter& writer) {
     for (const auto& instance : instances) {
         if (subsystem.InstanceState(instance.instance_index).no_live_particle) continue;
-        std::vector<usize> slots;
-        slots.reserve(instance.slots.len().to_primitive());
+        Vec<usize> slots;
+        slots.reserve(instance.slots.len());
         for (auto slot : instance.slots) {
-            if (instance.lifetimes[slot.index] > 0.0f) slots.push_back(slot.index);
+            if (instance.lifetimes[slot.index] > 0.0f) slots.push(usize(slot.index));
         }
-        std::sort(slots.begin(), slots.end(), [&](usize lhs, usize rhs) {
-            return instance.states[lhs].spawn_sequence < instance.states[rhs].spawn_sequence;
-        });
-        if (slots.size() < 2) continue;
+        rstd::slice_::sort_unstable_by(
+            slots.as_mut_slice().as_mut_ref(), [&](usize lhs, usize rhs) {
+                return instance.states[lhs].spawn_sequence < instance.states[rhs].spawn_sequence;
+            });
+        if (slots.len().to_primitive() < 2) continue;
 
-        auto particle = [&](std::size_t index) {
-            return instance.Particle(particle::ParticleSlot { slots[index] });
+        auto particle = [&](rstd::size_t index) {
+            return instance.Particle(particle::ParticleSlot { slots[usize(index)] });
         };
         auto render_position = [&](const ExtractParticle& value) {
             return subsystem.RenderPosition(instance.instance_index, value.position);
         };
 
-        auto emit_group = [&](std::size_t begin, std::size_t end) -> bool {
+        auto emit_group = [&](rstd::size_t begin, rstd::size_t end) -> bool {
             if (end - begin < 2) return true;
 
             auto  newest      = particle(end - 1);
@@ -296,13 +297,14 @@ void GenRopeParticleData(slice<ExtractInstance> instances, const ParticleSubSyst
             auto  emit_period = before_age - newest_age;
             float sequence_offset {};
             if (emit_period > 1e-6f)
-                sequence_offset = -std::clamp(newest_age / emit_period, 0.0f, 1.0f);
+                sequence_offset =
+                    -rstd::cmp::min(1.0f, rstd::cmp::max(0.0f, newest_age / emit_period));
 
             auto segment_count = end - begin - 1;
-            for (std::size_t index = begin; index < end - 1; ++index) {
+            for (rstd::size_t index = begin; index < end - 1; ++index) {
                 auto previous_index = index == begin ? begin : index - 1;
                 auto next_index     = index + 1;
-                auto after_index    = std::min(index + 2, end - 1);
+                auto after_index    = rstd::cmp::min(end - 1, index + 2);
                 auto current        = particle(index);
                 auto previous       = particle(previous_index);
                 auto next           = particle(next_index);
@@ -337,7 +339,7 @@ void GenRopeParticleData(slice<ExtractInstance> instances, const ParticleSubSyst
                             Write4(data, layout.next_point, ecp, size_end);
                         else
                             Write3(data, layout.next_point, ecp);
-                        Write2(data, layout.corner_uv, corner[0], corner[1]);
+                        Write2(data, layout.corner_uv, corner[usize(0)], corner[usize(1)]);
                         WriteColor(data, layout.color_end, next);
                         WriteColor(data, layout.color, current);
                     }
@@ -368,19 +370,19 @@ void GenRopeParticleData(slice<ExtractInstance> instances, const ParticleSubSyst
 
         auto sequence_count = subsystem.RopeSequenceCount();
         if (sequence_count.is_none()) {
-            if (! emit_group(0, slots.size())) return;
+            if (! emit_group(0, slots.len().to_primitive())) return;
             continue;
         }
 
         auto count = rstd::as_cast<u64>(rstd::cmp::max(*sequence_count, u32(2)));
-        auto group = [&](std::size_t index) {
-            return instance.states[slots[index]].spawn_sequence / count;
+        auto group = [&](rstd::size_t index) {
+            return instance.states[slots[usize(index)]].spawn_sequence / count;
         };
-        std::size_t begin {};
-        while (begin < slots.size()) {
-            auto        sequence_group = group(begin);
-            std::size_t end            = begin + 1;
-            while (end < slots.size() && group(end) == sequence_group) ++end;
+        rstd::size_t begin {};
+        while (begin < slots.len().to_primitive()) {
+            auto         sequence_group = group(begin);
+            rstd::size_t end            = begin + 1;
+            while (end < slots.len().to_primitive() && group(end) == sequence_group) ++end;
             if (! emit_group(begin, end)) return;
             begin = end;
         }
@@ -421,7 +423,7 @@ void GenRopeTrailSegments(const ExtractParticle& value, const ParticleSubSystem&
                     Write4(data, layout.next_point, end_control, size);
                 else
                     Write3(data, layout.next_point, end_control);
-                Write2(data, layout.corner_uv, corner[0], corner[1]);
+                Write2(data, layout.corner_uv, corner[usize(0)], corner[usize(1)]);
                 WriteColor(data, layout.color_end, value);
                 WriteColor(data, layout.color, value);
             }
@@ -476,7 +478,7 @@ void ParticleRawGenerator::Compile(particle::ParticleViewCompiler& compiler) {
 }
 
 void ParticleRawGenerator::Extract(particle::ParticleExtractContext& context) {
-    auto instances = rstd::vec::Vec<ExtractInstance>::with_capacity(context.instances.len());
+    auto instances = Vec<ExtractInstance>::with_capacity(context.instances.len());
     for (const auto& instance : context.instances) {
         Option<ref<TrailHistoryAttribute>> trail = None();
         if (m_trail.Valid()) trail = Some(instance.view.ReadObject(m_trail));
@@ -500,12 +502,12 @@ void ParticleRawGenerator::Extract(particle::ParticleExtractContext& context) {
     auto&   mesh     = m_subsystem->Mesh();
     auto&   vertices = mesh.GetVertexArray(usize());
     GOption option {
-        .thick_format   = vertices.GetOption(rstd::cppstd::as_string_view(WE_CB_THICK_FORMAT)),
-        .expand_corners = ! vertices.GetOption(rstd::cppstd::as_string_view(WE_CB_GS_ENABLED)),
+        .thick_format   = vertices.GetOption(WE_CB_THICK_FORMAT),
+        .expand_corners = ! vertices.GetOption(WE_CB_GS_ENABLED),
     };
 
-    auto rope       = vertices.GetOption(rstd::cppstd::as_string_view(WE_PRENDER_ROPE));
-    auto rope_trail = vertices.GetOption(rstd::cppstd::as_string_view(WE_PRENDER_ROPE_TRAIL));
+    auto rope       = vertices.GetOption(WE_PRENDER_ROPE);
+    auto rope_trail = vertices.GetOption(WE_PRENDER_ROPE_TRAIL);
     auto result     = vertices.RewriteVertices([&](SceneVertexWriter& writer) {
         if (rope || rope_trail) {
             auto layout = ResolveRopeVertexLayout(vertices, option);

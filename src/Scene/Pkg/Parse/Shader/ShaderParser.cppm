@@ -4,7 +4,6 @@ export module wescene.pkg.parse:shader_parser;
 import wescene.core;
 import wescene.types;
 import rstd;
-import rstd.cppstd;
 import wescene.shader_compile;
 import wescene.scene;
 import wescene.fs;
@@ -12,16 +11,23 @@ import wescene.fs;
 export import :uniform;
 
 using namespace rstd::prelude;
+using rstd::sync::Arc;
+using namespace rstd::literals;
+using rstd::collections::BTreeMap;
+using rstd::collections::BTreeSet;
+using rstd::collections::HashMap;
+using rstd::path::Path;
+using rstd::path::PathBuf;
 
 export namespace owe
 
 {
-using Combos = Map<std::string, std::string>;
+using Combos = BTreeMap<String, String>;
 
 // ui material name to gl uniform name
-using AliasValueDict = Map<std::string, std::string>;
+using AliasValueDict = BTreeMap<String, String>;
 
-using DefaultTexs = std::vector<std::pair<i32, std::string>>;
+using DefaultTexs = Vec<SceneShaderDefaultTexture>;
 
 // Staged direct-route u_* uniforms (shader annotation's `material` field
 // equals the wallpaper-level project.json key). BuildMaterial fills this
@@ -55,17 +61,17 @@ struct ShaderInfo {
 };
 
 struct PreprocessorInfo {
-    Map<std::string, std::string> input; // name to line
-    Map<std::string, std::string> output;
+    BTreeMap<String, String> input; // name to line
+    BTreeMap<String, String> output;
 
     // `uniform TYPE NAME;` declarations for non-sampler types. Captured
     // per-stage so Finalprocessor can build a cross-stage union and emit
     // a single shared cbuffer (matching what glslang's iomapper used to
     // produce). Without this, DXC's per-stage $Globals cbuffers desync
     // and FS-only uniforms read as zero.
-    Map<std::string, std::string> uniforms; // name -> "TYPE"
+    BTreeMap<String, String> uniforms; // name -> "TYPE"
 
-    Set<unsigned> active_tex_slots;
+    BTreeSet<u32> active_tex_slots;
 };
 
 struct ShaderTexInfo {
@@ -75,7 +81,7 @@ struct ShaderTexInfo {
 
 struct ShaderUnit {
     ShaderType       stage;
-    std::string      src;
+    String           src;
     PreprocessorInfo preprocess_info;
 };
 
@@ -87,14 +93,14 @@ class ShaderCache {
     };
 
     struct CompiledStage {
-        ShaderType                                 stage;
-        rstd::collections::HashMap<String, String> uniforms;
-        Vec<u32>                                   active_tex_slots;
+        ShaderType               stage;
+        BTreeMap<String, String> uniforms;
+        Vec<u32>                 active_tex_slots;
     };
 
     struct CompileEntry {
         Vec<CompiledStage> stages;
-        Vec<Vec<u32>>      codes;
+        Vec<ShaderCode>    codes;
         usize              bytes {};
     };
 
@@ -104,17 +110,16 @@ class ShaderCache {
     static constexpr usize kMaxCompileEntries { 32 };
 
 public:
-    explicit ShaderCache(Option<rstd::path::PathBuf> directory = None())
-        : m_directory(rstd::move(directory)) {}
+    explicit ShaderCache(Option<PathBuf> directory = None()): m_directory(rstd::move(directory)) {}
 
-    auto directory() const noexcept -> Option<ref<rstd::path::Path>> {
+    auto directory() const noexcept -> Option<ref<Path>> {
         if (m_directory.is_none()) return None();
         return Some(m_directory->as_path());
     }
 
     void ReleaseTransientEntries() {
-        m_source_entries  = rstd::collections::HashMap<String, SourceEntry>::make();
-        m_compile_entries = rstd::collections::HashMap<String, CompileEntry>::make();
+        m_source_entries  = HashMap<String, SourceEntry>::make();
+        m_compile_entries = HashMap<String, CompileEntry>::make();
         m_source_order    = Vec<String>::make();
         m_compile_order   = Vec<String>::make();
         m_source_bytes    = usize {};
@@ -148,13 +153,13 @@ private:
         return true;
     }
 
-    Option<rstd::path::PathBuf>                      m_directory;
-    rstd::collections::HashMap<String, SourceEntry>  m_source_entries;
-    rstd::collections::HashMap<String, CompileEntry> m_compile_entries;
-    Vec<String>                                      m_source_order;
-    Vec<String>                                      m_compile_order;
-    usize                                            m_source_bytes {};
-    usize                                            m_compile_bytes {};
+    Option<PathBuf>               m_directory;
+    HashMap<String, SourceEntry>  m_source_entries;
+    HashMap<String, CompileEntry> m_compile_entries;
+    Vec<String>                   m_source_order;
+    Vec<String>                   m_compile_order;
+    usize                         m_source_bytes {};
+    usize                         m_compile_bytes {};
 
     friend class ShaderParser;
 };
@@ -163,48 +168,44 @@ private:
 // blob per stage (currently always vertex+fragment in that order).
 // On ok=false, error carries a short diagnostic.
 struct CompileMaterialShaderResult {
-    bool                                           ok { false };
-    std::vector<ShaderCode>                        spvs;
-    ShaderInfo                                     info;
-    std::vector<ShaderTexInfo>                     tex_info;
-    std::vector<SceneShaderUniformBlockInterface>  uniform_blocks;
-    std::vector<SceneShaderDescriptorSetInterface> descriptor_sets;
-    std::string                                    error;
-    std::string                                    shader_name;
+    bool                                   ok { false };
+    Vec<ShaderCode>                        spvs;
+    ShaderInfo                             info;
+    Vec<ShaderTexInfo>                     tex_info;
+    Vec<SceneShaderUniformBlockInterface>  uniform_blocks;
+    Vec<SceneShaderDescriptorSetInterface> descriptor_sets;
+    String                                 error;
+    String                                 shader_name;
 };
 
 struct CompileSceneShaderVariantResult {
-    bool                         ok { false };
-    std::shared_ptr<SceneShader> shader;
-    SceneShaderVariantDesc       variant;
-    ShaderInfo                   info;
-    std::vector<ShaderTexInfo>   tex_info;
-    std::string                  error;
+    bool                     ok { false };
+    Option<Arc<SceneShader>> shader;
+    SceneShaderVariantDesc   variant;
+    ShaderInfo               info;
+    Vec<ShaderTexInfo>       tex_info;
+    String                   error;
 };
 
 // Per-stage shader-annotation parser. Implementation lives in
 // ShaderParser_Pegtl.cpp; declaration here so the rest of the parse
 // module sees it. Not exported — internal helper.
-void ParseShader(const std::string& src, ShaderInfo* info,
-                 const std::vector<ShaderTexInfo>& texinfos);
+void ParseShader(ref<str> src, ShaderInfo* info, slice<ShaderTexInfo> texinfos);
 
 class ShaderParser {
 public:
-    static std::string PreShaderSrc(fs::VFS&, const std::string& src, ShaderInfo* pShaderInfo,
-                                    const std::vector<ShaderTexInfo>& texs,
-                                    ShaderCache*                      cache = nullptr);
+    static String PreShaderSrc(fs::VFS&, ref<str> src, ShaderInfo* pShaderInfo,
+                               slice<ShaderTexInfo> texs, ShaderCache* cache = nullptr);
 
-    static std::string PreShaderHeader(const std::string& src, const Combos& combos, ShaderType);
+    static String PreShaderHeader(ref<str> src, const Combos& combos, ShaderType);
 
     static Combos ResolveShaderCombos(const ShaderInfo&, const Combos& input_combos);
 
-    static bool CompileToSpv(std::string_view         scene_id, std::span<ShaderUnit>,
-                             std::vector<ShaderCode>& spvs, ShaderInfo*,
-                             std::span<const ShaderTexInfo>, ShaderCache* cache = nullptr);
+    static bool CompileToSpv(ref<str> scene_id, mut_ref<ShaderUnit[]>, Vec<ShaderCode>& spvs,
+                             ShaderInfo*, slice<ShaderTexInfo>, ShaderCache* cache = nullptr);
 
     static void UpdateSceneShaderVariantDescFromCompiledUnits(SceneShaderVariantDesc&,
-                                                              std::span<const ShaderUnit>,
-                                                              std::span<const ShaderCode>);
+                                                              slice<ShaderUnit>, slice<ShaderCode>);
 
     // Lightweight entry point: compile the vert+frag shader pair for one
     // material directly, without instantiating a Scene or running the
@@ -220,11 +221,9 @@ public:
     // (color-blend mode, sprite-sheet flags, puppet bone count beyond
     // default, etc.) are NOT injected. Materials that hard-require them
     // will fail compile here; supply the right values via combos_override.
-    static CompileMaterialShaderResult CompileMaterialShader(const Json&      material_json,
-                                                             fs::VFS&         vfs,
-                                                             std::string_view scene_id = "test",
-                                                             const Combos&    combos_override = {},
-                                                             ShaderCache*     cache = nullptr);
+    static CompileMaterialShaderResult
+    CompileMaterialShader(const Json& material_json, fs::VFS& vfs, ref<str> scene_id = "test"_str,
+                          const Combos& combos_override = {}, ShaderCache* cache = nullptr);
 
     static CompileSceneShaderVariantResult
     CompileSceneShaderVariant(const SceneShaderVariantDesc& desc, fs::VFS& vfs,

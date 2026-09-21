@@ -7,7 +7,6 @@ import wescene.spec_names;
 import wescene.core;
 import wescene.types;
 import rstd;
-import rstd.cppstd;
 
 using namespace rstd::prelude;
 using namespace owe;
@@ -33,42 +32,42 @@ void ChangeMeshToUnitQuad(SceneMesh& target) {
     // clang-format on
 
     SceneVertexArray vertex(MakeAttrSet({ VAttr::Position, VAttr::TexCoord }), usize(4));
-    vertex.SetVertex(rstd::cppstd::as_string_view(WE_IN_POSITION), pos.as_slice());
-    vertex.SetVertex(rstd::cppstd::as_string_view(WE_IN_TEXCOORD), tex_coord.as_slice());
-    mesh.AddVertexArray(std::move(vertex));
+    vertex.SetVertex(WE_IN_POSITION, pos.as_slice());
+    vertex.SetVertex(WE_IN_TEXCOORD, tex_coord.as_slice());
+    mesh.AddVertexArray(rstd::move(vertex));
     target.ChangeMeshDataFrom(mesh);
 }
 
 } // namespace
 
-SceneNodeLayer::SceneNodeLayer(SceneNode* node, float w, float h, std::string_view composite_target)
+SceneNodeLayer::SceneNodeLayer(SceneNode* node, float w, float h, ref<str> composite_target)
     : m_worldNode(node),
       m_sourceNode(node),
       m_width(w),
       m_height(h),
-      m_composite_target(composite_target),
-      m_source_camera(node != nullptr ? node->Camera() : std::string()),
+      m_composite_target(rstd::into(composite_target)),
+      m_source_camera(node != nullptr ? rstd::into<String>(node->Camera()) : String()),
       m_final_mesh(Box<SceneMesh>::make()) {};
 
 void SceneNodeLayer::SetSourceDraw(SceneNode& node) {
     m_sourceNode    = &node;
-    m_source_camera = node.Camera();
+    m_source_camera = rstd::into(node.Camera());
 }
 
 void SceneNodeLayer::ConfigureSourceDraw(bool intermediate) {
     if (m_sourceNode == nullptr) return;
     if (intermediate) {
-        m_sourceNode->SetCamera(m_source_camera);
+        m_sourceNode->SetCamera(m_source_camera.as_str());
         return;
     }
-    if (! m_final_camera.empty()) {
-        m_sourceNode->SetCamera(m_final_camera);
+    if (! m_final_camera.is_empty()) {
+        m_sourceNode->SetCamera(m_final_camera.as_str());
     } else {
-        m_sourceNode->SetCamera(m_sourceNode->Perspective() ? "global_perspective" : "");
+        m_sourceNode->SetCamera(m_sourceNode->Perspective() ? "global_perspective"_str : ""_str);
     }
 }
 
-void SceneNodeLayer::ResolveEffect(const SceneMesh& default_mesh, std::string_view effect_cam) {
+void SceneNodeLayer::ResolveEffect(const SceneMesh& default_mesh, ref<str> effect_cam) {
     if (m_resolved) return;
     m_resolved_effects.clear();
     m_direct_final_output = nullptr;
@@ -77,7 +76,8 @@ void SceneNodeLayer::ResolveEffect(const SceneMesh& default_mesh, std::string_vi
     SceneImageEffectNode* last_output { nullptr };
     auto                  resolve_effect = [&](SceneImageEffect& eff) {
         SceneImageEffectNode* effect_output { nullptr };
-        for (auto it = eff.nodes.begin(); it != eff.nodes.end(); it++) {
+        for (auto& entry : eff.Nodes()) {
+            auto* it = entry.get();
             rstd_assert(it->sceneNode->HasMaterial());
             auto& material = *(it->sceneNode->Mesh()->Material());
             if (it->output.kind == SceneEffectTargetKind::LayerNext) last_output = &(*it);
@@ -85,24 +85,24 @@ void SceneNodeLayer::ResolveEffect(const SceneMesh& default_mesh, std::string_vi
 
             {
                 material.SetBlendMode(BlendMode::Normal);
-                it->sceneNode->SetCamera(effect_cam.data());
+                it->sceneNode->SetCamera(effect_cam);
                 it->sceneNode->CopyTrans(default_node);
                 it->sceneNode->Mesh()->ChangeMeshDataFrom(default_mesh);
             }
         }
-        m_resolved_effects.push_back(&eff);
+        m_resolved_effects.push(&eff);
         return effect_output;
     };
     for (auto& eff : m_effects) {
         if (eff && eff->runtime_visible) resolve_effect(*eff);
     }
     SceneImageEffectNode* final_resolve_output { nullptr };
-    if (m_final_resolve_effect) final_resolve_output = resolve_effect(*m_final_resolve_effect);
+    if (m_final_resolve_effect) final_resolve_output = resolve_effect(**m_final_resolve_effect);
     SceneImageEffectNode* published_output { nullptr };
-    if (m_published_effect) published_output = resolve_effect(*m_published_effect);
+    if (m_published_effect) published_output = resolve_effect(**m_published_effect);
     SceneImageEffectNode* visible_output { nullptr };
     if (m_visible_output_enabled && m_visible_resolve_effect)
-        visible_output = resolve_effect(*m_visible_resolve_effect);
+        visible_output = resolve_effect(**m_visible_resolve_effect);
 
     auto* final_output = visible_output != nullptr
                              ? visible_output
@@ -118,20 +118,20 @@ void SceneNodeLayer::ResolveEffect(const SceneMesh& default_mesh, std::string_vi
         material.SetDepthWrite(m_final_depth_write);
         material.SetCullMode(m_final_cull_mode);
         if (m_final_local) {
-            final_output->sceneNode->SetCamera(std::string(effect_cam));
+            final_output->sceneNode->SetCamera(effect_cam);
             final_output->sceneNode->SetParentAnchor(nullptr);
             final_output->sceneNode->CopyTrans(default_node);
             mesh.ChangeMeshDataFrom(default_mesh);
         } else if (fullscreen) {
-            final_output->sceneNode->SetCamera(std::string(effect_cam));
+            final_output->sceneNode->SetCamera(effect_cam);
             final_output->sceneNode->SetParentAnchor(nullptr);
             final_output->sceneNode->CopyTrans(default_node);
             mesh.ChangeMeshDataFrom(default_mesh);
         } else {
             const bool perspective = m_worldNode != nullptr && m_worldNode->Perspective();
-            final_output->sceneNode->SetCamera(m_final_camera.empty()
-                                                   ? (perspective ? "global_perspective" : "")
-                                                   : m_final_camera);
+            final_output->sceneNode->SetCamera(
+                m_final_camera.is_empty() ? (perspective ? "global_perspective"_str : ""_str)
+                                          : m_final_camera.as_str());
             final_output->sceneNode->SetPerspective(perspective);
             // Anchor to the layer's primary SceneNode so the composite quad
             // inherits the layer's world transform (including any container
@@ -146,7 +146,7 @@ void SceneNodeLayer::ResolveEffect(const SceneMesh& default_mesh, std::string_vi
             }
             final_output->final_quad_shader_values.iter().for_each([&](auto entry) {
                 auto [name, value] = entry;
-                material.SetShaderValue(rstd::cppstd::to_string(name->as_str()), value->base);
+                material.SetShaderValue(name->as_str(), value->base);
                 if (value->track.is_some() && ! (**value->track).Empty()) {
                     (void)material.customShader.valueAnimations.insert(name->clone(),
                                                                        value->Share());

@@ -6,12 +6,10 @@ module wescene.pkg_fs;
 import wescene.core;
 import rstd;
 import rstd.log;
-import rstd.cppstd;
 
 import wescene.fs;
 
-using ::alloc::collections::HashMap;
-using ::alloc::string::String;
+using rstd::collections::HashMap;
 using namespace owe;
 using namespace owe::fs;
 using namespace rstd::prelude;
@@ -24,25 +22,27 @@ auto FsError(rstd::io::error::ErrorKind::Entity kind) -> rstd::io::error::Error 
     return rstd::io::error::Error::from_kind(rstd::io::error::ErrorKind { kind });
 }
 
-Option<std::string> ReadSizedString(BinaryReader& file, usize max_len) {
+Option<String> ReadSizedString(BinaryReader& file, usize max_len) {
     auto signed_len = file.ReadInt32();
     if (signed_len < 0) return None();
 
     auto len = usize(static_cast<rstd::size_t>(signed_len));
     if (len > max_len) return None();
-    std::string result(len.to_primitive(), '\0');
-    if (file.Read(result.data(), len.to_primitive()) != len.to_primitive()) return None();
-    return Some(rstd::move(result));
+    auto bytes = Vec<u8>::with_capacity(len);
+    bytes.resize(len, u8());
+    if (file.read_exact(bytes.data(), len).is_err()) return None();
+    auto result = String::from_utf8(rstd::move(bytes));
+    if (result.is_err()) return None();
+    return Some(rstd::move(result).unwrap_unchecked());
 }
 
-bool IsPkgVersionStamp(std::string_view stamp) {
-    constexpr std::string_view prefix = "PKGV";
-    return stamp.size() > prefix.size() && stamp.substr(0, prefix.size()) == prefix;
+bool IsPkgVersionStamp(ref<str> stamp) {
+    return stamp->len() > usize(4) && stamp->starts_with("PKGV"_str);
 }
 
 auto LookupKey(Path path) -> rstd::io::Result<String> {
     auto normalized = rstd_try(resolve_beneath("/"_str, path));
-    auto output     = String::make("/"_str);
+    auto output     = "/"_Str;
     auto components = normalized.as_path().components();
     while (true) {
         auto component = components.next();
@@ -75,7 +75,7 @@ auto WPPkgFs::open(Path pkg_path) -> rstd::io::Result<PkgMount> {
     auto pkg        = BinaryReader(pkg_source.clone());
 
     auto version = ReadSizedString(pkg, usize(64));
-    if (! version || ! IsPkgVersionStamp(*version)) {
+    if (! version || ! IsPkgVersionStamp(version->as_str())) {
         return rstd::Err(FsError(rstd::io::error::ErrorKind::InvalidData));
     }
     rstd_info("pkg version: {}", *version);
@@ -85,7 +85,7 @@ auto WPPkgFs::open(Path pkg_path) -> rstd::io::Result<PkgMount> {
         u64    offset;
         u64    length;
     };
-    auto files = ::alloc::vec::Vec<PendingFile>::make();
+    Vec<PendingFile> files;
 
     auto entry_count = pkg.ReadInt32();
     if (entry_count < 0) {
@@ -95,7 +95,7 @@ auto WPPkgFs::open(Path pkg_path) -> rstd::io::Result<PkgMount> {
     for (rstd::int32_t i = 0; i < entry_count; ++i) {
         auto path = ReadSizedString(pkg, usize(4096));
         if (! path) return rstd::Err(FsError(rstd::io::error::ErrorKind::InvalidData));
-        auto key = LookupKey(ToPath(*path));
+        auto key = LookupKey(Path(path->as_str()));
         if (key.is_err()) return rstd::Err(rstd::move(key).unwrap_err_unchecked());
 
         auto offset = pkg.ReadInt32();
@@ -122,7 +122,7 @@ auto WPPkgFs::open(Path pkg_path) -> rstd::io::Result<PkgMount> {
                        PkgFile { .offset = absolute, .length = file.length });
     }
 
-    auto version_string = String::make(rstd::cppstd::as_str(*version).unwrap());
+    auto version_string = rstd::move(*version);
     auto mount_version  = version_string.clone();
     auto mount          = MountHandle::make(
         WPPkgFs(rstd::move(pkg_source), rstd::move(version_string), rstd::move(entries)));

@@ -3,7 +3,6 @@ module;
 export module wescene.vulkan_render;
 import wescene.types;
 import rstd;
-import rstd.cppstd;
 import wescene.load_bench;
 import wescene.vulkan;
 import wescene.scene;
@@ -25,23 +24,25 @@ export import :fin_pass;
 export import :pre_pass;
 
 using namespace rstd::prelude;
+using namespace rstd::literals;
 
 export namespace owe
 {
 
-using ReDrawCB = std::function<void()>;
+using ReDrawCB              = Option<Box<dyn<FnMut<void()>>>>;
+using CreateSurfaceCallback = Box<dyn<FnOnce<VkResult(VkInstance, VkSurfaceKHR*)>>>;
 
 struct VulkanSurfaceInfo {
-    std::function<VkResult(VkInstance, VkSurfaceKHR*)> createSurfaceOp;
-    std::vector<std::string>                           instanceExts;
+    Option<CreateSurfaceCallback> createSurfaceOp;
+    Vec<String>                   instanceExts;
 };
 
 struct RenderInitInfo {
     bool enable_valid_layer { false };
     bool offscreen { false };
 
-    std::span<const rstd::uint8_t> uuid;
-    TexTiling                      offscreen_tiling { TexTiling::OPTIMAL };
+    Option<array<rstd::uint8_t, VK_UUID_SIZE>> uuid;
+    TexTiling                                  offscreen_tiling { TexTiling::OPTIMAL };
     /* When true, allocate the offscreen ExSwapchain images out of
      * HOST_VISIBLE && !DEVICE_LOCAL (true GTT) so the exported dmabuf
      * fds are importable by a foreign GPU (cross-GPU PRIME). Ignored
@@ -49,14 +50,14 @@ struct RenderInitInfo {
     bool              offscreen_host_visible { false };
     VulkanSurfaceInfo surface_info;
 
-    std::uint16_t width { 1920 };
-    std::uint16_t height { 1080 };
-    std::string   video_hwdec { "auto" };
-    std::string   video_render_node;
+    rstd::uint16_t width { 1920 };
+    rstd::uint16_t height { 1080 };
+    String         video_hwdec { "auto"_Str };
+    String         video_render_node;
     // MSAA samples for the screen RT only. 1 disables. Clamped down to
     // device's framebufferColorSampleCounts at init.
-    std::uint32_t msaa_samples { 1 };
-    ReDrawCB      redraw_callback;
+    rstd::uint32_t msaa_samples { 1 };
+    ReDrawCB       redraw_callback;
 
     /* When set AND `offscreen == true`, VulkanRender invokes this factory
      * after picking the GPU and creating the VkDevice, and adopts the
@@ -73,7 +74,8 @@ struct RenderInitInfo {
         // Borrowed from the renderer; valid for the external swapchain lifetime.
         PFN_vkGetInstanceProcAddr get_instance_proc_addr;
     };
-    std::function<std::unique_ptr<ExSwapchain>(const ExSwapchainHandles&)> ex_swapchain_factory;
+    Option<Box<dyn<FnOnce<Option<ExSwapchainOwner>(const ExSwapchainHandles&)>>>>
+        ex_swapchain_factory;
 };
 
 Box<rg::RenderGraph> sceneToRenderGraph(Scene&);
@@ -121,7 +123,7 @@ public:
                                          slice<SceneMaterialId>);
     void refreshPreparedMesh(Scene&, const RenderSceneSnapshot&, SceneMeshId,
                              PassInvalidationFlags);
-    std::vector<PreparedPassDiagnostic> preparedPassDiagnostics() const;
+    Vec<PreparedPassDiagnostic> preparedPassDiagnostics() const;
     // Free buffer generations no longer referenced by prepared work.
     void evictUnusedMeshes();
     void UpdateCameraFillMode(Scene&, owe::FillMode);
@@ -133,7 +135,7 @@ public:
 
     int takeLastFrameSyncFd();
 
-    bool               getDrmRenderNode(std::uint32_t& out_major, std::uint32_t& out_minor) const;
+    bool               getDrmRenderNode(rstd::uint32_t& out_major, rstd::uint32_t& out_minor) const;
     DeviceCapabilities deviceCapabilities() const;
 
     /* Tick all registered video-tex decoders. No-op when no scene
@@ -148,10 +150,10 @@ public:
     VkPhysicalDevice vkPhysicalDevice() const;
     VkDevice         vkDevice() const;
     VkQueue          vkGraphicsQueue() const;
-    std::uint32_t    vkGraphicsQueueFamily() const;
+    rstd::uint32_t   vkGraphicsQueueFamily() const;
 
-    void deviceUuid(std::uint8_t out[16]) const;
-    void driverUuid(std::uint8_t out[16]) const;
+    void deviceUuid(rstd::uint8_t out[16]) const;
+    void driverUuid(rstd::uint8_t out[16]) const;
 
 private:
     struct Impl;

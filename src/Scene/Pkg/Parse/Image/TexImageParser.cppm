@@ -1,10 +1,12 @@
 module;
 export module wescene.pkg.parse:tex_image_parser;
 import rstd;
-import rstd.cppstd;
 import wescene.types;
 import wescene.scene;
 import wescene.fs;
+
+using rstd::collections::HashMap;
+using rstd::sync::Mutex;
 
 using namespace rstd::prelude;
 using rstd::sync::Arc;
@@ -67,10 +69,10 @@ export namespace owe
 // single source of truth so the parser body and the sprite branch share
 // the same dispatch rules.
 struct TexFormatVersion {
-    std::int32_t texv { 0 };
-    std::int32_t texi { 0 };
-    std::int32_t texb { 0 };
-    std::int32_t texs { 0 };
+    rstd::int32_t texv { 0 };
+    rstd::int32_t texi { 0 };
+    rstd::int32_t texb { 0 };
+    rstd::int32_t texs { 0 };
 
     // texb >= 2 — body has per-mip { LZ4_compressed, decompressed_size } prelude.
     constexpr bool body_has_lz4_prelude() const noexcept { return texb >= 2; }
@@ -107,13 +109,12 @@ private:
         rstd::io::ReadRange source;
         TexFormatVersion    version;
         rstd::uint32_t      condition_count {};
-        std::ptrdiff_t      body_offset {};
+        rstd::ptrdiff_t     body_offset {};
     };
-    using HeaderCache = rstd::collections::HashMap<String, Arc<PreparedHeader>>;
+    using HeaderCache = HashMap<String, Arc<PreparedHeader>>;
     auto PrepareHeader(ref<str> name) const -> Result<Arc<PreparedHeader>, ImageParseError>;
 
-    Arc<fs::VFS>                        m_vfs;
-    Arc<rstd::sync::Mutex<HeaderCache>> m_headers { Arc<rstd::sync::Mutex<HeaderCache>>::make(
-        HeaderCache {}) };
+    Arc<fs::VFS>            m_vfs;
+    Arc<Mutex<HeaderCache>> m_headers { Arc<Mutex<HeaderCache>>::make(HeaderCache {}) };
 };
 } // namespace owe

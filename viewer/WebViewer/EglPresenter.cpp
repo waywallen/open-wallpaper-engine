@@ -1,23 +1,25 @@
 module;
 
-#include <cstdio>
-
 #include <EGL/egl.h>
 #include <EGL/eglext.h>
 #include <GLES3/gl3.h>
 #include <GLES2/gl2ext.h>
 
-#define GLFW_EXPOSE_NATIVE_X11
-#define GLFW_EXPOSE_NATIVE_WAYLAND
-#include <GLFW/glfw3.h>
-#include <GLFW/glfw3native.h>
-
 #include <wayland-egl.h>
 
 module viewer.web;
 
-import rstd.cppstd;
+import rstd;
 import weweb;
+import viewer.glfw_vulkan;
+
+using namespace viewer::glfw;
+
+using namespace rstd::prelude;
+using namespace rstd::literals;
+using rstd::ffi::CStr;
+using rstd::ffi::OsStr;
+using rstd::io::eprint;
 
 namespace weweb
 {
@@ -27,17 +29,17 @@ namespace
 
 // DRM fourcc codes — keep inline to avoid a libdrm header dependency.
 // Mapping matches the user-supplied reference: CEF reverses RGBA/BGRA.
-constexpr std::uint32_t kDrmFmtBgra8888 = 0x34324142; // 'BA24'
-constexpr std::uint32_t kDrmFmtAbgr8888 = 0x34324241; // 'AB24'
+constexpr rstd::uint32_t kDrmFmtBgra8888 = 0x34324142; // 'BA24'
+constexpr rstd::uint32_t kDrmFmtAbgr8888 = 0x34324241; // 'AB24'
 // Used only by the init-time capability dump (NVIDIA may advertise a
 // different alpha-channel ordering than what CEF actually emits).
-constexpr std::uint32_t kDrmFmtArgb8888 = 0x34325241; // 'AR24'
-constexpr std::uint32_t kDrmFmtXrgb8888 = 0x34325258; // 'XR24'
+constexpr rstd::uint32_t kDrmFmtArgb8888 = 0x34325241; // 'AR24'
+constexpr rstd::uint32_t kDrmFmtXrgb8888 = 0x34325258; // 'XR24'
 
 // 'invalid' modifier per drm_fourcc.h. Vulkan path treats it as LINEAR;
 // for EGL the cleaner equivalent is to omit modifier attrs entirely so
 // the driver picks its own layout from stride+fourcc.
-constexpr std::uint64_t kDrmModInvalid = 0x00ffffffffffffffULL;
+constexpr rstd::uint64_t kDrmModInvalid = 0x00ffffffffffffffULL;
 
 constexpr EGLint kPlaneFD[] = {
     EGL_DMA_BUF_PLANE0_FD_EXT,
@@ -70,7 +72,7 @@ constexpr EGLint kPlaneModHi[] = {
     EGL_DMA_BUF_PLANE3_MODIFIER_HI_EXT,
 };
 
-std::uint32_t DrmFourccFor(DmaBufFormat f) {
+rstd::uint32_t DrmFourccFor(DmaBufFormat f) {
     switch (f) {
     case DmaBufFormat::BGRA8_UNORM: return kDrmFmtBgra8888;
     case DmaBufFormat::RGBA8_UNORM: return kDrmFmtAbgr8888;
@@ -132,7 +134,7 @@ const char* FboStatusStr(GLenum s) {
 }
 
 bool DebugVerbose() {
-    static bool v = std::getenv("WW_EGL_DEBUG") != nullptr;
+    static bool v = rstd::env::var_os("WW_EGL_DEBUG"_str).is_some();
     return v;
 }
 
@@ -148,39 +150,37 @@ bool EglPresenter::Init(GLFWwindow* window) {
     void*     native_display = nullptr;
     EGLenum   egl_platform   = 0;
 
-    if (platform == GLFW_PLATFORM_WAYLAND) {
+    if (platform == viewer::glfw::PlatformWayland) {
         native_display = glfwGetWaylandDisplay();
         egl_platform   = EGL_PLATFORM_WAYLAND_KHR;
-    } else if (platform == GLFW_PLATFORM_X11) {
+    } else if (platform == viewer::glfw::PlatformX11) {
         native_display = glfwGetX11Display();
         egl_platform   = EGL_PLATFORM_X11_KHR;
     } else {
-        std::fprintf(
-            stderr, "weweb-egl: unsupported GLFW platform %d (need X11 or Wayland)\n", platform);
+        eprint("weweb-egl: unsupported GLFW platform {} (need X11 or Wayland)\n", platform);
         return false;
     }
     if (! native_display) {
-        std::fprintf(stderr, "weweb-egl: GLFW returned a null native display\n");
+        eprint("weweb-egl: GLFW returned a null native display\n");
         return false;
     }
 
     egl_display_ = eglGetPlatformDisplay(egl_platform, native_display, nullptr);
     if (egl_display_ == EGL_NO_DISPLAY) {
-        std::fprintf(stderr,
-                     "weweb-egl: eglGetPlatformDisplay(%s) failed (0x%x)\n",
-                     egl_platform == EGL_PLATFORM_WAYLAND_KHR ? "Wayland" : "X11",
-                     eglGetError());
+        eprint("weweb-egl: eglGetPlatformDisplay({}) failed (0x{:x})\n",
+               egl_platform == EGL_PLATFORM_WAYLAND_KHR ? "Wayland"_str : "X11"_str,
+               eglGetError());
         return false;
     }
 
     EGLint egl_major = 0, egl_minor = 0;
     if (! eglInitialize(egl_display_, &egl_major, &egl_minor)) {
-        std::fprintf(stderr, "weweb-egl: eglInitialize failed (0x%x)\n", eglGetError());
+        eprint("weweb-egl: eglInitialize failed (0x{:x})\n", eglGetError());
         return false;
     }
 
     if (! eglBindAPI(EGL_OPENGL_ES_API)) {
-        std::fprintf(stderr, "weweb-egl: eglBindAPI(GLES) failed (0x%x)\n", eglGetError());
+        eprint("weweb-egl: eglBindAPI(GLES) failed (0x{:x})\n", eglGetError());
         return false;
     }
 
@@ -201,7 +201,7 @@ bool EglPresenter::Init(GLFWwindow* window) {
     };
     EGLint num_cfg = 0;
     if (! eglChooseConfig(egl_display_, cfg_attribs, &egl_config_, 1, &num_cfg) || num_cfg < 1) {
-        std::fprintf(stderr, "weweb-egl: eglChooseConfig found no RGBA8 window config\n");
+        eprint("weweb-egl: eglChooseConfig found no RGBA8 window config\n");
         return false;
     }
 
@@ -212,7 +212,7 @@ bool EglPresenter::Init(GLFWwindow* window) {
     };
     egl_context_ = eglCreateContext(egl_display_, egl_config_, EGL_NO_CONTEXT, ctx_attribs);
     if (egl_context_ == EGL_NO_CONTEXT) {
-        std::fprintf(stderr, "weweb-egl: eglCreateContext(GLES3) failed (0x%x)\n", eglGetError());
+        eprint("weweb-egl: eglCreateContext(GLES3) failed (0x{:x})\n", eglGetError());
         return false;
     }
 
@@ -222,22 +222,22 @@ bool EglPresenter::Init(GLFWwindow* window) {
     if (fbh_init <= 0) fbh_init = 1;
 
     EGLNativeWindowType native_window = 0;
-    if (platform == GLFW_PLATFORM_WAYLAND) {
+    if (platform == viewer::glfw::PlatformWayland) {
         wl_surface* wls = glfwGetWaylandWindow(window_);
         if (! wls) {
-            std::fprintf(stderr, "weweb-egl: glfwGetWaylandWindow returned null\n");
+            eprint("weweb-egl: glfwGetWaylandWindow returned null\n");
             return false;
         }
         wl_egl_window_ = wl_egl_window_create(wls, fbw_init, fbh_init);
         if (! wl_egl_window_) {
-            std::fprintf(stderr, "weweb-egl: wl_egl_window_create failed\n");
+            eprint("weweb-egl: wl_egl_window_create failed\n");
             return false;
         }
         native_window = reinterpret_cast<EGLNativeWindowType>(wl_egl_window_);
     } else {
         Window x_window = glfwGetX11Window(window_);
         if (! x_window) {
-            std::fprintf(stderr, "weweb-egl: glfwGetX11Window returned null\n");
+            eprint("weweb-egl: glfwGetX11Window returned null\n");
             return false;
         }
         native_window = static_cast<EGLNativeWindowType>(x_window);
@@ -245,79 +245,101 @@ bool EglPresenter::Init(GLFWwindow* window) {
 
     egl_surface_ = eglCreateWindowSurface(egl_display_, egl_config_, native_window, nullptr);
     if (egl_surface_ == EGL_NO_SURFACE) {
-        std::fprintf(stderr, "weweb-egl: eglCreateWindowSurface failed (0x%x)\n", eglGetError());
+        eprint("weweb-egl: eglCreateWindowSurface failed (0x{:x})\n", eglGetError());
         return false;
     }
 
     if (! eglMakeCurrent(egl_display_, egl_surface_, egl_surface_, egl_context_)) {
-        std::fprintf(stderr, "weweb-egl: eglMakeCurrent failed (0x%x)\n", eglGetError());
+        eprint("weweb-egl: eglMakeCurrent failed (0x{:x})\n", eglGetError());
         return false;
     }
 
     if (! LoadFunctionPointers()) return false;
 
     {
-        const char* plat_str    = (platform == GLFW_PLATFORM_WAYLAND) ? "wayland"
-                                  : (platform == GLFW_PLATFORM_X11)   ? "x11"
-                                                                      : "?";
+        const char* plat_str    = (platform == viewer::glfw::PlatformWayland) ? "wayland"
+                                  : (platform == viewer::glfw::PlatformX11)   ? "x11"
+                                                                              : "?";
         const char* egl_vendor  = eglQueryString(egl_display_, EGL_VENDOR);
         const char* egl_version = eglQueryString(egl_display_, EGL_VERSION);
         const char* egl_apis    = eglQueryString(egl_display_, EGL_CLIENT_APIS);
         const char* egl_exts    = eglQueryString(egl_display_, EGL_EXTENSIONS);
-        std::fprintf(stderr,
-                     "weweb-egl: platform=%s egl=%d.%d vendor=%s\n",
-                     plat_str,
-                     egl_major,
-                     egl_minor,
-                     egl_vendor ? egl_vendor : "?");
-        std::fprintf(stderr, "weweb-egl: EGL_VERSION = %s\n", egl_version ? egl_version : "?");
-        std::fprintf(stderr, "weweb-egl: EGL_CLIENT_APIS = %s\n", egl_apis ? egl_apis : "?");
-        const bool has_dmabuf =
-            egl_exts && std::strstr(egl_exts, "EGL_EXT_image_dma_buf_import") != nullptr;
+        eprint(
+            "weweb-egl: platform={} egl={}.{} vendor={}\n",
+            ref<OsStr>::from_encoded_bytes_unchecked(CStr::from_ptr(plat_str).to_bytes()).display(),
+            egl_major,
+            egl_minor,
+            ref<OsStr>::from_encoded_bytes_unchecked(
+                CStr::from_ptr(egl_vendor ? egl_vendor : "?").to_bytes())
+                .display());
+        eprint("weweb-egl: EGL_VERSION = {}\n",
+               ref<OsStr>::from_encoded_bytes_unchecked(
+                   CStr::from_ptr(egl_version ? egl_version : "?").to_bytes())
+                   .display());
+        eprint("weweb-egl: EGL_CLIENT_APIS = {}\n",
+               ref<OsStr>::from_encoded_bytes_unchecked(
+                   CStr::from_ptr(egl_apis ? egl_apis : "?").to_bytes())
+                   .display());
+        const bool has_dmabuf = egl_exts && CStr::from_ptr(egl_exts).to_str().unwrap().contains(
+                                                "EGL_EXT_image_dma_buf_import"_str);
         const bool has_dmabuf_mods =
-            egl_exts && std::strstr(egl_exts, "EGL_EXT_image_dma_buf_import_modifiers") != nullptr;
-        std::fprintf(stderr,
-                     "weweb-egl: EGL_EXT_image_dma_buf_import = %s\n",
-                     has_dmabuf ? "yes" : "MISSING");
-        std::fprintf(stderr,
-                     "weweb-egl: EGL_EXT_image_dma_buf_import_modifiers = %s\n",
-                     has_dmabuf_mods ? "yes" : "no");
+            egl_exts && CStr::from_ptr(egl_exts).to_str().unwrap().contains(
+                            "EGL_EXT_image_dma_buf_import_modifiers"_str);
+        eprint("weweb-egl: EGL_EXT_image_dma_buf_import = {}\n",
+               ref<OsStr>::from_encoded_bytes_unchecked(
+                   CStr::from_ptr(has_dmabuf ? "yes" : "MISSING").to_bytes())
+                   .display());
+        eprint("weweb-egl: EGL_EXT_image_dma_buf_import_modifiers = {}\n",
+               ref<OsStr>::from_encoded_bytes_unchecked(
+                   CStr::from_ptr(has_dmabuf_mods ? "yes" : "no").to_bytes())
+                   .display());
         if (DebugVerbose() && egl_exts) {
-            std::fprintf(stderr, "weweb-egl: EGL_EXTENSIONS = %s\n", egl_exts);
+            eprint("weweb-egl: EGL_EXTENSIONS = {}\n",
+                   ref<OsStr>::from_encoded_bytes_unchecked(CStr::from_ptr(egl_exts).to_bytes())
+                       .display());
         }
 
         const auto* gl_vendor   = glGetString(GL_VENDOR);
         const auto* gl_renderer = glGetString(GL_RENDERER);
         const auto* gl_version  = glGetString(GL_VERSION);
-        std::fprintf(stderr,
-                     "weweb-egl: GL_VENDOR   = %s\n",
-                     gl_vendor ? reinterpret_cast<const char*>(gl_vendor) : "?");
-        std::fprintf(stderr,
-                     "weweb-egl: GL_RENDERER = %s\n",
-                     gl_renderer ? reinterpret_cast<const char*>(gl_renderer) : "?");
-        std::fprintf(stderr,
-                     "weweb-egl: GL_VERSION  = %s\n",
-                     gl_version ? reinterpret_cast<const char*>(gl_version) : "?");
+        eprint("weweb-egl: GL_VENDOR   = {}\n",
+               ref<OsStr>::from_encoded_bytes_unchecked(
+                   CStr::from_ptr(gl_vendor ? reinterpret_cast<const char*>(gl_vendor) : "?")
+                       .to_bytes())
+                   .display());
+        eprint("weweb-egl: GL_RENDERER = {}\n",
+               ref<OsStr>::from_encoded_bytes_unchecked(
+                   CStr::from_ptr(gl_renderer ? reinterpret_cast<const char*>(gl_renderer) : "?")
+                       .to_bytes())
+                   .display());
+        eprint("weweb-egl: GL_VERSION  = {}\n",
+               ref<OsStr>::from_encoded_bytes_unchecked(
+                   CStr::from_ptr(gl_version ? reinterpret_cast<const char*>(gl_version) : "?")
+                       .to_bytes())
+                   .display());
 
         // Dump the modifier list NVIDIA's EGL will accept for the formats
         // CEF emits. Helps spot mismatches before the first import — e.g.
         // if NV only advertises NVIDIA-specific tilings and CEF will hand
         // us LINEAR, the import is doomed regardless of attribute layout.
         if (has_dmabuf_mods && fn_eglQueryDmaBufModifiersEXT_) {
-            const std::uint32_t formats[] = {
+            const rstd::uint32_t formats[] = {
                 kDrmFmtArgb8888, kDrmFmtAbgr8888, kDrmFmtBgra8888, kDrmFmtXrgb8888
             };
             const char* fmt_names[] = { "ARGB8888", "ABGR8888", "BGRA8888", "XRGB8888" };
-            for (std::size_t fi = 0; fi < std::size(formats); ++fi) {
+            for (rstd::size_t fi = 0; fi < (sizeof(formats) / sizeof(formats[0])); ++fi) {
                 EGLint n = 0;
                 if (! fn_eglQueryDmaBufModifiersEXT_(
                         egl_display_, static_cast<EGLint>(formats[fi]), 0, nullptr, nullptr, &n) ||
                     n <= 0) {
-                    std::fprintf(
-                        stderr, "weweb-egl: %s: 0 modifiers (unsupported)\n", fmt_names[fi]);
+                    eprint("weweb-egl: {}: 0 modifiers (unsupported)\n",
+                           ref<OsStr>::from_encoded_bytes_unchecked(
+                               CStr::from_ptr(fmt_names[fi]).to_bytes())
+                               .display());
                     continue;
                 }
-                std::vector<EGLuint64KHR> mods(static_cast<std::size_t>(n));
+                Vec<EGLuint64KHR> mods;
+                mods.resize(usize(n), EGLuint64KHR {});
                 if (! fn_eglQueryDmaBufModifiersEXT_(egl_display_,
                                                      static_cast<EGLint>(formats[fi]),
                                                      n,
@@ -326,23 +348,26 @@ bool EglPresenter::Init(GLFWwindow* window) {
                                                      &n)) {
                     continue;
                 }
-                std::fprintf(stderr, "weweb-egl: %s: %d modifiers", fmt_names[fi], n);
+                eprint("weweb-egl: {}: {} modifiers",
+                       ref<OsStr>::from_encoded_bytes_unchecked(
+                           CStr::from_ptr(fmt_names[fi]).to_bytes())
+                           .display(),
+                       n);
                 for (EGLint mi = 0; mi < n; ++mi) {
-                    std::fprintf(stderr, " 0x%016llx", static_cast<unsigned long long>(mods[mi]));
+                    eprint(" 0x{:016x}", mods[usize(mi)]);
                 }
-                std::fputc('\n', stderr);
+                eprint("\n");
             }
         } else {
-            std::fprintf(stderr,
-                         "weweb-egl: cannot query supported modifiers "
-                         "(EGL_EXT_image_dma_buf_import_modifiers missing)\n");
+            eprint("weweb-egl: cannot query supported modifiers "
+                   "(EGL_EXT_image_dma_buf_import_modifiers missing)\n");
         }
     }
 
     int fbw = 0, fbh = 0;
     glfwGetFramebufferSize(window_, &fbw, &fbh);
-    width_  = static_cast<std::uint32_t>(fbw > 0 ? fbw : 0);
-    height_ = static_cast<std::uint32_t>(fbh > 0 ? fbh : 0);
+    width_  = static_cast<rstd::uint32_t>(fbw > 0 ? fbw : 0);
+    height_ = static_cast<rstd::uint32_t>(fbh > 0 ? fbh : 0);
 
     glGenFramebuffers(1, &blit_read_fbo_);
     glGenFramebuffers(1, &blit_draw_fbo_);
@@ -357,9 +382,8 @@ bool EglPresenter::LoadFunctionPointers() {
     fn_glEGLImageTargetTexture2DOES_ = reinterpret_cast<PFNGLEGLIMAGETARGETTEXTURE2DOESPROC>(
         eglGetProcAddress("glEGLImageTargetTexture2DOES"));
     if (! fn_eglCreateImageKHR_ || ! fn_eglDestroyImageKHR_ || ! fn_glEGLImageTargetTexture2DOES_) {
-        std::fprintf(stderr,
-                     "weweb-egl: missing required extension entry points "
-                     "(EGL_KHR_image_base + GL_OES_EGL_image)\n");
+        eprint("weweb-egl: missing required extension entry points (EGL_KHR_image_base + "
+               "GL_OES_EGL_image)\n");
         return false;
     }
     // Optional: only used by the capability dump in Init.
@@ -402,8 +426,8 @@ void EglPresenter::Shutdown() {
 bool EglPresenter::Resize() {
     int fbw = 0, fbh = 0;
     glfwGetFramebufferSize(window_, &fbw, &fbh);
-    width_  = static_cast<std::uint32_t>(fbw > 0 ? fbw : 0);
-    height_ = static_cast<std::uint32_t>(fbh > 0 ? fbh : 0);
+    width_  = static_cast<rstd::uint32_t>(fbw > 0 ? fbw : 0);
+    height_ = static_cast<rstd::uint32_t>(fbh > 0 ? fbh : 0);
     // Wayland: EGL won't notice the GLFW window resize on its own — the
     // wl_egl_window has to be told. X11 picks it up via the X server.
     if (wl_egl_window_ && fbw > 0 && fbh > 0) {
@@ -444,31 +468,31 @@ bool EglPresenter::AcceptDmaBuf(const DmaBufFrame& frame) {
     if (frame.plane_count < 1) return false;
     if (frame.coded_width <= 0 || frame.coded_height <= 0) return false;
 
-    const std::uint32_t fourcc = DrmFourccFor(frame.format);
+    const rstd::uint32_t fourcc = DrmFourccFor(frame.format);
     if (! fourcc) return false;
 
     const bool verbose    = DebugVerbose() || import_count_ == 0;
     auto       dump_frame = [&]() {
-        std::fprintf(stderr,
-                     "weweb-egl: import #%u %dx%d (visible %dx%d) fmt=%s fourcc=0x%08x "
-                     "mod=0x%016llx planes=%d\n",
-                     import_count_,
-                     frame.coded_width,
-                     frame.coded_height,
-                     frame.visible_width,
-                     frame.visible_height,
-                     FormatStr(frame.format),
-                     fourcc,
-                     static_cast<unsigned long long>(frame.modifier),
-                     frame.plane_count);
+        eprint("weweb-egl: import #{} {}x{} (visible {}x{}) fmt={} fourcc=0x{:08x} "
+               "mod=0x{:016x} planes={}\n",
+               import_count_,
+               frame.coded_width,
+               frame.coded_height,
+               frame.visible_width,
+               frame.visible_height,
+               ref<OsStr>::from_encoded_bytes_unchecked(
+                   CStr::from_ptr(FormatStr(frame.format)).to_bytes())
+                   .display(),
+               fourcc,
+               frame.modifier,
+               frame.plane_count);
         for (int i = 0; i < frame.plane_count; ++i) {
-            std::fprintf(stderr,
-                         "weweb-egl:   plane[%d] fd=%d offset=%llu stride=%u size=%llu\n",
-                         i,
-                         frame.planes[i].fd,
-                         static_cast<unsigned long long>(frame.planes[i].offset),
-                         frame.planes[i].stride,
-                         static_cast<unsigned long long>(frame.planes[i].size));
+            eprint("weweb-egl:   plane[{}] fd={} offset={} stride={} size={}\n",
+                   i,
+                   frame.planes[i].fd,
+                   static_cast<unsigned long long>(frame.planes[i].offset),
+                   frame.planes[i].stride,
+                   static_cast<unsigned long long>(frame.planes[i].size));
         }
     };
     if (verbose) dump_frame();
@@ -479,31 +503,32 @@ bool EglPresenter::AcceptDmaBuf(const DmaBufFrame& frame) {
     // in our observed cases that's effectively LINEAR (stride == width*bpp).
     // Mirror VulkanBlitter::AcceptDmaBuf and substitute LINEAR explicitly
     // so both backends agree and NVIDIA accepts the import.
-    constexpr std::uint64_t kDrmModLinear = 0x0;
-    const std::uint64_t     modifier =
+    constexpr rstd::uint64_t kDrmModLinear = 0x0;
+    const rstd::uint64_t     modifier =
         (frame.modifier == kDrmModInvalid) ? kDrmModLinear : frame.modifier;
 
-    std::vector<EGLint> attrs = {
+    auto attrs = Vec<EGLint>::from(array<EGLint, 6> {
         EGL_WIDTH,
         static_cast<EGLint>(frame.coded_width),
         EGL_HEIGHT,
         static_cast<EGLint>(frame.coded_height),
         EGL_LINUX_DRM_FOURCC_EXT,
         static_cast<EGLint>(fourcc),
-    };
-    for (int i = 0; i < frame.plane_count; ++i) {
-        attrs.push_back(kPlaneFD[i]);
-        attrs.push_back(static_cast<EGLint>(frame.planes[i].fd));
-        attrs.push_back(kPlaneOff[i]);
-        attrs.push_back(static_cast<EGLint>(frame.planes[i].offset));
-        attrs.push_back(kPlanePitch[i]);
-        attrs.push_back(static_cast<EGLint>(frame.planes[i].stride));
-        attrs.push_back(kPlaneModLo[i]);
-        attrs.push_back(static_cast<EGLint>(modifier & 0xffffffffu));
-        attrs.push_back(kPlaneModHi[i]);
-        attrs.push_back(static_cast<EGLint>((modifier >> 32) & 0xffffffffu));
     }
-    attrs.push_back(EGL_NONE);
+                                       .as_slice());
+    for (int i = 0; i < frame.plane_count; ++i) {
+        attrs.emplace_back(kPlaneFD[i]);
+        attrs.emplace_back(static_cast<EGLint>(frame.planes[i].fd));
+        attrs.emplace_back(kPlaneOff[i]);
+        attrs.emplace_back(static_cast<EGLint>(frame.planes[i].offset));
+        attrs.emplace_back(kPlanePitch[i]);
+        attrs.emplace_back(static_cast<EGLint>(frame.planes[i].stride));
+        attrs.emplace_back(kPlaneModLo[i]);
+        attrs.emplace_back(static_cast<EGLint>(modifier & 0xffffffffu));
+        attrs.emplace_back(kPlaneModHi[i]);
+        attrs.emplace_back(static_cast<EGLint>((modifier >> 32) & 0xffffffffu));
+    }
+    attrs.emplace_back(EGL_NONE);
 
     EGLImageKHR image = fn_eglCreateImageKHR_(egl_display_,
                                               EGL_NO_CONTEXT,
@@ -512,8 +537,10 @@ bool EglPresenter::AcceptDmaBuf(const DmaBufFrame& frame) {
                                               attrs.data());
     if (image == EGL_NO_IMAGE_KHR) {
         EGLint e = eglGetError();
-        std::fprintf(
-            stderr, "weweb-egl: eglCreateImageKHR(DMA-BUF) failed: %s (0x%x)\n", EglErrStr(e), e);
+        eprint("weweb-egl: eglCreateImageKHR(DMA-BUF) failed: {} (0x{:x})\n",
+               ref<OsStr>::from_encoded_bytes_unchecked(CStr::from_ptr(EglErrStr(e)).to_bytes())
+                   .display(),
+               e);
         if (! verbose) dump_frame();
         ++import_count_;
         return false;
@@ -525,8 +552,10 @@ bool EglPresenter::AcceptDmaBuf(const DmaBufFrame& frame) {
     fn_glEGLImageTargetTexture2DOES_(GL_TEXTURE_2D, image);
     GLenum target_err = glGetError();
     if (verbose || target_err != GL_NO_ERROR) {
-        std::fprintf(
-            stderr, "weweb-egl: glEGLImageTargetTexture2DOES glerr=%s\n", GlErrStr(target_err));
+        eprint("weweb-egl: glEGLImageTargetTexture2DOES glerr={}\n",
+               ref<OsStr>::from_encoded_bytes_unchecked(
+                   CStr::from_ptr(GlErrStr(target_err)).to_bytes())
+                   .display());
     }
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
@@ -548,10 +577,13 @@ bool EglPresenter::AcceptDmaBuf(const DmaBufFrame& frame) {
     GLenum draw_status = glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER);
     if (verbose || read_status != GL_FRAMEBUFFER_COMPLETE ||
         draw_status != GL_FRAMEBUFFER_COMPLETE) {
-        std::fprintf(stderr,
-                     "weweb-egl: import FBO read=%s draw=%s\n",
-                     FboStatusStr(read_status),
-                     FboStatusStr(draw_status));
+        eprint("weweb-egl: import FBO read={} draw={}\n",
+               ref<OsStr>::from_encoded_bytes_unchecked(
+                   CStr::from_ptr(FboStatusStr(read_status)).to_bytes())
+                   .display(),
+               ref<OsStr>::from_encoded_bytes_unchecked(
+                   CStr::from_ptr(FboStatusStr(draw_status)).to_bytes())
+                   .display());
     }
 
     glBlitFramebuffer(0,
@@ -567,7 +599,10 @@ bool EglPresenter::AcceptDmaBuf(const DmaBufFrame& frame) {
 
     GLenum blit_err = glGetError();
     if (verbose || blit_err != GL_NO_ERROR) {
-        std::fprintf(stderr, "weweb-egl: import-blit glerr=%s\n", GlErrStr(blit_err));
+        eprint(
+            "weweb-egl: import-blit glerr={}\n",
+            ref<OsStr>::from_encoded_bytes_unchecked(CStr::from_ptr(GlErrStr(blit_err)).to_bytes())
+                .display());
     }
 
     // Block until the GPU is done reading the imported buffer — CEF
@@ -588,19 +623,18 @@ bool EglPresenter::RenderFrame() {
     int fbw = 0, fbh = 0;
     glfwGetFramebufferSize(window_, &fbw, &fbh);
     if (fbw <= 0 || fbh <= 0) return false;
-    width_  = static_cast<std::uint32_t>(fbw);
-    height_ = static_cast<std::uint32_t>(fbh);
+    width_  = static_cast<rstd::uint32_t>(fbw);
+    height_ = static_cast<rstd::uint32_t>(fbh);
 
     const bool verbose = DebugVerbose() || render_count_ == 0;
     if (verbose) {
-        std::fprintf(stderr,
-                     "weweb-egl: present #%u fb=%dx%d owned=%dx%d has_data=%d\n",
-                     render_count_,
-                     fbw,
-                     fbh,
-                     owned_w_,
-                     owned_h_,
-                     owned_has_data_ ? 1 : 0);
+        eprint("weweb-egl: present #{} fb={}x{} owned={}x{} has_data={}\n",
+               render_count_,
+               fbw,
+               fbh,
+               owned_w_,
+               owned_h_,
+               owned_has_data_ ? 1 : 0);
     }
 
     glViewport(0, 0, fbw, fbh);
@@ -612,14 +646,20 @@ bool EglPresenter::RenderFrame() {
         glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
         GLenum read_status = glCheckFramebufferStatus(GL_READ_FRAMEBUFFER);
         if (verbose || read_status != GL_FRAMEBUFFER_COMPLETE) {
-            std::fprintf(stderr, "weweb-egl: present read FBO=%s\n", FboStatusStr(read_status));
+            eprint("weweb-egl: present read FBO={}\n",
+                   ref<OsStr>::from_encoded_bytes_unchecked(
+                       CStr::from_ptr(FboStatusStr(read_status)).to_bytes())
+                       .display());
         }
         // CEF data is top-down; default FB origin is bottom-left. Flip Y
         // by writing the dst Y range in reverse.
         glBlitFramebuffer(0, 0, owned_w_, owned_h_, 0, fbh, fbw, 0, GL_COLOR_BUFFER_BIT, GL_LINEAR);
         GLenum blit_err = glGetError();
         if (verbose || blit_err != GL_NO_ERROR) {
-            std::fprintf(stderr, "weweb-egl: present-blit glerr=%s\n", GlErrStr(blit_err));
+            eprint("weweb-egl: present-blit glerr={}\n",
+                   ref<OsStr>::from_encoded_bytes_unchecked(
+                       CStr::from_ptr(GlErrStr(blit_err)).to_bytes())
+                       .display());
         }
         glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
     } else {
@@ -629,7 +669,10 @@ bool EglPresenter::RenderFrame() {
 
     if (! eglSwapBuffers(egl_display_, egl_surface_)) {
         EGLint e = eglGetError();
-        std::fprintf(stderr, "weweb-egl: eglSwapBuffers failed: %s (0x%x)\n", EglErrStr(e), e);
+        eprint("weweb-egl: eglSwapBuffers failed: {} (0x{:x})\n",
+               ref<OsStr>::from_encoded_bytes_unchecked(CStr::from_ptr(EglErrStr(e)).to_bytes())
+                   .display(),
+               e);
         ++render_count_;
         return false;
     }

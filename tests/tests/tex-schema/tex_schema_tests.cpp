@@ -281,7 +281,8 @@ const CorpusScan& AllScans() {
         for (const auto& pkg : pkgs) {
             std::string id = pkg.parent_path().filename().string();
 
-            auto wfs = owe::fs::WPPkgFs::open(owe::fs::ToPath(pkg.string()));
+            auto wfs =
+                owe::fs::WPPkgFs::open(owe::fs::Path(rstd::cppstd::as_str(pkg.string()).unwrap()));
             if (wfs.is_err()) continue;
             auto vfs = std::make_shared<owe::fs::VFS>();
             if (vfs->mount("/assets"_str, wfs->mount_handle()).is_err()) continue;
@@ -555,7 +556,7 @@ TEST(TexSchema, ProductionParseDecodesEveryBucket) {
             continue;
         }
         auto img = image.take().unwrap_unchecked();
-        if (img->content->slots.empty()) {
+        if (img->content->slots.is_empty()) {
             ++parse_failed;
             ++per_bucket_fail[key];
             ADD_FAILURE() << "Parse returned an empty image for " << m.workshop_id << " "
@@ -563,7 +564,7 @@ TEST(TexSchema, ProductionParseDecodesEveryBucket) {
                           << " image_type=" << static_cast<int>(h.type) << ")";
             continue;
         }
-        const auto& s0 = img->content->slots[0];
+        const auto& s0 = img->content->slots[usize(0)];
         if (s0.width <= 0 || s0.height <= 0) {
             ++slot_dim_zero;
             ++per_bucket_fail[key];
@@ -571,7 +572,8 @@ TEST(TexSchema, ProductionParseDecodesEveryBucket) {
                           << " for " << m.workshop_id << " " << m.pkg_path;
             continue;
         }
-        if (s0.mipmaps.empty() || ! s0.mipmaps[0].data || s0.mipmaps[0].size <= rstd::isize()) {
+        if (s0.mipmaps.is_empty() || ! s0.mipmaps[usize(0)].data ||
+            s0.mipmaps[usize(0)].size <= rstd::isize()) {
             ++slot_empty;
             ++per_bucket_fail[key];
             ADD_FAILURE() << "slot 0 mip 0 missing data for " << m.workshop_id << " " << m.pkg_path;

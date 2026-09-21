@@ -16,8 +16,7 @@ namespace
 
 void ParseBinding(owe::wpscene::FieldBindings& bindings, ref<str> field, ref<str> json) {
     auto value = rstd::json::from_str(json).unwrap();
-    ASSERT_GT(
-        owe::wpscene::AbsorbFieldBinding(rstd::cppstd::as_string_view(field), value, bindings), 0u);
+    ASSERT_GT(owe::wpscene::AbsorbFieldBinding(field, value, bindings), rstd::usize());
 }
 
 bool HasIssue(const owe::SceneAnimationBindingScope& scope, owe::SceneAnimationBindingIssue issue) {
@@ -48,10 +47,10 @@ TEST(MaterialParser, ParsesLegacyUserShaderValues) {
     owe::wpscene::Material material;
     ASSERT_TRUE(material.FromJson(j));
 
-    ASSERT_EQ(material.user_shader_values.size(), 3u);
-    EXPECT_EQ(material.user_shader_values.at("flagcolor1"), "color2");
-    EXPECT_EQ(material.user_shader_values.at("flagcolor2"), "color3");
-    EXPECT_EQ(material.user_shader_values.at("schemecolor"), "color1");
+    ASSERT_EQ(material.user_shader_values.len(), usize(3));
+    EXPECT_EQ(*material.user_shader_values.get("flagcolor1"_str).unwrap(), "color2"_str);
+    EXPECT_EQ(*material.user_shader_values.get("flagcolor2"_str).unwrap(), "color3"_str);
+    EXPECT_EQ(*material.user_shader_values.get("schemecolor"_str).unwrap(), "color1"_str);
 }
 
 TEST(MaterialParser, ExactShaderKeyWinsOverLegacySpelling) {
@@ -72,15 +71,16 @@ TEST(MaterialParser, ExactShaderKeyWinsOverLegacySpelling) {
                  "constantshadervalues": {"TintColor": "0.5 0.5 0.5"}
              }]}]}
         ]
-    })",
+    })"_str,
                                                          owe::wpscene::kSceneVersionUnknown);
     ASSERT_TRUE(document.is_some());
-    auto assets = owe::fs::make_physical_fs(owe::fs::ToPath(WAYWALLEN_ASSETS_DIR));
+    auto assets = owe::fs::make_physical_fs(
+        owe::fs::Path(rstd::cppstd::as_str(WAYWALLEN_ASSETS_DIR).unwrap()));
     ASSERT_TRUE(assets.is_ok());
     owe::fs::VFS vfs;
     ASSERT_TRUE(vfs.mount("/assets"_str, rstd::move(assets).unwrap()).is_ok());
-    auto effect_assets = owe::fs::make_physical_fs(
-        owe::fs::ToPath(std::string(WAYWALLEN_ASSETS_DIR) + "/effects/tint"));
+    auto effect_assets = owe::fs::make_physical_fs(owe::fs::Path(
+        rstd::cppstd::as_str(std::string(WAYWALLEN_ASSETS_DIR) + "/effects/tint").unwrap()));
     ASSERT_TRUE(effect_assets.is_ok());
     ASSERT_TRUE(vfs.mount("/assets"_str, rstd::move(effect_assets).unwrap()).is_ok());
     wavsen::audio::SoundManager sound_manager;
@@ -94,17 +94,17 @@ TEST(MaterialParser, ExactShaderKeyWinsOverLegacySpelling) {
     auto  scene    = rstd::move(parsed).unwrap();
     float expected = 0.0f;
     for (const auto* name : { "exact", "legacy", "uniform" }) {
-        auto node = scene.scene->RootMut()->FindByName(name);
+        auto node = scene.scene->RootMut()->FindByName(rstd::cppstd::as_str(name).unwrap());
         ASSERT_NE(node, nullptr);
         ASSERT_TRUE(node->HasLayer());
         auto& layer = node->Layer();
-        layer->ResolveEffect(*scene.scene->DefaultEffectMesh(), "effect");
-        ASSERT_FALSE(layer->ResolvedEffects().empty());
-        auto* effect = layer->ResolvedEffects().front();
-        ASSERT_FALSE(effect->nodes.empty());
-        auto* material = effect->nodes.front().sceneNode->Mesh()->Material();
+        layer->ResolveEffect(*scene.scene->DefaultEffectMesh(), "effect"_str);
+        ASSERT_FALSE(layer->ResolvedEffects().is_empty());
+        auto* effect = layer->ResolvedEffects()[usize()];
+        ASSERT_FALSE(effect->Nodes().is_empty());
+        auto* material = effect->Nodes()[rstd::usize()]->sceneNode->Mesh()->Material();
         ASSERT_NE(material, nullptr);
-        const auto& color = material->customShader.constValues.at("g_TintColor");
+        const auto& color = (**material->customShader.constValues.get("g_TintColor"_str));
         ASSERT_EQ(color.size(), usize(3));
         for (usize i {}; i < color.size(); ++i)
             EXPECT_FLOAT_EQ(color.data()[i.to_primitive()], expected);
@@ -128,7 +128,7 @@ TEST(MaterialParser, PreservesConstantShaderValueScriptBindingsAcrossPassMerge) 
                 "script": "export function update(value) { return value; }",
                 "scriptproperties": {"speed": 2.0},
                 "animation": {"c0": [{"frame": 0, "value": 0.1}]},
-                "value": "0.1 0.2 0.3"
+                "value": "0.1, 0.2, 0.3"
             }
         }
     })"_str)
@@ -143,13 +143,13 @@ TEST(MaterialParser, PreservesConstantShaderValueScriptBindingsAcrossPassMerge) 
     auto binding = material.constantshadervalues_bindings.Get("color"_str);
     ASSERT_TRUE(binding.is_some());
     ASSERT_TRUE((**binding).script.is_some());
-    EXPECT_EQ((**binding).script->source, "export function update(value) { return value; }");
+    EXPECT_EQ((**binding).script->source, "export function update(value) { return value; }"_str);
     ASSERT_TRUE((**binding).script_properties.is_some());
     EXPECT_TRUE((**binding).script_properties->is_object());
     EXPECT_TRUE((**binding).script->initial_value.is_string());
     ASSERT_TRUE((**binding).animation.is_some());
-    ASSERT_EQ((**binding).animation->c0.size(), 1u);
-    EXPECT_FLOAT_EQ((**binding).animation->c0[0].value, 0.1f);
+    ASSERT_EQ((**binding).animation->c0.len(), rstd::usize(1));
+    EXPECT_FLOAT_EQ((**binding).animation->c0[rstd::usize()].value, 0.1f);
 
     auto clone          = material.clone();
     auto cloned_binding = clone.constantshadervalues_bindings.Get("color"_str);
@@ -159,6 +159,88 @@ TEST(MaterialParser, PreservesConstantShaderValueScriptBindingsAcrossPassMerge) 
     ASSERT_TRUE((**cloned_binding).script_properties.is_some());
     EXPECT_TRUE((**cloned_binding).script_properties->is_object());
     EXPECT_TRUE((**cloned_binding).script->initial_value.is_string());
+}
+
+TEST(MaterialParser, CloneOwnsMaterialDataAndPassOverrides) {
+    auto                   json = rstd::json::from_str(R"({"passes":[{
+        "shader":"original", "textures":["first",null,"last"],
+        "usertextures":["property",null,{"name":"$mediaThumbnail","type":"system"}],
+        "combos":{"MODE":1}, "constantshadervalues":{"color":"0.1 0.2 0.3"},
+        "usershadervalues":{"property":"color"}
+    }]})"_str)
+                                      .unwrap();
+    owe::wpscene::Material material;
+    ASSERT_TRUE(material.FromJson(json));
+    auto copy                      = material.clone();
+    material.shader                = "changed"_Str;
+    material.textures[usize()]     = "changed"_Str;
+    material.usertextures[usize()] = owe::Json::Null();
+    (void)material.combos.insert("MODE"_Str, i32(2));
+    (*material.constantshadervalues.get_mut("color"_str).unwrap())[usize()] = 9.0f;
+    (void)material.user_shader_values.insert("property"_Str, "other"_Str);
+
+    EXPECT_EQ(copy.shader, "original"_str);
+    ASSERT_EQ(copy.textures.len(), usize(3));
+    EXPECT_EQ(copy.textures[usize()], "first"_str);
+    EXPECT_TRUE(copy.textures[usize(1)].is_empty());
+    EXPECT_EQ(*copy.usertextures[usize()].as_str(), "property"_str);
+    EXPECT_EQ(*copy.combos.get("MODE"_str).unwrap(), i32(1));
+    EXPECT_FLOAT_EQ((*copy.constantshadervalues.get("color"_str).unwrap())[usize()], 0.1f);
+    EXPECT_EQ(*copy.user_shader_values.get("property"_str).unwrap(), "color"_str);
+
+    auto                       overrides = rstd::json::from_str(R"({
+        "textures":[null,"replacement","",null,"new"],
+        "usertextures":[null,"new-property"], "combos":{"MODE":3},
+        "constantshadervalues":{"color":[0.4,0.5]},
+        "usershadervalues":{"property":"tint"}
+    })"_str)
+                                               .unwrap();
+    owe::wpscene::MaterialPass pass;
+    ASSERT_TRUE(pass.FromJson(overrides));
+    copy.MergePass(pass);
+    pass.textures[usize(1)]                                             = "mutated"_Str;
+    (*pass.constantshadervalues.get_mut("color"_str).unwrap())[usize()] = 8.0f;
+    ASSERT_EQ(copy.textures.len(), usize(5));
+    EXPECT_EQ(copy.textures[usize()], "first"_str);
+    EXPECT_EQ(copy.textures[usize(1)], "replacement"_str);
+    EXPECT_EQ(copy.textures[usize(2)], "last"_str);
+    EXPECT_TRUE(copy.textures[usize(3)].is_empty());
+    EXPECT_EQ(copy.textures[usize(4)], "new"_str);
+    ASSERT_EQ(copy.usertextures.len(), usize(3));
+    EXPECT_EQ(*copy.usertextures[usize()].as_str(), "property"_str);
+    EXPECT_EQ(*copy.usertextures[usize(1)].as_str(), "new-property"_str);
+    EXPECT_TRUE(copy.usertextures[usize(2)].is_object());
+    EXPECT_EQ(*copy.combos.get("MODE"_str).unwrap(), i32(3));
+    EXPECT_EQ(copy.constantshadervalues.get("color"_str).unwrap()->len(), usize(2));
+    EXPECT_FLOAT_EQ((*copy.constantshadervalues.get("color"_str).unwrap())[usize()], 0.4f);
+    EXPECT_EQ(*copy.user_shader_values.get("property"_str).unwrap(), "tint"_str);
+}
+
+TEST(MaterialParser, PassUpdateKeepsRoutingAndOwnsOverrides) {
+    auto                       original      = rstd::json::from_str(R"({
+        "id":7,"target":"output","bind":[{"name":"previous","index":0}],
+        "textures":["base"],"combos":{"MODE":1}
+    })"_str)
+                                                   .unwrap();
+    auto                       override_json = rstd::json::from_str(R"({
+        "id":8,"target":"ignored","bind":[{"name":"ignored","index":2}],
+        "textures":[null,"added"],"combos":{"MODE":2}
+    })"_str)
+                                                   .unwrap();
+    owe::wpscene::MaterialPass pass, overrides;
+    ASSERT_TRUE(pass.FromJson(original));
+    ASSERT_TRUE(overrides.FromJson(override_json));
+    pass.Update(overrides);
+    overrides.textures[usize(1)].clear();
+    EXPECT_EQ(pass.id, u32(7));
+    EXPECT_EQ(pass.target, "output"_str);
+    ASSERT_EQ(pass.bind.len(), usize(1));
+    EXPECT_EQ(pass.bind[usize()].name, "previous"_str);
+    EXPECT_EQ(pass.bind[usize()].index, i32());
+    ASSERT_EQ(pass.textures.len(), usize(2));
+    EXPECT_EQ(pass.textures[usize()], "base"_str);
+    EXPECT_EQ(pass.textures[usize(1)], "added"_str);
+    EXPECT_EQ(*pass.combos.get("MODE"_str).unwrap(), i32(2));
 }
 
 TEST(AnimationBinding, ResolvesReciprocalTracksAcrossPropertyObjects) {
@@ -234,8 +316,10 @@ TEST(AnimationBinding, KeepsAmbiguousRelationsIndependent) {
                     }
                  })"_str);
     image.effects.emplace_back();
-    image.effects.back().materials.emplace_back();
-    ParseBinding(image.effects.back().materials.back().constantshadervalues_bindings,
+    image.effects[image.effects.len() - usize(1)].materials.push(owe::wpscene::Material {});
+    ParseBinding(image.effects[image.effects.len() - usize(1)]
+                     .materials[usize()]
+                     .constantshadervalues_bindings,
                  "amount"_str,
                  R"({
                     "animation": {
@@ -352,4 +436,202 @@ TEST(AnimationBinding, ReportsCyclesAndDuplicateNames) {
                  }}})"_str);
     auto duplicate_scope = owe::BuildAnimationBindingScope(duplicate);
     EXPECT_TRUE(HasIssue(duplicate_scope, owe::SceneAnimationBindingIssue::DuplicateName));
+}
+
+TEST(FieldBindingStorage, CloneOwnsCurvesEventsAndSourceWithoutChangingIdentity) {
+    owe::wpscene::FieldBindings bindings;
+    ParseBinding(bindings, "origin"_str, R"({
+        "animation": {
+            "c0":[{"frame":3,"value":2.5}],
+            "options":{"mode":"loop","name":"motion","events":[{"frame":3,"name":"marker"}]}
+        },
+        "script":"export function update(value) { return value; }",
+        "value":[1,2,3]
+    })"_str);
+    auto clone    = bindings.clone();
+    auto original = bindings.GetMut("origin"_str).unwrap();
+    auto copied   = clone.Get("origin"_str).unwrap();
+    EXPECT_EQ(original->identity, copied->identity);
+    original->animation->c0[usize()].value            = 8.0f;
+    original->animation->options.events[usize()].name = "changed"_Str;
+    original->script->source                          = "changed"_Str;
+    EXPECT_FLOAT_EQ(copied->animation->c0[usize()].value, 2.5f);
+    EXPECT_EQ(copied->animation->options.events[usize()].name, "marker"_str);
+    EXPECT_EQ(copied->script->source, "export function update(value) { return value; }"_str);
+    EXPECT_TRUE(bindings.Get("missing"_str).is_none());
+    EXPECT_TRUE(bindings.GetMut("missing"_str).is_none());
+    auto identity    = original->identity;
+    auto replacement = rstd::json::from_str(R"({"script":"replacement","value":0})"_str).unwrap();
+    EXPECT_EQ(owe::wpscene::AbsorbFieldBinding("origin"_str, replacement, bindings), usize(1));
+    EXPECT_EQ(bindings.Get("origin"_str).unwrap()->identity, identity);
+    EXPECT_EQ(bindings.Entries().len(), usize(1));
+}
+
+TEST(AnimationBinding, PreservesDeclarationOrderOfSameFrameEvents) {
+    owe::wpscene::FieldBindings bindings;
+    ParseBinding(bindings, "origin"_str, R"({
+        "animation": {
+            "c0":[{"frame":20,"value":2},{"frame":0,"value":0}],
+            "options":{"events":[
+                {"frame":10,"name":"first"},
+                {"frame":2,"name":"early"},
+                {"frame":10,"name":"second"},
+                {"frame":10,"name":"third"}
+            ]}
+        }
+    })"_str);
+    auto scope   = owe::BuildAnimationBindingScope(bindings);
+    auto binding = bindings.Get("origin"_str).unwrap();
+    auto track   = scope.Resolve(*binding).unwrap();
+    auto clip    = track.playback->Clip();
+    auto events  = clip->Events();
+    ASSERT_EQ(events.len(), usize(4));
+    EXPECT_EQ(events[usize()].name, "early"_str);
+    EXPECT_EQ(events[usize(1)].name, "first"_str);
+    EXPECT_EQ(events[usize(2)].name, "second"_str);
+    EXPECT_EQ(events[usize(3)].name, "third"_str);
+    EXPECT_EQ(events[usize()].order, usize(1));
+    EXPECT_EQ(events[usize(1)].order, usize());
+    EXPECT_EQ(track.curve->c0[usize()].frame, i32());
+}
+
+TEST(ParticleDocument, PreservesRendererDefaultsAndDeclarationOrder) {
+    owe::fs::VFS vfs;
+    auto         assets = owe::fs::make_physical_fs(
+        owe::fs::Path(rstd::cppstd::as_str(WAYWALLEN_ASSETS_DIR).unwrap()));
+    ASSERT_TRUE(assets.is_ok());
+    ASSERT_TRUE(vfs.mount("/assets"_str, rstd::move(assets).unwrap()).is_ok());
+    auto                   json = owe::ParseJson(R"({
+        "emitter":[{"name":"boxrandom","id":2,"sign":"-5 0 8"},{"name":"sphererandom","id":1}],
+        "material":"materials/util/effectpassthrough.json",
+        "maxcount":42,"starttime":1.5,"animationmode":"sequence",
+        "controlpoint":[{"id":7,"offset":"1 2 3"},{"id":2,"offset":"4 5 6"}]
+    })"_str)
+                                      .unwrap();
+    owe::wpscene::Particle particle;
+    ASSERT_TRUE(particle.FromJson(json, vfs));
+    ASSERT_EQ(particle.emitters.len(), usize(2));
+    EXPECT_EQ(particle.emitters[usize()].name, "boxrandom"_str);
+    EXPECT_EQ(particle.emitters[usize(1)].id, i32(1));
+    EXPECT_EQ(particle.emitters[usize()].sign[usize(0)], i32(-1));
+    EXPECT_EQ(particle.emitters[usize()].sign[usize(2)], i32(1));
+    ASSERT_EQ(particle.renderers.len(), usize(1));
+    EXPECT_EQ(particle.renderers[usize()].name, "sprite"_str);
+    ASSERT_EQ(particle.controlpoints.len(), usize(2));
+    EXPECT_EQ(particle.controlpoints[usize()].id, i32(7));
+    EXPECT_EQ(particle.controlpoints[usize(1)].id, i32(2));
+    auto more = owe::ParseJson(R"({
+        "emitter":[], "renderer":[{"name":"ropetrail"},{"name":"spritetrail"}],
+        "material":"materials/util/effectpassthrough.json"
+    })"_str)
+                    .unwrap();
+    ASSERT_TRUE(particle.FromJson(more, vfs));
+    ASSERT_EQ(particle.emitters.len(), usize(2));
+    ASSERT_EQ(particle.renderers.len(), usize(3));
+    EXPECT_EQ(particle.renderers[usize(1)].name, "ropetrail"_str);
+    EXPECT_FLOAT_EQ(particle.renderers[usize(1)].subdivision, 1.0f);
+    EXPECT_EQ(particle.renderers[usize(2)].name, "spritetrail"_str);
+    EXPECT_FLOAT_EQ(particle.renderers[usize(2)].subdivision, 3.0f);
+}
+
+TEST(ParticleDocument, CloneOwnsRecursiveDataAndPreservesEmitterFields) {
+    owe::wpscene::Particle particle;
+    owe::wpscene::Emitter  emitter;
+    auto                   json = owe::ParseJson(R"({
+        "name":"boxrandom","id":7,"directions":"1 2 3",
+        "distancemax":"4 5 6","distancemin":"-1 -2 -3","origin":"9 8 7",
+        "sign":"-2 0 3","instantaneous":3,"maxtoemitperperiod":4,
+        "speedmin":2,"speedmax":9,"audioprocessingmode":1,"audioamount":0.4,
+        "audioexponent":2,"audiofrequency":"2 8","audiobounds":"0.2 0.7",
+        "controlpoint":3,"flags":2,"rate":11,"duration":12
+    })"_str)
+                                      .unwrap();
+    ASSERT_TRUE(emitter.FromJson(json));
+    particle.emitters.push(rstd::move(emitter));
+    owe::wpscene::ParticleRender renderer;
+    ASSERT_TRUE(renderer.FromJson(owe::ParseJson(R"({
+        "name":"ropetrail","length":0.2,"maxlength":8,"subdivision":6,"segments":7
+    })"_str)
+                                      .unwrap()));
+    particle.renderers.push(rstd::move(renderer));
+    particle.animationmode = "randomframe"_Str;
+    particle.initializers.push(owe::ParseJson(R"({"name":"sizerandom","min":3})"_str).unwrap());
+    particle.operators.push(owe::ParseJson(R"({"name":"movement","drag":2})"_str).unwrap());
+    owe::wpscene::ParticleChild child;
+    child.name                   = "child"_Str;
+    child.type                   = "eventfollow"_Str;
+    child.controlpointstartindex = Some(i32(5));
+    child.probability            = 0.25f;
+    child.obj.animationmode      = "sequence"_Str;
+    child.obj.material.shader    = "nested"_Str;
+    owe::wpscene::ParticleChild grandchild;
+    grandchild.name = "grandchild"_Str;
+    child.obj.children.push(rstd::move(grandchild));
+    particle.children.push(rstd::move(child));
+    auto  copy = particle.Clone();
+    auto& e    = copy.emitters[usize()];
+    EXPECT_EQ(e.name, "boxrandom"_str);
+    EXPECT_EQ(e.id, i32(7));
+    EXPECT_FLOAT_EQ(e.directions[usize(1)], 2.0f);
+    EXPECT_FLOAT_EQ(e.distancemax[usize(2)], 6.0f);
+    EXPECT_FLOAT_EQ(e.distancemin[usize(1)], -2.0f);
+    EXPECT_FLOAT_EQ(e.origin[usize(0)], 9.0f);
+    EXPECT_EQ(e.sign[usize(0)], i32(-1));
+    EXPECT_EQ(e.instantaneous, u32(3));
+    EXPECT_EQ(e.max_emit_per_period, u32(4));
+    EXPECT_FLOAT_EQ(e.speedmin, 2.0f);
+    EXPECT_FLOAT_EQ(e.speedmax, 9.0f);
+    EXPECT_EQ(e.audioprocessingmode, u32(1));
+    EXPECT_FLOAT_EQ(e.audioamount, 0.4f);
+    EXPECT_FLOAT_EQ(e.audioexponent, 2.0f);
+    EXPECT_FLOAT_EQ(e.audiofrequency[usize(1)], 8.0f);
+    EXPECT_FLOAT_EQ(e.audiobounds[usize(0)], 0.2f);
+    EXPECT_EQ(e.controlpoint, i32(3));
+    EXPECT_TRUE(e.flags[owe::wpscene::Emitter::FlagEnum::one_per_frame]);
+    EXPECT_FLOAT_EQ(e.rate, 11.0f);
+    EXPECT_FLOAT_EQ(e.duration, 12.0f);
+    particle.emitters[usize()].name  = "changed"_Str;
+    particle.renderers[usize()].name = "changed"_Str;
+    particle.initializers.clear();
+    particle.operators.clear();
+    particle.children.clear();
+    particle.animationmode.clear();
+    EXPECT_EQ(copy.animationmode, "randomframe"_str);
+    EXPECT_EQ(e.name, "boxrandom"_str);
+    EXPECT_EQ(copy.renderers[usize()].name, "ropetrail"_str);
+    EXPECT_FLOAT_EQ(copy.renderers[usize()].length, 0.2f);
+    EXPECT_FLOAT_EQ(copy.renderers[usize()].maxlength, 8.0f);
+    EXPECT_FLOAT_EQ(copy.renderers[usize()].subdivision, 6.0f);
+    EXPECT_EQ(copy.renderers[usize()].segments, i32(7));
+    EXPECT_EQ(copy.initializers.len(), usize(1));
+    EXPECT_EQ(copy.operators.len(), usize(1));
+    ASSERT_EQ(copy.children.len(), usize(1));
+    EXPECT_EQ(copy.children[usize()].type, "eventfollow"_str);
+    EXPECT_EQ(*copy.children[usize()].controlpointstartindex, i32(5));
+    EXPECT_FLOAT_EQ(copy.children[usize()].probability, 0.25f);
+    EXPECT_EQ(copy.children[usize()].obj.material.shader, "nested"_str);
+    EXPECT_EQ(copy.children[usize()].obj.children[usize()].name, "grandchild"_str);
+}
+
+TEST(ParticleDocument, OverrideCloneSeparatesKeysAndSharesReadOnlyBindings) {
+    owe::wpscene::ParticleInstanceoverride source;
+    ASSERT_TRUE(source.FromJosn(owe::ParseJson(R"({
+        "alpha":{"value":0.25,"user":"opacity"},
+        "size":{"value":4,"user":"scale"},
+        "color":{"value":"1 0 0","user":"tint"},
+        "controlpoint0":{"value":"1 2 3","user":"origin"}
+    })"_str)
+                                    .unwrap()));
+    auto copy = source.clone();
+    EXPECT_EQ(copy.FieldBindingsView(), source.FieldBindingsView());
+    auto update = owe::ParseJson(R"({"alpha":{"value":0.5,"user":"replacement"}})"_str).unwrap();
+    ASSERT_TRUE(source.FromJosn(update));
+    EXPECT_EQ(**source.bindings.get("alpha"_str), "replacement"_str);
+    EXPECT_EQ(**source.bindings.get("size"_str), "scale"_str);
+    EXPECT_EQ(**copy.bindings.get("alpha"_str), "opacity"_str);
+    EXPECT_EQ(**copy.bindings.get("controlpoint0"_str), "origin"_str);
+    EXPECT_NE(copy.FieldBindingsView(), source.FieldBindingsView());
+    EXPECT_NE(copy.FieldBindingsView(), nullptr);
+    EXPECT_FLOAT_EQ(copy.alpha, 0.25f);
+    EXPECT_FLOAT_EQ(copy.size, 4.0f);
 }

@@ -175,12 +175,12 @@ TEST(ShaderArtifact, ClonesOwnedStageCode) {
         .stage       = owe::ShaderType::VERTEX,
         .entry_point = rstd::string::String::make("main"_str),
     };
-    stage.code.push(rstd::u32(7));
+    stage.code.push(7u);
     artifact.stages.push(rstd::move(stage));
 
     auto cloned                                      = artifact.clone();
-    cloned.stages[rstd::usize()].code[rstd::usize()] = rstd::u32(9);
+    cloned.stages[rstd::usize()].code[rstd::usize()] = 9u;
 
-    EXPECT_EQ(artifact.stages[rstd::usize()].code[rstd::usize()], rstd::u32(7));
-    EXPECT_EQ(cloned.stages[rstd::usize()].code[rstd::usize()], rstd::u32(9));
+    EXPECT_EQ(artifact.stages[rstd::usize()].code[rstd::usize()], 7u);
+    EXPECT_EQ(cloned.stages[rstd::usize()].code[rstd::usize()], 9u);
 }

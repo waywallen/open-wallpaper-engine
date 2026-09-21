@@ -11,7 +11,6 @@ import wescene.core;
 import wescene.types;
 import rstd;
 import rstd.log;
-import rstd.cppstd;
 import wescene.utils;
 import wescene.scene;
 import wescene.text;
@@ -21,8 +20,6 @@ using namespace rstd::prelude;
 using namespace rstd::literals;
 using rstd::collections::HashMap;
 using rstd::collections::HashSet;
-using rstd::cppstd::as_str;
-using rstd::cppstd::as_string_view;
 using rstd::slice_::sort_unstable_by;
 using rstd::sync::Arc;
 using namespace owe;
@@ -38,7 +35,7 @@ void ParseCamera(SceneParseContext& context, const wpscene::SceneMetadata& sc) {
     auto effect_camera = Arc<SceneCamera>::make(SceneCamera::MakeOrthographic(2, 2, -1.0, 1.0));
     context.effect_camera_node = Some(Arc<SceneNode>::make()); // at 0,0,0
     effect_camera->AttatchNode((*context.effect_camera_node).as_ptr());
-    scene.RegisterCamera(String::make("effect"_str), rstd::move(effect_camera));
+    scene.RegisterCamera("effect"_Str, rstd::move(effect_camera));
     scene.RootMut()->AppendChild((*context.effect_camera_node).clone());
 
     // global camera
@@ -52,7 +49,7 @@ void ParseCamera(SceneParseContext& context, const wpscene::SceneMetadata& sc) {
 
     context.global_camera_node = Some(Arc<SceneNode>::make(cori, cscale, cangle));
     global_camera->AttatchNode((*context.global_camera_node).as_ptr());
-    scene.RegisterCamera(String::make("global"_str), rstd::move(global_camera));
+    scene.RegisterCamera("global"_Str, rstd::move(global_camera));
     (void)scene.SetActiveCamera("global"_str);
     scene.RootMut()->AppendChild((*context.global_camera_node).clone());
 
@@ -83,7 +80,7 @@ void ParseCamera(SceneParseContext& context, const wpscene::SceneMetadata& sc) {
         const Vector3d center { cori.x(), cori.y(), 0.0 };
         perspective_camera->SetLookAt(eye, center, Vector3d::UnitY());
     }
-    scene.RegisterCamera(String::make("global_perspective"_str), perspective_camera.clone());
+    scene.RegisterCamera("global_perspective"_Str, perspective_camera.clone());
     scene.RootMut()->AppendChild((*context.global_perspective_camera_node).clone());
 
     // Perspective scene (orthogonalprojection==null). The content is authored
@@ -92,9 +89,11 @@ void ParseCamera(SceneParseContext& context, const wpscene::SceneMetadata& sc) {
     // from scene.camera + general.fov and make it the active camera so every
     // layer (and its composite) renders under the same world-space view.
     if (! general.isOrtho) {
-        Vector3d eye { sc.camera.eye[0], sc.camera.eye[1], sc.camera.eye[2] };
-        Vector3d center { sc.camera.center[0], sc.camera.center[1], sc.camera.center[2] };
-        Vector3d up { sc.camera.up[0], sc.camera.up[1], sc.camera.up[2] };
+        Vector3d eye { sc.camera.eye[usize(0)], sc.camera.eye[usize(1)], sc.camera.eye[usize(2)] };
+        Vector3d center { sc.camera.center[usize(0)],
+                          sc.camera.center[usize(1)],
+                          sc.camera.center[usize(2)] };
+        Vector3d up { sc.camera.up[usize(0)], sc.camera.up[usize(1)], sc.camera.up[usize(2)] };
         perspective_camera->SetLookAt(eye, center, up);
         perspective_camera->SetFov(
             general.perspectiveoverridefov > 0.0f ? general.perspectiveoverridefov : general.fov);
@@ -115,8 +114,8 @@ void ParseCameraObj(SceneParseContext& context, wpscene::CameraObject& cam) {
         (*perspective).as_raw_ptr() == (*active).as_raw_ptr())
         use_perspective = true;
 
-    std::string camera_name = use_perspective ? "global_perspective" : "global";
-    auto        camera      = scene.CameraHandle(rstd::cppstd::as_str(camera_name).unwrap());
+    ref<str> camera_name = use_perspective ? "global_perspective"_str : "global"_str;
+    auto     camera      = scene.CameraHandle(camera_name);
     if (camera.is_none()) return;
 
     auto       camera_owner = rstd::move(*camera);
@@ -138,13 +137,15 @@ void ParseCameraObj(SceneParseContext& context, wpscene::CameraObject& cam) {
     double   default_fov       = camera_owner->Fov();
     Vector3f default_translate = default_node->Translate();
     Vector3f default_rotation  = default_node->Rotation();
-    Vector3f origin { cam.origin[0], cam.origin[1], cam.origin[2] };
-    Vector3f angles { cam.angles[0], cam.angles[1], cam.angles[2] };
+    Vector3f origin { cam.origin[usize(0)], cam.origin[usize(1)], cam.origin[usize(2)] };
+    Vector3f angles { cam.angles[usize(0)], cam.angles[usize(1)], cam.angles[usize(2)] };
     Vector3f path_translate_bias = use_perspective ? Vector3f::Zero() : default_translate;
     Vector3f path_rotation_bias  = use_perspective ? Vector3f::Zero() : default_rotation;
 
-    auto node = Arc<SceneNode>::make(
-        path_translate_bias + origin, Vector3f::Ones(), path_rotation_bias + angles, cam.name);
+    auto node  = Arc<SceneNode>::make(path_translate_bias + origin,
+                                      Vector3f::Ones(),
+                                      path_rotation_bias + angles,
+                                      cam.name.as_str());
     node->ID() = i32(cam.id);
     if (! cam.visible) node->SetVisible(false);
     if (! cam.visible_user.empty())
@@ -155,11 +156,11 @@ void ParseCameraObj(SceneParseContext& context, wpscene::CameraObject& cam) {
         if (cam.fov > 0.0f) camera_owner->SetFov(cam.fov);
         camera_owner->SetAspect(rstd::as_cast<double>(context.ortho_w) /
                                 rstd::as_cast<double>(context.ortho_h));
-        (void)scene.SetActiveCamera(rstd::cppstd::as_str(camera_name).unwrap());
+        (void)scene.SetActiveCamera(camera_name);
     }
 
     auto path                 = Arc<SceneCameraPath>::make();
-    path->camera_name         = String::make(rstd::cppstd::as_str(camera_name).unwrap());
+    path->camera_name         = String::make(camera_name);
     path->camera              = Some(camera_owner.clone());
     path->node                = node.as_ptr();
     path->default_translate   = default_translate;
@@ -180,9 +181,8 @@ void ParseCameraObj(SceneParseContext& context, wpscene::CameraObject& cam) {
     AssignCameraFieldAnimations(context, *node, *path, cam.field_bindings);
     LoadCameraObjectPath(context, cam, *path);
     scene.RegisterCameraPath(path.clone());
-    if (! cam.visible_user_key.empty()) {
-        scene.RegisterCameraPathUserBinding(
-            String::make(rstd::cppstd::as_str(cam.visible_user_key).unwrap()), path.clone());
+    if (! cam.visible_user_key.is_empty()) {
+        scene.RegisterCameraPathUserBinding(cam.visible_user_key.clone(), path.clone());
     }
 
     WireCameraFieldScripts(context,
@@ -203,10 +203,9 @@ void InitContext(SceneParseContext& context, fs::VFS& vfs, const wpscene::SceneM
     context.particle_runtime = Some(Arc<ParticleRuntime>::make());
     GenCardMesh(*scene.DefaultEffectMeshMut(), { 2.0f, 2.0f });
 
-    scene.SetClearColor(array_cast<float>(sc.general.clearcolor));
-    if (auto it = sc.general.user_bindings.find("clearcolor");
-        it != sc.general.user_bindings.end()) {
-        scene.SetClearColorUserKey(String::make(as_str(it->second).unwrap()));
+    scene.SetClearColor(sc.general.clearcolor);
+    if (auto key = sc.general.user_bindings.get("clearcolor"_str); key.is_some()) {
+        scene.SetClearColorUserKey((**key).clone());
     }
     scene.SetOrtho({ i32(ortho_extent[usize()]), i32(ortho_extent[usize(1)]) });
     scene.SetViewportScale(f32(sc.general.zoom));
@@ -216,36 +215,44 @@ void InitContext(SceneParseContext& context, fs::VFS& vfs, const wpscene::SceneM
     context.uniform_state->SetOrthographicImplicitParallax(sc.general.isOrtho);
 
     {
-        auto& gb                                   = context.global_base_uniforms;
-        gb[rstd::cppstd::to_string(G_VIEWUP)]      = std::array { 0.0f, 1.0f, 0.0f };
-        gb[rstd::cppstd::to_string(G_VIEWRIGHT)]   = std::array { 1.0f, 0.0f, 0.0f };
-        gb[rstd::cppstd::to_string(G_VIEWFORWARD)] = std::array { 0.0f, 0.0f, -1.0f };
-        gb[rstd::cppstd::to_string(G_EYEPOSITION)] = std::array { 0.0f, 0.0f, 0.0f };
-        gb[rstd::cppstd::to_string(G_TEXELSIZE)]   = std::array { 1.0f / 1920.0f, 1.0f / 1080.0f };
-        gb[rstd::cppstd::to_string(G_TEXELSIZEHALF)] =
-            std::array { 1.0f / 1920.0f / 2.0f, 1.0f / 1080.0f / 2.0f };
-        gb[rstd::cppstd::to_string(G_LIGHTAMBIENTCOLOR)]  = sc.general.ambientcolor;
-        gb[rstd::cppstd::to_string(G_LIGHTSKYLIGHTCOLOR)] = sc.general.skylightcolor;
+        auto& gb = context.global_base_uniforms;
+        (void)gb.insert(rstd::into(G_VIEWUP), ShaderValue(array<float, 3> { 0.0f, 1.0f, 0.0f }));
+        (void)gb.insert(rstd::into(G_VIEWRIGHT), ShaderValue(array<float, 3> { 1.0f, 0.0f, 0.0f }));
+        (void)gb.insert(rstd::into(G_VIEWFORWARD),
+                        ShaderValue(array<float, 3> { 0.0f, 0.0f, -1.0f }));
+        (void)gb.insert(rstd::into(G_EYEPOSITION),
+                        ShaderValue(array<float, 3> { 0.0f, 0.0f, 0.0f }));
+        (void)gb.insert(rstd::into(G_TEXELSIZE),
+                        ShaderValue(array<float, 2> { 1.0f / 1920.0f, 1.0f / 1080.0f }));
+        (void)gb.insert(
+            rstd::into(G_TEXELSIZEHALF),
+            ShaderValue(array<float, 2> { 1.0f / 1920.0f / 2.0f, 1.0f / 1080.0f / 2.0f }));
+        (void)gb.insert(rstd::into(G_LIGHTAMBIENTCOLOR), ShaderValue(sc.general.ambientcolor));
+        (void)gb.insert(rstd::into(G_LIGHTSKYLIGHTCOLOR), ShaderValue(sc.general.skylightcolor));
 
         if (sc.general.fogdistance) {
-            context.shader_environment.fog_distance          = true;
-            gb[rstd::cppstd::to_string(G_FOGDISTANCECOLOR)]  = sc.general.fogdistancecolor;
-            gb[rstd::cppstd::to_string(G_FOGDISTANCEPARAMS)] = std::array {
-                sc.general.fogdistancestart,
-                sc.general.fogdistanceend - sc.general.fogdistancestart,
-                sc.general.fogdistancestartdensity,
-                sc.general.fogdistanceenddensity - sc.general.fogdistancestartdensity,
-            };
+            context.shader_environment.fog_distance = true;
+            (void)gb.insert(rstd::into(G_FOGDISTANCECOLOR),
+                            ShaderValue(sc.general.fogdistancecolor));
+            (void)gb.insert(
+                rstd::into(G_FOGDISTANCEPARAMS),
+                ShaderValue(array<float, 4> {
+                    sc.general.fogdistancestart,
+                    sc.general.fogdistanceend - sc.general.fogdistancestart,
+                    sc.general.fogdistancestartdensity,
+                    sc.general.fogdistanceenddensity - sc.general.fogdistancestartdensity,
+                }));
         }
         if (sc.general.fogheight) {
-            context.shader_environment.fog_height          = true;
-            gb[rstd::cppstd::to_string(G_FOGHEIGHTCOLOR)]  = sc.general.fogheightcolor;
-            gb[rstd::cppstd::to_string(G_FOGHEIGHTPARAMS)] = std::array {
-                sc.general.fogheightstart,
-                sc.general.fogheightend - sc.general.fogheightstart,
-                sc.general.fogheightstartdensity,
-                sc.general.fogheightenddensity - sc.general.fogheightstartdensity,
-            };
+            context.shader_environment.fog_height = true;
+            (void)gb.insert(rstd::into(G_FOGHEIGHTCOLOR), ShaderValue(sc.general.fogheightcolor));
+            (void)gb.insert(rstd::into(G_FOGHEIGHTPARAMS),
+                            ShaderValue(array<float, 4> {
+                                sc.general.fogheightstart,
+                                sc.general.fogheightend - sc.general.fogheightstart,
+                                sc.general.fogheightstartdensity,
+                                sc.general.fogheightenddensity - sc.general.fogheightstartdensity,
+                            }));
         }
     }
 
@@ -256,19 +263,22 @@ void InitContext(SceneParseContext& context, fs::VFS& vfs, const wpscene::SceneM
         cam_para.delay                          = sc.general.cameraparallaxdelay;
         cam_para.mouse_influence                = sc.general.cameraparallaxmouseinfluence;
         context.uniform_state->CameraParallax() = cam_para;
-        for (const auto& [field, key] : sc.general.user_bindings) {
-            if (field == "cameraparallax" || field == "cameraparallaxamount" ||
-                field == "cameraparallaxdelay" || field == "cameraparallaxmouseinfluence") {
+        sc.general.user_bindings.iter().for_each([&](auto entry) {
+            auto [field, key] = entry;
+            if (field->as_str() == "cameraparallax"_str ||
+                field->as_str() == "cameraparallaxamount"_str ||
+                field->as_str() == "cameraparallaxdelay"_str ||
+                field->as_str() == "cameraparallaxmouseinfluence"_str) {
                 auto state =
                     mut_ref<UniformSceneState>::from_raw_parts(context.uniform_state.as_ptr());
-                scene.RegisterUserPropertyBinding(String::make(as_str(key).unwrap()),
-                                                  Box<dyn<FnMut<void(ref<Json>)>>>::make(
-                                                      [state, field](ref<Json> property) mutable {
-                                                          state->ApplyUserProperty(field,
-                                                                                   *property);
-                                                      }));
+                scene.RegisterUserPropertyBinding(
+                    key->clone(),
+                    Box<dyn<FnMut<void(ref<Json>)>>>::make(
+                        [state, field = field->clone()](ref<Json> property) mutable {
+                            state->ApplyUserProperty(field.as_str(), *property);
+                        }));
             }
-        }
+        });
     }
     {
         UniformCameraShake cam_shake;
@@ -277,19 +287,22 @@ void InitContext(SceneParseContext& context, fs::VFS& vfs, const wpscene::SceneM
         cam_shake.speed                      = sc.general.camerashakespeed;
         cam_shake.roughness                  = sc.general.camerashakeroughness;
         context.uniform_state->CameraShake() = cam_shake;
-        for (const auto& [field, key] : sc.general.user_bindings) {
-            if (field == "camerashake" || field == "camerashakeamplitude" ||
-                field == "camerashakespeed" || field == "camerashakeroughness") {
+        sc.general.user_bindings.iter().for_each([&](auto entry) {
+            auto [field, key] = entry;
+            if (field->as_str() == "camerashake"_str ||
+                field->as_str() == "camerashakeamplitude"_str ||
+                field->as_str() == "camerashakespeed"_str ||
+                field->as_str() == "camerashakeroughness"_str) {
                 auto state =
                     mut_ref<UniformSceneState>::from_raw_parts(context.uniform_state.as_ptr());
-                scene.RegisterUserPropertyBinding(String::make(as_str(key).unwrap()),
-                                                  Box<dyn<FnMut<void(ref<Json>)>>>::make(
-                                                      [state, field](ref<Json> property) mutable {
-                                                          state->ApplyUserProperty(field,
-                                                                                   *property);
-                                                      }));
+                scene.RegisterUserPropertyBinding(
+                    key->clone(),
+                    Box<dyn<FnMut<void(ref<Json>)>>>::make(
+                        [state, field = field->clone()](ref<Json> property) mutable {
+                            state->ApplyUserProperty(field.as_str(), *property);
+                        }));
             }
-        }
+        });
         WireCameraShakeScripts(context, sc.general.field_bindings);
     }
 }
@@ -299,16 +312,15 @@ void ParseSoundObjImpl(SceneParseContext& context, wpscene::SoundObject& obj,
     auto node  = Arc<SceneNode>::make(Vector3f(obj.origin.data()),
                                       Vector3f(obj.scale.data()),
                                       Vector3f(obj.angles.data()),
-                                      obj.name);
+                                      obj.name.as_str());
     node->ID() = i32(obj.id);
     if (! obj.visible) node->SetVisible(false);
     if (! obj.visible_user.empty())
         node->SetVisibleUserBinding(ToSceneUserVisibilityBinding(obj.visible_user));
 
     auto control = SoundParser::Parse(obj, *context.vfs, sm, context.scene.get());
-    if (! obj.volume_user_key.empty()) {
-        context.scene->RegisterSoundVolumeBinding(
-            rstd::cppstd::as_str(obj.volume_user_key).unwrap(), control.clone());
+    if (! obj.volume_user_key.is_empty()) {
+        context.scene->RegisterSoundVolumeBinding(obj.volume_user_key.as_str(), control.clone());
     }
     node->SetSoundControl(rstd::move(control));
     node->SetVolume(obj.volume);
@@ -323,12 +335,12 @@ void ParseLightObj(SceneParseContext& context, wpscene::LightObject& light_obj) 
     auto node = Arc<SceneNode>::make(Vector3f(light_obj.origin.data()),
                                      Vector3f(light_obj.scale.data()),
                                      Vector3f(light_obj.angles.data()),
-                                     light_obj.name);
+                                     light_obj.name.as_str());
 
     SceneLight::Desc desc;
-    if (light_obj.light == "spot" || light_obj.light == "lspot") {
+    if (light_obj.light == "spot"_str || light_obj.light == "lspot"_str) {
         desc.type = SceneLightType::Spot;
-    } else if (light_obj.light == "directional" || light_obj.light == "ldirectional") {
+    } else if (light_obj.light == "directional"_str || light_obj.light == "ldirectional"_str) {
         desc.type = SceneLightType::Directional;
     } else {
         desc.type = SceneLightType::Point; // default + point/lpoint
@@ -340,9 +352,9 @@ void ParseLightObj(SceneParseContext& context, wpscene::LightObject& light_obj) 
     desc.attenuation = light_obj.attenuation;
     desc.mindistance = light_obj.mindistance;
     // WE evaluates spot cones against cos(full angle), as stored by the official renderer.
-    const float kDegToRad     = rstd::f32::consts::PI.to_primitive() / 180.0f;
-    desc.inner_cone_cos       = std::cos(light_obj.innercone * kDegToRad);
-    desc.outer_cone_cos       = std::cos(light_obj.outercone * kDegToRad);
+    const float kDegToRad     = f32::consts::PI.to_primitive() / 180.0f;
+    desc.inner_cone_cos       = f32(light_obj.innercone * kDegToRad).cos().to_primitive();
+    desc.outer_cone_cos       = f32(light_obj.outercone * kDegToRad).cos().to_primitive();
     desc.light_source_size    = light_obj.lightsourcesize;
     desc.cascade_distances[0] = light_obj.cascadedistance0;
     desc.cascade_distances[1] = light_obj.cascadedistance1;
@@ -368,7 +380,7 @@ void ParseModelObjImpl(SceneParseContext& context, wpscene::ModelObject& model_o
     auto& vfs = *context.vfs;
 
     Mdl mdl;
-    if (! MdlParser::Parse(rstd::cppstd::as_str(model_obj.model).unwrap(), vfs, mdl)) {
+    if (! MdlParser::Parse(model_obj.model.as_str(), vfs, mdl)) {
         rstd_error("parse model failed: {}", model_obj.model);
         return;
     }
@@ -376,7 +388,7 @@ void ParseModelObjImpl(SceneParseContext& context, wpscene::ModelObject& model_o
     auto node  = Arc<SceneNode>::make(Vector3f(model_obj.origin.data()),
                                       Vector3f(model_obj.scale.data()),
                                       Vector3f(model_obj.angles.data()),
-                                      model_obj.name);
+                                      model_obj.name.as_str());
     node->ID() = model_obj.id;
     node->SetPerspective(model_obj.perspective);
     node->SetReflected(model_obj.reflected);
@@ -389,7 +401,7 @@ void ParseModelObjImpl(SceneParseContext& context, wpscene::ModelObject& model_o
     if (! model_obj.visible_user.empty())
         node->SetVisibleUserBinding(ToSceneUserVisibilityBinding(model_obj.visible_user));
 
-    auto mesh = std::make_shared<SceneMesh>();
+    auto mesh = Arc<SceneMesh>::make();
 
     UniformNodeConfigDraft svData;
     svData.SetParallaxContract(model_obj.parallax, model_obj.id);
@@ -430,7 +442,7 @@ void ParseModelObjImpl(SceneParseContext& context, wpscene::ModelObject& model_o
 
         SceneMaterial scene_mat;
         ShaderInfo    shader_info;
-        shader_info.baseConstSvs = context.global_base_uniforms;
+        shader_info.baseConstSvs = context.global_base_uniforms.clone();
         if (mdl.puppet.is_some() && ! (*mdl.puppet)->bones.is_empty()) {
             MdlParser::AddPuppetShaderInfo(shader_info, mdl);
         }
@@ -452,30 +464,30 @@ void ParseModelObjImpl(SceneParseContext& context, wpscene::ModelObject& model_o
 
         if (node->shadow.cast) {
             wpscene::Material shadow_material;
-            shadow_material.shader =
-                shader_info.shadow_pass.is_empty()
-                    ? "shadowcaster"
-                    : rstd::cppstd::to_string(shader_info.shadow_pass.as_str());
+            shadow_material.shader = shader_info.shadow_pass.is_empty()
+                                         ? "shadowcaster"_Str
+                                         : shader_info.shadow_pass.clone();
             shadow_material.blending =
-                wpmat->blending == "alphatocoverage" ? "alphatocoverage" : "disabled";
-            shadow_material.depthtest  = "enabled";
-            shadow_material.depthwrite = "enabled";
-            shadow_material.cullmode   = "nocull";
-            shadow_material.textures.resize(std::min<std::size_t>(2, wpmat->textures.size()));
-            for (std::size_t index = 0; index < shadow_material.textures.size(); ++index) {
-                shadow_material.textures[index] = wpmat->textures[index];
+                wpmat->blending == "alphatocoverage"_str ? "alphatocoverage"_Str : "disabled"_Str;
+            shadow_material.depthtest  = "enabled"_Str;
+            shadow_material.depthwrite = "enabled"_Str;
+            shadow_material.cullmode   = "nocull"_Str;
+            shadow_material.textures.resize(rstd::cmp::min(usize(2), wpmat->textures.len()),
+                                            String {});
+            for (usize index {}; index < shadow_material.textures.len(); ++index) {
+                shadow_material.textures[index] = wpmat->textures[index].clone();
             }
             constexpr array<ref<str>, 4> inherited_combos {
                 "SKINNING"_str, "MORPHING"_str, "MORPHING_NORMALS"_str, "BONECOUNT"_str
             };
             for (auto combo : inherited_combos) {
-                auto value = wpmat->combos.find(rstd::cppstd::to_string(combo));
-                if (value != wpmat->combos.end())
-                    shadow_material.combos[value->first] = value->second;
+                auto value = wpmat->combos.get(combo);
+                if (value.is_some())
+                    (void)shadow_material.combos.insert(rstd::into(combo), **value);
             }
 
             ShaderInfo shadow_info;
-            shadow_info.baseConstSvs = context.global_base_uniforms;
+            shadow_info.baseConstSvs = context.global_base_uniforms.clone();
             auto shadow_result       = BuildMaterial(vfs,
                                                      *context.shader_cache,
                                                      context.shader_environment,
@@ -494,7 +506,7 @@ void ParseModelObjImpl(SceneParseContext& context, wpscene::ModelObject& model_o
                     context, shadow_build.material, shadow_material, shadow_build.shader_info);
                 context.scene->ResolveMaterialTextureSources(shadow_build.material);
                 scene_mat.shadow_variant =
-                    std::make_shared<SceneMaterial>(rstd::move(shadow_build.material));
+                    Some(Arc<SceneMaterial>::make(rstd::move(shadow_build.material)));
             } else {
                 rstd_warn("load shadow material '{}' failed for '{}'",
                           shadow_material.shader,
@@ -502,15 +514,23 @@ void ParseModelObjImpl(SceneParseContext& context, wpscene::ModelObject& model_o
             }
         }
 
-        const auto material_slot  = rstd::as_cast<u32>(usize(mesh->MaterialSlots().size()));
+        const auto material_slot =
+            rstd::as_cast<u32>(usize(mesh->MaterialSlots().len().to_primitive()));
         const auto texcoord_scale = Texture0UvScale(scene_mat);
-        mesh->AddMaterial(std::move(scene_mat));
-        RegisterMaterialBindings(*context.scene, mesh->MaterialSlots().back(), *wpmat, shader_info);
+        mesh->AddMaterial(rstd::move(scene_mat));
+        RegisterMaterialBindings(*context.scene,
+                                 mesh->MaterialSlots()[mesh->MaterialSlots().len() - usize(1)],
+                                 *wpmat,
+                                 shader_info);
         WireMaterialShaderValueScripts(
-            context, node, mesh->MaterialSlots().back(), *wpmat, shader_info);
+            context,
+            node,
+            mesh->MaterialSlots()[mesh->MaterialSlots().len() - usize(1)],
+            *wpmat,
+            shader_info);
 
         mesh->Submeshes().emplace_back();
-        auto& submesh = mesh->Submeshes().back();
+        auto& submesh = mesh->Submeshes()[mesh->Submeshes().len() - usize(1)];
         MdlParser::GenMeshFromMdl(
             submesh, mdl_mesh, { texcoord_scale[usize()], texcoord_scale[usize(1)] });
         submesh.material_slot = material_slot;
@@ -518,12 +538,12 @@ void ParseModelObjImpl(SceneParseContext& context, wpscene::ModelObject& model_o
             MdlParser::BindDrawOrder(submesh, mdl_mesh, (*model_puppet_layer).clone());
     }
 
-    if (mesh->Submeshes().empty()) {
+    if (mesh->Submeshes().is_empty()) {
         rstd_error("model '{}' has no renderable mesh", model_obj.model);
         return;
     }
 
-    node->AddMesh(mesh);
+    node->AddMesh(mesh.clone());
     SetUniformConfig(context, node, rstd::move(svData));
     AssignNodeFieldAnimations(context, *node.as_ptr(), model_obj.field_bindings);
     WireFieldScripts(context, node, model_obj.field_bindings);
@@ -533,8 +553,7 @@ void ParseModelObjImpl(SceneParseContext& context, wpscene::ModelObject& model_o
                                    (*model_puppet_layer).clone(),
                                    model_obj.puppet_layers.as_slice());
     if (model_obj.skin == u32()) {
-        (void)context.dynamic_model_prototypes.insert(
-            String::make(rstd::cppstd::as_str(model_obj.model).unwrap()), node.clone());
+        (void)context.dynamic_model_prototypes.insert(model_obj.model.clone(), node.clone());
     }
     RegisterNodeRef(
         context,
@@ -543,7 +562,7 @@ void ParseModelObjImpl(SceneParseContext& context, wpscene::ModelObject& model_o
             model_obj.parent,
             Some(node.clone()),
             mdl.puppet.is_some() ? Some((*mdl.puppet).clone()) : None(),
-            String::make(rstd::cppstd::as_str(model_obj.attachment).unwrap()),
+            model_obj.attachment.clone(),
             model_puppet_layer.is_some() ? Some((*model_puppet_layer).clone()) : None() });
 }
 
@@ -572,7 +591,7 @@ void IndexSceneDocument(SceneParseContext& context, ref<wpscene::SceneDocument> 
         if (metadata.kind == wpscene::SceneObjectKind::Unknown || ! metadata.has_id) continue;
         (void)context.initial_layer_configs.insert(metadata.id, record.authored.clone());
         (void)context.script_initialization_orders.insert(
-            metadata.id, static_cast<std::uint64_t>(context.node_id_order.len().to_primitive()));
+            metadata.id, static_cast<rstd::uint64_t>(context.node_id_order.len().to_primitive()));
         context.node_id_order.emplace_back(metadata.id);
         (void)context.object_parent_ids.insert(metadata.id, metadata.parent);
         if (metadata.solid) context.solid_layer_ids.insert(i32(metadata.id));
@@ -611,7 +630,7 @@ SceneParseContext BuildContext(fs::VFS& vfs, ref<str> scene_id, const wpscene::S
             .width      = context.ortho_w,
             .height     = context.ortho_h,
             .has_mipmap = true,
-            .bind       = { .enable = true, .name = rstd::cppstd::to_string(SpecTex_Default) },
+            .bind       = { .enable = true, .name = rstd::into(SpecTex_Default) },
         });
 
     if (context.shader_environment.directional_shadow) {
@@ -661,7 +680,7 @@ void ParseContainerObj(SceneParseContext& context, const wpscene::ContainerObjec
     auto node  = Arc<SceneNode>::make(Vector3f(obj.origin.data()),
                                       Vector3f(obj.scale.data()),
                                       Vector3f(obj.angles.data()),
-                                      obj.name);
+                                      obj.name.as_str());
     node->ID() = i32(obj.id);
     if (obj.parallax.authored || obj.disable_propagation ||
         ! wpscene::IsZeroParallaxDepth(obj.parallax.depth)) {
@@ -678,7 +697,7 @@ void ParseContainerObj(SceneParseContext& context, const wpscene::ContainerObjec
                         obj.parent,
                         Some(node.clone()),
                         None(),
-                        String::make(rstd::cppstd::as_str(obj.attachment).unwrap()),
+                        obj.attachment.clone(),
                         None(),
                     });
 }

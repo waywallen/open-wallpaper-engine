@@ -2,10 +2,16 @@ module;
 
 export module waywallen.bridge_producer_core;
 
-import rstd.cppstd;
+import rstd;
 import vvk;
 export import waywallen.bridge;
 export import waywallen.bridge_session;
+
+using namespace rstd::prelude;
+using rstd::sync::Arc;
+using rstd::sync::Mutex;
+using rstd::sync::atomic::Atomic;
+using rstd::sync::atomic::Ordering;
 
 export namespace ww_wescene
 {
@@ -15,10 +21,10 @@ export namespace ww_wescene
 // kept Vulkan-native and free of any wescene types so non-wescene
 // producers can consume it.
 struct BridgeReadyEvent {
-    bool     ready;
-    uint32_t width;
-    uint32_t height;
-    VkFormat format;
+    bool           ready;
+    rstd::uint32_t width;
+    rstd::uint32_t height;
+    VkFormat       format;
 };
 
 enum class BridgeSlotAcquireStatus
@@ -32,10 +38,10 @@ enum class BridgeSlotAcquireStatus
 };
 
 struct BridgeSlotIdentity {
-    uint64_t bind_generation { 0 };
-    uint32_t slot_index { 0 };
-    uint64_t previous_release_point { 0 };
-    uint64_t acquire_serial { 0 };
+    rstd::uint64_t bind_generation { 0 };
+    rstd::uint32_t slot_index { 0 };
+    rstd::uint64_t previous_release_point { 0 };
+    rstd::uint64_t acquire_serial { 0 };
 
     bool valid() const noexcept { return bind_generation != 0 && acquire_serial != 0; }
     bool operator==(const BridgeSlotIdentity&) const = default;
@@ -45,9 +51,9 @@ struct BridgeSlotAcquireResult {
     BridgeSlotAcquireStatus status { BridgeSlotAcquireStatus::NotReady };
     BridgeSlotIdentity      identity;
     VkImage                 image { VK_NULL_HANDLE };
-    uint32_t                width { 0 };
-    uint32_t                height { 0 };
-    int32_t                 error_code { 0 };
+    rstd::uint32_t          width { 0 };
+    rstd::uint32_t          height { 0 };
+    rstd::int32_t           error_code { 0 };
 
     bool acquired() const noexcept {
         return (status == BridgeSlotAcquireStatus::ReadyUnused ||
@@ -69,7 +75,7 @@ enum class BridgeSlotCompletionStatus
 struct BridgeSlotCompletionResult {
     BridgeSlotCompletionStatus status { BridgeSlotCompletionStatus::NotPending };
     BridgeSlotIdentity         identity;
-    int32_t                    error_code { 0 };
+    rstd::int32_t              error_code { 0 };
 
     bool completed() const noexcept {
         return status == BridgeSlotCompletionStatus::Submitted ||
@@ -77,11 +83,14 @@ struct BridgeSlotCompletionResult {
     }
 };
 
+using FirstNegotiatedCallback = Box<dyn<FnOnce<void()>>>;
+using ReadyChangedCallback    = Arc<dyn<Fn<void(const BridgeReadyEvent&)>>>;
+
 class BridgeProducerCore {
 public:
-    static constexpr uint32_t kMaxSlots = 8; // matches bridge cap
+    static constexpr rstd::uint32_t kMaxSlots = 8; // matches bridge cap
 
-    explicit BridgeProducerCore(std::shared_ptr<BridgeSession> session);
+    explicit BridgeProducerCore(Arc<BridgeSession> session);
     ~BridgeProducerCore();
 
     BridgeProducerCore(const BridgeProducerCore&)            = delete;
@@ -99,33 +108,37 @@ public:
     bool requestFrame();
 
     bool hasPendingFrameRequest() const {
-        return m_frame_request_revision.load(std::memory_order_acquire) !=
-               m_served_frame_request_revision.load(std::memory_order_acquire);
+        return m_frame_request_revision.load(Ordering::Acquire) !=
+               m_served_frame_request_revision.load(Ordering::Acquire);
     }
 
     // Producer-thread-only. True means the caller should skip producing
     // another frame for the request that was just satisfied.
     bool republishRequestedFrame(bool wait_for_release = false);
 
-    void cancelFrameWait() { m_cancel_frame_wait.store(true, std::memory_order_release); }
+    void cancelFrameWait() { m_cancel_frame_wait.store(true, Ordering::Release); }
 
     // True iff a queued directive is waiting to be applied.
-    bool hasPendingDirective() const { return m_pending_valid.load(std::memory_order_acquire); }
+    bool hasPendingDirective() const { return m_pending_valid.load(Ordering::Acquire); }
 
     // One-shot callback fired from the producer thread the first time a
     // directive is successfully applied. Setting after the first
     // negotiate is a no-op.
-    void setOnFirstNegotiated(std::function<void()> cb) {
-        std::lock_guard<std::mutex> lk(m_cb_mu);
-        m_on_first_negotiated = std::move(cb);
+    void setOnFirstNegotiated(FirstNegotiatedCallback cb);
+    template<typename Callback>
+        requires requires(Callback cb) { cb(); }
+    void setOnFirstNegotiated(Callback cb) {
+        setOnFirstNegotiated(FirstNegotiatedCallback::make(rstd::move(cb)));
     }
 
     // Fired from the producer thread inside drainPendingDirective after
     // every successful apply. Coexists with setOnFirstNegotiated; both
     // fire in undefined order.
-    void setOnReadyChanged(std::function<void(const BridgeReadyEvent&)> cb) {
-        std::lock_guard<std::mutex> lk(m_cb_mu);
-        m_on_ready_changed = std::move(cb);
+    void setOnReadyChanged(Option<ReadyChangedCallback> cb);
+    template<typename Callback>
+        requires requires(Callback cb, const BridgeReadyEvent& event) { cb(event); }
+    void setOnReadyChanged(Callback cb) {
+        setOnReadyChanged(Some(ReadyChangedCallback::make(rstd::move(cb))));
     }
 
     // Producer-thread-only. Drain any pending directive so `format()` /
@@ -138,8 +151,8 @@ public:
     BridgeSlotAcquireResult acquireSlot();
 
     // Compatibility façade for producers not yet consuming typed outcomes.
-    bool acquireSlot(VkImage* out_image, uint32_t* out_width = nullptr,
-                     uint32_t* out_height = nullptr);
+    bool acquireSlot(VkImage* out_image, rstd::uint32_t* out_width = nullptr,
+                     rstd::uint32_t* out_height = nullptr);
 
     // Producer-thread-only. Forwards `producer_sync_fd` to
     // `ww_bridge_pool_submit_slot`. Bridge takes ownership of the fd
@@ -158,10 +171,10 @@ public:
     bool ready() const {
         return ! m_session_lost && m_slot_count > 0 && m_export_format != VK_FORMAT_UNDEFINED;
     }
-    uint32_t width() const { return m_width; }
-    uint32_t height() const { return m_height; }
-    VkFormat format() const { return m_export_format; }
-    uint32_t fourcc() const { return m_fourcc; }
+    rstd::uint32_t width() const { return m_width; }
+    rstd::uint32_t height() const { return m_height; }
+    VkFormat       format() const { return m_export_format; }
+    rstd::uint32_t fourcc() const { return m_fourcc; }
 
 private:
     void       markSessionLost();
@@ -175,29 +188,30 @@ private:
     //  >0   hard system error (logged); m_slot_count = 0
     int applyDirective(const ww_pool_directive_t& directive);
 
-    std::shared_ptr<BridgeSession> m_session;
+    Arc<BridgeSession> m_session;
 
     VkFormat m_export_format { VK_FORMAT_UNDEFINED };
 
-    std::atomic<bool>   m_pending_valid { false };
-    std::mutex          m_pending_mu;
-    ww_pool_directive_t m_pending_directive {};
+    Atomic<bool>               m_pending_valid { false };
+    Mutex<ww_pool_directive_t> m_pending_directive;
 
-    std::mutex                                   m_cb_mu;
-    std::function<void()>                        m_on_first_negotiated;
-    bool                                         m_first_negotiated_done { false };
-    std::function<void(const BridgeReadyEvent&)> m_on_ready_changed;
+    struct Callbacks {
+        Option<FirstNegotiatedCallback> first;
+        bool                            first_done { false };
+        Option<ReadyChangedCallback>    ready;
+    };
+    Mutex<Callbacks> m_callbacks;
 
-    uint32_t              m_slot_count { 0 };
-    bool                  m_have_pending { false };
-    bool                  m_session_lost { false };
-    BridgeSlotIdentity    m_pending_identity;
-    uint32_t              m_width { 0 };
-    uint32_t              m_height { 0 };
-    uint32_t              m_fourcc { 0 };
-    std::atomic<bool>     m_cancel_frame_wait { false };
-    std::atomic<uint64_t> m_frame_request_revision { 0 };
-    std::atomic<uint64_t> m_served_frame_request_revision { 0 };
+    rstd::uint32_t         m_slot_count { 0 };
+    bool                   m_have_pending { false };
+    bool                   m_session_lost { false };
+    BridgeSlotIdentity     m_pending_identity;
+    rstd::uint32_t         m_width { 0 };
+    rstd::uint32_t         m_height { 0 };
+    rstd::uint32_t         m_fourcc { 0 };
+    Atomic<bool>           m_cancel_frame_wait { false };
+    Atomic<rstd::uint64_t> m_frame_request_revision { 0 };
+    Atomic<rstd::uint64_t> m_served_frame_request_revision { 0 };
 };
 
 } // namespace ww_wescene

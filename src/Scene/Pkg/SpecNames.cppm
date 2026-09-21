@@ -1,28 +1,26 @@
 export module wescene.pkg.spec_names;
 export import wescene.spec_names;
 import rstd;
-import rstd.cppstd;
 
 using namespace rstd::prelude;
 using namespace rstd::literals;
 
-#define BASE_GLTEX_NAMES(ext)                                                                      \
-    "g_Texture0" #ext, "g_Texture1" #ext, "g_Texture2" #ext, "g_Texture3" #ext, "g_Texture4" #ext, \
-        "g_Texture5" #ext, "g_Texture6" #ext, "g_Texture7" #ext, "g_Texture8" #ext,                \
-        "g_Texture9" #ext, "g_Texture10" #ext, "g_Texture11" #ext, "g_Texture12" #ext
+#define BASE_GLTEX_NAMES(ext)                                                           \
+    "g_Texture0" #ext ""_str, "g_Texture1" #ext ""_str, "g_Texture2" #ext ""_str,       \
+        "g_Texture3" #ext ""_str, "g_Texture4" #ext ""_str, "g_Texture5" #ext ""_str,   \
+        "g_Texture6" #ext ""_str, "g_Texture7" #ext ""_str, "g_Texture8" #ext ""_str,   \
+        "g_Texture9" #ext ""_str, "g_Texture10" #ext ""_str, "g_Texture11" #ext ""_str, \
+        "g_Texture12" #ext ""_str
 
 export namespace owe
 {
 
-inline constexpr array<std::string_view, 13> WE_GLTEX_NAMES { BASE_GLTEX_NAMES() };
-inline constexpr array<std::string_view, 13> WE_GLTEX_RESOLUTION_NAMES { BASE_GLTEX_NAMES(
-    Resolution) };
-inline constexpr array<std::string_view, 13> WE_GLTEX_ROTATION_NAMES { BASE_GLTEX_NAMES(Rotation) };
-inline constexpr array<std::string_view, 13> WE_GLTEX_TRANSLATION_NAMES { BASE_GLTEX_NAMES(
-    Translation) };
-inline constexpr array<std::string_view, 13> WE_GLTEX_MIPMAPINFO_NAMES { BASE_GLTEX_NAMES(
-    MipMapInfo) };
-inline constexpr array<std::string_view, 13> WE_GLTEX_TEXEL_NAMES { BASE_GLTEX_NAMES(Texel) };
+inline constexpr array<ref<str>, 13> WE_GLTEX_NAMES { BASE_GLTEX_NAMES() };
+inline constexpr array<ref<str>, 13> WE_GLTEX_RESOLUTION_NAMES { BASE_GLTEX_NAMES(Resolution) };
+inline constexpr array<ref<str>, 13> WE_GLTEX_ROTATION_NAMES { BASE_GLTEX_NAMES(Rotation) };
+inline constexpr array<ref<str>, 13> WE_GLTEX_TRANSLATION_NAMES { BASE_GLTEX_NAMES(Translation) };
+inline constexpr array<ref<str>, 13> WE_GLTEX_MIPMAPINFO_NAMES { BASE_GLTEX_NAMES(MipMapInfo) };
+inline constexpr array<ref<str>, 13> WE_GLTEX_TEXEL_NAMES { BASE_GLTEX_NAMES(Texel) };
 
 inline constexpr ref<str> WE_FULL_COMPO_BUFFER_PREFIX    = "_rt_FullCompoBuffer"_str;
 inline constexpr ref<str> WE_HALF_COMPO_BUFFER_PREFIX    = "_rt_HalfCompoBuffer"_str;

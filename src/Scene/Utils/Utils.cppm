@@ -2,17 +2,14 @@ module;
 
 #include <rstd/macro.hpp>
 
-// Sha.hpp stays classic — utils::genSha1 is consumed by impl units that
-// need to spill blobs to /tmp for post-mortem inspection (Vulkan/Shader.cpp).
-#include "Utils/Sha.hpp"
-
 export module wescene.utils;
 import wescene.core;
 import eigen;
 import rstd;
 import rstd.log;
-import rstd.cppstd;
 export import wescene.types;
+
+using rstd::time::Instant;
 
 using namespace rstd::prelude;
 
@@ -30,9 +27,9 @@ public:
     void RegisterFrame();
 
 private:
-    u32                 m_fps;
-    u32                 m_frameCount;
-    rstd::time::Instant m_startTime;
+    u32     m_fps;
+    u32     m_frameCount;
+    Instant m_startTime;
 };
 
 namespace algorism
@@ -54,16 +51,16 @@ inline Eigen::Vector3d sph2cart(const Eigen::Vector3d& sph) noexcept {
     double elevation = sph.y();
     double radius    = sph.z();
     return radius * Eigen::Vector3d {
-        std::cos(azimuth) * std::cos(elevation),
-        std::sin(azimuth) * std::cos(elevation),
-        std::sin(elevation),
+        f64(azimuth).cos().to_primitive() * f64(elevation).cos().to_primitive(),
+        f64(azimuth).sin().to_primitive() * f64(elevation).cos().to_primitive(),
+        f64(elevation).sin().to_primitive(),
     };
 }
 
 template<typename TFUNC>
 Eigen::Vector3d GenSphereSurface(TFUNC&& random) noexcept {
-    double azimuth   = rstd::f64::consts::TAU.to_primitive() * random();
-    double elevation = std::asin(2.0 * random() - 1.0);
+    double azimuth   = f64::consts::TAU.to_primitive() * random();
+    double elevation = f64(2.0 * random() - 1.0).asin().to_primitive();
     return sph2cart({ azimuth, elevation, 1.0 });
 }
 
@@ -73,13 +70,13 @@ Eigen::Vector3d GenSphereSurfaceNormal(TFUNC&&                normal_random,
     double u    = direct.x() > 0.0 ? normal_random(0.0, direct.x()) : 0.0;
     double v    = direct.y() > 0.0 ? normal_random(0.0, direct.y()) : 0.0;
     double w    = direct.z() > 0.0 ? normal_random(0.0, direct.z()) : 0.0;
-    double norm = std::sqrt((u * u + v * v + w * w));
+    double norm = f64((u * u + v * v + w * w)).sqrt().to_primitive();
     return Eigen::Vector3d(u, v, w) / norm;
 }
 
 template<typename TFUNC>
 Eigen::Vector3d GenSphereIn(TFUNC&& random) noexcept {
-    return std::pow(random(), 1.0 / 3.0) * GenSphereSurface(random);
+    return f64(random()).powf(f64(1.0 / 3.0)).to_primitive() * GenSphereSurface(random);
 }
 
 constexpr double DragForce(double speed, double strength, double density) {
@@ -121,8 +118,7 @@ inline Eigen::Vector3d CurlNoise(Eigen::Vector3d p) noexcept {
 export namespace utils
 {
 
-// Re-exported from classic Sha.hpp for non-module implementation consumers.
-using ::utils::genSha1;
+String genSha1(slice<rstd::byte> input);
 
 // DynamicLibrary lives in wescene.types now (re-exported above).
 
@@ -133,7 +129,7 @@ using ::utils::genSha1;
 export namespace Eigen
 {
 constexpr double Radians(double a) noexcept {
-    return (a / 180.0f) * rstd::f64::consts::PI.to_primitive();
+    return (a / 180.0f) * f64::consts::PI.to_primitive();
 }
 
 inline Matrix4d LookAt(Vector3d eye, Vector3d center, Vector3d up) noexcept {
@@ -170,7 +166,7 @@ inline Matrix4d Perspective(double fov, double aspect, double nearz, double farz
     trans(3, 2)  = 1.0f;
     trans(3, 3)  = 0.0f;
     trans(2, 3)  = -nearz * farz;
-    double top   = std::tan(fov / 2.0f) * std::abs(nearz);
+    double top   = f64(fov / 2.0f).tan().to_primitive() * f64(nearz).abs().to_primitive();
     double right = top * aspect;
     trans.scale(Vector3d(1.0f, 1.0f, -1.0f));
     trans.prescale(Vector3d(1.0f, 1.0f, -1.0f));

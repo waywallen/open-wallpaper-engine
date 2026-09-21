@@ -33,10 +33,15 @@ sources = [
 ]
 
 [[test]]
+name = "cli-tests"
+sources = ["tests/core/cli_tests.cpp"]
+
+[[test]]
 name = "core-tests"
 sources = [
   "tests/main.cpp",
   "tests/core/json_adapter_tests.cpp",
+  "tests/core/sha_tests.cpp",
   "tests/core/load_bench_tests.cpp",
   "tests/core/vfs_tests.cpp",
 ]
@@ -66,6 +71,8 @@ sources = [
 name = "scene-runtime-tests"
 sources = [
   "tests/main.cpp",
+  "tests/scene-runtime/host_callback_tests.cpp",
+  "tests/scene-runtime/timer_tests.cpp",
   "tests/scene-runtime/particle_system_tests.cpp",
   "tests/scene-runtime/scene_resource_index_tests.cpp",
   "tests/scene-runtime/scene_runtime_tests.cpp",
@@ -100,6 +107,16 @@ sources = ["tests/main.cpp", "tests/shader-parse/shader_parse_tests.cpp"]
 [[test]]
 name = "tex-schema-tests"
 sources = ["tests/main.cpp", "tests/tex-schema/tex_schema_tests.cpp"]
+
+[[test]]
+name = "web-state-tests"
+sources = [
+  "tests/main.cpp",
+  "tests/web/state_tests.cpp",
+]
+
+[dev-dependencies.owe-web]
+workspace = true
 
 [usage]
 public-definitions = [

@@ -21,16 +21,16 @@ struct ContainerObject {
     bool FromJson(const owe::Json&);
 
     i32                  id { 0 };
-    std::string          name;
-    std::array<float, 3> origin { 0.0f, 0.0f, 0.0f };
-    std::array<float, 3> scale { 1.0f, 1.0f, 1.0f };
-    std::array<float, 3> angles { 0.0f, 0.0f, 0.0f };
+    String               name;
+    array<float, 3>      origin { 0.0f, 0.0f, 0.0f };
+    array<float, 3>      scale { 1.0f, 1.0f, 1.0f };
+    array<float, 3>      angles { 0.0f, 0.0f, 0.0f };
     ParallaxDepthBinding parallax;
     bool                 visible { true };
     bool                 solid { false };
     bool                 disable_propagation { false };
     u32                  parent { 0 };
-    std::string          attachment;
+    String               attachment;
     Vec<i32>             dependencies;
     owe::Json            instance;
     VisibleUserBinding   visible_user;

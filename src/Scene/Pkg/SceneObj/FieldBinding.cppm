@@ -1,6 +1,5 @@
 export module wescene.pkg.scene_obj:field_binding;
 import rstd;
-import rstd.cppstd;
 import wescene.json;
 
 using namespace rstd::prelude;
@@ -33,34 +32,35 @@ struct AnimKeyframe {
 // wallpaper reacts to them from the layer's `animationEvent(event, value)`
 // export — that is the only way a scene script learns where a timeline
 // currently is.
-struct AnimEvent {
-    i32         frame { 0 };
-    std::string name;
+struct AnimEvent : rstd::DefaultInClass<AnimEvent, rstd::clone::Clone> {
+    i32    frame { 0 };
+    String name;
+    auto   clone() const -> AnimEvent { return { .frame = frame, .name = name.clone() }; }
 };
 
 struct AnimOptions : rstd::DefaultInClass<AnimOptions, rstd::clone::Clone> {
-    float       fps { 30.0f };
-    i32         length { 0 };
-    std::string mode;
-    std::string name;
-    bool        startpaused { false };
-    bool        wraploop { false };
+    float  fps { 30.0f };
+    i32    length { 0 };
+    String mode;
+    String name;
+    bool   startpaused { false };
+    bool   wraploop { false };
     // `smoothing` may be null/int/float in the corpus; kept as raw json
     // until a renderer consumer needs it.
-    owe::Json              smoothing;
-    Option<String>         parent;
-    Vec<String>            children;
-    std::vector<AnimEvent> events;
+    owe::Json      smoothing;
+    Option<String> parent;
+    Vec<String>    children;
+    Vec<AnimEvent> events;
 
     auto clone() const -> AnimOptions;
 };
 
 struct AnimCurve : rstd::DefaultInClass<AnimCurve, rstd::clone::Clone> {
-    std::vector<AnimKeyframe> c0;
-    std::vector<AnimKeyframe> c1; // empty for scalar fields
-    std::vector<AnimKeyframe> c2;
-    AnimOptions               options;
-    bool                      relative { false }; // only on `origin`
+    Vec<AnimKeyframe> c0;
+    Vec<AnimKeyframe> c1; // empty for scalar fields
+    Vec<AnimKeyframe> c2;
+    AnimOptions       options;
+    bool              relative { false }; // only on `origin`
 
     auto clone() const -> AnimCurve;
 };
@@ -68,14 +68,14 @@ struct AnimCurve : rstd::DefaultInClass<AnimCurve, rstd::clone::Clone> {
 // FromJson helpers (defined in FieldBinding.cpp).
 bool ParseAnimKeyframeTangent(const owe::Json&, AnimKeyframeTangent&);
 bool ParseAnimKeyframe(const owe::Json&, AnimKeyframe&);
-bool ParseAnimAxis(const owe::Json&, std::vector<AnimKeyframe>&);
+bool ParseAnimAxis(const owe::Json&, Vec<AnimKeyframe>&);
 bool ParseAnimEvent(const owe::Json&, AnimEvent&);
 bool ParseAnimOptions(const owe::Json&, AnimOptions&);
 bool ParseAnimCurve(const owe::Json&, AnimCurve&);
 
 struct ScriptBinding {
-    std::string source;
-    owe::Json   initial_value;
+    String    source;
+    owe::Json initial_value;
 
     auto clone() const -> ScriptBinding;
 };
@@ -109,12 +109,12 @@ private:
     Vec<FieldBindingSpec> entries;
 };
 
-std::size_t AbsorbFieldBinding(std::string_view field, const owe::Json& value, FieldBindings& out);
+usize AbsorbFieldBinding(ref<str> field, const owe::Json& value, FieldBindings& out);
 
 // Walks every direct child of `obj_json` and, when the child is an
 // object containing `animation` and/or `scriptproperties`, captures into
 // `out`. Idempotent: re-running on the same json overwrites prior
 // entries. Returns the count of bindings absorbed.
-std::size_t AbsorbAllFieldBindings(const owe::Json& obj_json, FieldBindings& out);
+usize AbsorbAllFieldBindings(const owe::Json& obj_json, FieldBindings& out);
 
 } // namespace owe::wpscene

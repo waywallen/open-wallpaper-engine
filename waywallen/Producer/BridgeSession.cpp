@@ -1,23 +1,29 @@
 module;
 
 #include <cerrno>
-#include <algorithm>
 #include <fcntl.h>
 #include <unistd.h>
 
 module waywallen.bridge_session;
 
-import rstd.cppstd;
+import rstd;
 import waywallen.bridge;
+
+using namespace rstd::prelude;
+using namespace rstd::literals;
+using rstd::collections::BTreeSet;
+using rstd::ffi::CStr;
+using rstd::ffi::CString;
+using rstd::sync::Arc;
 
 namespace ww_wescene
 {
 
-std::shared_ptr<BridgeSession> BridgeSession::Adopt(ww_pool_t* pool, int control_socket) {
+Option<Arc<BridgeSession>> BridgeSession::Adopt(ww_pool_t* pool, int control_socket) {
     if (pool == nullptr || control_socket < 0) return {};
     int send_socket = ::fcntl(control_socket, F_DUPFD_CLOEXEC, 0);
     if (send_socket < 0) return {};
-    return std::shared_ptr<BridgeSession>(new BridgeSession(pool, send_socket));
+    return Some(Arc<BridgeSession>::make(Adopted {}, pool, send_socket));
 }
 
 BridgeSession::~BridgeSession() {
@@ -26,12 +32,12 @@ BridgeSession::~BridgeSession() {
 }
 
 int BridgeSession::advertiseCaps(uint32_t width, uint32_t height, uint32_t mem_hints) {
-    std::scoped_lock lock(m_send_mutex);
+    auto lock = m_send_mutex.lock().unwrap();
     return ww_bridge_pool_advertise_caps(m_pool, m_send_socket, width, height, mem_hints);
 }
 
 int BridgeSession::applyDirective(const ww_pool_directive_t& directive) {
-    std::scoped_lock lock(m_send_mutex);
+    auto lock = m_send_mutex.lock().unwrap();
     return ww_bridge_pool_apply_directive(m_pool, m_send_socket, &directive);
 }
 
@@ -45,19 +51,19 @@ int BridgeSession::tryAcquireAnyForRender(ww_pool_slot_acquire_result_t& out_res
 
 int BridgeSession::submitAcquiredSlot(const ww_pool_slot_identity_t& identity, int producer_sync_fd,
                                       ww_pool_slot_submit_result_t& out_result) {
-    std::scoped_lock lock(m_send_mutex);
+    auto lock = m_send_mutex.lock().unwrap();
     return ww_bridge_pool_submit_acquired_slot(
         m_pool, m_send_socket, &identity, producer_sync_fd, &out_result);
 }
 
 int BridgeSession::tryRepublishLatest(ww_pool_republish_result_t& out_result) {
-    std::scoped_lock lock(m_send_mutex);
+    auto lock = m_send_mutex.lock().unwrap();
     return ww_bridge_pool_try_republish_latest(m_pool, m_send_socket, &out_result);
 }
 
 int BridgeSession::waitRepublishLatest(ww_pool_cancel_fn cancel, void* userdata,
                                        ww_pool_republish_result_t& out_result) {
-    std::scoped_lock lock(m_send_mutex);
+    auto lock = m_send_mutex.lock().unwrap();
     return ww_bridge_pool_wait_republish_latest(
         m_pool, m_send_socket, cancel, userdata, &out_result);
 }
@@ -67,90 +73,86 @@ int BridgeSession::abortAcquiredSlot(const ww_pool_slot_identity_t& identity) {
 }
 
 int BridgeSession::sendBindFailed(const waywallen_bind_failure_t& failure) {
-    std::scoped_lock lock(m_send_mutex);
+    auto lock = m_send_mutex.lock().unwrap();
     return ww_bridge_send_bind_failed(m_send_socket, &failure);
 }
 
 int BridgeSession::sendClearColor(float r, float g, float b, float a) {
-    std::scoped_lock lock(m_send_mutex);
+    auto lock = m_send_mutex.lock().unwrap();
     return ww_bridge_send_report_state_clear_color(m_send_socket, r, g, b, a);
 }
 
-int BridgeSession::setEventSubscriptions(uint64_t revision, const std::vector<std::string>& kinds) {
-    std::vector<char*> raw;
-    raw.reserve(kinds.size());
-    for (const auto& kind : kinds) raw.push_back(const_cast<char*>(kind.c_str()));
+int BridgeSession::setEventSubscriptions(uint64_t revision, const BTreeSet<String>& kinds) {
+    Vec<CString> owners;
+    Vec<char*>   raw;
+    owners.reserve(kinds.len());
+    raw.reserve(kinds.len());
+    for (auto kind : kinds.iter()) {
+        auto value = CString::make(Vec<u8>::from(kind->as_str().as_bytes()));
+        if (value.is_err()) return -EINVAL;
+        owners.push(value.unwrap());
+        raw.push(const_cast<char*>(owners.last().unwrap()->as_ptr()));
+    }
     const waywallen_event_subscription_t subscription {
         .revision = revision,
         .kinds = {
-            .count = static_cast<uint32_t>(raw.size()),
-            .data  = raw.empty() ? nullptr : raw.data(),
+            .count = static_cast<uint32_t>(raw.len().to_primitive()),
+            .data = raw.is_empty() ? nullptr : raw.data(),
         },
     };
-    std::scoped_lock lock(m_send_mutex);
+    auto lock = m_send_mutex.lock().unwrap();
     return ww_bridge_set_event_subscriptions(m_send_socket, &subscription);
 }
 
-bool BridgeSubscriptionController::replace(std::vector<std::string> kinds) {
-    std::sort(kinds.begin(), kinds.end(), [](const auto& left, const auto& right) {
-        return left.compare(right) < 0;
+bool BridgeSubscriptionController::replace(BTreeSet<String> kinds) {
+    auto state = m_state.lock().unwrap();
+    bool same  = state->desired.len() == kinds.len() && kinds.iter().all([&](auto kind) {
+        return state->desired.contains(kind->as_str());
     });
-    kinds.erase(std::unique(kinds.begin(), kinds.end()), kinds.end());
-    std::scoped_lock lock(m_mutex);
-    if (m_desired != kinds) {
-        m_desired = std::move(kinds);
-        m_dirty   = true;
+    if (! same) {
+        state->desired = rstd::move(kinds);
+        state->dirty   = true;
     }
-    if (! m_dirty) return true;
-    return sendLocked();
+    return ! state->dirty || sendLocked(*state);
 }
 
-bool BridgeSubscriptionController::set(std::string_view kind, bool enabled) {
-    std::scoped_lock lock(m_mutex);
-    auto             found = std::lower_bound(
-        m_desired.begin(), m_desired.end(), kind, [](const auto& left, std::string_view right) {
-            return left.compare(right) < 0;
-        });
-    const bool present = found != m_desired.end() && *found == kind;
-    if (enabled == present) return ! m_dirty || sendLocked();
+bool BridgeSubscriptionController::set(ref<str> kind, bool enabled) {
+    auto state   = m_state.lock().unwrap();
+    bool present = state->desired.contains(kind);
+    if (enabled == present) return ! state->dirty || sendLocked(*state);
     if (enabled)
-        m_desired.insert(found, std::string(kind));
+        state->desired.insert(String::make(kind));
     else
-        m_desired.erase(found);
-    m_dirty = true;
-    return sendLocked();
+        state->desired.remove(kind);
+    state->dirty = true;
+    return sendLocked(*state);
 }
 
-bool BridgeSubscriptionController::sendLocked() {
-    const uint64_t revision = m_next_revision++;
-    if (m_session->setEventSubscriptions(revision, m_desired) != 0) return false;
-    m_sent_revision = revision;
-    m_dirty         = false;
+bool BridgeSubscriptionController::sendLocked(State& state) {
+    const uint64_t revision = state.next_revision++;
+    if (m_session->setEventSubscriptions(revision, state.desired) != 0) return false;
+    state.sent_revision = revision;
+    state.dirty         = false;
     return true;
 }
 
 void BridgeSubscriptionController::applied(const waywallen_event_subscription_result_t& event) {
-    std::scoped_lock lock(m_mutex);
+    auto state = m_state.lock().unwrap();
     if (event.status != WAYWALLEN_EVENT_SUBSCRIPTION_STATUS_APPLIED ||
-        event.revision < m_applied_revision || event.revision > m_sent_revision)
+        event.revision < state->applied_revision || event.revision > state->sent_revision)
         return;
-    m_applied_revision = event.revision;
-    m_applied.clear();
-    m_applied.reserve(event.kinds.count);
+    state->applied_revision = event.revision;
+    state->applied.clear();
     for (uint32_t index = 0; index < event.kinds.count; ++index) {
-        if (event.kinds.data[index]) m_applied.emplace_back(event.kinds.data[index]);
+        if (event.kinds.data[index])
+            state->applied.insert(
+                String::make(CStr::from_ptr(event.kinds.data[index]).to_str().unwrap()));
     }
-    std::sort(m_applied.begin(), m_applied.end(), [](const auto& left, const auto& right) {
-        return left.compare(right) < 0;
-    });
 }
 
 bool BridgeSubscriptionController::acceptsAudio(uint64_t revision) const {
-    std::scoped_lock lock(m_mutex);
-    return revision == m_applied_revision &&
-           std::any_of(m_applied.begin(), m_applied.end(), [](const auto& kind) {
-               return kind == "audio";
-           });
+    auto state = m_state.lock().unwrap();
+    return revision == state->applied_revision && state->applied.contains("audio"_str);
 }
 
 } // namespace ww_wescene

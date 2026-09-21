@@ -1,7 +1,6 @@
 export module wescene.pkg.scene_obj:particle_object;
 import rstd;
 import wescene.core;
-import rstd.cppstd;
 import wescene.utils;
 import wescene.fs;
 
@@ -11,6 +10,9 @@ export import :material;
 import :scene_document;
 
 using namespace rstd::prelude;
+using rstd::collections::HashMap;
+using rstd::sync::Arc;
+using namespace rstd::literals;
 
 export namespace owe
 
@@ -30,33 +32,35 @@ public:
     };
     using EFlags = BitFlags<FlagEnum>;
 
-    bool                 FromJson(const owe::Json&);
-    EFlags               flags { 0 };
-    i32                  id { -1 };
-    std::array<float, 3> offset { 0, 0, 0 };
+    bool            FromJson(const owe::Json&);
+    EFlags          flags { 0 };
+    i32             id { -1 };
+    array<float, 3> offset { 0.0f, 0.0f, 0.0f };
     // a static offset relative to the position of the particle system.
 };
 
-class ParticleRender {
+class ParticleRender : public rstd::DefaultInClass<ParticleRender, rstd::clone::Clone> {
 public:
-    bool        FromJson(const owe::Json&);
-    std::string name;
-    float       length { 0.05f };
-    float       maxlength { 10.0f };
-    float       subdivision { 3.0f };
-    i32         segments { 4 };
+    auto   clone() const -> ParticleRender;
+    bool   FromJson(const owe::Json&);
+    String name;
+    float  length { 0.05f };
+    float  maxlength { 10.0f };
+    float  subdivision { 3.0f };
+    i32    segments { 4 };
 };
 
 class Initializer {
 public:
-    bool                 FromJson(const owe::Json&);
-    std::array<float, 3> max { 0, 0, 0 };
-    std::array<float, 3> min { 0, 0, 0 };
-    std::string          name;
+    bool            FromJson(const owe::Json&);
+    array<float, 3> max { 0.0f, 0.0f, 0.0f };
+    array<float, 3> min { 0.0f, 0.0f, 0.0f };
+    String          name;
 };
 
-class Emitter {
+class Emitter : public rstd::DefaultInClass<Emitter, rstd::clone::Clone> {
 public:
+    auto clone() const -> Emitter;
     enum class FlagEnum : rstd::uint32_t
     {
         one_per_frame = 1,
@@ -64,27 +68,27 @@ public:
     using EFlags = BitFlags<FlagEnum>;
 
 public:
-    bool                 FromJson(const owe::Json&);
-    std::array<float, 3> directions { 1.0f, 1.0f, 0.0f };
-    std::array<float, 3> distancemax { 256.0f, 256.0f, 256.0f };
-    std::array<float, 3> distancemin { 0.0f, 0.0f, 0.0f };
-    std::array<float, 3> origin { 0, 0, 0 };
-    std::array<i32, 3>   sign {};
-    u32                  instantaneous { 0 };
-    u32                  max_emit_per_period { 0 };
-    float                speedmin { 0 };
-    float                speedmax { 0 };
-    u32                  audioprocessingmode { 0 };
-    float                audioamount { 1.0f };
-    float                audioexponent { 1.0f };
-    std::array<float, 2> audiofrequency { 0.0f, 15.0f };
-    std::array<float, 2> audiobounds { 0.0f, 1.0f };
-    i32                  controlpoint { 0 };
-    i32                  id;
-    EFlags               flags;
-    std::string          name;
-    float                rate { 5.0f };
-    float                duration { 0.0f };
+    bool            FromJson(const owe::Json&);
+    array<float, 3> directions { 1.0f, 1.0f, 0.0f };
+    array<float, 3> distancemax { 256.0f, 256.0f, 256.0f };
+    array<float, 3> distancemin { 0.0f, 0.0f, 0.0f };
+    array<float, 3> origin { 0.0f, 0.0f, 0.0f };
+    array<i32, 3>   sign {};
+    u32             instantaneous { 0 };
+    u32             max_emit_per_period { 0 };
+    float           speedmin { 0 };
+    float           speedmax { 0 };
+    u32             audioprocessingmode { 0 };
+    float           audioamount { 1.0f };
+    float           audioexponent { 1.0f };
+    array<float, 2> audiofrequency { 0.0f, 15.0f };
+    array<float, 2> audiobounds { 0.0f, 1.0f };
+    i32             controlpoint { 0 };
+    i32             id;
+    EFlags          flags;
+    String          name;
+    float           rate { 5.0f };
+    float           duration { 0.0f };
 };
 
 class ParticleChild;
@@ -107,21 +111,21 @@ public:
     bool     FromJson(const owe::Json&, fs::VFS&);
     Particle Clone() const;
 
-    std::vector<Emitter>              emitters;
-    rstd::json::Array                 initializers;
-    rstd::json::Array                 operators;
-    std::vector<ParticleRender>       renderers;
-    std::vector<ParticleControlpoint> controlpoints;
+    Vec<Emitter>              emitters;
+    rstd::json::Array         initializers;
+    rstd::json::Array         operators;
+    Vec<ParticleRender>       renderers;
+    Vec<ParticleControlpoint> controlpoints;
 
     Material material;
 
-    std::vector<ParticleChild> children;
+    Vec<ParticleChild> children;
 
-    std::string animationmode;
-    float       sequencemultiplier { 1.0f };
-    u32         maxcount { 1 };
-    float       starttime { 0.0f };
-    EFlags      flags { 0 };
+    String animationmode;
+    float  sequencemultiplier { 1.0f };
+    u32    maxcount { 1 };
+    float  starttime { 0.0f };
+    EFlags flags { 0 };
 };
 class ParticleChild {
 public:
@@ -138,17 +142,17 @@ public:
     // eventfollow
     // eventspawn
     // eventdeath
-    std::string type { "static" };
-    std::string name;
-    i32         maxcount { 20 };
-    EFlags      flags { 0 };
+    String type { "static"_Str };
+    String name;
+    i32    maxcount { 20 };
+    EFlags flags { 0 };
 
     Option<i32> controlpointstartindex;
     float       probability { 1.0f };
 
-    std::array<float, 3> angles { 0, 0, 0 };
-    std::array<float, 3> origin { 0, 0, 0 };
-    std::array<float, 3> scale { 1.0f, 1.0f, 1.0f };
+    array<float, 3> angles { 0.0f, 0.0f, 0.0f };
+    array<float, 3> origin { 0.0f, 0.0f, 0.0f };
+    array<float, 3> scale { 1.0f, 1.0f, 1.0f };
 
     Particle obj;
 };
@@ -156,33 +160,39 @@ public:
 class ParticleInstanceoverride {
 public:
     bool FromJosn(const owe::Json&);
+    auto clone() const -> ParticleInstanceoverride;
     bool enabled { false };
     bool overColor { false };
     bool overColorn { false };
 
-    float                alpha { 1.0f };
-    float                count { 1.0f };
-    float                lifetime { 1.0f };
-    float                rate { 1.0f };
-    float                speed { 1.0f };
-    float                size { 1.0f };
-    float                brightness { 1.0f };
-    i32                  id { 0 };
-    std::array<float, 3> color { 1.0f, 1.0f, 1.0f };
-    std::array<float, 3> colorn { 1.0f, 1.0f, 1.0f };
+    float           alpha { 1.0f };
+    float           count { 1.0f };
+    float           lifetime { 1.0f };
+    float           rate { 1.0f };
+    float           speed { 1.0f };
+    float           size { 1.0f };
+    float           brightness { 1.0f };
+    i32             id { 0 };
+    array<float, 3> color { 1.0f, 1.0f, 1.0f };
+    array<float, 3> colorn { 1.0f, 1.0f, 1.0f };
 
     // Presence distinguishes an absent override from an explicit world-space origin.
-    std::array<Option<std::array<float, 3>>, 8> controlpoint;
-    std::array<std::array<float, 3>, 8>         controlpointangle {};
-    std::shared_ptr<const FieldBindings>        field_bindings;
+    array<Option<array<float, 3>>, 8> controlpoint;
+    array<array<float, 3>, 8>         controlpointangle {};
+    auto                              FieldBindingsView() const noexcept -> const FieldBindings* {
+        return m_field_bindings.is_some() ? (*m_field_bindings).as_ptr().as_raw_ptr() : nullptr;
+    }
 
     // field name (e.g. "alpha", "size", "color", "colorn", "lifetime",
     // "rate", "speed", "count", "brightness") -> user-property key when the
     // scene.json value is wrapped in `{"user":"<key>","value":...}`. The
-    // owning particle subsystem keeps the override behind a shared_ptr so
+    // owning particle subsystem keeps the override behind an Arc so
     // RenderSetUserProperty can mutate the relevant field at runtime and the
     // change is picked up by every initializer/operator captured closure.
-    std::unordered_map<std::string, std::string> bindings;
+    HashMap<String, String> bindings;
+
+private:
+    Option<Arc<FieldBindings>> m_field_bindings;
 };
 
 class ParticleObject {
@@ -192,31 +202,31 @@ public:
     bool                     FromAsset(ref<str>, fs::VFS&);
     ParticleObject           Clone() const;
     i32                      id { 0 };
-    std::string              name;
-    std::array<float, 3>     origin { 0.0f, 0.0f, 0.0f };
-    std::array<float, 3>     scale { 1.0f, 1.0f, 1.0f };
-    std::array<float, 3>     angles { 0.0f, 0.0f, 0.0f };
+    String                   name;
+    array<float, 3>          origin { 0.0f, 0.0f, 0.0f };
+    array<float, 3>          scale { 1.0f, 1.0f, 1.0f };
+    array<float, 3>          angles { 0.0f, 0.0f, 0.0f };
     ParallaxDepthBinding     parallax;
     bool                     visible { true };
-    std::string              particle;
+    String                   particle;
     Particle                 particleObj;
     ParticleInstanceoverride instanceoverride;
 
     // Common cross-kind metadata.
-    bool                 locktransforms { false };
-    bool                 muteineditor { false };
-    bool                 nointerpolation { false };
-    bool                 reflected { true };
-    u32                  parent { 0 };
-    std::string          attachment;
-    std::vector<i32>     dependencies;
-    owe::Json            instance;
-    owe::Json            particlesrc;                       // PKGV0001+; always null in corpus
-    std::array<float, 3> controlpoint { 0.0f, 0.0f, 0.0f }; // PKGV0019+
-    FieldBindings        field_bindings;
+    bool            locktransforms { false };
+    bool            muteineditor { false };
+    bool            nointerpolation { false };
+    bool            reflected { true };
+    u32             parent { 0 };
+    String          attachment;
+    Vec<i32>        dependencies;
+    owe::Json       instance;
+    owe::Json       particlesrc;                       // PKGV0001+; always null in corpus
+    array<float, 3> controlpoint { 0.0f, 0.0f, 0.0f }; // PKGV0019+
+    FieldBindings   field_bindings;
 
     VisibleUserBinding visible_user;
-    std::string        visible_user_key;
+    String             visible_user_key;
 };
 
 } // namespace wpscene

@@ -2,15 +2,18 @@ module;
 
 export module viewer.common;
 
-import rstd.cppstd;
+import rstd;
 
 export import :arg;
+
+using namespace rstd::prelude;
+using rstd::path::PathBuf;
 
 export namespace viewer
 {
 
-std::filesystem::path ExecutableDir(const char* argv0);
-std::filesystem::path DefaultCacheDir(std::string_view name);
+PathBuf ExecutableDir(const char* argv0);
+PathBuf DefaultCacheDir(ref<str> name);
 
 void InitGlfwPlatformHint(bool force_x11);
 

@@ -2,7 +2,6 @@ export module wescene.vulkan_render:uniform_buffer;
 export import vrento.uniform_buffer;
 export import vrento.uniform_binding;
 import rstd;
-import rstd.cppstd;
 import wescene.resource;
 import wescene.scene;
 import wescene.types;

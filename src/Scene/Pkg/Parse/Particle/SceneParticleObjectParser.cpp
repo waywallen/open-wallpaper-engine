@@ -19,8 +19,6 @@ import wescene.script;
 
 using namespace rstd::prelude;
 using namespace rstd::literals;
-using rstd::cppstd::as_str;
-using rstd::cppstd::as_string_view;
 using rstd::sync::Arc;
 using namespace owe;
 using namespace Eigen;
@@ -29,9 +27,9 @@ namespace owe
 {
 
 float ParticleTextureRatio(const SceneMaterial& material) {
-    auto it = material.customShader.constValues.find(WE_GLTEX_RESOLUTION_NAMES[usize()]);
-    if (it == material.customShader.constValues.end()) return 1.0f;
-    const auto& r = it->second;
+    auto it = material.customShader.constValues.get(WE_GLTEX_RESOLUTION_NAMES[usize()]);
+    if (it.is_none()) return 1.0f;
+    const auto& r = **it;
     if (r.size() < usize(2) || r[usize(0)] == 0.0f) return 1.0f;
     return r[usize(1)] / r[usize(0)];
 }
@@ -44,31 +42,30 @@ struct ParticleRenderDesc {
 
 ParticleRenderDesc DescribeParticleRender(const wpscene::ParticleRender& render) {
     ParticleRenderDesc desc;
-    desc.rope       = render.name == "rope";
-    desc.rope_trail = render.name == "ropetrail";
-    desc.trail      = send_with(render.name, "trail");
+    desc.rope       = render.name == "rope"_str;
+    desc.rope_trail = render.name == "ropetrail"_str;
+    desc.trail      = render.name.as_str()->ends_with("trail"_str);
     return desc;
 }
 
-bool ShaderComboEnabled(const wpscene::Material& material, const ShaderInfo& info,
-                        std::string_view name) {
-    auto material_combo = material.combos.find(std::string(name));
-    if (material_combo != material.combos.end()) return material_combo->second != i32();
+bool ShaderComboEnabled(const wpscene::Material& material, const ShaderInfo& info, ref<str> name) {
+    auto material_combo = material.combos.get(name);
+    if (material_combo.is_some()) return **material_combo != i32();
 
-    auto combo = info.combos.find(std::string(name));
-    return combo != info.combos.end() && combo->second != "0";
+    auto combo = info.combos.get(name);
+    return combo.is_some() && (**combo).as_str() != "0"_str;
 }
 
 i32 LimitRopeSubdivision(i32 requested, const ParticleObjectParseServices& services,
                          const wpscene::Material& material, const ShaderInfo& info) {
     if (requested <= i32()) return i32();
 
-    const bool lighting     = ShaderComboEnabled(material, info, "LIGHTING");
-    const bool refract      = ShaderComboEnabled(material, info, "REFRACT");
-    const bool fog          = ShaderComboEnabled(material, info, "FOG");
-    const bool fog_distance = ShaderComboEnabled(material, info, "FOG_DIST") ||
+    const bool lighting     = ShaderComboEnabled(material, info, "LIGHTING"_str);
+    const bool refract      = ShaderComboEnabled(material, info, "REFRACT"_str);
+    const bool fog          = ShaderComboEnabled(material, info, "FOG"_str);
+    const bool fog_distance = ShaderComboEnabled(material, info, "FOG_DIST"_str) ||
                               (fog && services.shader_environment.fog_distance);
-    const bool fog_height   = ShaderComboEnabled(material, info, "FOG_HEIGHT") ||
+    const bool fog_height   = ShaderComboEnabled(material, info, "FOG_HEIGHT"_str) ||
                               (fog && services.shader_environment.fog_height);
 
     // genericropeparticle always emits position (4), UV (2), and color (4).
@@ -79,10 +76,10 @@ i32 LimitRopeSubdivision(i32 requested, const ParticleObjectParseServices& servi
 
     const auto& limits                 = services.geometry_shader_limits;
     const auto  vertices_by_components = limits.max_total_output_components / output_components;
-    const auto  max_vertices    = std::min(limits.max_output_vertices, vertices_by_components);
+    const auto  max_vertices = rstd::cmp::min(vertices_by_components, limits.max_output_vertices);
     const auto  max_subdivision = max_vertices > u32(4) ? (max_vertices - u32(4)) / u32(2) : u32();
     const auto  limited =
-        rstd::as_cast<i32>(std::min(rstd::as_cast<u32>(requested), max_subdivision));
+        rstd::as_cast<i32>(rstd::cmp::min(max_subdivision, rstd::as_cast<u32>(requested)));
     if (limited != requested) {
         rstd_warn("rope subdivision reduced from {} to {} for geometry shader limits",
                   requested,
@@ -91,10 +88,10 @@ i32 LimitRopeSubdivision(i32 requested, const ParticleObjectParseServices& servi
     return limited;
 }
 
-ParticleAnimationMode ToAnimMode(const std::string& str) {
-    if (str == "randomframe")
+ParticleAnimationMode ToAnimMode(ref<str> str) {
+    if (str == "randomframe"_str)
         return ParticleAnimationMode::RANDOMONE;
-    else if (str == "sequence")
+    else if (str == "sequence"_str)
         return ParticleAnimationMode::SEQUENCE;
     else {
         return ParticleAnimationMode::SEQUENCE;
@@ -106,7 +103,7 @@ void ApplyParticleOverride(wpscene::ParticleInstanceoverride& state, ref<str> fi
     auto write_scalar = [&](float& destination) {
         if (values.len() >= usize(1)) destination = values[usize()];
     };
-    auto write_vec3 = [&](std::array<float, 3>& destination, float scale) -> bool {
+    auto write_vec3 = [&](array<float, 3>& destination, float scale) -> bool {
         if (values.len() < usize(3)) return false;
         destination = { values[usize()] * scale,
                         values[usize(1)] * scale,
@@ -144,10 +141,10 @@ void ApplyParticleOverride(wpscene::ParticleInstanceoverride& state, ref<str> fi
         write_vec3(state.colorn, 1.0f);
         state.overColorn = true;
     } else if (auto index = parse_index("controlpointangle"_str); index.is_some()) {
-        write_vec3(state.controlpointangle[index->to_primitive()], 1.0f);
+        write_vec3(state.controlpointangle[*index], 1.0f);
     } else if (auto index = parse_index("controlpoint"_str); index.is_some()) {
-        std::array<float, 3> point {};
-        if (write_vec3(point, 1.0f)) state.controlpoint[index->to_primitive()] = Some(point);
+        array<float, 3> point {};
+        if (write_vec3(point, 1.0f)) state.controlpoint[*index] = Some(point);
     }
 }
 
@@ -157,11 +154,11 @@ Vec<float> ReadParticleOverride(const wpscene::ParticleInstanceoverride& state, 
         out.push(float(value));
         return out;
     };
-    auto vec3 = [](const std::array<float, 3>& value, float scale) {
+    auto vec3 = [](const array<float, 3>& value, float scale) {
         Vec<float> out;
-        out.push(value[0] * scale);
-        out.push(value[1] * scale);
-        out.push(value[2] * scale);
+        out.push(value[usize(0)] * scale);
+        out.push(value[usize(1)] * scale);
+        out.push(value[usize(2)] * scale);
         return out;
     };
     if (field == "alpha"_str) return scalar(state.alpha);
@@ -215,12 +212,15 @@ struct ParticleNodeControl {
 void LoadControlPoint(SceneParseContext& context, ParticleSubSystem& system,
                       const wpscene::Particle& particle, ParticleInstanceModifiers modifiers) {
     auto points = system.ControlpointsMut();
-    auto count  = rstd::cmp::min(points.len(), usize(particle.controlpoints.size()));
+    auto count  = rstd::cmp::min(points.len(), particle.controlpoints.len());
     for (usize index {}; index < count; ++index) {
-        auto source_index         = index.to_primitive();
-        points[index].base_offset = Eigen::Vector3d {
-            array_cast<double>(particle.controlpoints[source_index].offset).data()
-        };
+        auto source_index         = index;
+        points[index].base_offset = Eigen::Vector3d { particle.controlpoints[source_index]
+                                                          .offset.clone()
+                                                          .map([](float value) {
+                                                              return static_cast<double>(value);
+                                                          })
+                                                          .data() };
         points[index].offset     = points[index].base_offset;
         points[index].link_mouse = particle.controlpoints[source_index]
                                        .flags[wpscene::ParticleControlpoint::FlagEnum::link_mouse];
@@ -232,8 +232,8 @@ void LoadControlPoint(SceneParseContext& context, ParticleSubSystem& system,
     const auto& field_bindings = modifiers.ControlpointFieldBindings();
     if (! field_bindings) return;
     for (usize index {}; index < points.len(); ++index) {
-        auto field   = std::string("controlpointangle") + std::to_string(index.to_primitive());
-        auto binding = field_bindings->Get(rstd::cppstd::as_str(field).unwrap());
+        auto field   = rstd::format("controlpointangle{}", index);
+        auto binding = field_bindings->Get(field.as_str());
         if (binding.is_some() && (**binding).animation.is_some())
             system.SetControlpointAngleTrack(index, ResolveAnimationTrack(context, **binding));
     }
@@ -269,20 +269,20 @@ void LoadEmitter(ParticleSubSystem& system, const wpscene::Particle& particle,
                  const ParticleInstanceModifiers& modifiers) {
     usize emitter_index {};
     for (const auto& em : particle.emitters) {
-        auto newEm = em;
+        auto newEm = em.clone();
         newEm.rate *= modifiers.Count();
         system.AddEmitter(ParticleParser::GenEmitter(newEm, system, emitter_index++));
     }
 }
 
-ParticleSubSystem::SpawnType ParseSpawnType(std::string_view str) {
+ParticleSubSystem::SpawnType ParseSpawnType(ref<str> str) {
     using ST = ParticleSubSystem::SpawnType;
     ST type { ST::STATIC };
-    if (str == "eventfollow") {
+    if (str == "eventfollow"_str) {
         type = ST::EVENT_FOLLOW;
-    } else if (str == "eventspawn") {
+    } else if (str == "eventspawn"_str) {
         type = ST::EVENT_SPAWN;
-    } else if (str == "eventdeath") {
+    } else if (str == "eventdeath"_str) {
         type = ST::EVENT_DEATH;
     }
     return type;
@@ -321,11 +321,11 @@ void BuildParticleObjectNode(ParticleObjectParseServices& services,
     struct ChildData {
         ChildData() = default;
         ChildData(const wpscene::ParticleChild& o)
-            : type(o.type),
+            : type(o.type.as_str()),
               maxcount(o.maxcount),
               controlpointstartindex(o.controlpointstartindex),
               probability(o.probability) {}
-        std::string type { "static" };
+        ref<str>    type { "static"_str };
         i32         maxcount { 20 };
         Option<i32> controlpointstartindex;
         float       probability { 1.0f };
@@ -345,12 +345,12 @@ void BuildParticleObjectNode(ParticleObjectParseServices& services,
         Vector3f corigin(child_ptr.child->origin.data());
         for (int i = 0; i < 3; ++i) {
             float s = child_ptr.world_scale[i];
-            if (std::abs(s) > 1e-6f) corigin[i] /= s;
+            if (f32(s).abs().to_primitive() > 1e-6f) corigin[i] /= s;
         }
         spNodeOpt  = Some(Arc<SceneNode>::make(corigin,
                                                Vector3f(child_ptr.child->scale.data()),
                                                Vector3f(child_ptr.child->angles.data()),
-                                               child_ptr.child->name));
+                                               child_ptr.child->name.as_str()));
         child_data = ChildData(*child_ptr.child);
 
     } else {
@@ -358,7 +358,7 @@ void BuildParticleObjectNode(ParticleObjectParseServices& services,
         spNodeOpt      = Some(Arc<SceneNode>::make(Vector3f(wppartobj.origin.data()),
                                                    Vector3f(wppartobj.scale.data()),
                                                    Vector3f(wppartobj.angles.data()),
-                                                   wppartobj.name));
+                                                   wppartobj.name.as_str()));
         auto& spNode   = *spNodeOpt;
         spNode->ID()   = wppartobj.id;
         if (! wppartobj.visible) {
@@ -387,24 +387,24 @@ void BuildParticleObjectNode(ParticleObjectParseServices& services,
     }
     auto override_state =
         is_child ? (*child_ptr.instance_override).clone()
-                 : Arc<wpscene::ParticleInstanceoverride>::make(wppartobj.instanceoverride);
+                 : Arc<wpscene::ParticleInstanceoverride>::make(wppartobj.instanceoverride.clone());
     auto modifiers =
         ParticleInstanceModifiers(override_state.clone(), particle_obj.flags, ! is_child);
     const auto& override = *override_state;
 
-    auto wppartRenderer    = particle_obj.renderers.at(0);
-    auto render_desc       = DescribeParticleRender(wppartRenderer);
-    bool render_rope       = render_desc.rope;
-    bool render_rope_trail = render_desc.rope_trail;
-    bool rope_shader       = render_rope || render_rope_trail;
-    bool hastrail          = render_desc.trail;
+    const auto& wppartRenderer    = particle_obj.renderers[usize()];
+    auto        render_desc       = DescribeParticleRender(wppartRenderer);
+    bool        render_rope       = render_desc.rope;
+    bool        render_rope_trail = render_desc.rope_trail;
+    bool        rope_shader       = render_rope || render_rope_trail;
+    bool        hastrail          = render_desc.trail;
 
-    if (rope_shader) particle_obj.material.shader = "genericropeparticle";
+    if (rope_shader) particle_obj.material.shader = "genericropeparticle"_Str;
 
     // wppartobj.origin[1] = context.ortho_h - wppartobj.origin[1];
 
     if (particle_obj.flags[wpscene::Particle::FlagEnum::perspective]) {
-        spNode->SetCamera("global_perspective");
+        spNode->SetCamera("global_perspective"_str);
     }
 
     SceneMaterial          material;
@@ -417,22 +417,25 @@ void BuildParticleObjectNode(ParticleObjectParseServices& services,
     svData.vertices_in_world_space = particle_obj.flags[wpscene::Particle::FlagEnum::wordspace];
 
     ShaderInfo shaderInfo;
-    shaderInfo.baseConstSvs = services.global_base_uniforms;
-    shaderInfo.baseConstSvs[rstd::cppstd::to_string(G_ORIENTATIONUP)] =
-        std::array { 0.0f, 1.0f, 0.0f };
-    shaderInfo.baseConstSvs[rstd::cppstd::to_string(G_ORIENTATIONRIGHT)] =
-        std::array { 1.0f, 0.0f, 0.0f };
-    shaderInfo.baseConstSvs[rstd::cppstd::to_string(G_ORIENTATIONFORWARD)] =
-        std::array { 0.0f, 0.0f, 1.0f };
-    shaderInfo.baseConstSvs[rstd::cppstd::to_string(G_VIEWUP)]    = std::array { 0.0f, 1.0f, 0.0f };
-    shaderInfo.baseConstSvs[rstd::cppstd::to_string(G_VIEWRIGHT)] = std::array { 1.0f, 0.0f, 0.0f };
-    shaderInfo.baseConstSvs[rstd::cppstd::to_string(G_EYEPOSITION)] = std::array {
-        rstd::as_cast<float>(services.ortho_w) / 2.0f,
-        rstd::as_cast<float>(services.ortho_h) / 2.0f,
-        1000.0f,
-    };
+    shaderInfo.baseConstSvs = services.global_base_uniforms.clone();
+    (void)shaderInfo.baseConstSvs.insert(rstd::into(G_ORIENTATIONUP),
+                                         ShaderValue(array<float, 3> { 0.0f, 1.0f, 0.0f }));
+    (void)shaderInfo.baseConstSvs.insert(rstd::into(G_ORIENTATIONRIGHT),
+                                         ShaderValue(array<float, 3> { 1.0f, 0.0f, 0.0f }));
+    (void)shaderInfo.baseConstSvs.insert(rstd::into(G_ORIENTATIONFORWARD),
+                                         ShaderValue(array<float, 3> { 0.0f, 0.0f, 1.0f }));
+    (void)shaderInfo.baseConstSvs.insert(rstd::into(G_VIEWUP),
+                                         ShaderValue(array<float, 3> { 0.0f, 1.0f, 0.0f }));
+    (void)shaderInfo.baseConstSvs.insert(rstd::into(G_VIEWRIGHT),
+                                         ShaderValue(array<float, 3> { 1.0f, 0.0f, 0.0f }));
+    (void)shaderInfo.baseConstSvs.insert(rstd::into(G_EYEPOSITION),
+                                         ShaderValue(array<float, 3> {
+                                             rstd::as_cast<float>(services.ortho_w) / 2.0f,
+                                             rstd::as_cast<float>(services.ortho_h) / 2.0f,
+                                             1000.0f,
+                                         }));
 
-    u32 maxcount = std::min(particle_obj.maxcount, u32(20000));
+    u32 maxcount = rstd::cmp::min(u32(20000), particle_obj.maxcount);
 
     Option<Arc<ParticleTrailUniformState>> trail_uniform_state;
     if (hastrail) {
@@ -444,25 +447,25 @@ void BuildParticleObjectNode(ParticleObjectParseServices& services,
             (float)in_SegmentUVTimeOffset,
             (float)in_SegmentMaxCount,
         };
-        shaderInfo.baseConstSvs[rstd::cppstd::to_string(G_RENDERVAR0)] = render_var;
+        (void)shaderInfo.baseConstSvs.insert(rstd::into(G_RENDERVAR0), ShaderValue(render_var));
         if (render_rope_trail) {
             trail_uniform_state = Some(Arc<ParticleTrailUniformState>::make(
                 ParticleTrailUniformState { .render_var = render_var }));
         }
-        shaderInfo.combos[rstd::cppstd::to_string(WE_CB_TRAILRENDERER)] = "1";
+        (void)shaderInfo.combos.insert(rstd::into(WE_CB_TRAILRENDERER), "1"_Str);
         if (! render_rope_trail)
-            shaderInfo.combos[rstd::cppstd::to_string(WE_CB_THICK_FORMAT)] = "1";
+            (void)shaderInfo.combos.insert(rstd::into(WE_CB_THICK_FORMAT), "1"_Str);
     }
     if (rope_shader) {
-        i32 subdiv = rstd::as_cast<i32>(std::round(wppartRenderer.subdivision));
+        i32 subdiv = rstd::as_cast<i32>(f32(wppartRenderer.subdivision).round().to_primitive());
         subdiv     = LimitRopeSubdivision(subdiv, services, particle_obj.material, shaderInfo);
-        shaderInfo.combos["TRAILSUBDIVISION"] = std::to_string(subdiv.to_primitive());
+        (void)shaderInfo.combos.insert("TRAILSUBDIVISION"_Str, rstd::format("{}", subdiv));
     }
 
-    auto animationmode = ToAnimMode(particle_obj.animationmode);
+    auto animationmode = ToAnimMode(particle_obj.animationmode.as_str());
     if (animationmode == ParticleAnimationMode::SEQUENCE &&
         ! particle_obj.flags[wpscene::Particle::FlagEnum::spritenoframeblending]) {
-        shaderInfo.combos["SPRITESHEETBLEND"] = "1";
+        (void)shaderInfo.combos.insert("SPRITESHEETBLEND"_Str, "1"_Str);
     }
 
     bool mat_ok = false;
@@ -490,18 +493,18 @@ void BuildParticleObjectNode(ParticleObjectParseServices& services,
         return;
     }
     LoadConstvalue(*services.construction_context, material, particle_obj.material, shaderInfo);
-    auto  spMesh             = std::make_shared<SceneMesh>(true);
+    auto  spMesh             = Arc<SceneMesh>::make(true);
     auto& mesh               = *spMesh;
     auto  sequencemultiplier = particle_obj.sequencemultiplier;
     bool  hasSprite          = material.hasSprite;
     (void)hasSprite;
 
-    bool          thick_format = material.hasSprite || (hastrail && ! render_rope_trail);
-    std::uint32_t trail_length = 0;
+    bool           thick_format = material.hasSprite || (hastrail && ! render_rope_trail);
+    rstd::uint32_t trail_length = 0;
     if (render_rope_trail) {
-        std::int32_t segments = wppartRenderer.segments.to_primitive();
-        segments              = std::clamp(segments, 1, 256);
-        trail_length          = static_cast<std::uint32_t>(segments);
+        rstd::int32_t segments = wppartRenderer.segments.to_primitive();
+        segments               = rstd::cmp::min(256, rstd::cmp::max(1, segments));
+        trail_length           = static_cast<rstd::uint32_t>(segments);
     }
     ParticleFollowAnchor follow_anchor;
     if (hastrail && ! render_rope_trail) {
@@ -516,11 +519,11 @@ void BuildParticleObjectNode(ParticleObjectParseServices& services,
         child_data.controlpointstartindex.is_some()) {
         spawn_type = ParticleSubSystem::SpawnType::STATIC_CONTROLPOINT;
     }
-    auto max_instance_count = u32(
-        static_cast<std::uint32_t>(std::max(child_data.maxcount.to_primitive(), std::int32_t(0))));
-    auto particleSub = Box<ParticleSubSystem>::make(
+    auto max_instance_count = u32(static_cast<rstd::uint32_t>(
+        rstd::cmp::max(rstd::int32_t(0), child_data.maxcount.to_primitive())));
+    auto particleSub        = Box<ParticleSubSystem>::make(
         *services.scene,
-        spMesh,
+        spMesh.clone(),
         maxcount,
         f64(modifiers.Rate()),
         max_instance_count,
@@ -577,27 +580,28 @@ void BuildParticleObjectNode(ParticleObjectParseServices& services,
     // Register every {user:"<key>", value:...} binding on instanceoverride
     // so RenderSetUserProperty can mutate the shared state at runtime.
     if (! is_child) {
-        for (const auto& [field, key] : override.bindings) {
+        override.bindings.iter().for_each([&](auto entry) {
+            auto [field, key] = entry;
             services.scene->RegisterParticleOverrideBinding(
-                String::make(as_str(key).unwrap()),
+                key->clone(),
                 Arc<dyn<SceneParticleOverrideControl>>::make(ParticleOverrideControl {
                     .state = override_state.clone(),
-                    .field = String::make(as_str(field).unwrap()),
+                    .field = field->clone(),
                 }));
-        }
+        });
     }
 
-    mesh.AddMaterial(std::move(material));
+    mesh.AddMaterial(rstd::move(material));
     RegisterMaterialBindings(
-        *services.scene, mesh.MaterialSlots().front(), particle_obj.material, shaderInfo);
+        *services.scene, mesh.MaterialSlots()[usize()], particle_obj.material, shaderInfo);
     if (services.construction_context != nullptr) {
         WireMaterialShaderValueScripts(*services.construction_context,
                                        spNode,
-                                       mesh.MaterialSlots().back(),
+                                       mesh.MaterialSlots()[mesh.MaterialSlots().len() - usize(1)],
                                        particle_obj.material,
                                        shaderInfo);
     }
-    spNode->AddMesh(spMesh);
+    spNode->AddMesh(spMesh.clone());
     SetParticleUniformConfig(output, spNode, rstd::move(svData));
     if (trail_uniform_state.is_some()) {
         output.trail_uniform_configs.push(ParticleTrailUniformConfigDraft {
@@ -621,7 +625,7 @@ void BuildParticleObjectNode(ParticleObjectParseServices& services,
     }
 
     if (is_child)
-        child_ptr.particle_parent->AddChild(std::move(particleSub));
+        child_ptr.particle_parent->AddChild(rstd::move(particleSub));
     else
         services.particle_runtime->Add(rstd::move(particleSub));
 
@@ -650,10 +654,10 @@ auto BuildParticleObjectImpl(ParticleObjectParseServices& services,
 
 void ParseParticleObjImpl(SceneParseContext& context, wpscene::ParticleObject& particle) {
     if (context.particle_runtime.is_none()) return;
-    if (! particle.particle.empty() && ! context.dynamic_particle_prototypes.contains_key(
-                                           rstd::cppstd::as_str(particle.particle).unwrap())) {
-        (void)context.dynamic_particle_prototypes.insert(
-            String::make(rstd::cppstd::as_str(particle.particle).unwrap()), particle.Clone());
+    if (! particle.particle.is_empty() &&
+        ! context.dynamic_particle_prototypes.contains_key(particle.particle.as_str())) {
+        (void)context.dynamic_particle_prototypes.insert(particle.particle.clone(),
+                                                         particle.Clone());
     }
 
     ParticleObjectParseServices services {
@@ -663,7 +667,7 @@ void ParseParticleObjImpl(SceneParseContext& context, wpscene::ParticleObject& p
         .shader_environment        = context.shader_environment,
         .geometry_shader_limits    = context.geometry_shader_limits,
         .geometry_shader_supported = context.geometry_shader_supported,
-        .global_base_uniforms      = context.global_base_uniforms,
+        .global_base_uniforms      = context.global_base_uniforms.clone(),
         .particle_runtime          = (*context.particle_runtime).clone(),
         .ortho_w                   = context.ortho_w,
         .ortho_h                   = context.ortho_h,
@@ -680,7 +684,7 @@ void ParseParticleObjImpl(SceneParseContext& context, wpscene::ParticleObject& p
                         particle.parent,
                         Some(rstd::move(*output.root)),
                         None(),
-                        String::make(rstd::cppstd::as_str(particle.attachment).unwrap()),
+                        particle.attachment.clone(),
                     });
 }
 

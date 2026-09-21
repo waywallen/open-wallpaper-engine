@@ -1,7 +1,3 @@
-import vvk;
-
-#include "GlfwVulkan.hpp"
-
 #if __is_target_os(macos)
 
 #    include <CoreGraphics/CoreGraphics.h>
@@ -12,7 +8,15 @@ import vvk;
 #    include <pthread.h>
 #    include <cmath>
 
-struct GLFWwindow;
+#endif
+
+import vvk;
+import viewer.glfw_vulkan;
+
+using namespace viewer::glfw;
+
+#if __is_target_os(macos)
+
 extern "C" void* glfwGetCocoaView(GLFWwindow*);
 
 namespace
@@ -94,9 +98,9 @@ struct SurfaceCreateContext {
 };
 
 void CreateSurfaceOnMain(void* opaque) {
-    auto& context = *static_cast<SurfaceCreateContext*>(opaque);
-    context.result =
-        glfwCreateWindowSurface(context.instance, context.window, nullptr, context.surface);
+    auto& context  = *static_cast<SurfaceCreateContext*>(opaque);
+    context.result = viewer::glfw::glfwCreateWindowSurface(
+        context.instance, context.window, nullptr, context.surface);
     if (context.result == VK_SUCCESS) {
         oweConfigureGlfwCocoaLayer(context.window, context.width, context.height);
     }
@@ -126,7 +130,6 @@ extern "C" VkResult oweCreateGlfwCocoaSurface(GLFWwindow* window, VkInstance ins
 
 #else
 
-struct GLFWwindow;
 extern "C" VkResult oweCreateGlfwCocoaSurface(GLFWwindow*, VkInstance, VkSurfaceKHR*, int, int) {
     return VK_ERROR_EXTENSION_NOT_PRESENT;
 }

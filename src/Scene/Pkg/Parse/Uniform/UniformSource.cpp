@@ -7,7 +7,6 @@ module wescene.pkg.parse;
 import eigen;
 import owe.scene_audio_response;
 import rstd;
-import rstd.cppstd;
 import wescene.scene;
 import wescene.pkg.spec_names;
 import wescene.utils;
@@ -50,10 +49,7 @@ auto UserScalar(const Json& property) -> Option<float> {
     }
     if (auto boolean = value.as_bool(); boolean.is_some()) return Some(*boolean ? 1.0f : 0.0f);
     if (auto string = value.as_str(); string.is_some()) {
-        try {
-            return Some(std::stof(rstd::cppstd::to_string(*string)));
-        } catch (...) {
-        }
+        return ParseJsonFloat(*string).ok();
     }
     return None();
 }
@@ -63,32 +59,33 @@ Vector2f ShakeOffset(float x, float roughness) {
     const float over = Clamp(r - 1.0f, 0.0f, 1.0f);
     const float grow = over * over;
 
-    constexpr float pi       = rstd::f32::consts::PI.to_primitive();
-    const float     beat_pos = std::max(0.0f, x) / (pi * 0.5f);
-    const auto      beat     = static_cast<std::int32_t>(std::floor(beat_pos));
+    constexpr float pi       = f32::consts::PI.to_primitive();
+    const float     beat_pos = rstd::cmp::max(x, 0.0f) / (pi * 0.5f);
+    const auto      beat     = static_cast<rstd::int32_t>(f32(beat_pos).floor().to_primitive());
     const float     local    = beat_pos - static_cast<float>(beat);
     const float     amount   = Smooth(local);
 
-    static constexpr std::array<std::array<float, 2>, 8> directions {
-        std::array<float, 2> { -1.0f, 1.0f }, std::array<float, 2> { 1.0f, -1.0f },
-        std::array<float, 2> { -1.0f, 1.0f }, std::array<float, 2> { 1.0f, -1.0f },
-        std::array<float, 2> { 1.0f, 1.0f },  std::array<float, 2> { -1.0f, -1.0f },
-        std::array<float, 2> { 1.0f, 1.0f },  std::array<float, 2> { -1.0f, -1.0f },
+    static constexpr array<array<float, 2>, 8> directions {
+        array<float, 2> { -1.0f, 1.0f }, array<float, 2> { 1.0f, -1.0f },
+        array<float, 2> { -1.0f, 1.0f }, array<float, 2> { 1.0f, -1.0f },
+        array<float, 2> { 1.0f, 1.0f },  array<float, 2> { -1.0f, -1.0f },
+        array<float, 2> { 1.0f, 1.0f },  array<float, 2> { -1.0f, -1.0f },
     };
-    static constexpr std::array<float, 8> base_factors {
+    static constexpr array<float, 8> base_factors {
         0.8f, 1.0f, 0.45f, 0.6f, 0.8f, 1.0f, 0.45f, 0.6f,
     };
-    static constexpr std::array<float, 8> rough_factors {
+    static constexpr array<float, 8> rough_factors {
         6.0f, 8.0f, 1.0f, 1.0f, 6.0f, 8.0f, 1.0f, 1.0f,
     };
 
-    auto sample = [&](std::int32_t index) -> Vector2f {
+    auto sample = [&](rstd::int32_t index) -> Vector2f {
         if ((index % 2) != 0) return Vector2f::Zero();
-        const auto direction =
-            static_cast<std::size_t>((index / 2) % static_cast<std::int32_t>(directions.size()));
+        const auto  direction = usize(static_cast<rstd::size_t>(
+            (index / 2) % static_cast<rstd::int32_t>(directions.len().to_primitive())));
         const float factor =
             base_factors[direction] * (1.0f + (rough_factors[direction] - 1.0f) * grow);
-        return { directions[direction][0] * factor, directions[direction][1] * factor };
+        return { directions[direction][usize(0)] * factor,
+                 directions[direction][usize(1)] * factor };
     };
 
     const Vector2f a     = sample(beat);
@@ -96,7 +93,7 @@ Vector2f ShakeOffset(float x, float roughness) {
     const Vector2f delta = b - a;
     Vector2f       curve { -delta.y(), delta.x() };
     if (curve.squaredNorm() > 0.0f) curve.normalize();
-    const float bend = std::sin(local * pi) * (0.09f + grow * 0.04f) * delta.norm();
+    const float bend = f32(local * pi).sin().to_primitive() * (0.09f + grow * 0.04f) * delta.norm();
     return a * (1.0f - amount) + b * amount + curve * bend;
 }
 
@@ -181,10 +178,9 @@ struct BindingEntry {
     UniformValueShape shape;
 };
 
-template<typename Output, std::size_t N>
-auto BindEntries(mut_ref<dyn<UniformBindingSink>>            sink,
-                 const rstd::array<BindingEntry<Output>, N>& entries)
-    -> Result<empty, UniformError> {
+template<typename Output, rstd::size_t N>
+auto BindEntries(mut_ref<dyn<UniformBindingSink>>      sink,
+                 const array<BindingEntry<Output>, N>& entries) -> Result<empty, UniformError> {
     for (const auto& entry : entries) {
         auto result = Bind(sink, entry.output, entry.name, entry.shape);
         if (result.is_err()) return result;
@@ -229,7 +225,7 @@ void UniformCameraResolver::Add(String name, Arc<SceneCamera> camera) {
 }
 
 auto UniformCameraResolver::Resolve(const SceneNode& node) const -> Option<mut_ref<SceneCamera>> {
-    auto name = rstd::cppstd::as_str(node.Camera()).unwrap();
+    auto name = node.Camera();
     if (name.is_empty()) {
         if (! node.Perspective()) return Some(m_active_camera.deref_mut());
         name = "global_perspective"_str;
@@ -263,7 +259,7 @@ void UniformSceneState::RegisterNodeParallaxContract(const SceneNode& node, i32 
                                                      const wpscene::ParallaxDepthBinding& binding) {
     (void)m_parallax_owners.insert(rstd::addressof(node), object_id);
     if (! binding.authored) return;
-    const array<float, 2> depth { binding.depth[0], binding.depth[1] };
+    const auto& depth = binding.depth;
     if (object_id != i32()) {
         if (! m_object_parallax_depths.contains_key(object_id))
             (void)m_object_parallax_depths.insert(object_id, depth);
@@ -273,7 +269,7 @@ void UniformSceneState::RegisterNodeParallaxContract(const SceneNode& node, i32 
         (void)m_node_parallax_depths.insert(rstd::addressof(node), depth);
 }
 
-bool UniformSceneState::SetEffectProjectionSize(SceneNodeId id, rstd::array<float, 2> size) {
+bool UniformSceneState::SetEffectProjectionSize(SceneNodeId id, array<float, 2> size) {
     auto found = m_nodes.get_mut(Key(id));
     if (found.is_none()) return false;
     (**found)->effect_projection_size = size;
@@ -329,15 +325,12 @@ auto UniformSceneState::NodeParallaxDepth(const SceneNode& node) const -> Option
     auto owner = m_parallax_owners.get(rstd::addressof(node));
     if (owner.is_some() && **owner != i32()) {
         auto depth = m_object_parallax_depths.get(**owner);
-        if (depth.is_some())
-            return Some(array<float, 2> { (**depth)[usize()], (**depth)[usize(1)] });
+        if (depth.is_some()) return Some((*depth)->clone());
     }
     auto depth = m_node_parallax_depths.get(rstd::addressof(node));
     if (depth.is_some()) return Some(array<float, 2> { (**depth)[usize()], (**depth)[usize(1)] });
     auto state = m_nodes_by_address.get(rstd::addressof(node));
-    return state.is_some() ? Some(array<float, 2> { (**state)->parallax.depth[0],
-                                                    (**state)->parallax.depth[1] })
-                           : None();
+    return state.is_some() ? Some((**state)->parallax.depth) : None();
 }
 
 auto UniformSceneState::FindNodeState(const SceneNode* node) const -> const UniformNodeState* {
@@ -368,17 +361,17 @@ auto UniformSceneState::LogicalParallaxState(const UniformNodeState& state) cons
         if (group.is_some()) {
             for (usize index {}; index < (*group)->len(); ++index) {
                 const auto& candidate = (**group)[index];
-                if (candidate->node->Camera().empty()) {
+                if (candidate->node->Camera().is_empty()) {
                     current = rstd::addressof(*candidate);
                     break;
                 }
             }
         }
     }
-    if (current == rstd::addressof(state) && ! state.node->Camera().empty()) {
+    if (current == rstd::addressof(state) && ! state.node->Camera().is_empty()) {
         for (auto* parent = state.node->Parent(); parent != nullptr; parent = parent->Parent()) {
             if (auto* found = FindNodeState(parent);
-                found != nullptr && found->node->Camera().empty()) {
+                found != nullptr && found->node->Camera().is_empty()) {
                 current = found;
                 break;
             }
@@ -410,17 +403,15 @@ auto UniformSceneState::ParentParallaxState(const UniformNodeState& current) con
 
 auto UniformSceneState::ComputeParallaxOffset(const UniformNodeState& state,
                                               const SceneCamera&      camera,
-                                              SceneRenderViewKind     view) const
-    -> rstd::array<float, 2> {
+                                              SceneRenderViewKind view) const -> array<float, 2> {
     const auto* source = LogicalParallaxState(state);
 
     array<float, 2> depth_values;
     if (source->parallax.authored) {
-        depth_values = { source->parallax.depth[0], source->parallax.depth[1] };
+        depth_values = source->parallax.depth;
         if (wpscene::IsZeroParallaxDepth(depth_values)) return { 0.0f, 0.0f };
     } else if (m_orthographic_implicit_parallax) {
-        depth_values = { wpscene::kImplicitOrthographicParallaxDepth[0],
-                         wpscene::kImplicitOrthographicParallaxDepth[1] };
+        depth_values = wpscene::kImplicitOrthographicParallaxDepth;
     } else {
         return { 0.0f, 0.0f };
     }
@@ -442,7 +433,7 @@ auto UniformSceneState::ComputeParallaxOffset(const UniformNodeState& state,
 
 void UniformSceneState::Advance(const SceneFrame& frame) {
     m_inputs.pointer_last = m_inputs.pointer;
-    const double delay    = std::max(0.0, static_cast<double>(m_camera_parallax.delay));
+    const double delay    = rstd::cmp::max(static_cast<double>(m_camera_parallax.delay), 0.0);
     if (delay <= 0.0) {
         m_inputs.pointer = m_pointer_input;
         return;
@@ -452,10 +443,10 @@ void UniformSceneState::Advance(const SceneFrame& frame) {
     // Delay 2 is still a follow, not a two-second time constant.
     constexpr double kDelayRange   = 3.0;
     constexpr double kResponseRate = 10.0;
-    const double     rate          = kResponseRate * std::max(0.0, 1.0 - delay / kDelayRange);
+    const double     rate          = kResponseRate * rstd::cmp::max(1.0 - delay / kDelayRange, 0.0);
     if (rate <= 0.0) return;
 
-    const double t = std::min(1.0, rate * std::max(0.0, frame.delta.to_primitive()));
+    const double t = rstd::cmp::min(rate * rstd::cmp::max(frame.delta.to_primitive(), 0.0), 1.0);
     for (usize index {}; index < m_inputs.pointer.len(); ++index) {
         const auto current = m_inputs.pointer[index];
         m_inputs.pointer[index] =
@@ -463,24 +454,24 @@ void UniformSceneState::Advance(const SceneFrame& frame) {
     }
 }
 
-void UniformSceneState::ApplyUserProperty(std::string_view field, const Json& property) {
+void UniformSceneState::ApplyUserProperty(ref<str> field, const Json& property) {
     auto value = UserScalar(property);
     if (value.is_none()) return;
-    if (field == "cameraparallax") {
+    if (field == "cameraparallax"_str) {
         m_camera_parallax.enable = *value >= 0.5f;
-    } else if (field == "cameraparallaxamount") {
+    } else if (field == "cameraparallaxamount"_str) {
         m_camera_parallax.amount = *value;
-    } else if (field == "cameraparallaxdelay") {
+    } else if (field == "cameraparallaxdelay"_str) {
         m_camera_parallax.delay = *value;
-    } else if (field == "cameraparallaxmouseinfluence") {
+    } else if (field == "cameraparallaxmouseinfluence"_str) {
         m_camera_parallax.mouse_influence = *value;
-    } else if (field == "camerashake") {
+    } else if (field == "camerashake"_str) {
         m_camera_shake.enable = *value >= 0.5f;
-    } else if (field == "camerashakeamplitude") {
+    } else if (field == "camerashakeamplitude"_str) {
         m_camera_shake.amplitude = *value;
-    } else if (field == "camerashakespeed") {
+    } else if (field == "camerashakespeed"_str) {
         m_camera_shake.speed = *value;
-    } else if (field == "camerashakeroughness") {
+    } else if (field == "camerashakeroughness"_str) {
         m_camera_shake.roughness = *value;
     }
 }
@@ -491,7 +482,7 @@ auto TransformUniformSource::Describe(mut_ref<dyn<UniformBindingSink>> sink) con
     auto model   = Bind(sink, Output::Model, G_M, UniformValueShape::Matrix(u32(4), u32(4)));
     if (model.is_err()) return model;
 
-    const rstd::array<BindingEntry<Output>, 13> entries {
+    const array<BindingEntry<Output>, 13> entries {
         BindingEntry<Output> {
             Output::ModelInverse, G_MI, UniformValueShape::Matrix(u32(4), u32(4)) },
         BindingEntry<Output> {
@@ -561,7 +552,7 @@ auto TransformUniformSource::Evaluate(ref<dyn<UniformUpdateContext>> context,
     if (shake.enable && active_camera && ! camera.IsPerspective() && shake.amplitude > 0.0f &&
         shake.speed > 0.0f) {
         const auto  ortho       = m_state->Ortho();
-        const float base_extent = std::min(ortho[usize(0)], ortho[usize(1)]);
+        const float base_extent = rstd::cmp::min(ortho[usize(1)], ortho[usize(0)]);
         const float scale       = shake.amplitude * base_extent * 0.01f;
         const float time   = static_cast<float>(frame->elapsed.to_primitive()) * shake.speed * 2.0f;
         const auto  offset = ShakeOffset(time, shake.roughness);
@@ -576,7 +567,7 @@ auto TransformUniformSource::Evaluate(ref<dyn<UniformUpdateContext>> context,
     } else if (m_node->use_camera_eye_position || camera.IsPerspective()) {
         const Vector3f position = camera.GetPosition(render_view).cast<float>();
         writer.Write(Output::EyePosition,
-                     rstd::array<float, 3> { position.x(), position.y(), position.z() });
+                     array<float, 3> { position.x(), position.y(), position.z() });
     }
 
     if (req_m || req_normal_model || req_am || req_mvp || req_mi || req_mvpi || req_effect_model) {
@@ -586,7 +577,7 @@ auto TransformUniformSource::Evaluate(ref<dyn<UniformUpdateContext>> context,
         // A layer camera renders the complete local surface; its outer draw owns parallax.
         const bool layer_camera = attached.is_some() && (*attached)->HasLayer();
         const bool apply_model_parallax =
-            node.Camera() != "effect" && parallax.enable && ! layer_camera;
+            node.Camera() != "effect"_str && parallax.enable && ! layer_camera;
         array<float, 2> shift {};
         if (apply_model_parallax) {
             shift = m_state->ComputeParallaxOffset(*m_node, camera, render_view);
@@ -603,7 +594,7 @@ auto TransformUniformSource::Evaluate(ref<dyn<UniformUpdateContext>> context,
         if (req_m) writer.Write(Output::Model, ShaderValue::fromMatrix(model));
         if (req_normal_model) {
             Matrix3d normal_model = model.block<3, 3>(0, 0);
-            if (std::abs(normal_model.determinant()) > 1e-12) {
+            if (f64(normal_model.determinant()).abs().to_primitive() > 1e-12) {
                 normal_model = normal_model.inverse().transpose();
                 for (Eigen::Index row {}; row < normal_model.rows(); ++row) {
                     normal_model.row(row).normalize();
@@ -675,7 +666,7 @@ auto FrameUniformSource::Describe(mut_ref<dyn<UniformBindingSink>> sink) const
     using Output = FrameUniformOutput;
     auto global  = BindGlobalProducer(sink, GlobalUniformProducer::Frame);
     if (global.is_err()) return global;
-    const rstd::array<BindingEntry<Output>, 3> entries {
+    const array<BindingEntry<Output>, 3> entries {
         BindingEntry<Output> { Output::TexelSize, G_TEXELSIZE, UniformValueShape::Float(u32(2)) },
         BindingEntry<Output> {
             Output::TexelSizeHalf, G_TEXELSIZEHALF, UniformValueShape::Float(u32(2)) },
@@ -708,11 +699,11 @@ auto FrameUniformSource::Evaluate(ref<dyn<UniformUpdateContext>> context,
         const auto viewport  = resources->Viewport();
         writer.Write(Output::TexelSize, texel);
         writer.Write(Output::TexelSizeHalf,
-                     rstd::array<float, 2> { texel[usize(0)] * 0.5f, texel[usize(1)] * 0.5f });
+                     array<float, 2> { texel[usize(0)] * 0.5f, texel[usize(1)] * 0.5f });
         const float aspect =
             viewport[usize(1)] > 0.0f ? viewport[usize(0)] / viewport[usize(1)] : 1.0f;
         writer.Write(Output::Screen,
-                     rstd::array<float, 3> { viewport[usize(0)], viewport[usize(1)], aspect });
+                     array<float, 3> { viewport[usize(0)], viewport[usize(1)], aspect });
     }
 
     Vector2f    parallax_position { 0.5f, 0.5f };
@@ -723,7 +714,7 @@ auto FrameUniformSource::Evaluate(ref<dyn<UniformUpdateContext>> context,
             Vector2f { 0.5f, 0.5f } + (Scaling(1.0f, -1.0f) * centered) * parallax.mouse_influence;
     }
     writer.Write(Output::ParallaxPosition,
-                 rstd::array<float, 2> { parallax_position.x(), parallax_position.y() });
+                 array<float, 2> { parallax_position.x(), parallax_position.y() });
     return writer.Finish();
 }
 
@@ -767,7 +758,7 @@ auto AudioUniformSource::Evaluate(ref<dyn<UniformUpdateContext>>,
 auto ColorUniformSource::Describe(mut_ref<dyn<UniformBindingSink>> sink) const
     -> Result<empty, UniformError> {
     using Output = ColorUniformOutput;
-    const rstd::array<BindingEntry<Output>, 5> entries {
+    const array<BindingEntry<Output>, 5> entries {
         BindingEntry<Output> { Output::UserAlpha, G_USERALPHA, UniformValueShape::Float(u32(1)) },
         BindingEntry<Output> { Output::Color4, G_COLOR4, UniformValueShape::Float(u32(4)) },
         BindingEntry<Output> { Output::Color, G_COLOR, UniformValueShape::Float(u32(3)) },
@@ -792,11 +783,10 @@ auto ColorUniformSource::Evaluate(ref<dyn<UniformUpdateContext>>,
     const bool    has_color4     = writer.Wants(Output::Color4);
     const bool    has_color      = writer.Wants(Output::Color);
     auto          write_color4   = [&](const Vector3f& color, float alpha) {
-        writer.Write(Output::Color4,
-                     rstd::array<float, 4> { color.x(), color.y(), color.z(), alpha });
+        writer.Write(Output::Color4, array<float, 4> { color.x(), color.y(), color.z(), alpha });
     };
     auto write_color = [&](const Vector3f& color) {
-        writer.Write(Output::Color, rstd::array<float, 3> { color.x(), color.y(), color.z() });
+        writer.Write(Output::Color, array<float, 3> { color.x(), color.y(), color.z() });
     };
     if (node.IsAlphaOverridden()) {
         if (has_user_alpha) writer.Write(Output::UserAlpha, node.EffectiveAlpha());
@@ -831,14 +821,14 @@ auto LightUniformSource::Evaluate(ref<dyn<UniformUpdateContext>>,
                                   mut_ref<dyn<UniformValueSink>> sink) const
     -> Result<empty, UniformError> {
     using Output = LightUniformOutput;
-    UniformWriter          writer(sink);
-    constexpr usize        max_lights { 4 };
-    rstd::array<float, 12> positions {};
-    rstd::array<float, 16> colors_radius {};
-    rstd::array<float, 12> colors_legacy {};
-    rstd::array<float, 16> directions_type {};
-    rstd::array<float, 16> cones_exponent {};
-    rstd::array<float, 4>  cast_shadow {};
+    UniformWriter    writer(sink);
+    constexpr usize  max_lights { 4 };
+    array<float, 12> positions {};
+    array<float, 16> colors_radius {};
+    array<float, 12> colors_legacy {};
+    array<float, 16> directions_type {};
+    array<float, 16> cones_exponent {};
+    array<float, 4>  cast_shadow {};
     for (usize index {}; index < max_lights; ++index)
         directions_type[index * usize(4) + usize(3)] = -1.0f;
     for (usize index {}; index < rstd::cmp::min(max_lights, m_lights.len()); ++index) {
@@ -924,8 +914,8 @@ auto ShadowUniformSource::Evaluate(ref<dyn<UniformUpdateContext>>,
     view_y.normalize();
     view_z.normalize();
 
-    rstd::array<float, 96> matrix_values {};
-    const double           camera_far = rstd::cmp::max(0.001, std::abs(m_camera->FarClip()));
+    array<float, 96> matrix_values {};
+    const double camera_far = rstd::cmp::max(0.001, f64(m_camera->FarClip()).abs().to_primitive());
     for (usize cascade {}; cascade < usize(3); ++cascade) {
         const float     authored = m_light->desc().cascade_distances[cascade.to_primitive()];
         const double    distance = authored > 0.0f ? static_cast<double>(authored) : camera_far;
@@ -957,18 +947,18 @@ auto ShadowUniformSource::Evaluate(ref<dyn<UniformUpdateContext>>,
         matrix_values.data(), u32(4), u32(4), usize(6), UniformMatrixStorage::ColumnMajor);
     writer.Write(ToUniformOutput(Output::ViewProjectionMatrices), matrices);
     writer.Write(Output::AtlasTransforms,
-                 rstd::array<float, 12> { 0.0f,
-                                          0.0f,
-                                          1.0f / 3.0f,
-                                          1.0f,
-                                          1.0f / 3.0f,
-                                          0.0f,
-                                          1.0f / 3.0f,
-                                          1.0f,
-                                          2.0f / 3.0f,
-                                          0.0f,
-                                          1.0f / 3.0f,
-                                          1.0f });
+                 array<float, 12> { 0.0f,
+                                    0.0f,
+                                    1.0f / 3.0f,
+                                    1.0f,
+                                    1.0f / 3.0f,
+                                    0.0f,
+                                    1.0f / 3.0f,
+                                    1.0f,
+                                    2.0f / 3.0f,
+                                    0.0f,
+                                    1.0f / 3.0f,
+                                    1.0f });
     return writer.Finish();
 }
 
@@ -977,27 +967,27 @@ auto TextureUniformSource::Describe(mut_ref<dyn<UniformBindingSink>> sink) const
     for (usize index {}; index < WE_GLTEX_NAMES.len(); ++index) {
         auto resolution = Bind(sink,
                                TextureResolutionOutput(index.to_primitive()),
-                               rstd::cppstd::as_str(WE_GLTEX_RESOLUTION_NAMES[index]).unwrap(),
+                               WE_GLTEX_RESOLUTION_NAMES[index],
                                UniformValueShape::Float(u32(4)));
         if (resolution.is_err()) return resolution;
         auto mipmap = Bind(sink,
                            TextureMipmapOutput(index.to_primitive()),
-                           rstd::cppstd::as_str(WE_GLTEX_MIPMAPINFO_NAMES[index]).unwrap(),
+                           WE_GLTEX_MIPMAPINFO_NAMES[index],
                            UniformValueShape::Float(u32(1)));
         if (mipmap.is_err()) return mipmap;
         auto rotation = Bind(sink,
                              TextureRotationOutput(index.to_primitive()),
-                             rstd::cppstd::as_str(WE_GLTEX_ROTATION_NAMES[index]).unwrap(),
+                             WE_GLTEX_ROTATION_NAMES[index],
                              UniformValueShape::Float(u32(4)));
         if (rotation.is_err()) return rotation;
         auto translation = Bind(sink,
                                 TextureTranslationOutput(index.to_primitive()),
-                                rstd::cppstd::as_str(WE_GLTEX_TRANSLATION_NAMES[index]).unwrap(),
+                                WE_GLTEX_TRANSLATION_NAMES[index],
                                 UniformValueShape::Float(u32(2)));
         if (translation.is_err()) return translation;
         auto texel = Bind(sink,
                           TextureTexelOutput(index.to_primitive()),
-                          rstd::cppstd::as_str(WE_GLTEX_TEXEL_NAMES[index]).unwrap(),
+                          WE_GLTEX_TEXEL_NAMES[index],
                           UniformValueShape::Float(u32(4)));
         if (texel.is_err()) return texel;
     }
@@ -1018,17 +1008,17 @@ auto TextureUniformSource::Evaluate(ref<dyn<UniformUpdateContext>> context,
         if (texture.is_none()) continue;
         if (texture->has_extent) {
             writer.Write(TextureResolutionOutput(index.to_primitive()),
-                         rstd::array<float, 4> { texture->source_extent[usize(0)],
-                                                 texture->source_extent[usize(1)],
-                                                 texture->sample_extent[usize(0)],
-                                                 texture->sample_extent[usize(1)] });
+                         array<float, 4> { texture->source_extent[usize(0)],
+                                           texture->source_extent[usize(1)],
+                                           texture->sample_extent[usize(0)],
+                                           texture->sample_extent[usize(1)] });
             const auto width  = texture->sample_extent[usize(0)];
             const auto height = texture->sample_extent[usize(1)];
             writer.Write(TextureTexelOutput(index.to_primitive()),
-                         rstd::array<float, 4> { width > 0.0f ? 1.0f / width : 0.0f,
-                                                 height > 0.0f ? 1.0f / height : 0.0f,
-                                                 width,
-                                                 height });
+                         array<float, 4> { width > 0.0f ? 1.0f / width : 0.0f,
+                                           height > 0.0f ? 1.0f / height : 0.0f,
+                                           width,
+                                           height });
         }
         if (texture->has_mipmap) {
             writer.Write(TextureMipmapOutput(index.to_primitive()), texture->mipmap_level);

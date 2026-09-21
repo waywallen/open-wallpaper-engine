@@ -479,7 +479,8 @@ TEST(MdlMesh, LegacyMissingReferenceSelectsFirstFrameDeltas) {
         std::filesystem::path(WAYWALLEN_WORKSHOP_DIR) / "2907385672" / "scene.pkg";
     if (! std::filesystem::exists(pkg_path)) GTEST_SKIP() << "workshop 2907385672 is not available";
     owe::fs::VFS vfs;
-    auto         pkg_fs = owe::fs::WPPkgFs::open(owe::fs::ToPath(pkg_path.string()));
+    auto         pkg_fs =
+        owe::fs::WPPkgFs::open(owe::fs::Path(rstd::cppstd::as_str(pkg_path.string()).unwrap()));
     ASSERT_TRUE(pkg_fs.is_ok());
     ASSERT_TRUE(vfs.mount("/assets"_str, pkg_fs->mount_handle()).is_ok());
     owe::Mdl mdl;
@@ -495,7 +496,8 @@ TEST(MdlMesh, ReadsLegacyAnimationReferenceWithoutReplacingMeshBind) {
         std::filesystem::path(WAYWALLEN_WORKSHOP_DIR) / "3148125112" / "scene.pkg";
     if (! std::filesystem::exists(pkg_path)) GTEST_SKIP() << "workshop 3148125112 is not available";
     owe::fs::VFS vfs;
-    auto         pkg_fs = owe::fs::WPPkgFs::open(owe::fs::ToPath(pkg_path.string()));
+    auto         pkg_fs =
+        owe::fs::WPPkgFs::open(owe::fs::Path(rstd::cppstd::as_str(pkg_path.string()).unwrap()));
     ASSERT_TRUE(pkg_fs.is_ok());
     ASSERT_TRUE(vfs.mount("/assets"_str, pkg_fs->mount_handle()).is_ok());
     owe::Mdl mdl;
@@ -561,7 +563,8 @@ TEST(MdlMesh, StaggeredBodyAnimationsReproduceCapturedPose) {
         std::filesystem::path(WAYWALLEN_WORKSHOP_DIR) / "3462491575" / "scene.pkg";
     if (! std::filesystem::exists(pkg_path)) GTEST_SKIP() << "workshop 3462491575 is not available";
     owe::fs::VFS vfs;
-    auto         pkg_fs = owe::fs::WPPkgFs::open(owe::fs::ToPath(pkg_path.string()));
+    auto         pkg_fs =
+        owe::fs::WPPkgFs::open(owe::fs::Path(rstd::cppstd::as_str(pkg_path.string()).unwrap()));
     ASSERT_TRUE(pkg_fs.is_ok());
     ASSERT_TRUE(vfs.mount("/assets"_str, pkg_fs->mount_handle()).is_ok());
     owe::Mdl mdl;
@@ -608,7 +611,8 @@ TEST(MdlMesh, RayquazaReplacementPreservesSampledBoneChain) {
         std::filesystem::path(WAYWALLEN_WORKSHOP_DIR) / "3045001236" / "scene.pkg";
     if (! std::filesystem::exists(pkg_path)) GTEST_SKIP() << "workshop 3045001236 is not available";
     owe::fs::VFS vfs;
-    auto         pkg_fs = owe::fs::WPPkgFs::open(owe::fs::ToPath(pkg_path.string()));
+    auto         pkg_fs =
+        owe::fs::WPPkgFs::open(owe::fs::Path(rstd::cppstd::as_str(pkg_path.string()).unwrap()));
     ASSERT_TRUE(pkg_fs.is_ok());
     ASSERT_TRUE(vfs.mount("/assets"_str, pkg_fs->mount_handle()).is_ok());
     owe::Mdl mdl;
@@ -782,7 +786,7 @@ TEST(MdlMesh, DrawOrderWithoutAnimationPreservesFileOrder) {
     owe::Mdl::Mesh source;
     source.parts.push(owe::Mdl::Mesh::Part { 2, 0, 3 });
     owe::SceneMesh::Submesh submesh;
-    submesh.draw_ranges.push_back({ u32(0), u32(3) });
+    submesh.draw_ranges.push({ u32(0), u32(3) });
     owe::MdlParser::BindDrawOrder(submesh, source, layer.clone());
     EXPECT_TRUE(submesh.draw_range_order.is_none());
 }
@@ -800,8 +804,8 @@ TEST(MdlMesh, DrawOrderOwnsFilteredPartMapping) {
         source.parts.push(owe::Mdl::Mesh::Part { 2, 0, 3 });
         source.parts.push(owe::Mdl::Mesh::Part { 1, 3, 3 });
         source.parts.push(owe::Mdl::Mesh::Part { 0, 6, 3 });
-        submesh.draw_ranges.push_back({ u32(0), u32(3) });
-        submesh.draw_ranges.push_back({ u32(6), u32(3) });
+        submesh.draw_ranges.push({ u32(0), u32(3) });
+        submesh.draw_ranges.push({ u32(6), u32(3) });
         owe::MdlParser::BindDrawOrder(submesh, source, layer.clone());
     }
     ASSERT_TRUE(submesh.draw_range_order.is_some());
@@ -820,12 +824,46 @@ TEST(MdlMesh, KeepsPuppetPositionsInMdlLocalSpace) {
     owe::SceneMesh::Submesh submesh;
     owe::MdlParser::GenMeshFromMdl(submesh, source);
 
-    ASSERT_EQ(submesh.vertex_arrays.size(), 1u);
-    const auto& vertices = submesh.vertex_arrays.front();
+    ASSERT_EQ(submesh.vertex_arrays.len().to_primitive(), 1u);
+    const auto& vertices = submesh.vertex_arrays[usize(usize())];
     ASSERT_NE(vertices.Data(), nullptr);
     EXPECT_FLOAT_EQ(vertices.Data()[0], 244.0f);
     EXPECT_FLOAT_EQ(vertices.Data()[1], 349.5f);
     EXPECT_FLOAT_EQ(vertices.Data()[2], 0.0f);
+}
+
+TEST(MdlMesh, PackedAttributesPreserveIntegerBitsAndPadding) {
+    owe::Mdl::Mesh source;
+    source.positions.push(array<float, 3> { 1.0f, 2.0f, 3.0f });
+    source.normals.push(array<float, 3> { 0.0f, 1.0f, 0.0f });
+    source.tangents.push(array<float, 4> { 1.0f, 0.0f, 0.0f, -1.0f });
+    const array<uint32_t, 4> bones { 1u, 17u, 255u, 4096u };
+    source.blend_indices.push(array<uint32_t, 4>(bones));
+    source.texcoords.push(array<float, 2> { 0.25f, 0.75f });
+    source.indices.push(array<uint32_t, 3> { 0u, 0u, 0u });
+
+    owe::SceneMesh::Submesh submesh;
+    owe::MdlParser::GenMeshFromMdl(submesh, source);
+    const auto& vertices         = submesh.vertex_arrays[usize(usize())];
+    auto        component_offset = [&](ref<str> name) {
+        return (vertices.AttributeOffset(name).unwrap() / usize(sizeof(float))).to_primitive();
+    };
+    const auto blend   = component_offset(owe::VAttr::BlendIndices.name);
+    const auto weights = component_offset(owe::VAttr::BlendWeights.name);
+    for (usize component {}; component < usize(4); ++component) {
+        EXPECT_EQ(rstd::bit_cast<uint32_t>(vertices.Data()[blend + component.to_primitive()]),
+                  bones[component]);
+        EXPECT_FLOAT_EQ(vertices.Data()[weights + component.to_primitive()],
+                        component == usize() ? 1.0f : 0.0f);
+    }
+    const auto normal = component_offset(owe::VAttr::Normal.name);
+    EXPECT_FLOAT_EQ(vertices.Data()[normal + 1], 1.0f);
+    EXPECT_FLOAT_EQ(vertices.Data()[normal + 3], 0.0f);
+    const auto tangent = component_offset(owe::VAttr::Tangent4.name);
+    EXPECT_FLOAT_EQ(vertices.Data()[tangent + 3], -1.0f);
+    const auto uv = component_offset(owe::VAttr::TexCoord.name);
+    EXPECT_FLOAT_EQ(vertices.Data()[uv], 0.25f);
+    EXPECT_FLOAT_EQ(vertices.Data()[uv + 1], 0.75f);
 }
 
 TEST(MdlMesh, FindsMeshByNormalizedMaterialReference) {
@@ -853,11 +891,13 @@ TEST(MdlMesh, Mdlv23LargeStaticMeshUsesUint32GlobalIndices) {
     }
 
     owe::fs::VFS vfs;
-    auto         assets_fs = owe::fs::make_physical_fs(owe::fs::ToPath(WAYWALLEN_ASSETS_DIR));
+    auto         assets_fs = owe::fs::make_physical_fs(
+        owe::fs::Path(rstd::cppstd::as_str(WAYWALLEN_ASSETS_DIR).unwrap()));
     if (assets_fs.is_ok()) {
         ASSERT_TRUE(vfs.mount("/assets"_str, std::move(assets_fs).unwrap_unchecked()).is_ok());
     }
-    auto pkg_fs = owe::fs::WPPkgFs::open(owe::fs::ToPath(pkg_path.string()));
+    auto pkg_fs =
+        owe::fs::WPPkgFs::open(owe::fs::Path(rstd::cppstd::as_str(pkg_path.string()).unwrap()));
     ASSERT_TRUE(pkg_fs.is_ok());
     ASSERT_TRUE(vfs.mount("/assets"_str, pkg_fs->mount_handle()).is_ok());
 
@@ -879,11 +919,11 @@ TEST(MdlMesh, Mdlv23LargeStaticMeshUsesUint32GlobalIndices) {
 
     owe::SceneMesh::Submesh submesh;
     owe::MdlParser::GenMeshFromMdl(submesh, mesh);
-    ASSERT_EQ(submesh.vertex_arrays.size(), 1u);
-    ASSERT_EQ(submesh.index_arrays.size(), 1u);
-    EXPECT_TRUE(submesh.draw_ranges.empty());
+    ASSERT_EQ(submesh.vertex_arrays.len().to_primitive(), 1u);
+    ASSERT_EQ(submesh.index_arrays.len().to_primitive(), 1u);
+    EXPECT_TRUE(submesh.draw_ranges.is_empty());
 
-    const auto& index_array = submesh.index_arrays.front();
+    const auto& index_array = submesh.index_arrays[usize(usize())];
     ASSERT_EQ(index_array.DataCount(), rstd::usize(780288));
     EXPECT_EQ(index_array.Data()[0], 0u);
     EXPECT_EQ(index_array.Data()[1], 1u);
@@ -901,11 +941,13 @@ TEST(MdlMesh, Mdlv23ReadsPerMeshMaterialSkins) {
     }
 
     owe::fs::VFS vfs;
-    auto         assets_fs = owe::fs::make_physical_fs(owe::fs::ToPath(WAYWALLEN_ASSETS_DIR));
+    auto         assets_fs = owe::fs::make_physical_fs(
+        owe::fs::Path(rstd::cppstd::as_str(WAYWALLEN_ASSETS_DIR).unwrap()));
     if (assets_fs.is_ok()) {
         ASSERT_TRUE(vfs.mount("/assets"_str, std::move(assets_fs).unwrap_unchecked()).is_ok());
     }
-    auto pkg_fs = owe::fs::WPPkgFs::open(owe::fs::ToPath(pkg_path.string()));
+    auto pkg_fs =
+        owe::fs::WPPkgFs::open(owe::fs::Path(rstd::cppstd::as_str(pkg_path.string()).unwrap()));
     ASSERT_TRUE(pkg_fs.is_ok());
     ASSERT_TRUE(vfs.mount("/assets"_str, pkg_fs->mount_handle()).is_ok());
 
@@ -932,11 +974,13 @@ TEST(MdlPuppet, Mdlv23ReadsMultiCurveMorphEvents) {
     }
 
     owe::fs::VFS vfs;
-    auto         assets_fs = owe::fs::make_physical_fs(owe::fs::ToPath(WAYWALLEN_ASSETS_DIR));
+    auto         assets_fs = owe::fs::make_physical_fs(
+        owe::fs::Path(rstd::cppstd::as_str(WAYWALLEN_ASSETS_DIR).unwrap()));
     if (assets_fs.is_ok()) {
         ASSERT_TRUE(vfs.mount("/assets"_str, std::move(assets_fs).unwrap_unchecked()).is_ok());
     }
-    auto pkg_fs = owe::fs::WPPkgFs::open(owe::fs::ToPath(pkg_path.string()));
+    auto pkg_fs =
+        owe::fs::WPPkgFs::open(owe::fs::Path(rstd::cppstd::as_str(pkg_path.string()).unwrap()));
     ASSERT_TRUE(pkg_fs.is_ok());
     ASSERT_TRUE(vfs.mount("/assets"_str, pkg_fs->mount_handle()).is_ok());
 
@@ -964,4 +1008,96 @@ TEST(MdlPuppet, Mdlv23ReadsMultiCurveMorphEvents) {
     ASSERT_EQ(mdl.morph_sections.len(), usize(1));
     EXPECT_FLOAT_EQ(mdl.morph_sections[usize()].event_time, event.time);
     EXPECT_EQ(mdl.morph_sections[usize()].sections.len(), event.curves.len());
+}
+
+TEST(MdlMesh, BlockVersionsUseBoundedDecimalPrefixes) {
+    struct Case {
+        ref<str>    text;
+        Option<int> version;
+    };
+    const Case cases[] = {
+        { "0000"_str, Some(0) },
+        { "0001"_str, Some(1) },
+        { "9999"_str, Some(9999) },
+        { " +2x"_str, Some(2) },
+        { "-1xx"_str, Some(-1) },
+        { "\v3\0x"_str, Some(3) },
+        { "xxxx"_str, None() },
+        { " +xx"_str, None() },
+        { "\0"
+          "123"_str,
+          None() },
+        { "    "_str, None() },
+    };
+    auto         temporary = rstd::fs::TempDir::make("owe-mdl-version"_str).unwrap();
+    auto         root      = rstd::path::PathBuf::from(temporary.path().as_os_str().to_os_string());
+    owe::fs::VFS vfs;
+    auto         mount = owe::fs::make_physical_fs(temporary.path());
+    ASSERT_TRUE(mount.is_ok());
+    ASSERT_TRUE(vfs.mount("/assets"_str, rstd::move(mount).unwrap()).is_ok());
+    for (auto block : { "MDLA"_str, "MDMP"_str, "MDLE"_str }) {
+        for (const auto& test : cases) {
+            Vec<u8> bytes;
+            auto    append = [&](ref<str> text) {
+                for (auto byte : text.as_bytes()) bytes.push(rstd::move(byte));
+            };
+            auto append_u32 = [&](unsigned value) {
+                for (unsigned shift = 0; shift < 32; shift += 8)
+                    bytes.push(u8((value >> shift) & 255));
+            };
+            append("MDLV0014\0"_str);
+            append_u32(0);
+            append_u32(1);
+            append_u32(0);
+            append("MDLS0001\0"_str);
+            append_u32(38);
+            append_u32(0);
+            append(block);
+            append(test.text);
+            bytes.push(u8());
+            if (block != "MDLA"_str || test.version != Some(0)) {
+                append_u32(static_cast<unsigned>(bytes.len().to_primitive()) +
+                           (block == "MDMP"_str ? 4u : 8u));
+                if (block != "MDMP"_str) append_u32(0);
+            }
+            bytes.push(u8());
+            ASSERT_TRUE(
+                rstd::fs::write(root.join("test.mdl"_str).as_path(), bytes.as_slice()).is_ok());
+            owe::Mdl   mdl;
+            const bool parsed = owe::MdlParser::Parse("test.mdl"_str, vfs, mdl);
+            EXPECT_EQ(parsed, test.version.is_some());
+            if (test.version.is_some()) {
+                EXPECT_EQ(block == "MDLA"_str   ? mdl.mdla
+                          : block == "MDMP"_str ? mdl.mdmp
+                                                : mdl.mdle,
+                          *test.version);
+            }
+        }
+    }
+}
+
+TEST(MdlMesh, NativeMaterialPathsShareResolutionAndPreserveDefaults) {
+    auto temporary = rstd::fs::TempDir::make("owe-mdl-material"_str).unwrap();
+    auto root      = rstd::path::PathBuf::from(temporary.path().as_os_str().to_os_string());
+    ASSERT_TRUE(
+        rstd::fs::write(
+            root.join("main.json"_str).as_path(),
+            R"({/* authored material */"passes":[{"shader":"genericimage","textures":["diffuse"]}]})"_bytes)
+            .is_ok());
+    owe::fs::VFS vfs;
+    auto         mount = owe::fs::make_physical_fs(temporary.path());
+    ASSERT_TRUE(mount.is_ok());
+    ASSERT_TRUE(vfs.mount("/assets/materials"_str, rstd::move(mount).unwrap()).is_ok());
+    auto short_ref = owe::MdlParser::ParseMaterial("main"_str, vfs);
+    auto full_ref  = owe::MdlParser::ParseMaterial("materials/main.json"_str, vfs);
+    ASSERT_TRUE(short_ref.is_some());
+    ASSERT_TRUE(full_ref.is_some());
+    EXPECT_EQ(short_ref->shader, full_ref->shader);
+    EXPECT_EQ(short_ref->shader, "genericimage"_str);
+    EXPECT_EQ(short_ref->depthtest, "enabled"_str);
+    EXPECT_EQ(short_ref->depthwrite, "enabled"_str);
+    EXPECT_EQ(short_ref->cullmode, "back"_str);
+    ASSERT_EQ(short_ref->textures.len(), usize(1));
+    EXPECT_EQ(short_ref->textures[usize()], "diffuse"_str);
+    EXPECT_TRUE(owe::MdlParser::ParseMaterial("missing"_str, vfs).is_none());
 }

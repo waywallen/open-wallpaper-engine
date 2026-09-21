@@ -1,6 +1,5 @@
 module;
 
-#include <cstdio>
 #include <algorithm>
 #include <cstring>
 
@@ -10,100 +9,130 @@ module;
 
 module weweb;
 
+import rstd;
 import rstd.cppstd;
 import :browser_host;
 import :cef;
 import :cef_internal;
 
+using namespace rstd::prelude;
 using namespace rstd::literals;
+using rstd::cppstd::to_string;
+using rstd::ffi::CStr;
+using rstd::ffi::OsStr;
+using rstd::io::eprintln;
+using rstd::os::unix::ffi::OsStrExt;
+using rstd::path::Path;
+using rstd::path::PathBuf;
+using rstd::sync::atomic::Atomic;
+using rstd::sync::atomic::Ordering;
 
 namespace weweb
 {
+
+namespace
+{
+std::string CefPath(ref<Path> path) {
+    auto os    = path.as_os_str();
+    auto bytes = os.as_encoded_bytes();
+    return { reinterpret_cast<const char*>(bytes.as_raw_ptr()), bytes.len().to_primitive() };
+}
+} // namespace
 
 #if __is_target_os(macos)
 namespace
 {
 
-std::filesystem::path CurrentExecutablePath() {
-    std::uint32_t size = 0;
+PathBuf CurrentExecutablePath() {
+    rstd::uint32_t size = 0;
     if (_NSGetExecutablePath(nullptr, &size) != -1 || size == 0) return {};
 
-    std::string buffer(size, '\0');
+    Vec<char> buffer;
+    buffer.resize(usize(size), '\0');
     if (_NSGetExecutablePath(buffer.data(), &size) != 0) return {};
-    return std::filesystem::path(buffer.c_str());
+    return PathBuf::from(ref<Path>(OsStrExt::from_bytes(CStr::from_ptr(buffer.data()).to_bytes())));
 }
 
-void AddFrameworkCandidate(std::vector<std::filesystem::path>& candidates,
-                           std::filesystem::path               path) {
-    if (path.filename() == "Chromium Embedded Framework.framework") {
-        path /= "Chromium Embedded Framework";
+void AddFrameworkCandidate(Vec<PathBuf>& candidates, PathBuf path) {
+    auto name = path.as_path().file_name();
+    if (name && *name == ref<OsStr>("Chromium Embedded Framework.framework"_str)) {
+        path.push("Chromium Embedded Framework"_str);
+        name = path.as_path().file_name();
     }
-    if (path.filename() != "Chromium Embedded Framework") return;
+    if (! name || *name != ref<OsStr>("Chromium Embedded Framework"_str)) return;
 
-    std::error_code error;
-    if (! std::filesystem::is_regular_file(path, error)) return;
-    if (std::find(candidates.begin(), candidates.end(), path) == candidates.end()) {
-        candidates.push_back(std::move(path));
+    auto metadata = rstd::fs::metadata(path.as_path());
+    if (metadata.is_err() || ! metadata->is_file()) return;
+    if (! candidates.iter().any([&](auto candidate) {
+            return candidate->as_path() == path.as_path();
+        })) {
+        candidates.push(rstd::move(path));
     }
 }
 
-bool LoadCefFramework(bool helper, std::filesystem::path* loaded_binary) {
-    std::vector<std::filesystem::path> candidates;
-    if (const char* override_path = std::getenv("OWE_CEF_FRAMEWORK_PATH");
-        override_path != nullptr && override_path[0] != '\0') {
-        AddFrameworkCandidate(candidates, override_path);
+bool LoadCefFramework(bool helper, PathBuf* loaded_binary) {
+    Vec<PathBuf> candidates;
+    if (auto override_path = rstd::env::var_os("OWE_CEF_FRAMEWORK_PATH"_str);
+        override_path && ! override_path->is_empty()) {
+        AddFrameworkCandidate(candidates, PathBuf::from(rstd::move(*override_path)));
     }
 
     const auto executable = CurrentExecutablePath();
-    if (! executable.empty()) {
-        const auto executable_dir = executable.parent_path();
-        const auto main_root      = executable_dir / "../Frameworks";
-        const auto helper_root    = executable_dir / "../../..";
+    if (! executable.is_empty()) {
+        auto       parent         = executable.as_path().parent();
+        const auto executable_dir = parent ? PathBuf::from(*parent) : PathBuf {};
+        const auto main_root      = executable_dir.join("../Frameworks"_str);
+        const auto helper_root    = executable_dir.join("../../.."_str);
         if (helper) {
             AddFrameworkCandidate(
                 candidates,
-                helper_root / "Chromium Embedded Framework.framework/Chromium Embedded Framework");
+                helper_root.join(
+                    "Chromium Embedded Framework.framework/Chromium Embedded Framework"_str));
         }
         // A single executable can also be used as the browser subprocess
         // entry point. In that layout the helper process still loads from the
         // main app's Contents/Frameworks directory.
         AddFrameworkCandidate(
             candidates,
-            main_root / "Chromium Embedded Framework.framework/Chromium Embedded Framework");
+            main_root.join(
+                "Chromium Embedded Framework.framework/Chromium Embedded Framework"_str));
 
         // Development builds may not be wrapped in an application bundle yet.
         AddFrameworkCandidate(
             candidates,
-            executable_dir / "Chromium Embedded Framework.framework/Chromium Embedded Framework");
+            executable_dir.join(
+                "Chromium Embedded Framework.framework/Chromium Embedded Framework"_str));
         AddFrameworkCandidate(
             candidates,
-            executable_dir /
-                "../Chromium Embedded Framework.framework/Chromium Embedded Framework");
+            executable_dir.join(
+                "../Chromium Embedded Framework.framework/Chromium Embedded Framework"_str));
         AddFrameworkCandidate(
             candidates,
-            executable_dir /
-                "../Frameworks/Chromium Embedded Framework.framework/Chromium Embedded Framework");
+            executable_dir.join(
+                "../Frameworks/Chromium Embedded Framework.framework/Chromium Embedded Framework"_str));
     }
 
     for (const auto& candidate : candidates) {
-        if (cef_load_library(candidate.string().c_str())) {
-            if (loaded_binary != nullptr) *loaded_binary = candidate;
+        if (cef_load_library(CefPath(candidate.as_path()).c_str())) {
+            if (loaded_binary != nullptr) *loaded_binary = candidate.clone();
             if (! helper) {
-                std::fprintf(stderr, "weweb: loaded CEF framework from %s\n", candidate.c_str());
+                eprintln("weweb: loaded CEF framework from {}",
+                         candidate.as_path().as_os_str().display());
             }
             return true;
         }
     }
 
-    std::fprintf(stderr,
-                 "weweb: unable to load Chromium Embedded Framework; "
-                 "set OWE_CEF_FRAMEWORK_PATH to the framework binary\n");
+    eprintln("weweb: unable to load Chromium Embedded Framework; "
+             "set OWE_CEF_FRAMEWORK_PATH to the framework binary");
     return false;
 }
 
 bool IsCefHelperProcess(int argc, char** argv) {
     for (int i = 1; i < argc; ++i) {
-        if (argv[i] != nullptr && std::strncmp(argv[i], "--type=", 7) == 0) return true;
+        if (argv[i] != nullptr &&
+            CStr::from_ptr(argv[i]).to_bytes().starts_with("--type="_str.as_bytes()))
+            return true;
     }
     return false;
 }
@@ -112,26 +141,26 @@ bool IsCefHelperProcess(int argc, char** argv) {
 #endif
 
 struct BrowserHost::Impl {
-    CefRefPtr<AppHandler>       app;
-    CefRefPtr<OsrRenderHandler> osr;
-    CefRefPtr<ClientHandler>    client;
-    AcceleratedPaintCallback    accel_cb;
-    CpuPaintCallback            cpu_cb;
-    std::function<void(bool)>   audio_demand_cb;
-    std::atomic<bool>           should_exit { false };
-    bool                        initialised { false };
+    CefRefPtr<AppHandler>            app;
+    CefRefPtr<OsrRenderHandler>      osr;
+    CefRefPtr<ClientHandler>         client;
+    Option<AcceleratedPaintCallback> accel_cb;
+    Option<CpuPaintCallback>         cpu_cb;
+    Option<AudioDemandCallback>      audio_demand_cb;
+    Atomic<bool>                     should_exit { false };
+    bool                             initialised { false };
     // Stash the original argv from RunOrExitIfHelper; CefInitialize needs
     // the real argv to derive the per-child --type=… / --icu-data-file=…
     // switches it forwards to subprocesses.
     int    saved_argc { 0 };
     char** saved_argv { nullptr };
 #if __is_target_os(macos)
-    bool                  cef_loaded { false };
-    std::filesystem::path cef_framework_binary;
+    bool    cef_loaded { false };
+    PathBuf cef_framework_binary;
 #endif
 };
 
-BrowserHost::BrowserHost(): impl_(std::make_unique<Impl>()) { impl_->app = new AppHandler(); }
+BrowserHost::BrowserHost(): impl_(Box<Impl>::make()) { impl_->app = new AppHandler(); }
 
 BrowserHost::~BrowserHost() { Shutdown(); }
 
@@ -159,7 +188,7 @@ int BrowserHost::RunOrExitIfHelper(int argc, char** argv) {
 
 bool BrowserHost::Init(const InitOptions& opts) {
     if (impl_->initialised) {
-        std::fprintf(stderr, "weweb: BrowserHost::Init called twice\n");
+        eprintln("weweb: BrowserHost::Init called twice");
         return false;
     }
 
@@ -180,33 +209,37 @@ bool BrowserHost::Init(const InitOptions& opts) {
     // WW_CEF_DEBUG=1 ⇒ flip CEF's own log threshold so the chromium VLOG
     // stream actually fires (--enable-logging=stderr alone is gated by
     // settings.log_severity). WW_CEF_LOG_FILE redirects the file sink.
-    if (const char* dbg = std::getenv("WW_CEF_DEBUG"); dbg && dbg[0] && dbg[0] != '0') {
+    if (auto dbg = rstd::env::var_os("WW_CEF_DEBUG"_str);
+        dbg && ! dbg->is_empty() && dbg->as_os_str().as_encoded_bytes()[usize()] != u8('0')) {
         settings.log_severity = LOGSEVERITY_VERBOSE;
     }
-    if (const char* lf = std::getenv("WW_CEF_LOG_FILE"); lf && lf[0]) {
-        CefString(&settings.log_file) = lf;
+    if (auto lf = rstd::env::var_os("WW_CEF_LOG_FILE"_str); lf && ! lf->is_empty()) {
+        CefString(&settings.log_file) = CefPath(ref<Path>(lf->as_os_str()));
     }
 
-    auto set_cef_path = [](cef_string_t* dest, const std::filesystem::path& p) {
-        if (p.empty()) return;
+    auto set_cef_path = [](cef_string_t* dest, ref<Path> p) {
+        if (p.is_empty()) return;
         CefString cef_str { dest };
-        cef_str = p.string();
+        cef_str = CefPath(p);
     };
 #if __is_target_os(macos)
     // A single executable is used for the browser and CEF subprocesses in
     // development builds. The same entry point calls CefExecuteProcess
     // before entering the browser loop, so no helper app is required.
     set_cef_path(&settings.browser_subprocess_path, CurrentExecutablePath());
-    if (const char* override_path = std::getenv("OWE_CEF_FRAMEWORK_PATH");
-        override_path != nullptr && override_path[0] != '\0') {
-        std::filesystem::path framework_path(override_path);
-        if (framework_path.filename() == "Chromium Embedded Framework") {
-            framework_path = framework_path.parent_path();
+    if (auto override_path = rstd::env::var_os("OWE_CEF_FRAMEWORK_PATH"_str);
+        override_path && ! override_path->is_empty()) {
+        auto framework_path = PathBuf::from(rstd::move(*override_path));
+        auto name           = framework_path.as_path().file_name();
+        if (name && *name == ref<OsStr>("Chromium Embedded Framework"_str)) {
+            auto parent    = framework_path.as_path().parent();
+            framework_path = parent ? PathBuf::from(*parent) : PathBuf {};
         }
         set_cef_path(&settings.framework_dir_path, framework_path);
     }
-    if (settings.framework_dir_path.length == 0 && ! impl_->cef_framework_binary.empty()) {
-        set_cef_path(&settings.framework_dir_path, impl_->cef_framework_binary.parent_path());
+    if (settings.framework_dir_path.length == 0 && ! impl_->cef_framework_binary.is_empty()) {
+        if (auto parent = impl_->cef_framework_binary.as_path().parent())
+            set_cef_path(&settings.framework_dir_path, *parent);
     }
 #endif
     set_cef_path(&settings.resources_dir_path, opts.resources_dir);
@@ -221,10 +254,10 @@ bool BrowserHost::Init(const InitOptions& opts) {
     // runs synchronously inside it and reads the flag.
     impl_->app->SetMuteAudio(! opts.enable_audio);
     impl_->app->SetSharedTextureEnabled(opts.shared_texture_enabled);
-    impl_->app->SetRenderNodeOverride(opts.render_node_override);
+    impl_->app->SetRenderNodeOverride(opts.render_node_override.as_str());
 
     if (! CefInitialize(main_args, settings, impl_->app.get(), nullptr)) {
-        std::fprintf(stderr, "weweb: CefInitialize failed\n");
+        eprintln("weweb: CefInitialize failed");
 #if __is_target_os(macos)
         cef_unload_library();
         impl_->cef_loaded = false;
@@ -235,38 +268,37 @@ bool BrowserHost::Init(const InitOptions& opts) {
     return true;
 }
 
-bool BrowserHost::OpenWallpaper(const WebManifest&           manifest,
-                                const std::filesystem::path& workshop_dir, int width, int height) {
+bool BrowserHost::OpenWallpaper(const WebManifest& manifest, ref<Path> workshop_dir, int width,
+                                int height) {
     return OpenWallpaper(manifest, workshop_dir, width, height, OpenOptions {});
 }
 
-bool BrowserHost::OpenWallpaper(const WebManifest&           manifest,
-                                const std::filesystem::path& workshop_dir, int width, int height,
-                                OpenOptions opts) {
+bool BrowserHost::OpenWallpaper(const WebManifest& manifest, ref<Path> workshop_dir, int width,
+                                int height, OpenOptions opts) {
     if (! impl_->initialised) {
-        std::fprintf(stderr, "weweb: OpenWallpaper before Init\n");
+        eprintln("weweb: OpenWallpaper before Init");
         return false;
     }
 
     impl_->osr = new OsrRenderHandler();
     impl_->osr->SetViewSize(width, height);
     if (impl_->accel_cb) {
-        impl_->osr->SetAcceleratedPaintCallback(impl_->accel_cb);
+        impl_->osr->SetAcceleratedPaintCallback(impl_->accel_cb.clone());
     }
     if (impl_->cpu_cb) {
-        impl_->osr->SetCpuPaintCallback(impl_->cpu_cb);
+        impl_->osr->SetCpuPaintCallback(impl_->cpu_cb.clone());
     }
     impl_->osr->SetDeviceScaleFactor(opts.device_scale_factor);
 
     impl_->client =
         new ClientHandler(manifest.user_props.clone(), impl_->osr, opts.initially_muted);
-    impl_->client->SetAudioDemandCallback(impl_->audio_demand_cb);
-    impl_->client->SetCloseCallback([this] {
-        impl_->should_exit.store(true);
-    });
+    impl_->client->SetAudioDemandCallback(impl_->audio_demand_cb.clone());
+    impl_->client->SetCloseCallback(Box<dyn<Fn<void()>>>::make([this] {
+        impl_->should_exit.store(true, Ordering::SeqCst);
+    }));
 
-    auto        entry = workshop_dir / manifest.entry_html;
-    std::string url   = "file://" + entry.string();
+    auto        entry = PathBuf::from(workshop_dir).join(manifest.entry_html.as_str());
+    std::string url   = "file://" + CefPath(entry.as_path());
 
     CefWindowInfo info;
     info.SetAsWindowless(0); // no parent window — pure OSR
@@ -278,24 +310,25 @@ bool BrowserHost::OpenWallpaper(const WebManifest&           manifest,
     const bool created = CefBrowserHost::CreateBrowser(
         info, impl_->client.get(), url, browser_settings, nullptr, nullptr);
     if (! created) {
-        std::fprintf(stderr, "weweb: CefBrowserHost::CreateBrowser failed for %s\n", url.c_str());
+        eprintln("weweb: CefBrowserHost::CreateBrowser failed for {}",
+                 rstd::cppstd::as_str(url).unwrap());
     }
     return created;
 }
 
-void BrowserHost::SetAcceleratedPaintCallback(AcceleratedPaintCallback cb) {
-    impl_->accel_cb = std::move(cb);
-    if (impl_->osr) impl_->osr->SetAcceleratedPaintCallback(impl_->accel_cb);
+void BrowserHost::SetAcceleratedPaintCallback(Option<AcceleratedPaintCallback> cb) {
+    impl_->accel_cb = rstd::move(cb);
+    if (impl_->osr) impl_->osr->SetAcceleratedPaintCallback(impl_->accel_cb.clone());
 }
 
-void BrowserHost::SetCpuPaintCallback(CpuPaintCallback cb) {
-    impl_->cpu_cb = std::move(cb);
-    if (impl_->osr) impl_->osr->SetCpuPaintCallback(impl_->cpu_cb);
+void BrowserHost::SetCpuPaintCallback(Option<CpuPaintCallback> cb) {
+    impl_->cpu_cb = rstd::move(cb);
+    if (impl_->osr) impl_->osr->SetCpuPaintCallback(impl_->cpu_cb.clone());
 }
 
-void BrowserHost::SetAudioResponseDemandCallback(std::function<void(bool)> cb) {
-    impl_->audio_demand_cb = std::move(cb);
-    if (impl_->client) impl_->client->SetAudioDemandCallback(impl_->audio_demand_cb);
+void BrowserHost::SetAudioResponseDemandCallback(Option<AudioDemandCallback> cb) {
+    impl_->audio_demand_cb = rstd::move(cb);
+    if (impl_->client) impl_->client->SetAudioDemandCallback(impl_->audio_demand_cb.clone());
 }
 
 void BrowserHost::Invalidate() {
@@ -380,10 +413,9 @@ void BrowserHost::Pump() {
 void BrowserHost::ApplyVolume(float volume) {
     if (impl_->client) impl_->client->SetAudioMuted(volume <= 0.0f);
     auto object = rstd::json::Map::make();
-    object.insert(::alloc::string::String::make("value"_str),
-                  rstd::into<owe::Json>(rstd::f32(volume)));
+    object.insert("value"_Str, rstd::into<owe::Json>(f32(volume)));
     auto v = owe::Json::Object(rstd::move(object));
-    ApplyUserProperty("audio", v);
+    ApplyUserProperty("audio"_str, v);
 }
 
 void BrowserHost::SetFrameRate(int fps) {
@@ -398,56 +430,30 @@ void BrowserHost::SetPaused(bool paused) {
     if (b && b->GetHost()) b->GetHost()->WasHidden(paused);
 }
 
-void BrowserHost::ApplyUserProperty(std::string_view key, const owe::Json& value) {
+void BrowserHost::ApplyUserProperty(ref<str> key, const owe::Json& value) {
     if (! impl_->client) return;
-    auto b = impl_->client->GetBrowser();
-    if (! b) return;
-    auto frame = b->GetMainFrame();
+    auto browser = impl_->client->GetBrowser();
+    if (! browser) return;
+    auto frame = browser->GetMainFrame();
     if (! frame) return;
-
-    // Page-side listener convention (mirrors BuildPropertyListenerSnippet):
-    //   window.wallpaperPropertyListener.applyUserProperties({key: {value: V}}).
-    auto object = rstd::json::Map::make();
-    object.insert(::alloc::string::String::make(rstd::cppstd::as_str(key).unwrap()), value.clone());
-    auto        properties = owe::Json::Object(rstd::move(object));
-    std::string snippet =
-        "(function(){"
-        "  if (typeof window.wallpaperPropertyListener !== 'object') return;"
-        "  if (typeof window.wallpaperPropertyListener.applyUserProperties !== 'function') return;"
-        "  try {"
-        "    window.wallpaperPropertyListener.applyUserProperties(";
-    snippet += owe::Dump(properties);
-    snippet += ");"
-               "  } catch (e) {"
-               "    console.error('weweb: applyUserProperties patch threw:', e);"
-               "  }"
-               "})();";
-    frame->ExecuteJavaScript(snippet, "weweb://internal/apply_user_property.js", 0);
+    auto snippet = BuildPropertyPatchSnippet(key, value);
+    frame->ExecuteJavaScript(
+        to_string(snippet.as_str()), "weweb://internal/apply_user_property.js", 0);
 }
 
-void BrowserHost::PushAudioData(const float* data, std::size_t count) {
-    if (! impl_->client || ! data || count == 0) return;
-    auto b = impl_->client->GetBrowser();
-    if (! b) return;
-    auto frame = b->GetMainFrame();
+void BrowserHost::PushAudioData(slice<float> data) {
+    if (! impl_->client || data.is_empty()) return;
+    auto browser = impl_->client->GetBrowser();
+    if (! browser) return;
+    auto frame = browser->GetMainFrame();
     if (! frame) return;
-
-    std::string snippet;
-    snippet.reserve(count * 8 + 64);
-    snippet += "(function(){if(!window.__weweb_pushAudio)return;window.__weweb_pushAudio([";
-    char buf[32];
-    for (std::size_t i = 0; i < count; ++i) {
-        if (i) snippet += ',';
-        std::snprintf(buf, sizeof(buf), "%.9g", static_cast<double>(data[i]));
-        snippet += buf;
-    }
-    snippet += "]);})();";
-    frame->ExecuteJavaScript(snippet, "weweb://internal/push_audio.js", 0);
+    auto snippet = BuildAudioResponseSnippet(data);
+    frame->ExecuteJavaScript(to_string(snippet.as_str()), "weweb://internal/push_audio.js", 0);
 }
 
-bool BrowserHost::ShouldExit() const { return impl_->should_exit.load(); }
+bool BrowserHost::ShouldExit() const { return impl_->should_exit.load(Ordering::SeqCst); }
 
-void BrowserHost::RequestClose() { impl_->should_exit.store(true); }
+void BrowserHost::RequestClose() { impl_->should_exit.store(true, Ordering::SeqCst); }
 
 void BrowserHost::Shutdown() {
     if (impl_->initialised) {

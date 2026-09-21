@@ -6,11 +6,20 @@ module;
 
 module viewer.web;
 
-import rstd.cppstd;
+import rstd;
 import weweb;
 import vvk;
 
-#include "GlfwVulkan.hpp"
+import viewer.glfw_vulkan;
+
+using rstd::mem::memcpy;
+
+using namespace viewer::glfw;
+
+using namespace rstd::prelude;
+using rstd::ffi::CStr;
+using rstd::ffi::OsStr;
+using rstd::io::eprint;
 
 namespace weweb
 {
@@ -18,28 +27,30 @@ namespace weweb
 namespace
 {
 
-#define VK_CHECK(expr)                                                \
-    do {                                                              \
-        VkResult _r = (expr);                                         \
-        if (_r != VK_SUCCESS) {                                       \
-            std::fprintf(stderr,                                      \
-                         "weweb: %s failed (VkResult=%d) at %s:%d\n", \
-                         #expr,                                       \
-                         static_cast<int>(_r),                        \
-                         __FILE__,                                    \
-                         __LINE__);                                   \
-            return false;                                             \
-        }                                                             \
+#define VK_CHECK(expr)                                                                           \
+    do {                                                                                         \
+        VkResult _r = (expr);                                                                    \
+        if (_r != VK_SUCCESS) {                                                                  \
+            eprint("weweb: {} failed (VkResult={}) at {}:{}\n",                                  \
+                   ref<OsStr>::from_encoded_bytes_unchecked(CStr::from_ptr(#expr).to_bytes())    \
+                       .display(),                                                               \
+                   static_cast<int>(_r),                                                         \
+                   ref<OsStr>::from_encoded_bytes_unchecked(CStr::from_ptr(__FILE__).to_bytes()) \
+                       .display(),                                                               \
+                   __LINE__);                                                                    \
+            return false;                                                                        \
+        }                                                                                        \
     } while (0)
 
-constexpr std::uint64_t kFenceTimeoutNs = 5'000'000'000ull; // 5s
+constexpr rstd::uint64_t kFenceTimeoutNs = 5'000'000'000ull; // 5s
 
 #if __is_target_os(macos)
 constexpr const char* kPortabilitySubsetExtension = "VK_KHR_portability_subset";
 
-bool HasInstanceExtension(const std::vector<VkExtensionProperties>& extensions, const char* name) {
-    return std::any_of(extensions.begin(), extensions.end(), [name](const auto& extension) {
-        return std::strcmp(extension.extensionName, name) == 0;
+bool HasInstanceExtension(slice<VkExtensionProperties> extensions, const char* name) {
+    return extensions.iter().any([name](auto extension) {
+        return (CStr::from_ptr(extension->extensionName).to_bytes() ==
+                CStr::from_ptr(name).to_bytes());
     });
 }
 #endif
@@ -115,7 +126,7 @@ void VulkanBlitter::Shutdown() {
 bool VulkanBlitter::CreateInstance() {
     auto loaded = vvk::VulkanLoader::Open();
     if (loaded.is_err()) {
-        std::fprintf(stderr, "weweb: Vulkan loader open failed\n");
+        eprint("weweb: Vulkan loader open failed\n");
         return false;
     }
     loader_ = rstd::Some(loaded.unwrap_unchecked());
@@ -129,32 +140,34 @@ bool VulkanBlitter::CreateInstance() {
     // need the instance extension.
     app.apiVersion = VK_API_VERSION_1_1;
 
-    std::uint32_t glfw_count = 0;
-    const char**  glfw_exts  = glfwGetRequiredInstanceExtensions(&glfw_count);
+    rstd::uint32_t glfw_count = 0;
+    const char**   glfw_exts  = glfwGetRequiredInstanceExtensions(&glfw_count);
     if (! glfw_exts) {
-        std::fprintf(stderr, "weweb: glfwGetRequiredInstanceExtensions failed\n");
+        eprint("weweb: glfwGetRequiredInstanceExtensions failed\n");
         return false;
     }
 
-    std::vector<VkExtensionProperties> available_exts;
-    std::uint32_t                      available_count = 0;
+    Vec<VkExtensionProperties> available_exts;
+    rstd::uint32_t             available_count = 0;
     VK_CHECK(loader_.as_ref().unwrap_unchecked().global().vkEnumerateInstanceExtensionProperties(
         nullptr, &available_count, nullptr));
-    available_exts.resize(available_count);
+    available_exts.resize(usize(available_count), VkExtensionProperties {});
     VK_CHECK(loader_.as_ref().unwrap_unchecked().global().vkEnumerateInstanceExtensionProperties(
         nullptr, &available_count, available_exts.data()));
 
-    std::vector<const char*> enabled_exts(glfw_exts, glfw_exts + glfw_count);
+    auto enabled_exts =
+        Vec<const char*>::from(slice<const char*>::from_raw_parts(glfw_exts, usize(glfw_count)));
 #if __is_target_os(macos)
-    if (HasInstanceExtension(available_exts, VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME)) {
-        enabled_exts.push_back(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
+    if (HasInstanceExtension(available_exts.as_slice(),
+                             VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME)) {
+        enabled_exts.emplace_back(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
     }
 #endif
 
     VkInstanceCreateInfo ci {};
     ci.sType                   = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
     ci.pApplicationInfo        = &app;
-    ci.enabledExtensionCount   = static_cast<std::uint32_t>(enabled_exts.size());
+    ci.enabledExtensionCount   = static_cast<rstd::uint32_t>(enabled_exts.len().to_primitive());
     ci.ppEnabledExtensionNames = enabled_exts.data();
 #if __is_target_os(macos)
     if (HasInstanceExtension(available_exts, VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME)) {
@@ -166,10 +179,11 @@ bool VulkanBlitter::CreateInstance() {
         instance_owner_, loader_.as_ref().unwrap_unchecked().global(), ci, instance_dispatch_);
     if (created.is_err()) {
         const auto error = created.unwrap_err_unchecked();
-        std::fprintf(stderr,
-                     "weweb: instance creation failed (%s, VkResult=%d)\n",
-                     error.command ? error.command : "dispatch",
-                     static_cast<int>(error.api_result));
+        eprint("weweb: instance creation failed ({}, VkResult={})\n",
+               ref<OsStr>::from_encoded_bytes_unchecked(
+                   CStr::from_ptr(error.command ? error.command : "dispatch").to_bytes())
+                   .display(),
+               static_cast<int>(error.api_result));
         return false;
     }
     instance_ = *instance_owner_;
@@ -177,35 +191,38 @@ bool VulkanBlitter::CreateInstance() {
 }
 
 bool VulkanBlitter::CreateSurface(GLFWwindow* window) {
-    VK_CHECK(glfwCreateWindowSurface(instance_, window, nullptr, &surface_));
+    VK_CHECK(viewer::glfw::glfwCreateWindowSurface(instance_, window, nullptr, &surface_));
     return true;
 }
 
 bool VulkanBlitter::PickPhysicalDevice() {
-    std::uint32_t count = 0;
+    rstd::uint32_t count = 0;
     VK_CHECK(instance_dispatch_.vkEnumeratePhysicalDevices(instance_, &count, nullptr));
     if (count == 0) {
-        std::fprintf(stderr, "weweb: no Vulkan physical devices\n");
+        eprint("weweb: no Vulkan physical devices\n");
         return false;
     }
-    std::vector<VkPhysicalDevice> devs(count);
+    Vec<VkPhysicalDevice> devs;
+    devs.resize(usize(count), VkPhysicalDevice {});
     VK_CHECK(instance_dispatch_.vkEnumeratePhysicalDevices(instance_, &count, devs.data()));
 
     for (auto pd : devs) {
-        std::uint32_t qcount = 0;
+        rstd::uint32_t qcount = 0;
         instance_dispatch_.vkGetPhysicalDeviceQueueFamilyProperties(pd, &qcount, nullptr);
-        std::vector<VkQueueFamilyProperties> qfp(qcount);
+        Vec<VkQueueFamilyProperties> qfp;
+        qfp.resize(usize(qcount), VkQueueFamilyProperties {});
         instance_dispatch_.vkGetPhysicalDeviceQueueFamilyProperties(pd, &qcount, qfp.data());
 
-        for (std::uint32_t i = 0; i < qcount; ++i) {
-            if (! (qfp[i].queueFlags & VK_QUEUE_GRAPHICS_BIT)) continue;
+        for (rstd::uint32_t i = 0; i < qcount; ++i) {
+            if (! (qfp[usize(i)].queueFlags & VK_QUEUE_GRAPHICS_BIT)) continue;
             VkBool32 present = VK_FALSE;
             instance_dispatch_.vkGetPhysicalDeviceSurfaceSupportKHR(pd, i, surface_, &present);
             if (! present) continue;
 
-            std::uint32_t ecount = 0;
+            rstd::uint32_t ecount = 0;
             instance_dispatch_.vkEnumerateDeviceExtensionProperties(pd, nullptr, &ecount, nullptr);
-            std::vector<VkExtensionProperties> exts(ecount);
+            Vec<VkExtensionProperties> exts;
+            exts.resize(usize(ecount), VkExtensionProperties {});
             instance_dispatch_.vkEnumerateDeviceExtensionProperties(
                 pd, nullptr, &ecount, exts.data());
 #if __is_target_os(macos)
@@ -216,21 +233,25 @@ bool VulkanBlitter::PickPhysicalDevice() {
                  has_modifier = false, has_fmt_list = false;
 #endif
             for (auto& e : exts) {
-                if (std::strcmp(e.extensionName, VK_KHR_SWAPCHAIN_EXTENSION_NAME) == 0)
+                if ((CStr::from_ptr(e.extensionName).to_bytes() ==
+                     CStr::from_ptr(VK_KHR_SWAPCHAIN_EXTENSION_NAME).to_bytes()))
                     has_swapchain = true;
 #if __is_target_os(macos)
-                if (std::strcmp(e.extensionName, kPortabilitySubsetExtension) == 0)
+                if ((CStr::from_ptr(e.extensionName).to_bytes() ==
+                     CStr::from_ptr(kPortabilitySubsetExtension).to_bytes()))
                     has_portability_subset = true;
 #else
-                if (std::strcmp(e.extensionName, VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME) == 0)
+                if ((CStr::from_ptr(e.extensionName).to_bytes() ==
+                     CStr::from_ptr(VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME).to_bytes()))
                     has_ext_mem_fd = true;
-                if (std::strcmp(e.extensionName, VK_EXT_EXTERNAL_MEMORY_DMA_BUF_EXTENSION_NAME) ==
-                    0)
+                if ((CStr::from_ptr(e.extensionName).to_bytes() ==
+                     CStr::from_ptr(VK_EXT_EXTERNAL_MEMORY_DMA_BUF_EXTENSION_NAME).to_bytes()))
                     has_dma_buf = true;
-                if (std::strcmp(e.extensionName, VK_EXT_IMAGE_DRM_FORMAT_MODIFIER_EXTENSION_NAME) ==
-                    0)
+                if ((CStr::from_ptr(e.extensionName).to_bytes() ==
+                     CStr::from_ptr(VK_EXT_IMAGE_DRM_FORMAT_MODIFIER_EXTENSION_NAME).to_bytes()))
                     has_modifier = true;
-                if (std::strcmp(e.extensionName, VK_KHR_IMAGE_FORMAT_LIST_EXTENSION_NAME) == 0)
+                if ((CStr::from_ptr(e.extensionName).to_bytes() ==
+                     CStr::from_ptr(VK_KHR_IMAGE_FORMAT_LIST_EXTENSION_NAME).to_bytes()))
                     has_fmt_list = true;
 #endif
             }
@@ -250,11 +271,9 @@ bool VulkanBlitter::PickPhysicalDevice() {
         }
     }
 #if __is_target_os(macos)
-    std::fprintf(stderr, "weweb: no suitable Vulkan device with graphics/present support\n");
+    eprint("weweb: no suitable Vulkan device with graphics/present support\n");
 #else
-    std::fprintf(stderr,
-                 "weweb: no suitable Vulkan device "
-                 "(need swapchain + external_memory_fd + dma_buf)\n");
+    eprint("weweb: no suitable Vulkan device (need swapchain + external_memory_fd + dma_buf)\n");
 #endif
     return false;
 }
@@ -268,9 +287,10 @@ bool VulkanBlitter::CreateDevice() {
     qi.pQueuePriorities = &prio;
 
 #if __is_target_os(macos)
-    std::vector<const char*> dev_exts { VK_KHR_SWAPCHAIN_EXTENSION_NAME };
+    Vec<const char*> dev_exts;
+    dev_exts.push(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
     if (portability_subset_supported_) {
-        dev_exts.push_back(kPortabilitySubsetExtension);
+        dev_exts.emplace_back(kPortabilitySubsetExtension);
     }
 #else
     const char* dev_exts[] = {
@@ -284,10 +304,15 @@ bool VulkanBlitter::CreateDevice() {
     };
 #endif
     VkDeviceCreateInfo ci {};
-    ci.sType                 = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-    ci.queueCreateInfoCount  = 1;
-    ci.pQueueCreateInfos     = &qi;
-    ci.enabledExtensionCount = static_cast<std::uint32_t>(std::size(dev_exts));
+    ci.sType                = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+    ci.queueCreateInfoCount = 1;
+    ci.pQueueCreateInfos    = &qi;
+#if __is_target_os(macos)
+    ci.enabledExtensionCount = static_cast<rstd::uint32_t>(dev_exts.len().to_primitive());
+#else
+    ci.enabledExtensionCount =
+        static_cast<rstd::uint32_t>((sizeof(dev_exts) / sizeof(dev_exts[0])));
+#endif
 #if __is_target_os(macos)
     ci.ppEnabledExtensionNames = dev_exts.data();
 #else
@@ -298,10 +323,11 @@ bool VulkanBlitter::CreateDevice() {
         vvk::Device::Create(device_owner_, phys_, instance_dispatch_, ci, device_dispatch_);
     if (created.is_err()) {
         const auto error = created.unwrap_err_unchecked();
-        std::fprintf(stderr,
-                     "weweb: device creation failed (%s, VkResult=%d)\n",
-                     error.command ? error.command : "dispatch",
-                     static_cast<int>(error.api_result));
+        eprint("weweb: device creation failed ({}, VkResult={})\n",
+               ref<OsStr>::from_encoded_bytes_unchecked(
+                   CStr::from_ptr(error.command ? error.command : "dispatch").to_bytes())
+                   .display(),
+               static_cast<int>(error.api_result));
         return false;
     }
     device_ = *device_owner_;
@@ -309,7 +335,7 @@ bool VulkanBlitter::CreateDevice() {
 
 #if ! __is_target_os(macos)
     if (! device_dispatch_.vkGetMemoryFdPropertiesKHR) {
-        std::fprintf(stderr, "weweb: vkGetMemoryFdPropertiesKHR not available\n");
+        eprint("weweb: vkGetMemoryFdPropertiesKHR not available\n");
         return false;
     }
 #endif
@@ -317,7 +343,7 @@ bool VulkanBlitter::CreateDevice() {
 }
 
 #if __is_target_os(macos)
-bool VulkanBlitter::EnsureCpuStaging(std::size_t size) {
+bool VulkanBlitter::EnsureCpuStaging(rstd::size_t size) {
     if (size == 0) return false;
     if (cpu_staging_ != VK_NULL_HANDLE && cpu_staging_size_ >= size) return true;
 
@@ -330,22 +356,22 @@ bool VulkanBlitter::EnsureCpuStaging(std::size_t size) {
     buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
     if (device_dispatch_.vkCreateBuffer(device_, &buffer_info, nullptr, &cpu_staging_) !=
         VK_SUCCESS) {
-        std::fprintf(stderr, "weweb: failed to create CPU paint staging buffer\n");
+        eprint("weweb: failed to create CPU paint staging buffer\n");
         return false;
     }
 
     VkMemoryRequirements requirements {};
     device_dispatch_.vkGetBufferMemoryRequirements(device_, cpu_staging_, &requirements);
-    std::uint32_t memory_type =
+    rstd::uint32_t memory_type =
         FindMemoryType(requirements.memoryTypeBits,
                        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-    cpu_staging_coherent_ = memory_type != UINT32_MAX;
+    cpu_staging_coherent_ = memory_type != u32::MAX.to_primitive();
     if (! cpu_staging_coherent_) {
         memory_type =
             FindMemoryType(requirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
     }
-    if (memory_type == UINT32_MAX) {
-        std::fprintf(stderr, "weweb: no host-visible memory for CPU paint staging\n");
+    if (memory_type == u32::MAX.to_primitive()) {
+        eprint("weweb: no host-visible memory for CPU paint staging\n");
         device_dispatch_.vkDestroyBuffer(device_, cpu_staging_, nullptr);
         cpu_staging_ = VK_NULL_HANDLE;
         return false;
@@ -357,7 +383,7 @@ bool VulkanBlitter::EnsureCpuStaging(std::size_t size) {
     allocate_info.memoryTypeIndex = memory_type;
     if (device_dispatch_.vkAllocateMemory(device_, &allocate_info, nullptr, &cpu_staging_mem_) !=
         VK_SUCCESS) {
-        std::fprintf(stderr, "weweb: failed to allocate CPU paint staging memory\n");
+        eprint("weweb: failed to allocate CPU paint staging memory\n");
         device_dispatch_.vkDestroyBuffer(device_, cpu_staging_, nullptr);
         cpu_staging_ = VK_NULL_HANDLE;
         return false;
@@ -367,7 +393,7 @@ bool VulkanBlitter::EnsureCpuStaging(std::size_t size) {
         device_dispatch_.vkMapMemory(
             device_, cpu_staging_mem_, 0, requirements.size, 0, &cpu_staging_mapped_) !=
             VK_SUCCESS) {
-        std::fprintf(stderr, "weweb: failed to map CPU paint staging memory\n");
+        eprint("weweb: failed to map CPU paint staging memory\n");
         if (cpu_staging_mapped_ != nullptr)
             device_dispatch_.vkUnmapMemory(device_, cpu_staging_mem_);
         device_dispatch_.vkFreeMemory(device_, cpu_staging_mem_, nullptr);
@@ -399,17 +425,16 @@ void VulkanBlitter::DestroyCpuStaging() {
 }
 
 bool VulkanBlitter::UploadPendingCpuPaint() {
-    std::lock_guard lock(cpu_paint_mutex_);
-    if (! cpu_paint_pending_) return true;
-    const auto staging_size = static_cast<std::size_t>(cpu_paint_width_) * 4u *
-                              static_cast<std::size_t>(cpu_paint_height_);
-    if (! EnsureOwnedImage(cpu_paint_width_, cpu_paint_height_) ||
-        ! EnsureCpuStaging(staging_size)) {
+    auto cpu = cpu_paint_.lock().unwrap();
+    if (! cpu->pending) return true;
+    const auto staging_size =
+        static_cast<rstd::size_t>(cpu->width) * 4u * static_cast<rstd::size_t>(cpu->height);
+    if (! EnsureOwnedImage(cpu->width, cpu->height) || ! EnsureCpuStaging(staging_size)) {
         return false;
     }
-    std::memcpy(cpu_staging_mapped_, cpu_paint_data_.data(), staging_size);
-    if (! CopyCpuStagingToOwned(cpu_paint_width_, cpu_paint_height_)) return false;
-    cpu_paint_pending_ = false;
+    memcpy(cpu_staging_mapped_, cpu->data.data(), rstd::usize(staging_size));
+    if (! CopyCpuStagingToOwned(cpu->width, cpu->height)) return false;
+    cpu->pending = false;
     return true;
 }
 
@@ -430,7 +455,7 @@ bool VulkanBlitter::CopyCpuStagingToOwned(int width, int height) {
             device_, 1, &in_flight_fence_[0], VK_TRUE, kFenceTimeoutNs) != VK_SUCCESS ||
         device_dispatch_.vkWaitForFences(
             device_, 1, &in_flight_fence_[1], VK_TRUE, kFenceTimeoutNs) != VK_SUCCESS) {
-        std::fprintf(stderr, "weweb: timed out waiting for the CPU paint copy\n");
+        eprint("weweb: timed out waiting for the CPU paint copy\n");
         return false;
     }
 
@@ -468,8 +493,8 @@ bool VulkanBlitter::CopyCpuStagingToOwned(int width, int height) {
     VkBufferImageCopy region {};
     region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     region.imageSubresource.layerCount = 1;
-    region.imageExtent                 = { static_cast<std::uint32_t>(width),
-                                           static_cast<std::uint32_t>(height),
+    region.imageExtent                 = { static_cast<rstd::uint32_t>(width),
+                                           static_cast<rstd::uint32_t>(height),
                                            1 };
     device_dispatch_.vkCmdCopyBufferToImage(
         cmd, cpu_staging_, owned_image_, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
@@ -500,7 +525,7 @@ bool VulkanBlitter::CopyCpuStagingToOwned(int width, int height) {
         return false;
     if (device_dispatch_.vkWaitForFences(
             device_, 1, &in_flight_fence_[0], VK_TRUE, kFenceTimeoutNs) != VK_SUCCESS) {
-        std::fprintf(stderr, "weweb: timed out waiting for the CPU paint copy completion\n");
+        eprint("weweb: timed out waiting for the CPU paint copy completion\n");
         return false;
     }
     owned_layout_   = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
@@ -529,15 +554,16 @@ bool VulkanBlitter::CreateSwapchain() {
     VkSurfaceCapabilitiesKHR caps {};
     VK_CHECK(instance_dispatch_.vkGetPhysicalDeviceSurfaceCapabilitiesKHR(phys_, surface_, &caps));
 
-    std::uint32_t fcount = 0;
+    rstd::uint32_t fcount = 0;
     VK_CHECK(
         instance_dispatch_.vkGetPhysicalDeviceSurfaceFormatsKHR(phys_, surface_, &fcount, nullptr));
-    std::vector<VkSurfaceFormatKHR> formats(fcount);
+    Vec<VkSurfaceFormatKHR> formats;
+    formats.resize(usize(fcount), VkSurfaceFormatKHR {});
     VK_CHECK(instance_dispatch_.vkGetPhysicalDeviceSurfaceFormatsKHR(
         phys_, surface_, &fcount, formats.data()));
 
-    swap_format_     = formats[0].format;
-    swap_colorspace_ = formats[0].colorSpace;
+    swap_format_     = formats[usize()].format;
+    swap_colorspace_ = formats[usize()].colorSpace;
     for (auto& f : formats) {
         if (f.format == VK_FORMAT_B8G8R8A8_UNORM) {
             swap_format_     = f.format;
@@ -547,19 +573,23 @@ bool VulkanBlitter::CreateSwapchain() {
     }
     present_mode_ = VK_PRESENT_MODE_FIFO_KHR;
 
-    if (caps.currentExtent.width != std::numeric_limits<std::uint32_t>::max()) {
+    if (caps.currentExtent.width != rstd::u32::MAX.to_primitive()) {
         extent_ = caps.currentExtent;
     } else {
         int w = 0, h = 0;
         glfwGetFramebufferSize(window_, &w, &h);
-        extent_.width = std::clamp<std::uint32_t>(
-            static_cast<std::uint32_t>(w), caps.minImageExtent.width, caps.maxImageExtent.width);
-        extent_.height = std::clamp<std::uint32_t>(
-            static_cast<std::uint32_t>(h), caps.minImageExtent.height, caps.maxImageExtent.height);
+        extent_.width = rstd::cmp::min<rstd::uint32_t>(
+            caps.maxImageExtent.width,
+            rstd::cmp::max<rstd::uint32_t>(caps.minImageExtent.width,
+                                           static_cast<rstd::uint32_t>(w)));
+        extent_.height = rstd::cmp::min<rstd::uint32_t>(
+            caps.maxImageExtent.height,
+            rstd::cmp::max<rstd::uint32_t>(caps.minImageExtent.height,
+                                           static_cast<rstd::uint32_t>(h)));
     }
     if (extent_.width == 0 || extent_.height == 0) return true;
 
-    std::uint32_t image_count = caps.minImageCount + 1;
+    rstd::uint32_t image_count = caps.minImageCount + 1;
     if (caps.maxImageCount > 0 && image_count > caps.maxImageCount) {
         image_count = caps.maxImageCount;
     }
@@ -582,18 +612,19 @@ bool VulkanBlitter::CreateSwapchain() {
 
     VK_CHECK(device_dispatch_.vkCreateSwapchainKHR(device_, &ci, nullptr, &swapchain_));
 
-    std::uint32_t scount = 0;
+    rstd::uint32_t scount = 0;
     VK_CHECK(device_dispatch_.vkGetSwapchainImagesKHR(device_, swapchain_, &scount, nullptr));
-    swap_images_.resize(scount);
+    swap_images_.resize(usize(scount), VkImage {});
     VK_CHECK(device_dispatch_.vkGetSwapchainImagesKHR(
         device_, swapchain_, &scount, swap_images_.data()));
 
     // Per-image render-done semaphore (see hpp comment).
     VkSemaphoreCreateInfo si {};
     si.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
-    render_done_sem_.resize(scount, VK_NULL_HANDLE);
-    for (std::uint32_t i = 0; i < scount; ++i) {
-        VK_CHECK(device_dispatch_.vkCreateSemaphore(device_, &si, nullptr, &render_done_sem_[i]));
+    render_done_sem_.resize(usize(scount), VkSemaphore {});
+    for (rstd::uint32_t i = 0; i < scount; ++i) {
+        VK_CHECK(
+            device_dispatch_.vkCreateSemaphore(device_, &si, nullptr, &render_done_sem_[usize(i)]));
     }
     return true;
 }
@@ -617,7 +648,7 @@ bool VulkanBlitter::CreateSyncObjects() {
     fi.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 
     // render_done_sem_ is created per swapchain image in CreateSwapchain.
-    for (std::uint32_t i = 0; i < kMaxFramesInFlight; ++i) {
+    for (rstd::uint32_t i = 0; i < kMaxFramesInFlight; ++i) {
         VK_CHECK(device_dispatch_.vkCreateSemaphore(device_, &si, nullptr, &img_avail_sem_[i]));
         VK_CHECK(device_dispatch_.vkCreateFence(device_, &fi, nullptr, &in_flight_fence_[i]));
     }
@@ -632,14 +663,14 @@ bool VulkanBlitter::Resize() {
     return true;
 }
 
-std::uint32_t VulkanBlitter::FindMemoryType(std::uint32_t         type_bits,
-                                            VkMemoryPropertyFlags props) const {
-    for (std::uint32_t i = 0; i < mem_props_.memoryTypeCount; ++i) {
+rstd::uint32_t VulkanBlitter::FindMemoryType(rstd::uint32_t        type_bits,
+                                             VkMemoryPropertyFlags props) const {
+    for (rstd::uint32_t i = 0; i < mem_props_.memoryTypeCount; ++i) {
         if ((type_bits & (1u << i)) && (mem_props_.memoryTypes[i].propertyFlags & props) == props) {
             return i;
         }
     }
-    return UINT32_MAX;
+    return u32::MAX.to_primitive();
 }
 
 bool VulkanBlitter::EnsureOwnedImage(int width, int height) {
@@ -651,13 +682,13 @@ bool VulkanBlitter::EnsureOwnedImage(int width, int height) {
         if (in_flight_fence_[0] != VK_NULL_HANDLE &&
             device_dispatch_.vkWaitForFences(
                 device_, 1, &in_flight_fence_[0], VK_TRUE, kFenceTimeoutNs) != VK_SUCCESS) {
-            std::fprintf(stderr, "weweb: timed out waiting for the old CPU paint image\n");
+            eprint("weweb: timed out waiting for the old CPU paint image\n");
             return false;
         }
         if (in_flight_fence_[1] != VK_NULL_HANDLE &&
             device_dispatch_.vkWaitForFences(
                 device_, 1, &in_flight_fence_[1], VK_TRUE, kFenceTimeoutNs) != VK_SUCCESS) {
-            std::fprintf(stderr, "weweb: timed out waiting for the old presented image\n");
+            eprint("weweb: timed out waiting for the old presented image\n");
             return false;
         }
     }
@@ -665,16 +696,16 @@ bool VulkanBlitter::EnsureOwnedImage(int width, int height) {
     DestroyOwnedImage();
 
     VkImageCreateInfo ii {};
-    ii.sType         = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-    ii.imageType     = VK_IMAGE_TYPE_2D;
-    ii.format        = VK_FORMAT_B8G8R8A8_UNORM;
-    ii.extent        = { static_cast<std::uint32_t>(width), static_cast<std::uint32_t>(height), 1 };
-    ii.mipLevels     = 1;
-    ii.arrayLayers   = 1;
-    ii.samples       = VK_SAMPLE_COUNT_1_BIT;
-    ii.tiling        = VK_IMAGE_TILING_OPTIMAL;
-    ii.usage         = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
-    ii.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
+    ii.sType       = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    ii.imageType   = VK_IMAGE_TYPE_2D;
+    ii.format      = VK_FORMAT_B8G8R8A8_UNORM;
+    ii.extent      = { static_cast<rstd::uint32_t>(width), static_cast<rstd::uint32_t>(height), 1 };
+    ii.mipLevels   = 1;
+    ii.arrayLayers = 1;
+    ii.samples     = VK_SAMPLE_COUNT_1_BIT;
+    ii.tiling      = VK_IMAGE_TILING_OPTIMAL;
+    ii.usage       = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+    ii.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
     ii.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
     VK_CHECK(device_dispatch_.vkCreateImage(device_, &ii, nullptr, &owned_image_));
 
@@ -684,8 +715,8 @@ bool VulkanBlitter::EnsureOwnedImage(int width, int height) {
     mi.sType           = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
     mi.allocationSize  = mr.size;
     mi.memoryTypeIndex = FindMemoryType(mr.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-    if (mi.memoryTypeIndex == UINT32_MAX) {
-        std::fprintf(stderr, "weweb: no DEVICE_LOCAL memory type for owned image\n");
+    if (mi.memoryTypeIndex == u32::MAX.to_primitive()) {
+        eprint("weweb: no DEVICE_LOCAL memory type for owned image\n");
         return false;
     }
     VK_CHECK(device_dispatch_.vkAllocateMemory(device_, &mi, nullptr, &owned_image_mem_));
@@ -721,25 +752,25 @@ bool VulkanBlitter::AcceptCpuPaint(const CpuPaintFrame& frame) {
         frame.format != DmaBufFormat::BGRA8_UNORM) {
         return false;
     }
-    const std::size_t packed_stride = static_cast<std::size_t>(frame.width) * 4u;
+    const rstd::size_t packed_stride = static_cast<rstd::size_t>(frame.width) * 4u;
     if (frame.row_stride < packed_stride ||
-        static_cast<std::size_t>(frame.height) > SIZE_MAX / packed_stride) {
+        static_cast<rstd::size_t>(frame.height) > SIZE_MAX / packed_stride) {
         return false;
     }
-    const std::size_t paint_size = packed_stride * static_cast<std::size_t>(frame.height);
-    std::lock_guard   lock(cpu_paint_mutex_);
-    cpu_paint_data_.resize(paint_size);
+    const rstd::size_t paint_size = packed_stride * static_cast<rstd::size_t>(frame.height);
+    auto               cpu        = cpu_paint_.lock().unwrap();
+    cpu->data.resize(usize(paint_size), rstd::byte {});
 
-    const auto* source = static_cast<const std::byte*>(frame.buffer);
-    auto*       target = cpu_paint_data_.data();
+    const auto* source = static_cast<const rstd::byte*>(frame.buffer);
+    auto*       target = cpu->data.data();
     for (int y = 0; y < frame.height; ++y) {
-        std::memcpy(target + static_cast<std::size_t>(y) * packed_stride,
-                    source + static_cast<std::size_t>(y) * frame.row_stride,
-                    packed_stride);
+        memcpy(target + static_cast<rstd::size_t>(y) * packed_stride,
+               source + static_cast<rstd::size_t>(y) * frame.row_stride,
+               rstd::usize(packed_stride));
     }
-    cpu_paint_width_   = frame.width;
-    cpu_paint_height_  = frame.height;
-    cpu_paint_pending_ = true;
+    cpu->width   = frame.width;
+    cpu->height  = frame.height;
+    cpu->pending = true;
     return true;
 #endif
 }
@@ -758,7 +789,7 @@ bool VulkanBlitter::AcceptDmaBuf(const DmaBufFrame& frame) {
     // CEF reclaims its own FD when the callback returns.
     int dup_fd = ::dup(frame.planes[0].fd);
     if (dup_fd < 0) {
-        std::fprintf(stderr, "weweb: dup(dmabuf fd) failed\n");
+        eprint("weweb: dup(dmabuf fd) failed\n");
         return false;
     }
 
@@ -768,7 +799,7 @@ bool VulkanBlitter::AcceptDmaBuf(const DmaBufFrame& frame) {
     VkResult fdr   = device_dispatch_.vkGetMemoryFdPropertiesKHR(
         device_, VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT, dup_fd, &fd_props);
     if (fdr != VK_SUCCESS) {
-        std::fprintf(stderr, "weweb: vkGetMemoryFdPropertiesKHR=%d\n", static_cast<int>(fdr));
+        eprint("weweb: vkGetMemoryFdPropertiesKHR={}\n", static_cast<int>(fdr));
         ::close(dup_fd);
         return false;
     }
@@ -781,9 +812,9 @@ bool VulkanBlitter::AcceptDmaBuf(const DmaBufFrame& frame) {
     // INVALID modifier (= no negotiated modifier; in practice the
     // implementation picked LINEAR with stride matching width*bpp) is
     // substituted with DRM_FORMAT_MOD_LINEAR (0).
-    constexpr uint64_t DRM_FORMAT_MOD_INVALID = 0x00ffffffffffffffULL;
-    constexpr uint64_t DRM_FORMAT_MOD_LINEAR  = 0x0;
-    uint64_t           modifier =
+    constexpr rstd::uint64_t DRM_FORMAT_MOD_INVALID = 0x00ffffffffffffffULL;
+    constexpr rstd::uint64_t DRM_FORMAT_MOD_LINEAR  = 0x0;
+    rstd::uint64_t           modifier =
         (frame.modifier == DRM_FORMAT_MOD_INVALID) ? DRM_FORMAT_MOD_LINEAR : frame.modifier;
 
     // VUID-VkImageDrmFormatModifierExplicitCreateInfoEXT-size-02267:
@@ -810,8 +841,8 @@ bool VulkanBlitter::AcceptDmaBuf(const DmaBufFrame& frame) {
     ii.pNext         = &ext_img;
     ii.imageType     = VK_IMAGE_TYPE_2D;
     ii.format        = FormatToVk(frame.format);
-    ii.extent        = { static_cast<std::uint32_t>(frame.coded_width),
-                         static_cast<std::uint32_t>(frame.coded_height),
+    ii.extent        = { static_cast<rstd::uint32_t>(frame.coded_width),
+                         static_cast<rstd::uint32_t>(frame.coded_height),
                          1 };
     ii.mipLevels     = 1;
     ii.arrayLayers   = 1;
@@ -823,7 +854,7 @@ bool VulkanBlitter::AcceptDmaBuf(const DmaBufFrame& frame) {
 
     VkImage temp_img = VK_NULL_HANDLE;
     if (device_dispatch_.vkCreateImage(device_, &ii, nullptr, &temp_img) != VK_SUCCESS) {
-        std::fprintf(stderr, "weweb: vkCreateImage(temp dma-buf) failed\n");
+        eprint("weweb: vkCreateImage(temp dma-buf) failed\n");
         ::close(dup_fd);
         return false;
     }
@@ -833,16 +864,16 @@ bool VulkanBlitter::AcceptDmaBuf(const DmaBufFrame& frame) {
 
     // Memory type must satisfy *both* the image's requirements AND the
     // FD's allowable types. ANDing memoryTypeBits accomplishes that.
-    std::uint32_t allowed = mr.memoryTypeBits & fd_props.memoryTypeBits;
-    std::uint32_t mtype   = UINT32_MAX;
-    for (std::uint32_t i = 0; i < mem_props_.memoryTypeCount; ++i) {
+    rstd::uint32_t allowed = mr.memoryTypeBits & fd_props.memoryTypeBits;
+    rstd::uint32_t mtype   = u32::MAX.to_primitive();
+    for (rstd::uint32_t i = 0; i < mem_props_.memoryTypeCount; ++i) {
         if (allowed & (1u << i)) {
             mtype = i;
             break;
         }
     }
-    if (mtype == UINT32_MAX) {
-        std::fprintf(stderr, "weweb: no compatible memory type for DMA-BUF\n");
+    if (mtype == u32::MAX.to_primitive()) {
+        eprint("weweb: no compatible memory type for DMA-BUF\n");
         device_dispatch_.vkDestroyImage(device_, temp_img, nullptr);
         ::close(dup_fd);
         return false;
@@ -870,7 +901,7 @@ bool VulkanBlitter::AcceptDmaBuf(const DmaBufFrame& frame) {
     VkDeviceMemory imported_mem = VK_NULL_HANDLE;
     VkResult       ar = device_dispatch_.vkAllocateMemory(device_, &mi, nullptr, &imported_mem);
     if (ar != VK_SUCCESS) {
-        std::fprintf(stderr, "weweb: vkAllocateMemory(import fd)=%d\n", static_cast<int>(ar));
+        eprint("weweb: vkAllocateMemory(import fd)={}\n", static_cast<int>(ar));
         device_dispatch_.vkDestroyImage(device_, temp_img, nullptr);
         ::close(dup_fd);
         return false;
@@ -879,7 +910,7 @@ bool VulkanBlitter::AcceptDmaBuf(const DmaBufFrame& frame) {
 
     if (device_dispatch_.vkBindImageMemory(
             device_, temp_img, imported_mem, frame.planes[0].offset) != VK_SUCCESS) {
-        std::fprintf(stderr, "weweb: vkBindImageMemory(temp) failed\n");
+        eprint("weweb: vkBindImageMemory(temp) failed\n");
         device_dispatch_.vkFreeMemory(device_, imported_mem, nullptr);
         device_dispatch_.vkDestroyImage(device_, temp_img, nullptr);
         return false;
@@ -945,8 +976,8 @@ bool VulkanBlitter::AcceptDmaBuf(const DmaBufFrame& frame) {
     region.srcSubresource.layerCount = 1;
     region.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
     region.dstSubresource.layerCount = 1;
-    region.extent                    = { static_cast<std::uint32_t>(frame.coded_width),
-                                         static_cast<std::uint32_t>(frame.coded_height),
+    region.extent                    = { static_cast<rstd::uint32_t>(frame.coded_width),
+                                         static_cast<rstd::uint32_t>(frame.coded_height),
                                          1 };
     device_dispatch_.vkCmdCopyImage(cmd,
                                     temp_img,
@@ -996,7 +1027,7 @@ bool VulkanBlitter::AcceptDmaBuf(const DmaBufFrame& frame) {
     // function returns since CEF reclaims the FD.
     device_dispatch_.vkResetFences(device_, 1, &in_flight_fence_[0]);
     if (device_dispatch_.vkQueueSubmit(queue_, 1, &submit, in_flight_fence_[0]) != VK_SUCCESS) {
-        std::fprintf(stderr, "weweb: vkQueueSubmit(import-copy) failed\n");
+        eprint("weweb: vkQueueSubmit(import-copy) failed\n");
         device_dispatch_.vkFreeMemory(device_, imported_mem, nullptr);
         device_dispatch_.vkDestroyImage(device_, temp_img, nullptr);
         return false;
@@ -1022,22 +1053,22 @@ bool VulkanBlitter::RenderFrame() {
 
     // Use cmd_bufs_[1] as the present cmd buffer to keep it disjoint
     // from the import-copy buffer at index 0.
-    const std::uint32_t fi      = 1;
-    VkFence             fence   = in_flight_fence_[fi];
-    VkSemaphore         img_sem = img_avail_sem_[fi];
-    VkCommandBuffer     cmd     = cmd_bufs_[fi];
+    const rstd::uint32_t fi      = 1;
+    VkFence              fence   = in_flight_fence_[fi];
+    VkSemaphore          img_sem = img_avail_sem_[fi];
+    VkCommandBuffer      cmd     = cmd_bufs_[fi];
 
     device_dispatch_.vkWaitForFences(device_, 1, &fence, VK_TRUE, kFenceTimeoutNs);
 
-    std::uint32_t img_idx = 0;
-    VkResult      acq     = device_dispatch_.vkAcquireNextImageKHR(
+    rstd::uint32_t img_idx = 0;
+    VkResult       acq     = device_dispatch_.vkAcquireNextImageKHR(
         device_, swapchain_, kFenceTimeoutNs, img_sem, VK_NULL_HANDLE, &img_idx);
     if (acq == VK_ERROR_OUT_OF_DATE_KHR) return false;
     if (acq != VK_SUCCESS && acq != VK_SUBOPTIMAL_KHR) {
-        std::fprintf(stderr, "weweb: vkAcquireNextImageKHR=%d\n", static_cast<int>(acq));
+        eprint("weweb: vkAcquireNextImageKHR={}\n", static_cast<int>(acq));
         return true;
     }
-    VkSemaphore done_sem = render_done_sem_[img_idx];
+    VkSemaphore done_sem = render_done_sem_[usize(img_idx)];
 
     device_dispatch_.vkResetFences(device_, 1, &fence);
     device_dispatch_.vkResetCommandBuffer(cmd, 0);
@@ -1047,7 +1078,7 @@ bool VulkanBlitter::RenderFrame() {
     bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     VK_CHECK(device_dispatch_.vkBeginCommandBuffer(cmd, &bi));
 
-    VkImage swap_img = swap_images_[img_idx];
+    VkImage swap_img = swap_images_[usize(img_idx)];
 
     // swapchain_img: UNDEFINED → TRANSFER_DST.
     VkImageMemoryBarrier b {};

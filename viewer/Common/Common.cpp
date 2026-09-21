@@ -1,41 +1,49 @@
 module;
 
-#include <GLFW/glfw3.h>
-
 module viewer.common;
 
-import rstd.cppstd;
+import rstd;
+import viewer.glfw_vulkan;
+
+using namespace viewer::glfw;
+
+using namespace rstd::prelude;
+using namespace rstd::literals;
+using rstd::ffi::CStr;
+using rstd::os::unix::ffi::OsStrExt;
+using rstd::path::Path;
+using rstd::path::PathBuf;
 
 namespace viewer
 {
 
-std::filesystem::path ExecutableDir(const char* argv0) {
-    namespace fs = std::filesystem;
-    std::error_code ec;
-    auto            self = fs::read_symlink("/proc/self/exe", ec);
-    if (! ec) return self.parent_path();
-    return fs::path(argv0 ? argv0 : "").parent_path();
+PathBuf ExecutableDir(const char* argv0) {
+    auto executable = rstd::fs::read_link("/proc/self/exe"_str);
+    auto path       = executable.is_ok() ? executable.unwrap()
+                                         : PathBuf::from(ref<Path>(OsStrExt::from_bytes(
+                                               CStr::from_ptr(argv0 ? argv0 : "").to_bytes())));
+    auto parent     = path.as_path().parent();
+    return parent ? PathBuf::from(*parent) : PathBuf {};
 }
 
-std::filesystem::path DefaultCacheDir(std::string_view name) {
-    namespace fs = std::filesystem;
-    if (const char* cache = std::getenv("XDG_CACHE_HOME"); cache != nullptr && cache[0] != '\0') {
-        return fs::path(cache) / name;
-    }
-    if (const char* home = std::getenv("HOME"); home != nullptr && home[0] != '\0') {
-        return fs::path(home) / ".cache" / name;
-    }
+PathBuf DefaultCacheDir(ref<str> name) {
+    auto cache = rstd::env::var_os("XDG_CACHE_HOME"_str);
+    if (cache && ! cache->is_empty()) return PathBuf::from(cache.unwrap()).join(name);
+    auto home = rstd::env::var_os("HOME"_str);
+    if (home && ! home->is_empty())
+        return PathBuf::from(home.unwrap()).join(".cache"_str).join(name);
     return {};
 }
 
 void InitGlfwPlatformHint(bool force_x11) {
     if (force_x11) {
-        glfwInitHint(GLFW_PLATFORM, GLFW_PLATFORM_X11);
+        glfwInitHint(viewer::glfw::Platform, viewer::glfw::PlatformX11);
         return;
     }
-    const char* x11_env = std::getenv("WP_GLFW_X11");
-    if (x11_env && x11_env[0] == '1') {
-        glfwInitHint(GLFW_PLATFORM, GLFW_PLATFORM_X11);
+    auto x11_env = rstd::env::var_os("WP_GLFW_X11"_str);
+    if (x11_env && ! x11_env->is_empty() &&
+        x11_env->as_os_str().as_encoded_bytes()[usize()] == u8('1')) {
+        glfwInitHint(viewer::glfw::Platform, viewer::glfw::PlatformX11);
     }
 }
 

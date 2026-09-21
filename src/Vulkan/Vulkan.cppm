@@ -6,6 +6,8 @@ export namespace owe
 {
 using vrento::ExHandle;
 using vrento::ExSwapchain;
+using vrento::ExSwapchainOwner;
+using vrento::ExSwapchainReadyCallback;
 using vrento::ExSwapchainReadyEvent;
 using vrento::FrameSurfaceAcquireDependency;
 using vrento::FrameSurfaceAcquireKind;

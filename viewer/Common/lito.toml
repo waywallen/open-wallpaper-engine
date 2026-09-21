@@ -11,6 +11,7 @@ sources = [
   "Audio.cppm",
   "Arg.cppm",
   "Common.cpp",
+  "GlfwVulkan.cppm",
 ]
 
 [usage]
@@ -42,6 +43,10 @@ workspace = true
 pub = true
 
 [dependencies.wavsen]
+workspace = true
+pub = true
+
+[dependencies.vvk]
 workspace = true
 pub = true
 

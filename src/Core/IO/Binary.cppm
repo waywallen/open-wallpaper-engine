@@ -3,9 +3,7 @@ module;
 
 export module wescene.io;
 import rstd;
-import rstd.cppstd;
 
-using ::alloc::vec::Vec;
 using namespace rstd::prelude;
 
 export namespace owe::io
@@ -39,8 +37,6 @@ public:
     explicit BinaryReader(rstd::io::ReadRange range): BinaryReader(prepare(rstd::move(range))) {}
 
     explicit BinaryReader(Vec<u8> bytes): BinaryReader(prepare(rstd::move(bytes))) {}
-
-    explicit BinaryReader(std::vector<u8>&& bytes): BinaryReader(prepare_std(rstd::move(bytes))) {}
 
     explicit BinaryReader(BinaryReader& source): BinaryReader(read_remaining(source)) {}
 
@@ -143,26 +139,36 @@ public:
     rstd::int8_t   ReadInt8() { return read_integer<i8>().to_primitive(); }
     rstd::uint8_t  ReadUint8() { return read_integer<u8>().to_primitive(); }
 
-    std::string ReadStr() {
-        std::string value;
-        char        current = 0;
-        while (Read(&current, 1) == 1 && current != '\0') value.push_back(current);
-        return value;
+    auto ReadStr() -> String {
+        Vec<u8> bytes;
+        u8      current {};
+        while (Read(&current, 1) == 1 && current != u8()) bytes.push(rstd::move(current));
+        return String::from_utf8(rstd::move(bytes)).unwrap();
     }
 
-    auto read_all_string() -> rstd::io::Result<std::string> {
+    auto read_all_bytes() -> rstd::io::Result<Vec<u8>> {
         if (remaining() > rstd::as_cast<u64>(usize::MAX)) {
             return rstd::Err(rstd::io::error::Error::from_kind(
                 rstd::io::error::ErrorKind { rstd::io::error::ErrorKind::InvalidData }));
         }
-        std::string value(rstd::as_cast<usize>(remaining()).to_primitive(), '\0');
-        rstd_try(read_exact(value.data(), usize(value.size())));
+        auto value = Vec<u8>::with_capacity(rstd::as_cast<usize>(remaining()));
+        value.resize(rstd::as_cast<usize>(remaining()), u8());
+        rstd_try(read_exact(value.data(), value.len()));
         return Ok(rstd::move(value));
     }
 
-    std::string ReadAllStr() {
+    auto read_all_string() -> rstd::io::Result<String> {
+        auto bytes = rstd_try(read_all_bytes());
+        auto value = String::from_utf8(rstd::move(bytes));
+        if (value.is_err())
+            return Err(rstd::io::error::Error::from_kind(
+                rstd::io::error::ErrorKind { rstd::io::error::ErrorKind::InvalidData }));
+        return Ok(rstd::move(value).unwrap_unchecked());
+    }
+
+    auto ReadAllStr() -> String {
         auto value = read_all_string();
-        return value.is_ok() ? rstd::move(value).unwrap_unchecked() : std::string {};
+        return value.is_ok() ? rstd::move(value).unwrap_unchecked() : String {};
     }
 
 private:
@@ -182,12 +188,6 @@ private:
         auto cursor = rstd::io::Cursor<Vec<u8>>(rstd::move(bytes));
         return Prepared { .handle = rstd::io::ReadSeekHandle::make(rstd::move(cursor)),
                           .len    = len };
-    }
-
-    static auto prepare_std(std::vector<u8>&& bytes) -> Prepared {
-        auto data = Vec<u8>::with_capacity(usize(bytes.size()));
-        for (auto value : bytes) data.push(rstd::move(value));
-        return prepare(rstd::move(data));
     }
 
     static auto read_remaining(BinaryReader& source) -> Vec<u8> {

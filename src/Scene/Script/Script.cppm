@@ -1,18 +1,19 @@
 module;
+#include <rstd/enum.hpp>
 
 export module wescene.script;
 export import owe.scene_audio_response;
 import wescene.core;
 import wescene.json;
 import rstd;
-import rstd.cppstd;
 import wescene.scene;
+
+using namespace rstd::prelude;
+using rstd::path::PathBuf;
+using rstd::sync::Arc;
 
 export namespace owe::script
 {
-
-using namespace rstd::prelude;
-using rstd::sync::Arc;
 
 // --- shared value variant ----------------------------------------------------
 
@@ -35,14 +36,26 @@ struct ColorValue {
     double r { 0.0 }, g { 0.0 }, b { 0.0 };
 };
 struct StringValue {
-    std::string s;
+    String s;
 };
 struct BoolValue {
     bool v { false };
 };
 
-using ScriptValue = std::variant<std::monostate, ScalarValue, BoolValue, Vec2Value, Vec3Value,
-                                 Vec4Value, ColorValue, StringValue>;
+class ScriptValue {
+    RSTD_ENUM_DEFAULT(ScriptValue, (Empty), (Empty), (Scalar, (ScalarValue value;)),
+                      (Bool, (BoolValue value;)), (Vec2, (Vec2Value value;)),
+                      (Vec3, (Vec3Value value;)), (Vec4, (Vec4Value value;)),
+                      (Color, (ColorValue value;)), (String, (StringValue value;)))
+public:
+    ScriptValue(ScalarValue value): ScriptValue(Scalar(rstd::move(value))) {}
+    ScriptValue(BoolValue value): ScriptValue(Bool(rstd::move(value))) {}
+    ScriptValue(Vec2Value value): ScriptValue(Vec2(rstd::move(value))) {}
+    ScriptValue(Vec3Value value): ScriptValue(Vec3(rstd::move(value))) {}
+    ScriptValue(Vec4Value value): ScriptValue(Vec4(rstd::move(value))) {}
+    ScriptValue(ColorValue value): ScriptValue(Color(rstd::move(value))) {}
+    ScriptValue(StringValue value): ScriptValue(String(rstd::move(value))) {}
+};
 
 struct BoneTranslation {
     float x { 0.0f }, y { 0.0f }, z { 0.0f };
@@ -89,13 +102,22 @@ struct FrameInputs {
 };
 
 struct MediaStatus {
-    uint32_t    state { 0 };
-    std::string title;
-    std::string artist;
-    std::string album;
-    std::string album_artist;
-    std::string art_url;
-    std::string previous_art_url;
+    uint32_t state { 0 };
+    String   title;
+    String   artist;
+    String   album;
+    String   album_artist;
+    String   art_url;
+    String   previous_art_url;
+    auto     clone() const -> MediaStatus {
+        return { state,
+                 title.clone(),
+                 artist.clone(),
+                 album.clone(),
+                 album_artist.clone(),
+                 art_url.clone(),
+                 previous_art_url.clone() };
+    }
 };
 
 // --- script properties (configuration) --------------------------------------
@@ -115,13 +137,13 @@ struct PropDescriptor {
         Delimiter,
         Other
     };
-    Kind        kind { Kind::Other };
-    std::string name;
-    std::string label;
-    Json        default_value; // captured verbatim
-    double      min { 0.0 };
-    double      max { 1.0 };
-    bool        integer { false };
+    Kind   kind { Kind::Other };
+    String name;
+    String label;
+    Json   default_value; // captured verbatim
+    double min { 0.0 };
+    double max { 1.0 };
+    bool   integer { false };
 };
 
 // --- runtime ----------------------------------------------------------------
@@ -178,13 +200,13 @@ public:
     // `node` (nullable) is the SceneNode the script will see as `thisLayer`
     // inside init/update. When null, `thisLayer` falls back to a generic
     // stub (the JS-side default created at bootstrap).
-    FieldScript* MakeFieldScript(std::string_view source, std::string_view script_sha,
-                                 FieldKind field_kind, const Json& properties_config,
-                                 const Json& initial_value, ScriptBindingContext context = {});
+    FieldScript* MakeFieldScript(ref<str> source, ref<str> script_sha, FieldKind field_kind,
+                                 const Json& properties_config, const Json& initial_value,
+                                 ScriptBindingContext context = {});
 
     // Pending scripts initialize in ascending owner order when SetSceneRoot
     // completes scene assembly. Equal orders retain creation order.
-    void SetInitializationOrder(FieldScript& script, std::uint64_t order);
+    void SetInitializationOrder(FieldScript& script, rstd::uint64_t order);
 
     // Preserve the authored scene.json object for getInitialLayerConfig().
     // The package parser supplies this snapshot before pending initializers run.
@@ -198,7 +220,7 @@ public:
     // Wire localStorage to a JSON file. Existing keys load synchronously;
     // subsequent script writes flush back to the file. Pass an empty
     // string to revert to in-memory-only behaviour.
-    void SetPersistence(std::string path);
+    void SetPersistence(PathBuf path);
 
     // Push one frame's worth of host state into the runtime. The next
     // FieldScript::Update call will see these values via `engine.*`.
@@ -208,15 +230,15 @@ public:
     // Patch one Wallpaper Engine user property into engine.userProperties.
     // `property` should be the descriptor object shape used by project.json
     // (`{value: ...}` plus optional metadata).
-    void SetUserProperty(std::string_view key, const Json& property);
+    void SetUserProperty(ref<str> key, const Json& property);
 
     // Dispatch Wallpaper Engine media callbacks for the current media
     // snapshot. Call from the renderer owner thread.
     void SetMediaStatus(const MediaStatus& status);
 
-    using BoneIndexResolver = std::function<uint32_t(owe::SceneNode*, std::string_view)>;
+    using BoneIndexResolver = Box<dyn<FnMut<uint32_t(owe::SceneNode*, ref<str>)>>>;
     using BoneTransformResolver =
-        std::function<Option<BoneTranslation>(owe::SceneNode*, uint32_t, double)>;
+        Box<dyn<FnMut<Option<BoneTranslation>(owe::SceneNode*, uint32_t, double)>>>;
     void SetBoneResolvers(BoneIndexResolver     index_resolver,
                           BoneTransformResolver transform_resolver);
 
@@ -230,19 +252,22 @@ public:
     // last_value() into per-field actuators.
     using EachFn = void (*)(FieldScript*, void*);
     void ForEachScript(EachFn fn, void* user);
+    bool Empty() const noexcept;
 
     // Wire a text-content setter for a given SceneNode. When a script does
     // `thisLayer.text = "..."` on a wrapper whose opaque is `node`, the JS
     // setter dispatches into this callback. Used by text layers to receive
     // text writes from scripts bound to non-text fields (e.g. clock
     // scripts attached to `visible`).
-    void RegisterTextSetter(owe::SceneNode* node, std::function<void(std::string_view)> setter);
-    void RegisterTextAlignSetters(owe::SceneNode* node, std::string horizontal,
-                                  std::string vertical, double point_size,
-                                  std::function<void(std::string_view)> set_horizontal,
-                                  std::function<void(std::string_view)> set_vertical,
-                                  std::function<double()>               get_point_size = {},
-                                  std::function<void(double)>           set_point_size = {});
+    using TextSetter      = Arc<dyn<FnMut<void(ref<str>)>>>;
+    using PointSizeGetter = Arc<dyn<FnMut<double()>>>;
+    using PointSizeSetter = Arc<dyn<FnMut<void(double)>>>;
+    void RegisterTextSetter(owe::SceneNode* node, TextSetter setter);
+    void RegisterTextAlignSetters(owe::SceneNode* node, String horizontal, String vertical,
+                                  double point_size, TextSetter set_horizontal,
+                                  TextSetter              set_vertical,
+                                  Option<PointSizeGetter> get_point_size = {},
+                                  Option<PointSizeSetter> set_point_size = {});
     using NodeOriginGetter = Arc<dyn<FnMut<Vec3Value()>>>;
     using NodeOriginSetter = Arc<dyn<FnMut<void(Vec3Value)>>>;
     void RegisterNodeOriginAccessors(owe::SceneNode* node, NodeOriginGetter getter,
@@ -267,7 +292,7 @@ public:
     // Same exposure rule as FieldScript::Impl above: opaque outside the
     // module, but visible to peer module impl files.
     struct Impl;
-    std::unique_ptr<Impl> m_impl;
+    Box<Impl> m_impl;
 };
 
 class FieldScript : NoCopy, NoMove {
@@ -278,7 +303,7 @@ public:
     FieldKind          field_kind() const noexcept;
     const ScriptValue& last_value() const noexcept;
     bool               alive() const noexcept;
-    std::string_view   script_sha() const noexcept;
+    ref<str>           script_sha() const noexcept;
     slice<String>      RegisteredAssets() const noexcept;
     Option<ref<str>>   WorkshopId() const noexcept;
 
@@ -286,7 +311,7 @@ public:
     // JsRuntime::Impl (in the same module) can mutate it directly. Treated
     // as opaque by every other consumer; see Script.cpp.
     struct Impl;
-    std::unique_ptr<Impl> m_impl;
+    Box<Impl> m_impl;
 };
 
 // --- per-Scene script runtime + actuators -----------------------------------
@@ -303,25 +328,31 @@ enum class NodeTransformTarget
 // One write-back binding from script.last_value() to whatever subsystem
 // owns the bound field. The closure does the type coercion + write; the
 // generic ScriptScene::Tick has no idea what 'apply' does.
+using ScriptApply = Box<dyn<FnMut<void(const ScriptValue&)>>>;
+
 struct Actuator {
-    FieldScript*                            script { nullptr };
-    std::function<void(const ScriptValue&)> apply;
+    Actuator(FieldScript* value, ScriptApply callback)
+        : script(value), apply(rstd::move(callback)) {}
+    template<typename F>
+    Actuator(FieldScript* value, F&& callback)
+        : script(value), apply(ScriptApply::make(rstd::forward<F>(callback))) {}
+    FieldScript* script { nullptr };
+    ScriptApply  apply;
 };
 
 // Build the closure that drives a SceneNode transform field. Encapsulates
 // the Vec3/Vec2/Scalar/Bool coercion table so callers stay one-liners.
 // Captures `node` as Arc so actuator lifetime follows the SceneNode allocation.
-std::function<void(const ScriptValue&)> MakeNodeTransformApply(rstd::sync::Arc<owe::SceneNode> node,
-                                                               NodeTransformTarget target);
+ScriptApply MakeNodeTransformApply(Arc<owe::SceneNode> node, NodeTransformTarget target);
 
 // Build the closure that drives a SceneNode alpha field.
-std::function<void(const ScriptValue&)> MakeNodeAlphaApply(rstd::sync::Arc<owe::SceneNode> node);
+ScriptApply MakeNodeAlphaApply(Arc<owe::SceneNode> node);
 
 // Build the closure that drives a SceneNode volume field.
-std::function<void(const ScriptValue&)> MakeNodeVolumeApply(rstd::sync::Arc<owe::SceneNode> node);
+ScriptApply MakeNodeVolumeApply(Arc<owe::SceneNode> node);
 
 // Build the closure that drives a SceneNode color field.
-std::function<void(const ScriptValue&)> MakeNodeColorApply(rstd::sync::Arc<owe::SceneNode> node);
+ScriptApply MakeNodeColorApply(Arc<owe::SceneNode> node);
 
 // Owns one JsRuntime + the actuator list for one Scene. Constructed and
 // populated by the parser, then installed as a Scene extension.
@@ -340,7 +371,7 @@ public:
     void Tick(const FrameInputs& fi, slice<owe::SceneAnimationEventDispatch> animation_events = {});
 
     struct Impl;
-    std::unique_ptr<Impl> m_impl;
+    Box<Impl> m_impl;
 };
 
 // Attach a ScriptScene to a Scene. Takes ownership and replaces any previous attachment.
@@ -353,12 +384,12 @@ void TickSceneScripts(owe::Scene& scene, const FrameInputs& fi);
 
 // Patch `engine.userProperties` on the ScriptScene attached to `scene`.
 // No-op when the scene has no script runtime.
-void SetSceneUserProperty(owe::Scene& scene, std::string_view key, const Json& property);
+void SetSceneUserProperty(owe::Scene& scene, ref<str> key, const Json& property);
 
 void SetSceneMediaStatus(owe::Scene& scene, const MediaStatus& status);
 
 // Forward `SetPersistence` to the ScriptScene attached to `scene`. No-op
 // when the scene has no script runtime.
-void SetScenePersistence(owe::Scene& scene, std::string path);
+void SetScenePersistence(owe::Scene& scene, PathBuf path);
 
 } // namespace owe::script

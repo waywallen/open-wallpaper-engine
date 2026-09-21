@@ -6,7 +6,6 @@ module wescene.pkg.parse;
 import :scene_context;
 import wescene.spec_names;
 import rstd;
-import rstd.cppstd;
 
 using namespace rstd::prelude;
 using rstd::collections::HashMap;
@@ -18,11 +17,11 @@ using namespace owe;
 namespace
 {
 
-auto UserPropertyValue(Option<ref<rstd::json::Map>> user_properties, std::string_view key)
+auto UserPropertyValue(Option<ref<rstd::json::Map>> user_properties, ref<str> key)
     -> Option<ref<Json>> {
-    if (key.empty()) return None();
+    if (key->is_empty()) return None();
     if (user_properties.is_none()) return None();
-    auto value = (*user_properties)->get(rstd::cppstd::as_str(key).unwrap());
+    auto value = (*user_properties)->get(key);
     if (value.is_none()) return None();
     const auto& payload = SceneUserPropertyPayload(**value);
     return Some(ref<Json>::from_raw_parts(rstd::addressof(payload)));
@@ -31,7 +30,7 @@ auto UserPropertyValue(Option<ref<rstd::json::Map>> user_properties, std::string
 SceneUserVisibilityBinding
 ToSceneUserVisibilityBinding(const wpscene::VisibleUserBinding& binding) {
     return SceneUserVisibilityBinding {
-        .key           = String::make(rstd::cppstd::as_str(binding.name).unwrap()),
+        .key           = binding.name.clone(),
         .condition     = binding.condition.clone(),
         .has_condition = binding.has_condition,
     };
@@ -65,24 +64,21 @@ void CollectLinkedSourceIdsFromValue(const Json& value, HashSet<i32>& out,
     });
 }
 
-void CollectLinkedSourceId(std::string_view value, HashSet<i32>& out,
-                           Option<i32> effect_owner = None()) {
-    CollectLinkedSourceId(rstd::cppstd::as_str(value).unwrap(), out, effect_owner);
-}
-
 void CollectLinkedSourceIds(const wpscene::Material& material, HashSet<i32>& out,
                             Option<i32> effect_owner = None()) {
-    for (const auto& texture : material.textures) CollectLinkedSourceId(texture, out, effect_owner);
+    for (const auto& texture : material.textures)
+        CollectLinkedSourceId(texture.as_str(), out, effect_owner);
     for (const auto& binding : material.usertextures)
         CollectLinkedSourceIdsFromValue(binding, out, effect_owner);
 }
 
 void CollectLinkedSourceIds(const wpscene::MaterialPass& pass, HashSet<i32>& out,
                             Option<i32> effect_owner = None()) {
-    for (const auto& texture : pass.textures) CollectLinkedSourceId(texture, out, effect_owner);
+    for (const auto& texture : pass.textures)
+        CollectLinkedSourceId(texture.as_str(), out, effect_owner);
     for (const auto& binding : pass.usertextures)
         CollectLinkedSourceIdsFromValue(binding, out, effect_owner);
-    for (const auto& bind : pass.bind) CollectLinkedSourceId(bind.name, out, effect_owner);
+    for (const auto& bind : pass.bind) CollectLinkedSourceId(bind.name.as_str(), out, effect_owner);
 }
 
 void CollectLinkedSourceIds(const wpscene::ImageEffect& effect, HashSet<i32>& out,
@@ -91,10 +87,10 @@ void CollectLinkedSourceIds(const wpscene::ImageEffect& effect, HashSet<i32>& ou
         CollectLinkedSourceIds(material, out, effect_owner);
     for (const auto& pass : effect.passes) CollectLinkedSourceIds(pass, out, effect_owner);
     for (const auto& command : effect.commands) {
-        CollectLinkedSourceId(command.target, out, effect_owner);
-        CollectLinkedSourceId(command.source, out, effect_owner);
+        CollectLinkedSourceId(command.target.as_str(), out, effect_owner);
+        CollectLinkedSourceId(command.source.as_str(), out, effect_owner);
     }
-    for (const auto& fbo : effect.fbos) CollectLinkedSourceId(fbo.name, out, effect_owner);
+    for (const auto& fbo : effect.fbos) CollectLinkedSourceId(fbo.name.as_str(), out, effect_owner);
 }
 
 void CollectLinkedSourceIds(const wpscene::Particle& particle, HashSet<i32>& out) {
@@ -124,7 +120,7 @@ HashSet<i32> CollectLinkedSourceIds(slice<SceneObjectVar> objects) {
                 for (const auto& effect : value.effects)
                     CollectLinkedSourceIds(effect, out, Some(i32(value.id)));
                 for (const auto& texture : value.instance.textures)
-                    CollectLinkedSourceId(texture, out);
+                    CollectLinkedSourceId(texture.as_str(), out);
                 for (const auto& binding : value.instance.usertextures)
                     CollectLinkedSourceIdsFromValue(binding, out);
             }
@@ -169,7 +165,7 @@ HashSet<i32> CollectLinkedSourceIds(slice<SceneObjectVar> objects) {
 bool ResolveVisibleUserBinding(bool& visible, const wpscene::VisibleUserBinding& binding,
                                Option<ref<rstd::json::Map>> user_properties) {
     if (binding.empty()) return false;
-    auto value = UserPropertyValue(user_properties, binding.name);
+    auto value = UserPropertyValue(user_properties, binding.name.as_str());
     if (value.is_some()) {
         if (auto resolved =
                 ResolveSceneUserVisibilityBinding(ToSceneUserVisibilityBinding(binding), **value))
@@ -328,10 +324,10 @@ array<i32, 2> ResolveOrthoProjectionExtent(const wpscene::SceneMetadata& metadat
         const auto& object = objects[index];
         if (! object.is_Image()) continue;
         const auto& image = object.as_Image().value;
-        const auto  area  = rstd::as_cast<i32>(image.size[0] * image.size[1]);
+        const auto  area  = rstd::as_cast<i32>(image.size[usize(0)] * image.size[usize(1)]);
         if (area > width * height) {
-            width  = rstd::as_cast<i32>(image.size[0]);
-            height = rstd::as_cast<i32>(image.size[1]);
+            width  = rstd::as_cast<i32>(image.size[usize(0)]);
+            height = rstd::as_cast<i32>(image.size[usize(1)]);
         }
     }
     return { width, height };

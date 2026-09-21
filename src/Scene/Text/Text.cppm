@@ -3,7 +3,6 @@ module;
 export module wescene.text;
 import rstd;
 import wescene.types;
-import rstd.cppstd;
 import wescene.scene;
 
 using namespace rstd::prelude;
@@ -12,14 +11,14 @@ using rstd::sync::Arc;
 export namespace owe::text
 {
 
-inline std::vector<std::uint32_t> DecodeUtf8(std::string_view s) {
-    std::vector<std::uint32_t> out;
-    out.reserve(s.size());
-    std::size_t i = 0;
-    while (i < s.size()) {
-        std::uint8_t  b0   = static_cast<std::uint8_t>(s[i]);
-        std::uint32_t cp   = 0;
-        std::size_t   need = 0;
+inline Vec<rstd::uint32_t> DecodeUtf8(slice<u8> s) {
+    Vec<rstd::uint32_t> out;
+    out.reserve(usize(s.len().to_primitive()));
+    rstd::size_t i = 0;
+    while (i < s.len().to_primitive()) {
+        rstd::uint8_t  b0   = s[usize(i)].to_primitive();
+        rstd::uint32_t cp   = 0;
+        rstd::size_t   need = 0;
         if (b0 < 0x80) {
             cp   = b0;
             need = 0;
@@ -33,17 +32,17 @@ inline std::vector<std::uint32_t> DecodeUtf8(std::string_view s) {
             cp   = b0 & 0x07u;
             need = 3;
         } else {
-            out.push_back(0xFFFDu);
+            out.emplace_back(0xFFFDu);
             ++i;
             continue;
         }
-        if (i + need >= s.size()) {
-            out.push_back(0xFFFDu);
+        if (i + need >= s.len().to_primitive()) {
+            out.emplace_back(0xFFFDu);
             break;
         }
         bool ok = true;
-        for (std::size_t j = 1; j <= need; ++j) {
-            std::uint8_t bj = static_cast<std::uint8_t>(s[i + j]);
+        for (rstd::size_t j = 1; j <= need; ++j) {
+            rstd::uint8_t bj = s[usize(i + j)].to_primitive();
             if ((bj & 0xC0) != 0x80) {
                 ok = false;
                 break;
@@ -51,11 +50,11 @@ inline std::vector<std::uint32_t> DecodeUtf8(std::string_view s) {
             cp = (cp << 6) | (bj & 0x3Fu);
         }
         if (! ok) {
-            out.push_back(0xFFFDu);
+            out.emplace_back(0xFFFDu);
             ++i;
             continue;
         }
-        out.push_back(cp);
+        out.emplace_back(cp);
         i += 1 + need;
     }
     return out;
@@ -63,10 +62,10 @@ inline std::vector<std::uint32_t> DecodeUtf8(std::string_view s) {
 
 struct GlyphInfo {
     // Position inside the atlas, pixels.
-    std::uint32_t atlas_x { 0 };
-    std::uint32_t atlas_y { 0 };
-    std::uint32_t pixel_w { 0 };
-    std::uint32_t pixel_h { 0 };
+    rstd::uint32_t atlas_x { 0 };
+    rstd::uint32_t atlas_y { 0 };
+    rstd::uint32_t pixel_w { 0 };
+    rstd::uint32_t pixel_h { 0 };
     // FreeType bearings + advance, fractional pixels.
     float bearing_x { 0.0f };
     float bearing_y { 0.0f };
@@ -74,22 +73,22 @@ struct GlyphInfo {
 };
 
 struct FontMetrics {
-    float         ascender { 0.0f };
-    float         descender { 0.0f };
-    float         line_height { 0.0f };
-    std::uint32_t pixel_size { 0 };
-    std::uint32_t atlas_w { 0 };
-    std::uint32_t atlas_h { 0 };
+    float          ascender { 0.0f };
+    float          descender { 0.0f };
+    float          line_height { 0.0f };
+    rstd::uint32_t pixel_size { 0 };
+    rstd::uint32_t atlas_w { 0 };
+    rstd::uint32_t atlas_h { 0 };
 };
 
 // Pixel-coord AABB inside the atlas — emitted by Populate() for each glyph
 // it rasterised this call. The renderer coalesces these into per-frame
 // vkCmdCopyBufferToImage regions.
 struct AtlasDirtyRect {
-    std::uint32_t x { 0 };
-    std::uint32_t y { 0 };
-    std::uint32_t w { 0 };
-    std::uint32_t h { 0 };
+    rstd::uint32_t x { 0 };
+    rstd::uint32_t y { 0 };
+    rstd::uint32_t w { 0 };
+    rstd::uint32_t h { 0 };
 };
 
 class FontFace {
@@ -104,27 +103,27 @@ public:
     // Rasterise every codepoint that isn't already in the atlas. Synchronous
     // (FreeType is fast). Each newly-blitted glyph appends an AtlasDirtyRect
     // for the next frame's GPU upload.
-    void Populate(std::span<const std::uint32_t> codepoints);
+    void Populate(slice<rstd::uint32_t> codepoints);
 
     // Pure read of the cached metrics; nullptr if the codepoint hasn't been
     // Populate()'d yet. No FreeType / atlas mutation.
-    const GlyphInfo* Lookup(std::uint32_t codepoint) const noexcept;
+    const GlyphInfo* Lookup(rstd::uint32_t codepoint) const noexcept;
 
-    FontMetrics                   Metrics() const;
-    std::span<const std::uint8_t> AtlasPixels() const;
-    auto                          RetainAtlasPixels() const -> owe::ImageDataPtr;
+    FontMetrics          Metrics() const;
+    slice<rstd::uint8_t> AtlasPixels() const;
+    auto                 RetainAtlasPixels() const -> owe::ImageDataPtr;
 
-    std::span<const AtlasDirtyRect> DirtyRects() const noexcept;
-    void                            ClearDirtyRects() noexcept;
+    slice<AtlasDirtyRect> DirtyRects() const noexcept;
+    void                  ClearDirtyRects() noexcept;
 
     // Stable URL identifying this face's atlas in the renderer's texture
     // cache. Set by FontCache::GetFace at first registration.
-    const std::string& AtlasUrl() const noexcept;
+    ref<str> AtlasUrl() const noexcept;
 
 private:
     friend class FontCache;
     struct Impl;
-    std::unique_ptr<Impl> m_impl;
+    Box<Impl> m_impl;
 };
 
 class FontCache {
@@ -135,18 +134,19 @@ public:
     FontCache& operator=(const FontCache&) = delete;
 
     struct ResolvedBlob {
-        std::shared_ptr<std::vector<std::byte>> bytes;
-        std::string                             source; // path or "in-pkg:..."
+        Option<Arc<Vec<u8>>> bytes;
+        String               source;
+        auto clone() const -> ResolvedBlob { return { bytes.clone(), source.clone() }; }
     };
 
     // Acquires (or reuses) a face for a resolved font source at the given
     // pixel size. `source` is the stable identity supplied by the font
     // resolver; the shared blob keeps FreeType's memory pointers alive.
-    FontFace* GetFace(const ResolvedBlob& font, std::uint32_t pixel_size);
+    FontFace* GetFace(const ResolvedBlob& font, rstd::uint32_t pixel_size);
 
     // Iterate every face the cache currently owns (used by the renderer's
     // per-frame atlas-commit hook).
-    std::vector<FontFace*> Faces() const;
+    Vec<FontFace*> Faces() const;
 
     // Resolves a font reference. Tries:
     //   1. exact path on the host filesystem
@@ -155,11 +155,11 @@ public:
     //   3. first available .ttf/.otf in /usr/share/fonts as last-resort
     //      fallback (when fallback_to_any == true)
     // Returns {nullptr, ""} if nothing matches.
-    static ResolvedBlob ResolveSystemFont(std::string_view name, bool fallback_to_any = true);
+    static ResolvedBlob ResolveSystemFont(ref<str> name, bool fallback_to_any = true);
 
 private:
     struct Impl;
-    std::unique_ptr<Impl> m_impl;
+    Box<Impl> m_impl;
 };
 
 // Lazy accessor for the scene-owned FontCache extension.
@@ -176,11 +176,11 @@ auto BuildAtlasImage(const FontFace& face, ref<str> key) -> Option<Arc<owe::Imag
 //   - uniform block ww_Uniforms with member g_ModelViewProjectionMatrix
 //   - combined image sampler g_Texture0 (R8 atlas; .r = coverage)
 // Returns nullptr if the SPIR-V compile fails.
-std::shared_ptr<owe::SceneShader> GetTextSceneShader();
+Option<Arc<owe::SceneShader>> GetTextSceneShader();
 
 // Mirrors WE's text-effect background seed draw: sample the current scene into
 // the text RT and keep alpha at zero.
-std::shared_ptr<owe::SceneShader> GetTextCopyBackgroundSceneShader();
+Option<Arc<owe::SceneShader>> GetTextCopyBackgroundSceneShader();
 
 enum class TextUniformOutput : rstd::uint32_t
 {
@@ -189,37 +189,31 @@ enum class TextUniformOutput : rstd::uint32_t
 };
 
 struct TextEffectProjectionState {
-    Arc<SceneNode>        node;
-    rstd::array<float, 2> size { 0.0f, 0.0f };
+    Arc<SceneNode>  node;
+    array<float, 2> size { 0.0f, 0.0f };
 };
 
 struct TextUniformState {
-    Arc<SceneNode>                             node;
-    Option<Arc<SceneCamera>>                   camera;
-    Option<Arc<SceneCamera>>                   active_camera;
-    std::shared_ptr<TextEffectProjectionState> effect_projection;
+    Arc<SceneNode>                         node;
+    Option<Arc<SceneCamera>>               camera;
+    Option<Arc<SceneCamera>>               active_camera;
+    Option<Arc<TextEffectProjectionState>> effect_projection;
 
     explicit TextUniformState(Arc<SceneNode> value): node(rstd::move(value)) {}
 };
 
 class TextUniformSource {
 public:
-    explicit TextUniformSource(std::shared_ptr<TextUniformState> state)
-        : m_state(rstd::move(state)) {}
+    explicit TextUniformSource(Arc<TextUniformState> state): m_state(rstd::move(state)) {}
 
-    auto Describe(rstd::mut_ref<rstd::dyn<UniformBindingSink>>) const
-        -> rstd::Result<rstd::empty, UniformError>;
-    auto Version(rstd::ref<rstd::dyn<UniformUpdateContext>>) const -> rstd::u64;
-    auto Evaluate(rstd::ref<rstd::dyn<UniformUpdateContext>>,
-                  rstd::mut_ref<rstd::dyn<UniformValueSink>>) const
-        -> rstd::Result<rstd::empty, UniformError>;
-    auto AcquireBindingLease() const
-        -> rstd::Option<rstd::boxed::Box<rstd::dyn<UniformBindingLease>>> {
-        return rstd::None();
-    }
+    auto Describe(mut_ref<dyn<UniformBindingSink>>) const -> Result<empty, UniformError>;
+    auto Version(ref<dyn<UniformUpdateContext>>) const -> u64;
+    auto Evaluate(ref<dyn<UniformUpdateContext>>, mut_ref<dyn<UniformValueSink>>) const
+        -> Result<empty, UniformError>;
+    auto AcquireBindingLease() const -> Option<Box<dyn<UniformBindingLease>>> { return None(); }
 
 private:
-    std::shared_ptr<TextUniformState> m_state;
+    Arc<TextUniformState> m_state;
 };
 
 // --- TextLayouter -----------------------------------------------------------
@@ -238,24 +232,24 @@ enum class TextMeshOrigin
 };
 
 struct TextLayoutStyle {
-    TextMeshOrigin       mesh_origin { TextMeshOrigin::InkBounds };
-    std::array<float, 3> color { 1.0f, 1.0f, 1.0f };
-    float                alpha { 1.0f };
-    float                brightness { 1.0f };
+    TextMeshOrigin  mesh_origin { TextMeshOrigin::InkBounds };
+    array<float, 3> color { 1.0f, 1.0f, 1.0f };
+    float           alpha { 1.0f };
+    float           brightness { 1.0f };
 
-    bool                 opaquebackground { false };
-    std::array<float, 3> background_color { 0.0f, 0.0f, 0.0f };
-    float                background_brightness { 1.0f };
+    bool            opaquebackground { false };
+    array<float, 3> background_color { 0.0f, 0.0f, 0.0f };
+    float           background_brightness { 1.0f };
 
-    std::string halign; // "left" / "right" / contains-substring; default = center
-    float       padding { 0.0f };
+    String halign; // "left" / "right" / contains-substring; default = center
+    float  padding { 0.0f };
 
     // Text-flow limits from the layer (`maxwidth` / `maxrows`, gated by
     // `limitwidth` / `limitrows`). `wrap_width` is in the same pixel space
     // as the glyph advances; 0 means no wrapping, 0 rows means no limit.
-    float         wrap_width { 0.0f };
-    std::uint32_t max_rows { 0 };
-    bool          row_limit_ellipsis { false };
+    float          wrap_width { 0.0f };
+    rstd::uint32_t max_rows { 0 };
+    bool           row_limit_ellipsis { false };
 };
 
 struct TextLayoutMetrics {
@@ -299,17 +293,17 @@ public:
     // FontCache keeps it alive). `mesh` must already have its
     // SceneVertexArray/SceneIndexArray sized to peak_quads * 4 vertices and
     // peak_quads * 6 indices.
-    TextLayouter(FontFace* face, std::shared_ptr<owe::SceneMesh> mesh, TextLayoutStyle style,
-                 std::size_t peak_quads);
+    TextLayouter(FontFace* face, Arc<owe::SceneMesh> mesh, TextLayoutStyle style,
+                 rstd::size_t peak_quads);
     ~TextLayouter();
     TextLayouter(const TextLayouter&)            = delete;
     TextLayouter& operator=(const TextLayouter&) = delete;
 
     // Rewrites the vertex/index arrays in place, marks the mesh dirty.
     // Safe to call any number of times after construction.
-    void SetText(std::string_view utf8);
+    void SetText(ref<str> utf8);
     void SetFace(FontFace* face);
-    void SetHorizontalAlign(std::string_view align);
+    void SetHorizontalAlign(ref<str> align);
 
     // For ParseTextObj's initial-bbox log; reflects the most recent layout.
     float             TextWidth() const noexcept;
@@ -317,11 +311,12 @@ public:
     float             SourceWidth() const noexcept;
     float             SourceHeight() const noexcept;
     FontFace*         Face() const noexcept;
+    owe::SceneMesh&   Mesh() const noexcept;
     TextLayoutMetrics Metrics() const noexcept;
 
 private:
     struct Impl;
-    std::unique_ptr<Impl> m_impl;
+    Box<Impl> m_impl;
 };
 
 } // namespace owe::text

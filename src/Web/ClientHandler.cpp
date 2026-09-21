@@ -1,28 +1,30 @@
-module;
-
-#include <cstdio>
-
 module weweb;
 
+import rstd;
 import rstd.cppstd;
 
 import :cef;
 import :cef_internal;
+
+using namespace rstd::prelude;
+using rstd::cppstd::as_str;
+using rstd::io::eprintln;
+using rstd::sync::atomic::Ordering;
 
 namespace weweb
 {
 
 ClientHandler::ClientHandler(owe::Json user_props, CefRefPtr<OsrRenderHandler> render_handler,
                              bool initially_muted)
-    : user_props_(std::move(user_props)),
-      render_handler_(std::move(render_handler)),
+    : user_props_(rstd::move(user_props)),
+      render_handler_(rstd::move(render_handler)),
       audio_muted_(initially_muted) {}
 
-void ClientHandler::SetCloseCallback(std::function<void()> cb) { close_cb_ = std::move(cb); }
+void ClientHandler::SetCloseCallback(Box<dyn<Fn<void()>>> cb) { close_cb_ = Some(rstd::move(cb)); }
 
-void ClientHandler::SetAudioDemandCallback(std::function<void(bool)> cb) {
-    audio_demand_cb_ = std::move(cb);
-    if (audio_demand_cb_) audio_demand_cb_(audio_demand_);
+void ClientHandler::SetAudioDemandCallback(Option<AudioDemandCallback> cb) {
+    audio_demand_cb_ = rstd::move(cb);
+    if (auto callback = audio_demand_cb_.clone(); callback) (*callback)->operator()(audio_demand_);
 }
 
 void ClientHandler::SetAudioMuted(bool muted) {
@@ -44,10 +46,10 @@ bool ClientHandler::DoClose(CefRefPtr<CefBrowser> /*browser*/) {
 void ClientHandler::OnBeforeClose(CefRefPtr<CefBrowser> /*browser*/) {
     if (audio_demand_) {
         audio_demand_ = false;
-        if (audio_demand_cb_) audio_demand_cb_(false);
+        if (auto callback = audio_demand_cb_.clone(); callback) (*callback)->operator()(false);
     }
     browser_ = nullptr;
-    if (close_cb_) close_cb_();
+    if (close_cb_) (*close_cb_)->operator()();
 }
 
 bool ClientHandler::OnProcessMessageReceived(CefRefPtr<CefBrowser> /*browser*/,
@@ -64,13 +66,13 @@ bool ClientHandler::OnProcessMessageReceived(CefRefPtr<CefBrowser> /*browser*/,
         audio_context_generation_ = generation;
         if (audio_demand_) {
             audio_demand_ = false;
-            if (audio_demand_cb_) audio_demand_cb_(false);
+            if (auto callback = audio_demand_cb_.clone(); callback) (*callback)->operator()(false);
         }
     }
     const bool active = args->GetBool(1);
     if (active != audio_demand_) {
         audio_demand_ = active;
-        if (audio_demand_cb_) audio_demand_cb_(active);
+        if (auto callback = audio_demand_cb_.clone(); callback) (*callback)->operator()(active);
     }
     return true;
 }
@@ -79,7 +81,9 @@ void ClientHandler::OnLoadEnd(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame>
                               int /*httpStatusCode*/) {
     if (! frame || ! frame->IsMain()) return;
     bool expected = false;
-    if (! property_injected_.compare_exchange_strong(expected, true)) return;
+    if (! property_injected_.compare_exchange_strong(
+            expected, true, Ordering::SeqCst, Ordering::SeqCst))
+        return;
     InjectUserProperties(browser, user_props_);
 }
 
@@ -96,12 +100,11 @@ bool ClientHandler::OnConsoleMessage(CefRefPtr<CefBrowser> /*browser*/, cef_log_
     case LOGSEVERITY_FATAL: level_str = "fatal"; break;
     default: break;
     }
-    std::fprintf(stderr,
-                 "weweb [%s] %s (%s:%d)\n",
-                 level_str,
-                 message.ToString().c_str(),
-                 source.ToString().c_str(),
-                 line);
+    eprintln("weweb [{}] {} ({}:{})",
+             as_str(level_str).unwrap(),
+             as_str(message.ToString()).unwrap(),
+             as_str(source.ToString()).unwrap(),
+             line);
     return false; // also let CEF's default handler log
 }
 

@@ -6,7 +6,6 @@ module wescene.pkg.parse;
 
 import eigen;
 import rstd;
-import rstd.cppstd;
 import rstd.log;
 import wescene.core;
 import wescene.particle;
@@ -15,6 +14,7 @@ import wescene.scene;
 import wescene.utils;
 
 using namespace rstd::prelude;
+using rstd::slice_::sort_unstable_by;
 using namespace rstd::literals;
 using namespace owe;
 using rstd::sync::Arc;
@@ -128,7 +128,9 @@ public:
                 auto age = remainder +
                            static_cast<double>((sample_steps - sample - usize(1)).to_primitive()) *
                                interval;
-                auto amount = delta > 0.0 ? std::clamp((delta - age) / delta, 0.0, 1.0) : 1.0;
+                auto amount = delta > 0.0
+                                  ? rstd::cmp::min(1.0, rstd::cmp::max(0.0, (delta - age) / delta))
+                                  : 1.0;
                 auto position =
                     state.previous_position +
                     (positions[index] - state.previous_position) * static_cast<float>(amount);
@@ -346,9 +348,9 @@ void ParticleSpawnPipeline::Initialize(ParticleSpawnColumns&          columns,
                                     .cast<float>();
 }
 
-ParticleSubSystem::ParticleSubSystem(Scene& scene, std::shared_ptr<SceneMesh> mesh, u32 max_count,
-                                     f64 rate, u32 max_instance_count, f64 probability,
-                                     SpawnType spawn_type, ParticleAnimationSpec animation_spec,
+ParticleSubSystem::ParticleSubSystem(Scene& scene, Arc<SceneMesh> mesh, u32 max_count, f64 rate,
+                                     u32 max_instance_count, f64 probability, SpawnType spawn_type,
+                                     ParticleAnimationSpec animation_spec,
                                      ParticleFollowAnchor follow_anchor, u32 trail_length,
                                      f64 trail_duration, f64 start_time, bool world_space,
                                      Option<Arc<ParticleTrailUniformState>> trail_uniform_state)
@@ -479,8 +481,8 @@ auto ParticleSubSystem::FollowWorldPosition(particle::ParticleInstance& instance
 
     float speed = velocities[slot.index].norm();
     if (speed <= 1e-6f) return m_world_space ? pos : OwnerLocalToWorld(pos);
-    float trail_length =
-        std::max(0.0f, std::min(speed * m_follow_anchor.length, m_follow_anchor.max_length));
+    float trail_length = rstd::cmp::max(
+        rstd::cmp::min(m_follow_anchor.max_length, speed * m_follow_anchor.length), 0.0f);
     if (trail_length <= 0.0f) return m_world_space ? pos : OwnerLocalToWorld(pos);
     float visual_half_length =
         (sizes[slot.index] * 0.5f) * m_follow_anchor.texture_ratio * trail_length * 0.5f;
@@ -562,7 +564,7 @@ void ParticleSubSystem::UpdateFrameInput(f64 frame_time) {
         mouse_local = value.head<3>();
         if (! m_world_space) {
             world_from_local_dir = model.block<3, 3>(0, 0);
-            if (std::abs(world_from_local_dir.determinant()) > 1e-9) {
+            if (f64(world_from_local_dir.determinant()).abs().to_primitive() > 1e-9) {
                 local_from_world_dir = world_from_local_dir.inverse();
             }
         }
@@ -584,14 +586,14 @@ void ParticleSubSystem::UpdateFrameInput(f64 frame_time) {
         if (interval > 0.0) {
             auto elapsed = m_trail_sample_accumulator.to_primitive() + frame_time.to_primitive();
             const auto total_steps =
-                u64(static_cast<rstd::uint64_t>(std::floor(elapsed / interval)));
+                u64(static_cast<rstd::uint64_t>(f64(elapsed / interval).floor().to_primitive()));
             elapsed -= static_cast<double>(total_steps.to_primitive()) * interval;
             m_trail_sample_accumulator     = f64(elapsed);
             m_frame.trail_sample_steps     = rstd::as_cast<usize>(total_steps);
             m_frame.trail_sample_remainder = f64(elapsed);
             if (m_trail_uniform_state.is_some()) {
-                (*m_trail_uniform_state)->render_var[usize(2)] =
-                    static_cast<float>(std::clamp(elapsed / interval, 0.0, 1.0));
+                (*m_trail_uniform_state)->render_var[usize(2)] = static_cast<float>(
+                    rstd::cmp::min(1.0, rstd::cmp::max(0.0, elapsed / interval)));
             }
         } else {
             m_frame.trail_sample_steps = usize(1);
@@ -640,14 +642,14 @@ void ParticleSubSystem::UpdateControlpoints(ParticleInstanceRef current) {
     auto& bounded = current.state->bounded;
     if (bounded.parent == nullptr || bounded.parent_subsystem == nullptr) return;
 
-    auto               view   = bounded.parent->Binding().Read();
-    auto               states = view.States();
-    std::vector<usize> slots;
-    slots.reserve(states.len().to_primitive());
+    auto       view   = bounded.parent->Binding().Read();
+    auto       states = view.States();
+    Vec<usize> slots;
+    slots.reserve(states.len());
     for (usize index {}; index < states.len(); ++index) {
-        if (states[index].active) slots.push_back(index);
+        if (states[index].active) slots.emplace_back(index);
     }
-    std::sort(slots.begin(), slots.end(), [&](usize lhs, usize rhs) {
+    sort_unstable_by(slots.deref_mut(), [&](usize lhs, usize rhs) {
         return states[lhs].spawn_sequence < states[rhs].spawn_sequence;
     });
 
@@ -749,7 +751,7 @@ void ParticleSubSystem::Warmup(ParticleInstanceRef current, ref<dyn<rstd::any::A
     constexpr double kFrameTime  = 1.0 / 60.0;
     constexpr auto   kMaxFrames  = u32(240);
     auto             frame_count = u32(static_cast<rstd::uint32_t>(
-        std::max(1.0, std::ceil(m_start_time.to_primitive() / kFrameTime))));
+        rstd::cmp::max(f64(m_start_time.to_primitive() / kFrameTime).ceil().to_primitive(), 1.0)));
     frame_count                  = rstd::cmp::min(frame_count, kMaxFrames);
     auto frame_time =
         f64(m_start_time.to_primitive() / static_cast<double>(frame_count.to_primitive()));
@@ -757,7 +759,7 @@ void ParticleSubSystem::Warmup(ParticleInstanceRef current, ref<dyn<rstd::any::A
     auto saved_time          = m_frame.time;
     auto saved_delta         = m_frame.delta;
     auto saved_emitter_delta = m_frame.emitter_delta;
-    auto warmup_start        = std::max(0.0, m_time.to_primitive() - m_start_time.to_primitive());
+    auto warmup_start = rstd::cmp::max(m_time.to_primitive() - m_start_time.to_primitive(), 0.0);
     for (u32 index {}; index < frame_count; ++index) {
         m_frame.time = f64(warmup_start + frame_time.to_primitive() *
                                               static_cast<double>((index + u32(1)).to_primitive()));
@@ -808,7 +810,7 @@ void ParticleSubSystem::Tick(f64 frame_time, bool update_mesh) {
     }
     auto rate =
         m_instance_modifiers.is_some() ? (*m_instance_modifiers).Rate() : m_rate.to_primitive();
-    Advance(frame_time * f64(std::max(rate, 0.0)), frame_time, update_mesh);
+    Advance(frame_time * f64(rstd::cmp::max(0.0, rate)), frame_time, update_mesh);
 }
 
 void ParticleSubSystem::SpawnChild(ParticleInstanceRef parent, ParticleSubSystem& child,

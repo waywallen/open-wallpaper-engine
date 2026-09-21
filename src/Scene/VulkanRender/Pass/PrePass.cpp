@@ -5,44 +5,43 @@ module;
 module wescene.vulkan_render;
 import rstd.log;
 import wescene.types;
-import rstd.cppstd;
 import wescene.vulkan;
 import wescene.scene;
 
 using namespace owe::vulkan;
 using namespace rstd::prelude;
-using rstd::cppstd::as_str;
+using namespace rstd::literals;
 
-PrePass::PrePass(Desc&& desc): m_desc(std::move(desc)) {}
+PrePass::PrePass(Desc&& desc): m_desc(rstd::move(desc)) {}
 PrePass::~PrePass() {}
 
-bool PrePass::setResultRequest(rstd::Option<TextureRequest> request,
-                               rstd::Option<TextureRequest> msaa_request) {
-    bool changed = SetTextureRequestIfChanged(m_desc.result_request, std::move(request));
+bool PrePass::setResultRequest(Option<TextureRequest> request,
+                               Option<TextureRequest> msaa_request) {
+    bool changed = SetTextureRequestIfChanged(m_desc.result_request, rstd::move(request));
     changed =
-        SetTextureRequestIfChanged(m_desc.result_msaa_request, std::move(msaa_request)) || changed;
+        SetTextureRequestIfChanged(m_desc.result_msaa_request, rstd::move(msaa_request)) || changed;
     return changed;
 }
 
 void PrePass::resetResourceUses() {
-    m_desc.result_use      = rstd::None();
-    m_desc.result_msaa_use = rstd::None();
-    m_desc.render_pass_use = rstd::None();
-    m_desc.framebuffer_use = rstd::None();
+    m_desc.result_use      = None();
+    m_desc.result_msaa_use = None();
+    m_desc.render_pass_use = None();
+    m_desc.framebuffer_use = None();
 }
 
 void PrePass::declareResources(ResourceDeclarationContext& context) {
     resetResourceUses();
 
     if (m_desc.result_request.is_some()) {
-        m_desc.result_use = rstd::Some(
+        m_desc.result_use = Some(
             context.AddTexture(m_desc.result_request->clone(), resource::ResourceAccess::Write));
     }
     if (m_desc.result_msaa_request.is_none()) return;
-    m_desc.result_msaa_use = rstd::Some(
+    m_desc.result_msaa_use = Some(
         context.AddTexture(m_desc.result_msaa_request->clone(), resource::ResourceAccess::Write));
-    m_desc.render_pass_use = rstd::Some(context.ReserveRenderPass());
-    m_desc.framebuffer_use = rstd::Some(context.ReserveFramebuffer());
+    m_desc.render_pass_use = Some(context.ReserveRenderPass());
+    m_desc.framebuffer_use = Some(context.ReserveFramebuffer());
 }
 
 PassResourceUses PrePass::resourceUses() const {
@@ -62,8 +61,7 @@ PassResourceUses PrePass::resourceUses() const {
     return uses;
 }
 
-bool PrePass::prepareResourceStates(
-    rstd::mut_ref<rstd::dyn<resource_registry::TextureStatePreparer>> states) {
+bool PrePass::prepareResourceStates(mut_ref<dyn<resource_registry::TextureStatePreparer>> states) {
     m_desc.before_clear.Clear();
     m_desc.after_clear.Clear();
     if (m_desc.result_use.is_none()) return false;
@@ -78,22 +76,22 @@ bool PrePass::prepareResourceStates(
                        resource_registry::TextureStateKind::ColorAttachment);
 }
 
-std::vector<PassTextureRequestDiagnostic> PrePass::textureRequestDiagnostics() const {
-    std::vector<PassTextureRequestDiagnostic> out;
-    out.reserve(m_desc.result_msaa_request.is_some() ? 2 : 1);
-    out.push_back(PassTextureRequestDiagnostic {
-        .role    = "frame-result",
-        .name    = std::string(m_desc.result),
+Vec<PassTextureRequestDiagnostic> PrePass::textureRequestDiagnostics() const {
+    Vec<PassTextureRequestDiagnostic> out;
+    out.reserve(usize(m_desc.result_msaa_request.is_some() ? 2 : 1));
+    out.push(PassTextureRequestDiagnostic {
+        .role    = "frame-result"_Str,
+        .name    = m_desc.result.clone(),
         .use     = m_desc.result_use,
-        .request = m_desc.result_request.is_some() ? rstd::Some(m_desc.result_request->clone())
-                                                   : rstd::None<TextureRequest>(),
+        .request = m_desc.result_request.is_some() ? Some(m_desc.result_request->clone())
+                                                   : None<TextureRequest>(),
     });
     if (m_desc.result_msaa_request.is_some()) {
-        out.push_back(PassTextureRequestDiagnostic {
-            .role    = "frame-result-msaa",
-            .name    = rstd::cppstd::to_string(m_desc.result_msaa_request->name.as_str()),
+        out.push(PassTextureRequestDiagnostic {
+            .role    = "frame-result-msaa"_Str,
+            .name    = m_desc.result_msaa_request->name.clone(),
             .use     = m_desc.result_msaa_use,
-            .request = rstd::Some(m_desc.result_msaa_request->clone()),
+            .request = Some(m_desc.result_msaa_request->clone()),
         });
     }
     return out;
@@ -101,8 +99,8 @@ std::vector<PassTextureRequestDiagnostic> PrePass::textureRequestDiagnostics() c
 
 void PrePass::prepare(Scene& scene, const Device& device, PassPrepareContext& context) {
     {
-        auto tex_name = std::string(m_desc.result);
-        if (scene.RenderTarget(as_str(tex_name).unwrap()).is_none()) {
+        auto tex_name = m_desc.result.as_str();
+        if (scene.RenderTarget(tex_name).is_none()) {
             rstd_error("frame result render target {} not found", tex_name);
             return;
         }
@@ -116,8 +114,8 @@ void PrePass::prepare(Scene& scene, const Device& device, PassPrepareContext& co
         }
     }
     {
-        auto tex_name = std::string(m_desc.result);
-        auto target   = scene.RenderTarget(as_str(tex_name).unwrap());
+        auto tex_name = m_desc.result.as_str();
+        auto target   = scene.RenderTarget(tex_name);
         if (target.is_none()) return;
         m_desc.samples = TextureSampleCount((**target).sample_count);
         if (m_desc.samples != VK_SAMPLE_COUNT_1_BIT) {
@@ -147,15 +145,14 @@ void PrePass::prepare(Scene& scene, const Device& device, PassPrepareContext& co
                 rstd_error("prepare frame MSAA render pass failed: {}", error.message);
                 return;
             }
-            auto image       = (**prepared).image.getActive();
-            auto attachments = std::vector<FramebufferAttachmentDesc> {
-                MakeFramebufferAttachment(*m_desc.result_msaa_request, image),
-            };
+            auto                           image = (**prepared).image.getActive();
+            Vec<FramebufferAttachmentDesc> attachments;
+            attachments.push(MakeFramebufferAttachment(*m_desc.result_msaa_request, image));
             auto framebuffer =
                 context.graphics->PrepareFramebuffer(*m_desc.framebuffer_use,
                                                      *m_desc.render_pass_use,
                                                      device,
-                                                     std::move(attachments),
+                                                     rstd::move(attachments),
                                                      { image.extent.width, image.extent.height });
             if (framebuffer.is_err()) {
                 auto error = rstd::move(framebuffer).unwrap_err_unchecked();

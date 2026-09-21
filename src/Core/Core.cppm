@@ -4,7 +4,6 @@ module;
 
 export module wescene.core;
 import rstd;
-import rstd.cppstd;
 
 using namespace rstd::prelude;
 
@@ -44,55 +43,6 @@ using rstd::usize;
 using idx = isize;
 
 inline isize Ptr2Int(void* p) noexcept { return isize(reinterpret_cast<rstd::intptr_t>(p)); }
-
-// StringHelper
-constexpr bool sstart_with(std::string_view str, std::string_view start) {
-    return str.size() >= start.size() && str.compare(0, start.size(), start, 0, start.size()) == 0;
-}
-constexpr bool send_with(std::string_view str, std::string_view end) {
-    return str.size() >= end.size() &&
-           str.compare(str.size() - end.size(), end.size(), end, 0, end.size()) == 0;
-}
-inline std::string_view sview_nullsafe(const char* const s) {
-    return std::string_view(s != nullptr ? s : "");
-}
-
-// MapSet
-template<class Key, class Value>
-using Map = std::map<Key, Value, std::less<>>;
-
-template<class Key>
-using Set = std::set<Key, std::less<>>;
-
-template<class Key, class Value, class KeyLike, class Allocator>
-inline bool exists(const std::map<Key, Value, std::less<>, Allocator>& m,
-                   const KeyLike&                                      key) noexcept {
-    auto iter = m.find(key);
-    return iter != m.end();
-}
-
-template<class Key, class KeyLike, class Allocator>
-inline bool exists(const std::set<Key, std::less<>, Allocator>& m, const KeyLike& key) noexcept {
-    auto iter = m.find(key);
-    return iter != m.end();
-}
-
-// ArrayHelper
-template<typename T, typename Tarray>
-rstd::array<T, std::tuple_size<Tarray>::value> array_cast(const Tarray& array) noexcept {
-    rstd::array<T, std::tuple_size<Tarray>::value> res;
-    for (std::size_t index = 0; index < array.size(); ++index) {
-        res[rstd::usize(index)] = rstd::as_cast<T>(array[index]);
-    }
-    return res;
-}
-
-template<typename S, typename TFunc, typename TR = std::invoke_result_t<TFunc, S>>
-std::vector<TR> transform(std::span<const S> src, TFunc&& func) {
-    std::vector<TR> dst(std::size(src));
-    std::transform(std::begin(src), std::end(src), std::begin(dst), func);
-    return dst;
-}
 
 template<typename T>
 class spanone {

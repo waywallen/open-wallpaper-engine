@@ -14,6 +14,7 @@
 import rstd.cppstd;
 import wescene.json;
 import wescene.testing.corpus;
+using namespace rstd::literals;
 
 namespace owe::testing
 {
@@ -81,7 +82,7 @@ inline void VerifyFixture(const FixturePick& pick) {
     ASSERT_TRUE(in.good()) << "cannot open fixture " << pick.fixture_path;
     std::stringstream source;
     source << in.rdbuf();
-    auto parsed = ParseJson(source.str());
+    auto parsed = ParseJson(rstd::cppstd::as_str(source.str()).unwrap());
     ASSERT_TRUE(parsed.is_ok()) << "fixture is not valid JSON: " << pick.fixture_path;
     auto expected = parsed.unwrap();
 

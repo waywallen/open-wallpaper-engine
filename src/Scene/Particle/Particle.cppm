@@ -3,6 +3,8 @@ export module wescene.particle;
 import eigen;
 import rstd;
 
+using rstd::collections::HashMap;
+
 using namespace rstd::prelude;
 using namespace rstd::literals;
 
@@ -162,7 +164,7 @@ public:
 private:
     ParticleAttributeDescriptor m_descriptor;
     Value                       m_default;
-    rstd::vec::Vec<Value>       m_values;
+    Vec<Value>                  m_values;
 };
 
 #define OWE_PARTICLE_VALUE_ATTRIBUTE(Name, Type)                                                   \
@@ -264,14 +266,14 @@ public:
         -> Result<bool, ParticleSchemaError> {
         if (! requirement.id.Valid() || requirement.schema_slot >= m_factories.len()) {
             return Err(ParticleSchemaError {
-                .message = String::make("required particle attribute is missing"_str),
+                .message = "required particle attribute is missing"_Str,
             });
         }
         auto descriptor = m_factories[requirement.schema_slot]->Descriptor();
         if (descriptor->id != requirement.id ||
             descriptor->concrete_type != requirement.concrete_type) {
             return Err(ParticleSchemaError {
-                .message = String::make("required particle attribute does not match schema"_str),
+                .message = "required particle attribute does not match schema"_Str,
             });
         }
         return Ok(true);
@@ -283,19 +285,18 @@ private:
     friend class ParticleSchemaBuilder;
     friend class ParticleStorage;
 
-    ParticleSchema(rstd::vec::Vec<Box<dyn<ParticleAttributeFactory>>> factories,
-                   rstd::collections::HashMap<u64, usize>             id_slots,
-                   ParticleAttributeKey<SlotStateAttribute>           slot_state_key,
-                   ParticleAttributeKey<PositionAttribute>            position_key)
+    ParticleSchema(Vec<Box<dyn<ParticleAttributeFactory>>> factories, HashMap<u64, usize> id_slots,
+                   ParticleAttributeKey<SlotStateAttribute> slot_state_key,
+                   ParticleAttributeKey<PositionAttribute>  position_key)
         : m_factories(rstd::move(factories)),
           m_id_slots(rstd::move(id_slots)),
           m_slot_state_key(slot_state_key),
           m_position_key(position_key) {}
 
-    rstd::vec::Vec<Box<dyn<ParticleAttributeFactory>>> m_factories;
-    rstd::collections::HashMap<u64, usize>             m_id_slots;
-    ParticleAttributeKey<SlotStateAttribute>           m_slot_state_key;
-    ParticleAttributeKey<PositionAttribute>            m_position_key;
+    Vec<Box<dyn<ParticleAttributeFactory>>>  m_factories;
+    HashMap<u64, usize>                      m_id_slots;
+    ParticleAttributeKey<SlotStateAttribute> m_slot_state_key;
+    ParticleAttributeKey<PositionAttribute>  m_position_key;
 };
 
 class ParticleSchemaBuilder {
@@ -308,7 +309,7 @@ public:
         for (const auto& factory : m_factories) {
             if (factory->Descriptor()->debug_name == name) {
                 return Err(ParticleSchemaError {
-                    .message = String::make("duplicate particle attribute name"_str),
+                    .message = "duplicate particle attribute name"_Str,
                 });
             }
         }
@@ -352,11 +353,11 @@ public:
     }
 
 private:
-    u64                                                m_next_id { 1 };
-    rstd::vec::Vec<Box<dyn<ParticleAttributeFactory>>> m_factories;
-    rstd::collections::HashMap<u64, usize>             m_id_slots;
-    ParticleAttributeKey<SlotStateAttribute>           m_slot_state_key;
-    ParticleAttributeKey<PositionAttribute>            m_position_key;
+    u64                                      m_next_id { 1 };
+    Vec<Box<dyn<ParticleAttributeFactory>>>  m_factories;
+    HashMap<u64, usize>                      m_id_slots;
+    ParticleAttributeKey<SlotStateAttribute> m_slot_state_key;
+    ParticleAttributeKey<PositionAttribute>  m_position_key;
 };
 
 class ParticleStorage {
@@ -388,8 +389,8 @@ public:
         CheckInvariant();
     }
 
-    auto AppendSlots(usize count) -> rstd::vec::Vec<ParticleSlot> {
-        auto slots = rstd::vec::Vec<ParticleSlot>::with_capacity(count);
+    auto AppendSlots(usize count) -> Vec<ParticleSlot> {
+        auto slots = Vec<ParticleSlot>::with_capacity(count);
         if (count == usize()) return slots;
 
         Reserve(m_len + count);
@@ -430,8 +431,8 @@ public:
         CheckInvariant();
     }
 
-    auto AcquireSlots(usize count, usize max_slots) -> rstd::vec::Vec<ParticleSlot> {
-        auto acquired = rstd::vec::Vec<ParticleSlot>::with_capacity(count);
+    auto AcquireSlots(usize count, usize max_slots) -> Vec<ParticleSlot> {
+        auto acquired = Vec<ParticleSlot>::with_capacity(count);
         if (count == usize()) return acquired;
 
         auto states = Values(m_slot_state_key);
@@ -509,9 +510,9 @@ private:
     friend class ParticleViewCompiler;
     friend class ParticleViewBinding;
 
-    ParticleStorage(rstd::vec::Vec<Box<dyn<ParticleAttribute>>> attributes,
-                    ParticleAttributeKey<SlotStateAttribute>    slot_state_key,
-                    ParticleAttributeKey<PositionAttribute>     position_key)
+    ParticleStorage(Vec<Box<dyn<ParticleAttribute>>>         attributes,
+                    ParticleAttributeKey<SlotStateAttribute> slot_state_key,
+                    ParticleAttributeKey<PositionAttribute>  position_key)
         : m_attributes(rstd::move(attributes)),
           m_slot_state_key(slot_state_key),
           m_position_key(position_key) {
@@ -546,13 +547,13 @@ private:
         if (m_column_version == u64()) m_column_version = u64(1);
     }
 
-    usize                                       m_len {};
-    u64                                         m_next_spawn_sequence {};
-    u64                                         m_structure_version { 1 };
-    u64                                         m_column_version { 1 };
-    rstd::vec::Vec<Box<dyn<ParticleAttribute>>> m_attributes;
-    ParticleAttributeKey<SlotStateAttribute>    m_slot_state_key;
-    ParticleAttributeKey<PositionAttribute>     m_position_key;
+    usize                                    m_len {};
+    u64                                      m_next_spawn_sequence {};
+    u64                                      m_structure_version { 1 };
+    u64                                      m_column_version { 1 };
+    Vec<Box<dyn<ParticleAttribute>>>         m_attributes;
+    ParticleAttributeKey<SlotStateAttribute> m_slot_state_key;
+    ParticleAttributeKey<PositionAttribute>  m_position_key;
 };
 
 template<typename Attribute>
@@ -658,10 +659,10 @@ private:
     ParticleViewLayout(ParticleViewColumnLayout state, ParticleViewColumnLayout position)
         : m_state(rstd::move(state)), m_position(rstd::move(position)) {}
 
-    ParticleViewColumnLayout                 m_state;
-    ParticleViewColumnLayout                 m_position;
-    rstd::vec::Vec<ParticleViewColumnLayout> m_columns;
-    rstd::vec::Vec<ParticleViewObjectLayout> m_objects;
+    ParticleViewColumnLayout      m_state;
+    ParticleViewColumnLayout      m_position;
+    Vec<ParticleViewColumnLayout> m_columns;
+    Vec<ParticleViewObjectLayout> m_objects;
 };
 
 class ParticleViewCompiler {
@@ -962,11 +963,11 @@ public:
         : m_storage(rstd::addressof(storage)),
           m_state(layout.m_state.bind(storage, layout.m_state.schema_slot)),
           m_position(layout.m_position.bind(storage, layout.m_position.schema_slot)),
-          m_columns(rstd::vec::Vec<ParticleBoundColumn>::with_capacity(layout.m_columns.len())),
-          m_read_columns(rstd::vec::Vec<const void*>::with_capacity(layout.m_columns.len())),
-          m_write_columns(rstd::vec::Vec<void*>::with_capacity(layout.m_columns.len())),
-          m_read_objects(rstd::vec::Vec<const void*>::with_capacity(layout.m_objects.len())),
-          m_write_objects(rstd::vec::Vec<void*>::with_capacity(layout.m_objects.len())) {
+          m_columns(Vec<ParticleBoundColumn>::with_capacity(layout.m_columns.len())),
+          m_read_columns(Vec<const void*>::with_capacity(layout.m_columns.len())),
+          m_write_columns(Vec<void*>::with_capacity(layout.m_columns.len())),
+          m_read_objects(Vec<const void*>::with_capacity(layout.m_objects.len())),
+          m_write_objects(Vec<void*>::with_capacity(layout.m_objects.len())) {
         for (const auto& column : layout.m_columns) {
             m_columns.emplace_back(column.bind(storage, column.schema_slot));
         }
@@ -1014,16 +1015,16 @@ private:
         m_len     = m_storage->Len();
     }
 
-    ParticleStorage*                    m_storage;
-    ParticleBoundColumn                 m_state;
-    ParticleBoundColumn                 m_position;
-    rstd::vec::Vec<ParticleBoundColumn> m_columns;
-    rstd::vec::Vec<const void*>         m_read_columns;
-    rstd::vec::Vec<void*>               m_write_columns;
-    rstd::vec::Vec<const void*>         m_read_objects;
-    rstd::vec::Vec<void*>               m_write_objects;
-    u64                                 m_version {};
-    usize                               m_len { usize::MAX };
+    ParticleStorage*         m_storage;
+    ParticleBoundColumn      m_state;
+    ParticleBoundColumn      m_position;
+    Vec<ParticleBoundColumn> m_columns;
+    Vec<const void*>         m_read_columns;
+    Vec<void*>               m_write_columns;
+    Vec<const void*>         m_read_objects;
+    Vec<void*>               m_write_objects;
+    u64                      m_version {};
+    usize                    m_len { usize::MAX };
 };
 
 class ParticleSlotReader {
@@ -1099,7 +1100,7 @@ inline ParticleSchemaBuilder::ParticleSchemaBuilder() {
 }
 
 inline auto ParticleSchema::CreateStorage() const -> ParticleStorage {
-    auto attributes = rstd::vec::Vec<Box<dyn<ParticleAttribute>>>::with_capacity(m_factories.len());
+    auto attributes = Vec<Box<dyn<ParticleAttribute>>>::with_capacity(m_factories.len());
     for (const auto& factory : m_factories) attributes.push(factory->Create());
     return ParticleStorage(rstd::move(attributes), m_slot_state_key, m_position_key);
 }

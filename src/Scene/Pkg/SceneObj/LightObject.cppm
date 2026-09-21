@@ -1,7 +1,6 @@
 module;
 
 export module wescene.pkg.scene_obj:light_object;
-import rstd.cppstd;
 import wescene.fs;
 
 export import :field_binding;
@@ -21,28 +20,28 @@ public:
     bool                 FromJson(const owe::Json&, fs::VFS&);               // legacy
     bool                 FromJson(const owe::Json&, fs::VFS&, SceneVersion); // canonical
     i32                  id { 0 };
-    std::string          name;
-    std::array<float, 3> origin { 0.0f, 0.0f, 0.0f };
-    std::array<float, 3> scale { 1.0f, 1.0f, 1.0f };
-    std::array<float, 3> angles { 0.0f, 0.0f, 0.0f };
+    String               name;
+    array<float, 3>      origin { 0.0f, 0.0f, 0.0f };
+    array<float, 3>      scale { 1.0f, 1.0f, 1.0f };
+    array<float, 3>      angles { 0.0f, 0.0f, 0.0f };
     ParallaxDepthBinding parallax;
-    std::array<float, 3> color { 1.0f, 1.0f, 1.0f };
-    std::string          light; // "point" / "spot" / "directional" / ...
-    std::string          shape; // PKGV0021+
+    array<float, 3>      color { 1.0f, 1.0f, 1.0f };
+    String               light; // "point" / "spot" / "directional" / ...
+    String               shape; // PKGV0021+
     float                radius { 1000.0f };
     float                intensity { 1.0f };
     bool                 visible { true };
     VisibleUserBinding   visible_user;
-    std::string          visible_user_key;
+    String               visible_user_key;
 
     // Common cross-kind metadata.
-    bool             locktransforms { false };
-    bool             muteineditor { false };
-    bool             nointerpolation { false };
-    u32              parent { 0 };
-    std::vector<i32> dependencies;
-    owe::Json        instance;
-    FieldBindings    field_bindings;
+    bool          locktransforms { false };
+    bool          muteineditor { false };
+    bool          nointerpolation { false };
+    u32           parent { 0 };
+    Vec<i32>      dependencies;
+    owe::Json     instance;
+    FieldBindings field_bindings;
 
     // Light-kind specifics.
     bool  ledsource { false };          // PKGV0006+

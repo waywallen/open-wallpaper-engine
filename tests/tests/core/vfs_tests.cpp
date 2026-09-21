@@ -3,6 +3,7 @@
 import rstd;
 import rstd.cppstd;
 import wescene.fs;
+import wescene.json;
 import wescene.pkg_fs;
 
 using namespace rstd::prelude;
@@ -49,7 +50,7 @@ public:
         : m_files(std::move(files)), m_invalid_path(std::move(invalid_path)) {}
 
     auto open_read(owe::fs::Path path) const -> rstd::io::Result<owe::fs::ReadRange> {
-        auto key = owe::fs::ToStdString(path);
+        auto key = rstd::cppstd::to_string(path.as_os_str().to_str().unwrap());
         if (key == m_invalid_path) {
             return rstd::Err(FsError(rstd::io::error::ErrorKind::InvalidData));
         }
@@ -63,7 +64,7 @@ public:
 
     auto open_write(owe::fs::Path path, owe::fs::WriteOptions) const
         -> rstd::io::Result<owe::fs::WriteSeekHandle> {
-        auto key = owe::fs::ToStdString(path);
+        auto key = rstd::cppstd::to_string(path.as_os_str().to_str().unwrap());
         if (m_files.contains(key)) {
             return rstd::Err(FsError(rstd::io::error::ErrorKind::ReadOnlyFilesystem));
         }
@@ -71,7 +72,7 @@ public:
     }
 
     auto metadata(owe::fs::Path path) const -> rstd::io::Result<owe::fs::FileMetadata> {
-        auto key  = owe::fs::ToStdString(path);
+        auto key  = rstd::cppstd::to_string(path.as_os_str().to_str().unwrap());
         auto file = m_files.find(key);
         if (file == m_files.end()) {
             return rstd::Err(FsError(rstd::io::error::ErrorKind::NotFound));
@@ -92,7 +93,7 @@ private:
 auto MakeMount(std::unordered_map<std::string, std::string> files, std::string invalid_path = {})
     -> owe::fs::MountHandle;
 
-auto ReadText(owe::fs::ReadRange range) -> std::string {
+auto ReadText(owe::fs::ReadRange range) -> String {
     owe::fs::BinaryReader reader(std::move(range));
     return reader.ReadAllStr();
 }
@@ -169,8 +170,8 @@ TEST(Vfs, OverlayAndUnmountKeepOpenedRangeAlive) {
     EXPECT_TRUE(vfs.unmount(*upper));
     auto visible = vfs.open_read("/assets/shared"_str);
     ASSERT_TRUE(visible.is_ok());
-    EXPECT_EQ(ReadText(std::move(visible).unwrap_unchecked()), "lower");
-    EXPECT_EQ(ReadText(std::move(retained)), "upper");
+    EXPECT_EQ(ReadText(std::move(visible).unwrap_unchecked()), "lower"_str);
+    EXPECT_EQ(ReadText(std::move(retained)), "upper"_str);
 }
 
 TEST(Vfs, BackendErrorsAreNotOverlayMisses) {
@@ -220,7 +221,8 @@ TEST(Vfs, WriteRoutingPreservesReadonlyOverlay) {
         file << "physical";
     }
 
-    auto physical = owe::fs::make_physical_fs(owe::fs::ToPath(temp.path.string()));
+    auto physical =
+        owe::fs::make_physical_fs(owe::fs::Path(rstd::cppstd::as_str(temp.path.string()).unwrap()));
     ASSERT_TRUE(physical.is_ok());
 
     owe::fs::VFS vfs;
@@ -251,19 +253,21 @@ TEST(PkgFs, ReusesHeaderAndRejectsInvalidEntryRanges) {
     auto          valid_path = temp.path / "valid.pkg";
     WritePkg(valid_path, 5);
 
-    auto pkg = owe::fs::WPPkgFs::open(owe::fs::ToPath(valid_path.string()));
+    auto pkg =
+        owe::fs::WPPkgFs::open(owe::fs::Path(rstd::cppstd::as_str(valid_path.string()).unwrap()));
     ASSERT_TRUE(pkg.is_ok());
     auto stamp = pkg->pkg_version_stamp();
     EXPECT_EQ(std::string(reinterpret_cast<const char*>(stamp.data()), stamp.len().to_primitive()),
               "PKGV0001");
 
-    auto source = pkg->open_read(owe::fs::ToPath("/materials/foo.BIN"));
+    auto source = pkg->open_read(owe::fs::Path("/materials/foo.BIN"_str));
     ASSERT_TRUE(source.is_ok());
-    EXPECT_EQ(ReadText(std::move(source).unwrap_unchecked()), "hello");
+    EXPECT_EQ(ReadText(std::move(source).unwrap_unchecked()), "hello"_str);
 
     auto invalid_path = temp.path / "invalid.pkg";
     WritePkg(invalid_path, 100);
-    auto invalid = owe::fs::WPPkgFs::open(owe::fs::ToPath(invalid_path.string()));
+    auto invalid =
+        owe::fs::WPPkgFs::open(owe::fs::Path(rstd::cppstd::as_str(invalid_path.string()).unwrap()));
     ASSERT_TRUE(invalid.is_err());
     EXPECT_EQ(std::move(invalid).unwrap_err_unchecked().kind().code,
               rstd::io::error::ErrorKind::InvalidData);
@@ -274,11 +278,11 @@ TEST(PkgFs, PreservesUtf8WhileFoldingAsciiPathCase) {
     auto          path = temp.path / "utf8.pkg";
     WritePkg(path, 5, "Materials/École/贴图.BIN");
 
-    auto pkg = owe::fs::WPPkgFs::open(owe::fs::ToPath(path.string()));
+    auto pkg = owe::fs::WPPkgFs::open(owe::fs::Path(rstd::cppstd::as_str(path.string()).unwrap()));
     ASSERT_TRUE(pkg.is_ok());
-    auto source = pkg->open_read(owe::fs::ToPath("/materials/École/贴图.bin"));
+    auto source = pkg->open_read(owe::fs::Path("/materials/École/贴图.bin"_str));
     ASSERT_TRUE(source.is_ok());
-    EXPECT_EQ(ReadText(std::move(source).unwrap_unchecked()), "hello");
+    EXPECT_EQ(ReadText(std::move(source).unwrap_unchecked()), "hello"_str);
 }
 
 TEST(PkgFs, ResolvesAuthoredParentPathsInsideAssetRoot) {
@@ -286,18 +290,139 @@ TEST(PkgFs, ResolvesAuthoredParentPathsInsideAssetRoot) {
     auto          path = temp.path / "parent.pkg";
     WritePkg(path, 5, "../海景画/particles/snow.json");
 
-    auto pkg = owe::fs::WPPkgFs::open(owe::fs::ToPath(path.string()));
+    auto pkg = owe::fs::WPPkgFs::open(owe::fs::Path(rstd::cppstd::as_str(path.string()).unwrap()));
     ASSERT_TRUE(pkg.is_ok());
 
     owe::fs::VFS vfs;
     ASSERT_TRUE(vfs.mount("/assets"_str, pkg->mount_handle()).is_ok());
-    auto asset = owe::fs::ResolveAssetPath("../海景画/particles/snow.json");
+    auto asset = owe::fs::ResolveAssetPath("../海景画/particles/snow.json"_str);
     ASSERT_TRUE(asset.is_ok());
-    EXPECT_EQ(owe::fs::ToStdString(asset->as_path()), "/assets/海景画/particles/snow.json");
+    EXPECT_EQ(rstd::cppstd::to_string(asset->as_path().as_os_str().to_str().unwrap()),
+              "/assets/海景画/particles/snow.json");
 
     auto source = vfs.open_read(asset->as_path());
     ASSERT_TRUE(source.is_ok());
-    EXPECT_EQ(ReadText(std::move(source).unwrap_unchecked()), "hello");
+    EXPECT_EQ(ReadText(std::move(source).unwrap_unchecked()), "hello"_str);
 }
 
 } // namespace
+
+TEST(BinaryReader, NativeTextOwnsUtf8AndEmbeddedNul) {
+    auto source = rstd::io::SharedReadAt::make(MemorySource { std::string("a\0\xc3\xa9", 4) });
+    auto range  = owe::fs::ReadRange::make(rstd::move(source), u64(), u64(4)).unwrap();
+    owe::fs::BinaryReader reader(rstd::move(range));
+    auto                  text = reader.read_all_string();
+    ASSERT_TRUE(text.is_ok());
+    EXPECT_EQ(text->as_str(), "a\0\xc3\xa9"_str);
+    EXPECT_EQ(reader.position(), u64(4));
+    EXPECT_EQ(reader.remaining(), u64());
+    auto empty = reader.read_all_string();
+    ASSERT_TRUE(empty.is_ok());
+    EXPECT_TRUE(empty->is_empty());
+}
+
+TEST(BinaryReader, NativeBytesPreserveInvalidUtf8AndTextRejectsIt) {
+    auto source = rstd::io::SharedReadAt::make(MemorySource { std::string("\xff\0z", 3) });
+    auto range  = owe::fs::ReadRange::make(rstd::move(source), u64(), u64(3)).unwrap();
+    owe::fs::BinaryReader reader(rstd::move(range));
+    auto                  bytes = reader.read_all_bytes();
+    ASSERT_TRUE(bytes.is_ok());
+    EXPECT_EQ(bytes->as_slice(), "\xff\0z"_bytes);
+    ASSERT_TRUE(reader.Rewind());
+    auto text = reader.read_all_string();
+    ASSERT_TRUE(text.is_err());
+    EXPECT_EQ(text.unwrap_err().kind().code, rstd::io::error::ErrorKind::InvalidData);
+    EXPECT_EQ(reader.position(), u64(3));
+    ASSERT_TRUE(reader.Rewind());
+    EXPECT_TRUE(reader.ReadAllStr().is_empty());
+}
+
+TEST(BinaryReader, NativeReadsReportShortSourceAndTrackConsumedBytes) {
+    auto source = rstd::io::SharedReadAt::make(MemorySource { "abc" });
+    auto range  = owe::fs::ReadRange::make(rstd::move(source), u64(), u64(5)).unwrap();
+    owe::fs::BinaryReader reader(rstd::move(range));
+    auto                  bytes = reader.read_all_bytes();
+    ASSERT_TRUE(bytes.is_err());
+    EXPECT_EQ(bytes.unwrap_err().kind().code, rstd::io::error::ErrorKind::UnexpectedEof);
+    EXPECT_EQ(reader.position(), u64(3));
+    ASSERT_TRUE(reader.Rewind());
+    auto text = reader.read_all_string();
+    ASSERT_TRUE(text.is_err());
+    EXPECT_EQ(text.unwrap_err().kind().code, rstd::io::error::ErrorKind::UnexpectedEof);
+}
+
+TEST(Vfs, NativeContentSeparatesBinaryTextAndJsonFailures) {
+    owe::fs::VFS vfs;
+    ASSERT_TRUE(vfs.mount("/assets"_str,
+                          MakeMount({
+                              { "binary", std::string("\xff\0z", 3) },
+                              { "valid.json", "{\"value\":7}" },
+                              { "broken.json", "{" },
+                              { "empty", "" },
+                          }))
+                    .is_ok());
+    auto bytes = owe::fs::ReadFileBytes(vfs, owe::fs::Path("/assets/binary"_str));
+    ASSERT_TRUE(bytes.is_ok());
+    EXPECT_EQ(bytes->as_slice(), "\xff\0z"_bytes);
+    auto text = owe::fs::ReadFileContent(vfs, owe::fs::Path("/assets/binary"_str));
+    ASSERT_TRUE(text.is_err());
+    EXPECT_EQ(text.unwrap_err().kind().code, rstd::io::error::ErrorKind::InvalidData);
+    auto json = owe::ReadAssetJsonFile(vfs, "valid.json"_str);
+    ASSERT_TRUE(json.is_ok());
+    EXPECT_EQ(*(*json->get("value"_str))->as_u64(), u64(7));
+    auto malformed = owe::ReadAssetJsonFile(vfs, "broken.json"_str);
+    ASSERT_TRUE(malformed.is_err());
+    EXPECT_EQ(malformed.unwrap_err().kind, owe::JsonFileErrorKind::Parse);
+    auto binary = owe::ReadAssetJsonFile(vfs, "binary"_str);
+    ASSERT_TRUE(binary.is_err());
+    EXPECT_EQ(binary.unwrap_err().kind, owe::JsonFileErrorKind::Io);
+    auto missing = owe::ReadAssetJsonFile(vfs, "missing"_str);
+    ASSERT_TRUE(missing.is_err());
+    EXPECT_EQ(missing.unwrap_err().kind, owe::JsonFileErrorKind::Io);
+    auto empty = owe::fs::ReadFileContent(vfs, owe::fs::Path("/assets/empty"_str));
+    ASSERT_TRUE(empty.is_ok());
+    EXPECT_TRUE(empty->is_empty());
+}
+
+TEST(BinaryReader, TerminatedStringsPreserveCursorAndEofPrefix) {
+    auto source =
+        rstd::io::SharedReadAt::make(MemorySource { std::string("\0ab\xc3\xa9\0tail", 10) });
+    auto range = owe::fs::ReadRange::make(rstd::move(source), u64(), u64(10)).unwrap();
+    owe::fs::BinaryReader reader(rstd::move(range));
+    EXPECT_TRUE(reader.ReadStr().is_empty());
+    EXPECT_EQ(reader.position(), u64(1));
+    auto owned = reader.ReadStr();
+    EXPECT_EQ(owned, "ab\xc3\xa9"_str);
+    EXPECT_EQ(reader.position(), u64(6));
+    EXPECT_EQ(reader.ReadStr(), "tail"_str);
+    EXPECT_EQ(reader.position(), u64(10));
+    EXPECT_TRUE(reader.ReadStr().is_empty());
+    EXPECT_EQ(owned, "ab\xc3\xa9"_str);
+}
+
+TEST(BinaryReader, NativeBufferAndRemainingReaderOwnIndependentStorage) {
+    Vec<u8> data;
+    for (auto value : "abcdef"_bytes) data.push(rstd::move(value));
+    owe::fs::BinaryReader source(rstd::move(data));
+    ASSERT_TRUE(source.SeekSet(2));
+    owe::fs::BinaryReader remaining(source);
+    EXPECT_EQ(source.position(), u64(6));
+    EXPECT_EQ(remaining.ReadAllStr(), "cdef"_str);
+    ASSERT_TRUE(source.Rewind());
+    EXPECT_EQ(source.ReadAllStr(), "abcdef"_str);
+}
+
+TEST(PkgFs, RejectsMalformedUtf8AndOversizedEntryNames) {
+    TempDirectory temporary;
+    auto          path = temporary.path / "invalid-name.pkg";
+    WritePkg(path, 5, std::string("\xff", 1));
+    auto invalid =
+        owe::fs::WPPkgFs::open(owe::fs::Path(rstd::cppstd::as_str(path.string()).unwrap()));
+    ASSERT_TRUE(invalid.is_err());
+    EXPECT_EQ(invalid.unwrap_err().kind().code, rstd::io::error::ErrorKind::InvalidData);
+    WritePkg(path, 5, std::string(4097, 'a'));
+    auto oversized =
+        owe::fs::WPPkgFs::open(owe::fs::Path(rstd::cppstd::as_str(path.string()).unwrap()));
+    ASSERT_TRUE(oversized.is_err());
+    EXPECT_EQ(oversized.unwrap_err().kind().code, rstd::io::error::ErrorKind::InvalidData);
+}

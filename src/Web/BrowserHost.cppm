@@ -1,10 +1,15 @@
 export module weweb:browser_host;
 
-import rstd.cppstd;
+import rstd;
+
 import wescene.json;
 
 import :frame;
 import :manifest;
+
+using namespace rstd::prelude;
+using rstd::path::Path;
+using rstd::path::PathBuf;
 
 export namespace weweb
 {
@@ -15,14 +20,14 @@ class ClientHandler;
 class BrowserHost {
 public:
     struct InitOptions {
-        std::filesystem::path resources_dir;
-        std::filesystem::path locales_dir;
-        std::filesystem::path cache_dir;
-        bool                  enable_remote_debugging { false };
-        int                   remote_debugging_port { 0 };
-        bool                  enable_audio { true };
-        bool                  shared_texture_enabled { true };
-        std::string           render_node_override;
+        PathBuf resources_dir;
+        PathBuf locales_dir;
+        PathBuf cache_dir;
+        bool    enable_remote_debugging { false };
+        int     remote_debugging_port { 0 };
+        bool    enable_audio { true };
+        bool    shared_texture_enabled { true };
+        String  render_node_override;
     };
 
     struct OpenOptions {
@@ -41,14 +46,28 @@ public:
     int  RunOrExitIfHelper(int argc, char** argv);
     bool Init(const InitOptions& opts);
 
-    void SetAcceleratedPaintCallback(AcceleratedPaintCallback cb);
-    void SetCpuPaintCallback(CpuPaintCallback cb);
-    void SetAudioResponseDemandCallback(std::function<void(bool)> cb);
+    void SetAcceleratedPaintCallback(Option<AcceleratedPaintCallback> cb);
+    void SetCpuPaintCallback(Option<CpuPaintCallback> cb);
+    void SetAudioResponseDemandCallback(Option<AudioDemandCallback> cb);
+    template<typename Callback>
+        requires requires(Callback cb, const DmaBufFrame& frame) { cb(frame); }
+    void SetAcceleratedPaintCallback(Callback cb) {
+        SetAcceleratedPaintCallback(Some(AcceleratedPaintCallback::make(rstd::move(cb))));
+    }
+    template<typename Callback>
+        requires requires(Callback cb, const CpuPaintFrame& frame) { cb(frame); }
+    void SetCpuPaintCallback(Callback cb) {
+        SetCpuPaintCallback(Some(CpuPaintCallback::make(rstd::move(cb))));
+    }
+    template<typename Callback>
+        requires requires(Callback cb) { cb(false); }
+    void SetAudioResponseDemandCallback(Callback cb) {
+        SetAudioResponseDemandCallback(Some(AudioDemandCallback::make(rstd::move(cb))));
+    }
 
-    bool OpenWallpaper(const WebManifest& manifest, const std::filesystem::path& workshop_dir,
-                       int width, int height);
-    bool OpenWallpaper(const WebManifest& manifest, const std::filesystem::path& workshop_dir,
-                       int width, int height, OpenOptions opts);
+    bool OpenWallpaper(const WebManifest& manifest, ref<Path> workshop_dir, int width, int height);
+    bool OpenWallpaper(const WebManifest& manifest, ref<Path> workshop_dir, int width, int height,
+                       OpenOptions opts);
 
     void OnResize(int width, int height);
     void OnResize(int width, int height, float device_scale_factor);
@@ -66,8 +85,8 @@ public:
     void ApplyVolume(float volume);
     void SetFrameRate(int fps);
     void SetPaused(bool paused);
-    void ApplyUserProperty(std::string_view key, const owe::Json& value);
-    void PushAudioData(const float* data, std::size_t count);
+    void ApplyUserProperty(ref<str> key, const owe::Json& value);
+    void PushAudioData(slice<float> data);
 
     bool ShouldExit() const;
     void RequestClose();
@@ -75,7 +94,7 @@ public:
 
 private:
     struct Impl;
-    std::unique_ptr<Impl> impl_;
+    Box<Impl> impl_;
 };
 
 } // namespace weweb

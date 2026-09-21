@@ -5,11 +5,9 @@ import :scene_context;
 import eigen;
 import wescene.pkg.spec_names;
 import rstd;
-import rstd.cppstd;
 import wescene.scene;
 
 using namespace rstd::prelude;
-using rstd::cppstd::as_string_view;
 using namespace owe;
 using namespace Eigen;
 
@@ -44,8 +42,8 @@ void GenCardMesh(SceneMesh& mesh, const array<float, 2> size, const array<float,
     // clang-format on
 
     SceneVertexArray vertex(MakeAttrSet({ VAttr::Position, VAttr::TexCoord }), usize(4));
-    vertex.SetVertex(as_string_view(WE_IN_POSITION), pos.as_slice());
-    vertex.SetVertex(as_string_view(WE_IN_TEXCOORD), texCoord.as_slice());
+    vertex.SetVertex(WE_IN_POSITION, pos.as_slice());
+    vertex.SetVertex(WE_IN_TEXCOORD, texCoord.as_slice());
     mesh.AddVertexArray(rstd::move(vertex));
 }
 
@@ -53,12 +51,12 @@ auto ReadDirectDrawQuad(const wpscene::Material& material) -> Option<DirectDrawQ
     constexpr array<ref<str>, 4> names { "point0"_str, "point1"_str, "point2"_str, "point3"_str };
     DirectDrawQuad               points {};
     for (usize index {}; index < points.len(); ++index) {
-        auto value = material.constantshadervalues.find(rstd::cppstd::to_string(names[index]));
-        if (value == material.constantshadervalues.end() || value->second.size() != 2 ||
-            ! f32(value->second[0]).is_finite() || ! f32(value->second[1]).is_finite()) {
+        auto value = material.constantshadervalues.get(names[index]);
+        if (value.is_none() || (*value)->len() != usize(2) ||
+            ! f32((**value)[usize()]).is_finite() || ! f32((**value)[usize(1)]).is_finite()) {
             return None();
         }
-        points[index] = { value->second[0], value->second[1] };
+        points[index] = { (**value)[usize()], (**value)[usize(1)] };
     }
     return Some(points);
 }
@@ -85,8 +83,8 @@ void GenDirectDrawQuadMesh(SceneMesh& mesh, float edge, const DirectDrawQuad& po
     const array<rstd::uint32_t, 6> indices { 0u, 2u, 1u, 0u, 3u, 2u };
 
     SceneVertexArray vertex(MakeAttrSet({ VAttr::Position, VAttr::TexCoord }), usize(4));
-    vertex.SetVertex(as_string_view(WE_IN_POSITION), positions.as_slice());
-    vertex.SetVertex(as_string_view(WE_IN_TEXCOORD), tex_coords.as_slice());
+    vertex.SetVertex(WE_IN_POSITION, positions.as_slice());
+    vertex.SetVertex(WE_IN_TEXCOORD, tex_coords.as_slice());
     mesh.AddVertexArray(rstd::move(vertex));
     mesh.AddIndexArray(SceneIndexArray(indices.as_slice()));
 }
@@ -101,8 +99,8 @@ void SetParticleMesh(SceneMesh& mesh, u32 count, bool thick_format,
                 : MakeAttrSet({ VAttr::Position, VAttr::TexCoordVec4, VAttr::Color });
         mesh.SetPrimitive(MeshPrimitive::POINT);
         mesh.AddVertexArray(SceneVertexArray(rstd::move(specs), rstd::as_cast<usize>(count)));
-        mesh.GetVertexArray(usize(0)).SetOption(as_string_view(WE_CB_THICK_FORMAT), thick_format);
-        mesh.GetVertexArray(usize(0)).SetOption(as_string_view(WE_CB_GS_ENABLED), true);
+        mesh.GetVertexArray(usize(0)).SetOption(WE_CB_THICK_FORMAT, thick_format);
+        mesh.GetVertexArray(usize(0)).SetOption(WE_CB_GS_ENABLED, true);
         return;
     }
     // Geometry-less path (WE's native GS_ENABLED=0 shader variant): the CPU
@@ -122,24 +120,18 @@ void SetParticleMesh(SceneMesh& mesh, u32 count, bool thick_format,
     mesh.AddVertexArray(
         SceneVertexArray(rstd::move(specs), rstd::as_cast<usize>(count) * usize(4)));
     auto& vertices = mesh.GetVertexArray(usize(0));
-    vertices.SetOption(as_string_view(WE_CB_THICK_FORMAT), thick_format);
-    vertices.SetOption(as_string_view(WE_CB_GS_ENABLED), false);
-    const std::size_t           particle_count = count.to_primitive();
-    std::vector<rstd::uint32_t> indices;
-    indices.reserve(particle_count * std::size_t(6));
-    for (std::size_t particle = 0; particle < particle_count; ++particle) {
-        const rstd::uint32_t base = rstd::uint32_t(particle * std::size_t(4));
+    vertices.SetOption(WE_CB_THICK_FORMAT, thick_format);
+    vertices.SetOption(WE_CB_GS_ENABLED, false);
+    const auto particle_count = rstd::as_cast<usize>(count);
+    auto       indices        = Vec<rstd::uint32_t>::with_capacity(particle_count * usize(6));
+    for (usize particle {}; particle < particle_count; ++particle) {
+        const auto base = rstd::as_cast<u32>(particle * usize(4)).to_primitive();
         // 0 1 3 / 1 2 3 — matches the old port's quad triangulation.
-        indices.insert(indices.end(),
-                       { base + rstd::uint32_t(0),
-                         base + rstd::uint32_t(1),
-                         base + rstd::uint32_t(3),
-                         base + rstd::uint32_t(1),
-                         base + rstd::uint32_t(2),
-                         base + rstd::uint32_t(3) });
+        const array<rstd::uint32_t, 6> quad { base,      base + 1u, base + 3u,
+                                              base + 1u, base + 2u, base + 3u };
+        indices.extend_from_slice(quad.as_slice());
     }
-    mesh.AddIndexArray(SceneIndexArray(
-        slice<rstd::uint32_t>::from_raw_parts(indices.data(), usize(indices.size()))));
+    mesh.AddIndexArray(SceneIndexArray(indices.as_slice()));
 }
 
 void SetRopeParticleMesh(SceneMesh& mesh, const wpscene::Particle& particle, u32 count,
@@ -159,12 +151,10 @@ void SetRopeParticleMesh(SceneMesh& mesh, const wpscene::Particle& particle, u32
                                                   VAttr::Color });
         mesh.SetPrimitive(MeshPrimitive::POINT);
         mesh.AddVertexArray(SceneVertexArray(rstd::move(specs), rstd::as_cast<usize>(count)));
-        mesh.GetVertexArray(usize(0)).SetOption(trail_renderer
-                                                    ? as_string_view(WE_PRENDER_ROPE_TRAIL)
-                                                    : as_string_view(WE_PRENDER_ROPE),
-                                                true);
-        mesh.GetVertexArray(usize(0)).SetOption(as_string_view(WE_CB_THICK_FORMAT), thick_format);
-        mesh.GetVertexArray(usize(0)).SetOption(as_string_view(WE_CB_GS_ENABLED), true);
+        mesh.GetVertexArray(usize(0)).SetOption(
+            trail_renderer ? WE_PRENDER_ROPE_TRAIL : WE_PRENDER_ROPE, true);
+        mesh.GetVertexArray(usize(0)).SetOption(WE_CB_THICK_FORMAT, thick_format);
+        mesh.GetVertexArray(usize(0)).SetOption(WE_CB_GS_ENABLED, true);
         return;
     }
     // Geometry-less rope: 4 vertices per trail point (per-corner UVs in
@@ -186,26 +176,18 @@ void SetRopeParticleMesh(SceneMesh& mesh, const wpscene::Particle& particle, u32
     mesh.AddVertexArray(
         SceneVertexArray(rstd::move(specs), rstd::as_cast<usize>(count) * usize(4)));
     auto& vertices = mesh.GetVertexArray(usize(0));
-    vertices.SetOption(trail_renderer ? as_string_view(WE_PRENDER_ROPE_TRAIL)
-                                      : as_string_view(WE_PRENDER_ROPE),
-                       true);
-    vertices.SetOption(as_string_view(WE_CB_THICK_FORMAT), thick_format);
-    vertices.SetOption(as_string_view(WE_CB_GS_ENABLED), false);
-    const std::size_t           point_count = count.to_primitive();
-    std::vector<rstd::uint32_t> indices;
-    indices.reserve(point_count * std::size_t(6));
-    for (std::size_t point = 0; point < point_count; ++point) {
-        const rstd::uint32_t base = rstd::uint32_t(point * std::size_t(4));
-        indices.insert(indices.end(),
-                       { base + rstd::uint32_t(0),
-                         base + rstd::uint32_t(1),
-                         base + rstd::uint32_t(3),
-                         base + rstd::uint32_t(1),
-                         base + rstd::uint32_t(2),
-                         base + rstd::uint32_t(3) });
+    vertices.SetOption(trail_renderer ? WE_PRENDER_ROPE_TRAIL : WE_PRENDER_ROPE, true);
+    vertices.SetOption(WE_CB_THICK_FORMAT, thick_format);
+    vertices.SetOption(WE_CB_GS_ENABLED, false);
+    const auto point_count = rstd::as_cast<usize>(count);
+    auto       indices     = Vec<rstd::uint32_t>::with_capacity(point_count * usize(6));
+    for (usize point {}; point < point_count; ++point) {
+        const auto                     base = rstd::as_cast<u32>(point * usize(4)).to_primitive();
+        const array<rstd::uint32_t, 6> quad { base,      base + 1u, base + 3u,
+                                              base + 1u, base + 2u, base + 3u };
+        indices.extend_from_slice(quad.as_slice());
     }
-    mesh.AddIndexArray(SceneIndexArray(
-        slice<rstd::uint32_t>::from_raw_parts(indices.data(), usize(indices.size()))));
+    mesh.AddIndexArray(SceneIndexArray(indices.as_slice()));
 }
 
 } // namespace owe

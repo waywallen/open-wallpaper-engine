@@ -5,15 +5,17 @@ module;
 
 module waywallen.bridge_ex_swapchain;
 
-import rstd.cppstd;
 import wescene.vulkan;
 import waywallen.bridge_producer_core;
+
+using rstd::sync::Arc;
+using rstd::sync::atomic::Atomic;
+using rstd::sync::atomic::Ordering;
 
 namespace ww_wescene
 {
 
-BridgeExSwapchain::BridgeExSwapchain(std::shared_ptr<BridgeSession> session)
-    : m_core(std::move(session)) {}
+BridgeExSwapchain::BridgeExSwapchain(Arc<BridgeSession> session): m_core(rstd::move(session)) {}
 
 BridgeExSwapchain::~BridgeExSwapchain() = default;
 
@@ -45,7 +47,7 @@ owe::FrameSurfaceCompletionStatus ToFrameCompletionStatus(BridgeSlotCompletionSt
 } // namespace
 
 void BridgeExSwapchain::poll() {
-    const bool request_wake = m_frame_request_wake.exchange(false, std::memory_order_acq_rel);
+    const bool request_wake = m_frame_request_wake.exchange(false, Ordering::AcqRel);
     m_core.drainPendingDirective();
     const bool republished = m_core.republishRequestedFrame(true);
     m_skip_acquire_in_poll = republished || m_core.hasPendingDirective() ||
@@ -107,8 +109,8 @@ owe::FrameSurfaceAcquireResult BridgeExSwapchain::acquireRenderTarget() {
     m_pending_identity = rstd::Some(acquired.identity);
     auto completion    = MakeCompletionCapability(lease.identity);
     return { .status     = owe::FrameSurfaceAcquireStatus::Acquired,
-             .lease      = std::move(lease),
-             .completion = std::move(completion) };
+             .lease      = rstd::move(lease),
+             .completion = rstd::move(completion) };
 }
 
 owe::FrameSurfaceCompletionResult

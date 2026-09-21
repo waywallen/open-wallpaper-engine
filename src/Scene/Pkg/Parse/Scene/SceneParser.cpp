@@ -26,7 +26,7 @@ auto owe::SceneParser::Parse(ref<str> scene_id, ref<wpscene::SceneDocument> docu
     if (! document->objects_are_array) {
         return Err(SceneParseError {
             .kind    = SceneParseErrorKind::ObjectExpansion,
-            .message = String::make("scene objects must be an array"_str),
+            .message = "scene objects must be an array"_Str,
         });
     }
 
@@ -42,7 +42,7 @@ auto owe::SceneParser::Parse(ref<str> scene_id, ref<wpscene::SceneDocument> docu
             const auto& light = object.as_Light().value;
             has_directional_shadow_light =
                 has_directional_shadow_light ||
-                ((light.light == "directional" || light.light == "ldirectional") &&
+                ((light.light == "directional"_str || light.light == "ldirectional"_str) &&
                  light.castshadow);
         } else if (object.is_Model()) {
             has_directional_shadow_caster =

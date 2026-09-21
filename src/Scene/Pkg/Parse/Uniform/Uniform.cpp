@@ -53,19 +53,19 @@ bool UniformTex::FromJson(const Json& json) {
             }
         }
     }
-    owe::GetJsonValue(json, "requireany", requireany, false);
+    owe::GetJsonValue(json, "requireany"_str, requireany, false);
     ReadMap(json, "require"_str, require);
 
-    owe::GetJsonValue(json, "hidden", hidden, false);
-    owe::GetJsonValue(json, "nonremovable", nonremovable, false);
+    owe::GetJsonValue(json, "hidden"_str, hidden, false);
+    owe::GetJsonValue(json, "nonremovable"_str, nonremovable, false);
     (void)ReadString(json, "group"_str, group);
-    owe::GetJsonValue(json, "linked", linked, false);
+    owe::GetJsonValue(json, "linked"_str, linked, false);
     (void)ReadString(json, "format"_str, format);
-    owe::GetJsonValue(json, "formatcombo", formatcombo, false);
-    owe::GetJsonValue(json, "direction", direction, false);
+    owe::GetJsonValue(json, "formatcombo"_str, formatcombo, false);
+    owe::GetJsonValue(json, "direction"_str, direction, false);
     (void)ReadString(json, "conversion"_str, conversion);
     int order_value {};
-    owe::GetJsonValue(json, "order", order_value, false);
+    owe::GetJsonValue(json, "order"_str, order_value, false);
     order = i32(order_value);
     return true;
 }
@@ -77,9 +77,9 @@ bool UniformVar::FromJson(const Json& json, String uniform_name) {
     (void)ReadString(json, "label"_str, label);
     (void)ReadString(json, "group"_str, group);
     (void)ReadString(json, "type"_str, type);
-    owe::GetJsonValue(json, "position", position, false);
-    owe::GetJsonValue(json, "linked", linked, false);
-    owe::GetJsonValue(json, "nobindings", nobindings, false);
+    owe::GetJsonValue(json, "position"_str, position, false);
+    owe::GetJsonValue(json, "linked"_str, linked, false);
+    owe::GetJsonValue(json, "nobindings"_str, nobindings, false);
     if (auto values = json.get("range"_str); values.is_some()) {
         auto array = (*values)->as_array();
         if (array.is_some() && (*array)->len() >= usize(2)) {
@@ -96,7 +96,7 @@ bool Combo::FromJson(const Json& json) {
     (void)ReadString(json, "combo"_str, combo);
     (void)ReadString(json, "type"_str, type);
     int default_value {};
-    owe::GetJsonValue(json, "default", default_value, false);
+    owe::GetJsonValue(json, "default"_str, default_value, false);
     default_ = i32(default_value);
     ReadMap(json, "options"_str, options);
     ReadMap(json, "require"_str, require);

@@ -4,6 +4,8 @@ export module wescene.load_bench;
 import rstd;
 import rstd.bench;
 
+using rstd::sync::Arc;
+
 using namespace rstd::prelude;
 using namespace rstd::literals;
 
@@ -76,7 +78,7 @@ auto SceneLoadSpan(SceneLoadBenchRecorderView  view,
 }
 
 class SceneLoadBenchContext;
-using SceneLoadBenchHandle = rstd::sync::Arc<SceneLoadBenchContext>;
+using SceneLoadBenchHandle = Arc<SceneLoadBenchContext>;
 
 class SceneLoadBenchContext {
 public:
@@ -86,7 +88,7 @@ public:
     auto run_id() const noexcept -> u64 { return m_run_id; }
     auto ids() const noexcept -> const SceneLoadProbeIds& { return m_ids; }
     auto session() const noexcept -> const rstd::bench::probe::ProbeSession& { return m_session; }
-    auto schema_owner() const noexcept -> rstd::sync::Arc<rstd::bench::probe::ProbeSchema> {
+    auto schema_owner() const noexcept -> Arc<rstd::bench::probe::ProbeSchema> {
         return m_schema.clone();
     }
     auto output_path() const noexcept -> ref<rstd::path::Path> { return m_output_path.as_path(); }
@@ -95,9 +97,9 @@ public:
         m_preload_batches.push(rstd::move(batch));
     }
 
-    auto take_preload_batches() -> rstd::vec::Vec<rstd::bench::probe::ProbeBatch> {
+    auto take_preload_batches() -> Vec<rstd::bench::probe::ProbeBatch> {
         auto batches      = rstd::move(m_preload_batches);
-        m_preload_batches = rstd::vec::Vec<rstd::bench::probe::ProbeBatch>::make();
+        m_preload_batches = Vec<rstd::bench::probe::ProbeBatch>::make();
         return batches;
     }
 
@@ -107,20 +109,20 @@ private:
 
 public:
     SceneLoadBenchContext(FactoryToken, rstd::path::PathBuf output_path, SceneLoadProbeIds ids,
-                          rstd::sync::Arc<rstd::bench::probe::ProbeSchema> schema, u64 run_id)
+                          Arc<rstd::bench::probe::ProbeSchema> schema, u64 run_id)
         : m_output_path(rstd::move(output_path)),
           m_ids(ids),
           m_schema(schema.clone()),
           m_session(rstd::bench::probe::ProbeSession::new_(rstd::move(schema))),
           m_run_id(run_id),
-          m_preload_batches(rstd::vec::Vec<rstd::bench::probe::ProbeBatch>::make()) {}
+          m_preload_batches(Vec<rstd::bench::probe::ProbeBatch>::make()) {}
 
-    rstd::path::PathBuf                              m_output_path;
-    SceneLoadProbeIds                                m_ids;
-    rstd::sync::Arc<rstd::bench::probe::ProbeSchema> m_schema;
-    rstd::bench::probe::ProbeSession                 m_session;
-    u64                                              m_run_id;
-    rstd::vec::Vec<rstd::bench::probe::ProbeBatch>   m_preload_batches;
+    rstd::path::PathBuf                  m_output_path;
+    SceneLoadProbeIds                    m_ids;
+    Arc<rstd::bench::probe::ProbeSchema> m_schema;
+    rstd::bench::probe::ProbeSession     m_session;
+    u64                                  m_run_id;
+    Vec<rstd::bench::probe::ProbeBatch>  m_preload_batches;
 };
 
 auto CreateSceneLoadBench(ref<str> output_path) -> Option<SceneLoadBenchHandle>;

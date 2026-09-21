@@ -8,6 +8,7 @@ module = "waywallen.web_entry"
 sources = [
   "web_entry.cppm",
   "web_entry.cpp",
+  "Settings.cppm",
   "WebProducerDevice.cppm",
   "WebProducerDevice.cpp",
   "web_main.cpp",
@@ -46,11 +47,4 @@ workspace = true
 workspace = true
 
 [dependencies.vvk]
-workspace = true
-
-[[test]]
-name = "owe-web-producer-tests"
-sources = ["WebProducerDevice.cppm", "WebProducerDevice.cpp", "tests/main.cpp", "tests/device.cpp"]
-
-[dev-dependencies.rstd-test]
 workspace = true

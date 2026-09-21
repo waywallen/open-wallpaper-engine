@@ -14,14 +14,26 @@ import wescene.scene;
 import wescene.utils;
 import :shader_lex;
 
-static constexpr std::string_view SHADER_PLACEHOLD { "__SHADER_PLACEHOLD__" };
-
 #define SHADER_DIR    "spvs03"
 #define SHADER_SUFFIX "spvs"
 
 using namespace owe;
 using namespace rstd::prelude;
+using rstd::tuple;
+using rstd::collections::BTreeMap;
+using rstd::collections::BTreeSet;
+using rstd::collections::HashSet;
+using rstd::fs::OpenOptions;
+using rstd::hash::DefaultHasher;
+using rstd::hash::hash_into;
+using rstd::path::Path;
+using rstd::slice_::sort_unstable_by;
+using rstd::sync::Arc;
 using namespace rstd::literals;
+using rstd::sync::atomic::Atomic;
+using rstd::sync::atomic::Ordering;
+
+static constexpr ref<str> SHADER_PLACEHOLD { "__SHADER_PLACEHOLD__"_str };
 
 namespace
 {
@@ -29,19 +41,24 @@ namespace
 // line-scoped; the Cursor primitives in :shader_lex do all char-level work.
 
 struct DeclMatch {
-    std::size_t start;       // offset of leading newline (or 0 at file start)
-    std::size_t end;         // one past trailing `;`
-    std::size_t keep_prefix; // number of bytes from start to preserve when stripping
-    ref<str>    storage;     // attribute/varying/in/out/uniform
-    ref<str>    type;
-    ref<str>    name;
-    ref<str>    array; // "[N]" or empty
+    rstd::size_t start;       // offset of leading newline (or 0 at file start)
+    rstd::size_t end;         // one past trailing `;`
+    rstd::size_t keep_prefix; // number of bytes from start to preserve when stripping
+    ref<str>     storage;     // attribute/varying/in/out/uniform
+    ref<str>     type;
+    ref<str>     name;
+    ref<str>     array; // "[N]" or empty
 };
+
+constexpr array<ref<str>, 4> kStorageKeywords {
+    "attribute"_str, "varying"_str, "in"_str, "out"_str
+};
+constexpr array<ref<str>, 1> kUniformKeyword { "uniform"_str };
 
 // Try to match `[ws]<storage_kw> <type> <name>[opt-array][ws];` on the line
 // starting at `line_start`. Anchored — leading non-whitespace fails it.
 inline Option<DeclMatch> TryParseDeclLine(ref<str> src, usize line_start,
-                                          std::initializer_list<ref<str>> storage_kws) {
+                                          slice<ref<str>> storage_kws) {
     shader_lex::Cursor source(src, line_start);
     auto               line_end = source.LineEnd();
     shader_lex::Cursor c(*src.get(line_start, line_end));
@@ -80,7 +97,7 @@ inline Option<DeclMatch> TryParseDeclLine(ref<str> src, usize line_start,
 // is 1 when a leading newline exists (so callers stripping decl lines keep
 // the newline as a paragraph anchor).
 template<typename Fn>
-inline void ForEachDeclLine(ref<str> src, std::initializer_list<ref<str>> storage_kws, Fn&& fn) {
+inline void ForEachDeclLine(ref<str> src, slice<ref<str>> storage_kws, Fn&& fn) {
     shader_lex::LineWalker w(src);
     for (; ! w.Done(); w.Step()) {
         if (auto m = TryParseDeclLine(src, w.LineStart(), storage_kws)) {
@@ -105,21 +122,17 @@ inline bool IsSamplerType(ref<str> t) {
 // Replace every occurrence of `needle` in `body` with `repl`. The placeholder
 // names used by the shader synth pipeline are unique tokens
 // (`__SHADER_PLACEHOLD__`), so naive substring substitution is safe.
-inline std::string ReplaceAll(std::string body, std::string_view needle, std::string_view repl) {
-    if (needle.empty()) return body;
-    std::string out;
-    out.reserve(body.size());
-    std::size_t pos = 0;
-    while (true) {
-        auto next = body.find(needle, pos);
-        if (next == std::string::npos) {
-            out.append(body, pos, std::string::npos);
-            break;
-        }
-        out.append(body, pos, next - pos);
-        out.append(repl);
-        pos = next + needle.size();
+inline String ReplaceAll(ref<str> body, ref<str> needle, ref<str> repl) {
+    if (needle.is_empty()) return String::make(body);
+    String out;
+    out.reserve(body.len());
+    while (auto parts = body.split_once(needle)) {
+        auto [head, tail] = *parts;
+        out.push_str(head);
+        out.push_str(repl);
+        body = tail;
     }
+    out.push_str(body);
     return out;
 }
 
@@ -140,7 +153,7 @@ inline std::string ReplaceAll(std::string body, std::string_view needle, std::st
 // shared cbuffer ww_Uniforms + an HLSL entry-point wrapper (main_vs /
 // main_ps) that shuffles between the static globals and the
 // SV_*-annotated entry struct.
-static constexpr const char* pre_shader_code = R"(// auto-generated WE→HLSL prologue
+static constexpr ref<str> pre_shader_code = R"(// auto-generated WE→HLSL prologue
 #define HLSL 1
 #define GLSL 0
 #define highp
@@ -236,9 +249,9 @@ float4 mod(float4 a, float  b) { return a - b * floor(a / b); }
 __SHADER_TAIL__
 __SHADER_PLACEHOLD__
 
-)";
+)"_str;
 
-static constexpr const char* lighting_v1_source = R"(
+static constexpr ref<str> lighting_v1_source = R"(
 uniform vec3 g_LightsPosition[4];
 uniform vec4 g_LightsColorRadius[4];
 uniform vec4 g_LightsDirectionType[4];
@@ -308,7 +321,7 @@ float3 PerformLighting_V1(float3 worldPos, float3 albedo, float3 normal, float3 
     return PerformLighting_V1(worldPos, albedo, normal, viewVector, specularTint, f0,
                               roughness, metallic) * ao;
 }
-)";
+)"_str;
 
 // VS/FS tail: stage I/O is plumbed by the Finalprocessor synthesizer. It
 // strips every `attribute|varying TYPE NAME;` line and re-emits canonical
@@ -317,21 +330,21 @@ float3 PerformLighting_V1(float3 worldPos, float3 albedo, float3 normal, float3 
 // The keywords MUST NOT be #define'd here; if they were, the regex would
 // see unsubstituted text but the HLSL parser would see the substituted
 // text, drifting the two views apart.
-static constexpr const char* pre_shader_tail_vert = R"(
+static constexpr ref<str> pre_shader_tail_vert = R"(
 static float4 gl_Position;
 // Rename the user's main() so a synthesized HLSL entry point can wrap it.
 // The wrapper (main_vs) is appended in Finalprocessor.
 #define main shader_main
-)";
+)"_str;
 
-static constexpr const char* pre_shader_tail_frag = R"(
+static constexpr ref<str> pre_shader_tail_frag = R"(
 static float4 gl_FragCoord;
 static float4 glOutColor;
 #define gl_FragColor glOutColor
 #define main shader_main
-)";
+)"_str;
 
-static constexpr const char* pre_shader_tail_geom = R"()";
+static constexpr ref<str> pre_shader_tail_geom = R"()"_str;
 
 // HLSL prologue used when type==GEOMETRY. WE's .geom source is a hybrid:
 // GLSL-flavoured top-level `in vec4 X;` / `out vec4 X;` decls + HLSL-style
@@ -340,7 +353,7 @@ static constexpr const char* pre_shader_tail_geom = R"()";
 // bridges GLSL types/builtins to HLSL and Finalprocessor strips the `in`/`out`
 // lines + emits `struct WW_VSOut/WW_PSIn` + `cbuffer ww_Uniforms` + replaces
 // `void main()` with the GS entry signature.
-static constexpr const char* pre_shader_code_gs_hlsl = R"(// auto-generated WE→HLSL prologue (GS)
+static constexpr ref<str> pre_shader_code_gs_hlsl = R"(// auto-generated WE→HLSL prologue (GS)
 #define HLSL 1
 #define GLSL 0
 #define highp
@@ -387,7 +400,7 @@ float4 atan(float4 y, float4 x) { return atan2(y, x); }
 
 __SHADER_PLACEHOLD__
 
-)";
+)"_str;
 
 inline bool IsShaderTrivia(shader_lex::TokenKind kind) {
     return kind == shader_lex::TokenKind::HSpace || kind == shader_lex::TokenKind::Newline ||
@@ -419,8 +432,8 @@ inline Option<ShaderBracketExpr> ReadBracketExpr(shader_lex::Lexer& lx, ref<str>
     auto open = NextShaderToken(lx);
     if (! PunctIs(open, '[')) return None();
 
-    int         depth      = 1;
-    std::size_t expr_start = (open.offset + open.text.size()).to_primitive();
+    int          depth      = 1;
+    rstd::size_t expr_start = (open.offset + open.text.size()).to_primitive();
     for (;;) {
         auto t = lx.Next();
         if (t.kind == shader_lex::TokenKind::Eof) return None();
@@ -462,7 +475,7 @@ inline Option<String> TryFlattenPackedAudioIndex(ref<str> group, ref<str> compon
         g[usize(2)].kind == shader_lex::TokenKind::Int &&
         c[usize(2)].kind == shader_lex::TokenKind::Int && g[usize(2)].text == "4"_str &&
         c[usize(2)].text == "4"_str) {
-        auto out = String::make("(int)("_str);
+        auto out = "(int)("_Str;
         out.push_str(g[usize()].text);
         out.push_ascii(u8(')'));
         return Some(rstd::move(out));
@@ -590,11 +603,10 @@ inline String UndefBeforeConflictingMacroDefines(ref<str> src) {
     return out;
 }
 
-inline std::string LoadGlslInclude(fs::VFS& vfs, ref<str> input) {
-    auto        input_view = rstd::cppstd::as_string_view(input);
-    std::string output;
-    output.reserve(input.size().to_primitive());
-    std::size_t            pos = 0;
+inline String LoadGlslInclude(fs::VFS& vfs, ref<str> input) {
+    String output;
+    output.reserve(input.len());
+    usize                  pos {};
     shader_lex::LineWalker w(input);
     for (; ! w.Done(); w.Step()) {
         shader_lex::Cursor c(input);
@@ -605,47 +617,46 @@ inline std::string LoadGlslInclude(fs::VFS& vfs, ref<str> input) {
         // and append the recursively-expanded body. Bytes after the directive
         // on the same line (rare in practice) are skipped — matching the
         // original behavior.
-        output.append(input_view, pos, w.LineStart().to_primitive() - pos);
-        auto        line_view = *input.get(w.LineStart(), w.LineEnd());
-        std::string line      = rstd::cppstd::to_string(line_view);
-        auto        in_p      = line.find_first_of('\"');
-        auto        in_e      = line.find_last_of('\"');
-        if (in_p == std::string::npos || in_e == std::string::npos || in_e <= in_p) {
-            // Malformed include — preserve verbatim.
-            output.append(line);
-            pos = w.LineEnd().to_primitive();
+        output.push_str(input.get(pos, w.LineStart()).unwrap());
+        auto line  = input.get(w.LineStart(), w.LineEnd()).unwrap();
+        auto first = line->find("\""_str);
+        auto last  = line->rfind("\""_str);
+        if (first.is_none() || last.is_none() || *last <= *first) {
+            output.push_str(line);
+            pos = w.LineEnd();
             continue;
         }
-        std::string includeName = line.substr(in_p + 1, in_e - in_p - 1);
-        auto        include     = fs::ReadFileContent(vfs, "/assets/shaders/" + includeName);
-        std::string includeSrc;
+        auto   include_name = line->get(*first + usize(1), *last).unwrap();
+        auto   include_path = rstd::format("/assets/shaders/{}", include_name);
+        auto   include      = fs::ReadFileContent(vfs, fs::Path(include_path.as_str()));
+        String includeSrc;
         if (include.is_ok()) {
             includeSrc = rstd::move(include).unwrap_unchecked();
         } else {
-            rstd_error("Can't read shader include {}", includeName);
+            rstd_error("Can't read shader include {}", include_name);
         }
-        output.append("\n//-----include ");
-        output.append(includeName);
-        output.append("\n");
-        output.append(LoadGlslInclude(vfs, rstd::cppstd::as_str(includeSrc).unwrap()));
+        output.push_str("\n//-----include "_str);
+        output.push_str(include_name);
+        output.push_str("\n"_str);
+        output.push_str(LoadGlslInclude(vfs, includeSrc.as_str()).as_str());
         // WE shaders routinely pass a vector opacity (opacity * mask) to the
         // scalar ApplyBlending, relying on fxc's implicit vector->scalar
         // truncation. glslang's HLSL frontend won't truncate at the call, so
         // emit forwarding overloads right after the definition. Gate on the
         // directly-loaded file (not the recursively-expanded body) so a parent
         // header that nests common_blending.h doesn't re-inject the overloads.
-        if (includeSrc.find("ApplyBlending(const int") != std::string::npos) {
-            output.append("\nvec3 ApplyBlending(const int bm, in vec3 A, in vec3 B, in vec2 o) { "
-                          "return ApplyBlending(bm, A, B, o.x); }"
-                          "\nvec3 ApplyBlending(const int bm, in vec3 A, in vec3 B, in vec3 o) { "
-                          "return ApplyBlending(bm, A, B, o.x); }"
-                          "\nvec3 ApplyBlending(const int bm, in vec3 A, in vec3 B, in vec4 o) { "
-                          "return ApplyBlending(bm, A, B, o.x); }\n");
+        if (includeSrc.as_str()->contains("ApplyBlending(const int"_str)) {
+            output.push_str("\nvec3 ApplyBlending(const int bm, in vec3 A, in vec3 B, in vec2 o) { "
+                            "return ApplyBlending(bm, A, B, o.x); }"
+                            "\nvec3 ApplyBlending(const int bm, in vec3 A, in vec3 B, in vec3 o) { "
+                            "return ApplyBlending(bm, A, B, o.x); }"
+                            "\nvec3 ApplyBlending(const int bm, in vec3 A, in vec3 B, in vec4 o) { "
+                            "return ApplyBlending(bm, A, B, o.x); }\n"_str);
         }
-        output.append("\n//-----include end\n");
-        pos = w.LineEnd().to_primitive();
+        output.push_str("\n//-----include end\n"_str);
+        pos = w.LineEnd();
     }
-    output.append(input_view, pos, std::string::npos);
+    output.push_str(input.get(pos, input.len()).unwrap());
     return output;
 }
 
@@ -657,67 +668,51 @@ inline std::string LoadGlslInclude(fs::VFS& vfs, ref<str> input) {
 // declaration, before `void main(`, and outside any `#if/#endif` block.
 // Returns 0 when no preceding decls are found or the source has multiple
 // entry points (post-include shaders we can't reason about).
-inline std::size_t FindIncludeInsertPos(const std::string& src, std::size_t startPos) {
+inline usize FindIncludeInsertPos(ref<str> src, usize startPos) {
     using shader_lex::PpKind;
     (void)startPos;
-    auto source = rstd::cppstd::as_str(src).unwrap();
-
-    const std::size_t main_pos = src.find("void main(");
-    if (main_pos == std::string::npos) return 0;
-    if (src.find("void main(", main_pos + 2) != std::string::npos) return 0;
-
-    std::size_t                                      after_pos = std::string::npos;
-    std::vector<std::pair<std::size_t, std::size_t>> if_ranges;
-    std::vector<std::size_t>                         if_stack;
-    const array<ref<str>, 4> kKws { "attribute"_str, "varying"_str, "uniform"_str, "struct"_str };
-
-    shader_lex::LineWalker w(source);
+    auto main = src.find("void main("_str);
+    if (main.is_none()) return usize();
+    const auto main_pos = *main;
+    if (src.get(main_pos + usize(2), src.len())->contains("void main("_str)) return usize();
+    Option<usize>            after_pos;
+    Vec<array<usize, 2>>     if_ranges;
+    Vec<usize>               if_stack;
+    const array<ref<str>, 4> keywords {
+        "attribute"_str, "varying"_str, "uniform"_str, "struct"_str
+    };
+    shader_lex::LineWalker w(src);
     for (; ! w.Done(); w.Step()) {
-        if (w.LineStart().to_primitive() >= main_pos) break;
-        std::size_t line_end = std::min(w.LineEnd().to_primitive(), main_pos);
-
-        shader_lex::Cursor c(source);
-        c.SeekTo(w.LineStart());
+        if (w.LineStart() >= main_pos) break;
+        auto               line_end = rstd::cmp::min(w.LineEnd(), main_pos);
+        shader_lex::Cursor c(src, w.LineStart());
         c.SkipHSpace();
-        if (c.Eof() || c.Pos().to_primitive() >= line_end) continue;
-
+        if (c.Eof() || c.Pos() >= line_end) continue;
+        auto end = w.LineEnd() < src.len() ? w.LineEnd() + usize(1) : w.LineEnd();
         if (c.Peek() == '#') {
-            shader_lex::Cursor cc(source);
-            cc.SeekTo(w.LineStart());
-            auto kind = shader_lex::ClassifyPreproc(cc);
+            shader_lex::Cursor cc(src, w.LineStart());
+            auto               kind = shader_lex::ClassifyPreproc(cc);
             if (kind == PpKind::If || kind == PpKind::Ifdef || kind == PpKind::Ifndef) {
-                if_stack.push_back(w.LineStart().to_primitive());
+                if_stack.push(w.LineStart());
             } else if (kind == PpKind::Endif) {
-                if (! if_stack.empty()) {
-                    std::size_t start = if_stack.back();
-                    if_stack.pop_back();
-                    std::size_t end = w.LineEnd().to_primitive() < src.size()
-                                          ? w.LineEnd().to_primitive() + 1
-                                          : w.LineEnd().to_primitive();
-                    if_ranges.emplace_back(start, end);
-                }
+                if (auto start = if_stack.pop(); start.is_some())
+                    if_ranges.push(array<usize, 2> { *start, end });
             }
         } else {
-            for (usize keyword_index {}; keyword_index < kKws.len(); ++keyword_index) {
-                shader_lex::Cursor probe(source);
-                probe.SeekTo(c.Pos());
-                if (probe.MatchKeyword(kKws[keyword_index]) &&
-                    probe.Pos().to_primitive() < line_end &&
-                    shader_lex::IsHSpace(src[probe.Pos().to_primitive()])) {
-                    after_pos = w.LineEnd().to_primitive() < src.size()
-                                    ? w.LineEnd().to_primitive() + 1
-                                    : w.LineEnd().to_primitive();
+            for (auto keyword : keywords) {
+                shader_lex::Cursor probe(src, c.Pos());
+                if (probe.MatchKeyword(keyword) && probe.Pos() < line_end &&
+                    shader_lex::IsHSpace(probe.Peek())) {
+                    after_pos = Some(end);
                     break;
                 }
             }
         }
     }
-
-    std::size_t pos = (after_pos == std::string::npos) ? 0 : std::min(after_pos, main_pos);
-    for (const auto& [s, e] : if_ranges) {
-        if (pos > s && pos <= e) pos = e;
-    }
-    return std::min(pos, main_pos);
+    auto pos = after_pos.is_some() ? rstd::cmp::min(*after_pos, main_pos) : usize();
+    for (const auto& range : if_ranges)
+        if (pos > range[usize()] && pos <= range[usize(1)]) pos = range[usize(1)];
+    return rstd::cmp::min(pos, main_pos);
 }
 
 // Comment out stray `#endif` directives with no matching `#if`. A class of
@@ -726,12 +721,12 @@ inline std::size_t FindIncludeInsertPos(const std::string& src, std::size_t star
 // past the file's last `#if`. WE's HLSL toolchain tolerates this; glslang
 // rejects it as a preprocess error. Stack-walk the source, and when
 // `#endif` would pop an empty stack, comment the line instead.
-inline std::string BalanceConditionals(std::string src) {
+inline String BalanceConditionals(String src) {
     using shader_lex::PpKind;
-    auto        source = rstd::cppstd::as_str(src).unwrap();
-    int         depth  = 0;
-    std::string out;
-    out.reserve(src.size() + 32);
+    auto   source = src.as_str();
+    int    depth  = 0;
+    String out;
+    out.reserve(usize(src.len().to_primitive() + 32));
     shader_lex::LineWalker w(source);
     for (; ! w.Done(); w.Step()) {
         shader_lex::Cursor c(source);
@@ -750,23 +745,23 @@ inline std::string BalanceConditionals(std::string src) {
             break;
         default: break;
         }
-        if (stray_endif) out.append("// (ww stray-endif) ");
-        out.append(src, w.LineStart().to_primitive(), (w.LineEnd() - w.LineStart()).to_primitive());
-        if (w.LineEnd().to_primitive() < src.size()) out.push_back('\n');
+        if (stray_endif) out.push_str("// (ww stray-endif) "_str);
+        out.push_str(*source.get(w.LineStart(), w.LineEnd()));
+        if (w.LineEnd().to_primitive() < src.len().to_primitive()) out.push_ascii('\n');
     }
     return out;
 }
 
-inline std::string Preprocessor(const std::string& in_src, ShaderType type, const Combos& combos,
-                                PreprocessorInfo& process_info) {
-    std::string with_prologue = owe::ShaderParser::PreShaderHeader(in_src, combos, type);
+inline String Preprocessor(ref<str> in_src, ShaderType type, const Combos& combos,
+                           PreprocessorInfo& process_info) {
+    String with_prologue = owe::ShaderParser::PreShaderHeader(in_src, combos, type);
 
     // `#require` is a WE-specific marker, not a real preprocessor directive.
     // Prefix `//` to neutralize it. Allowed leading horizontal whitespace.
     {
-        std::string out;
-        out.reserve(with_prologue.size());
-        auto                   source = rstd::cppstd::as_str(with_prologue).unwrap();
+        String out;
+        out.reserve(with_prologue.len());
+        auto                   source = with_prologue.as_str();
         shader_lex::LineWalker w(source);
         for (; ! w.Done(); w.Step()) {
             shader_lex::Cursor c(source);
@@ -775,21 +770,21 @@ inline std::string Preprocessor(const std::string& in_src, ShaderType type, cons
                 c.SkipHSpace();
                 auto requirement = c.ReadIdent();
                 if (requirement.is_some() && *requirement == "LightingV1"_str) {
-                    out.append(lighting_v1_source);
-                    if (w.LineEnd().to_primitive() < with_prologue.size()) out.push_back('\n');
+                    out.push_str(lighting_v1_source);
+                    if (w.LineEnd().to_primitive() < with_prologue.len().to_primitive())
+                        out.push_ascii('\n');
                     continue;
                 }
-                out.append("//");
+                out.push_str("//"_str);
             }
-            out.append(with_prologue,
-                       w.LineStart().to_primitive(),
-                       (w.LineEnd() - w.LineStart()).to_primitive());
-            if (w.LineEnd().to_primitive() < with_prologue.size()) out.push_back('\n');
+            out.push_str(*source.get(w.LineStart(), w.LineEnd()));
+            if (w.LineEnd().to_primitive() < with_prologue.len().to_primitive())
+                out.push_ascii('\n');
         }
-        with_prologue = std::move(out);
+        with_prologue = rstd::move(out);
     }
 
-    with_prologue = BalanceConditionals(std::move(with_prologue));
+    with_prologue = BalanceConditionals(rstd::move(with_prologue));
 
     // Run glslang's own preprocessor: every `#if SKINNING` / `#if FOG_COMPUTED
     // && (...)` / `#if BLENDMODE == 0` block resolves, combo names (BONECOUNT,
@@ -799,148 +794,152 @@ inline std::string Preprocessor(const std::string& in_src, ShaderType type, cons
     // All stages route through glslang's HLSL frontend. Bridging macros in
     // the prologue turn GLSL types/intrinsics into HLSL equivalents.
     vulkan::SourceLang lang = vulkan::SourceLang::Hlsl;
-    std::string        src;
-    if (! vulkan::Preprocess(with_prologue, type, lang, src)) {
+    String             src;
+    const auto         input = with_prologue.as_str();
+    if (! vulkan::Preprocess(input, type, lang, src)) {
         // Fall through: subsequent compile will fail loudly with the same
         // diagnostics. Keep with_prologue so the failing path matches what
         // a developer would see if they bypassed the preprocess step.
-        src = std::move(with_prologue);
+        src = rstd::into(input);
     }
-    auto source = rstd::cppstd::as_str(src).unwrap();
+    auto source = src.as_str();
 
     // GS source uses `in`/`out` storage classes; VS/FS use `attribute`/`varying`.
-    ForEachDeclLine(
-        source, { "attribute"_str, "varying"_str, "in"_str, "out"_str }, [&](const DeclMatch& m) {
-            // `in`/`out` keep their GLSL storage direction in every stage.
-            // Legacy `attribute` is a VS input; `varying` is produced by VS and
-            // consumed by FS.
-            bool        is_input = (m.storage == "attribute"_str) || (m.storage == "in"_str) ||
-                                   (m.storage == "varying"_str && type == ShaderType::FRAGMENT);
-            std::string line(src.substr(m.start, m.end - m.start));
-            auto        name = rstd::cppstd::to_string(m.name);
-            if (is_input)
-                process_info.input[name] = std::move(line);
-            else
-                process_info.output[name] = std::move(line);
-        });
+    ForEachDeclLine(source, kStorageKeywords.as_slice(), [&](const DeclMatch& m) {
+        // `in`/`out` keep their GLSL storage direction in every stage.
+        // Legacy `attribute` is a VS input; `varying` is produced by VS and
+        // consumed by FS.
+        bool is_input = (m.storage == "attribute"_str) || (m.storage == "in"_str) ||
+                        (m.storage == "varying"_str && type == ShaderType::FRAGMENT);
+        auto line     = String::make(source.get(usize(m.start), usize(m.end)).unwrap());
+        auto name     = String::make(m.name);
+        if (is_input)
+            (void)process_info.input.insert(rstd::move(name), rstd::move(line));
+        else
+            (void)process_info.output.insert(rstd::move(name), rstd::move(line));
+    });
 
     // Non-sampler uniform decls feed Finalprocessor's shared cbuffer.
     // Sampler-typed uniforms are emitted as Texture/SamplerState pairs and
     // captured in active_tex_slots instead.
-    ForEachDeclLine(source, { "uniform"_str }, [&](const DeclMatch& m) {
+    ForEachDeclLine(source, kUniformKeyword.as_slice(), [&](const DeclMatch& m) {
         if (IsSamplerType(m.type)) {
             // Track active sampler slot if it's a `g_TextureN`.
             const ref<str> kTex { "g_Texture"_str };
             if (m.name.size() > kTex.size() && m.name.starts_with(kTex)) {
-                auto     num   = *m.name.get(kTex.size(), m.name.size());
-                unsigned slot  = 0;
-                auto*    begin = reinterpret_cast<const char*>(num.data());
-                auto [ptr, ec] = std::from_chars(begin, begin + num.size().to_primitive(), slot);
-                if (ec == std::errc()) process_info.active_tex_slots.insert(slot);
+                auto               num = *m.name.get(kTex.len(), m.name.len());
+                shader_lex::Cursor cursor(num);
+                if (auto digits = cursor.ReadInt(); digits.is_some()) {
+                    auto slot = rstd::from_str<u32>(*digits);
+                    if (slot.is_ok()) (void)process_info.active_tex_slots.insert(slot.unwrap());
+                }
             }
             return;
         }
-        process_info.uniforms[rstd::cppstd::to_string(m.name)] =
-            rstd::cppstd::to_string(m.type) + rstd::cppstd::to_string(m.array);
+        auto type = String::make(m.type);
+        type.push_str(m.array);
+        (void)process_info.uniforms.insert(rstd::into(m.name), rstd::move(type));
     });
     return src;
 }
 
 // Pass GLSL type names through unchanged; aliases like `float`/`float2` get
 // re-emitted as is for HLSL-flavoured leftovers.
-inline std::string ToGLSLType(std::string_view t) {
-    if (t == "float2") return "vec2";
-    if (t == "float3") return "vec3";
-    if (t == "float4") return "vec4";
-    if (t == "int2") return "ivec2";
-    if (t == "int3") return "ivec3";
-    if (t == "int4") return "ivec4";
-    if (t == "uint2") return "uvec2";
-    if (t == "uint3") return "uvec3";
-    if (t == "uint4") return "uvec4";
-    if (t == "float2x2") return "mat2";
-    if (t == "float3x3") return "mat3";
-    if (t == "float4x4") return "mat4";
-    return std::string(t);
+inline ref<str> ToGLSLType(ref<str> t) {
+    if (t == "float2"_str) return "vec2"_str;
+    if (t == "float3"_str) return "vec3"_str;
+    if (t == "float4"_str) return "vec4"_str;
+    if (t == "int2"_str) return "ivec2"_str;
+    if (t == "int3"_str) return "ivec3"_str;
+    if (t == "int4"_str) return "ivec4"_str;
+    if (t == "uint2"_str) return "uvec2"_str;
+    if (t == "uint3"_str) return "uvec3"_str;
+    if (t == "uint4"_str) return "uvec4"_str;
+    if (t == "float2x2"_str) return "mat2"_str;
+    if (t == "float3x3"_str) return "mat3"_str;
+    if (t == "float4x4"_str) return "mat4"_str;
+    return t;
 }
 
 // Inverse of ToGLSLType: bridge GLSL aliases back to HLSL canonical names
 // (used by the GS synth which feeds HLSL to glslang's HLSL frontend).
-inline std::string ToHLSLType(std::string_view t) {
-    if (t == "vec2") return "float2";
-    if (t == "vec3") return "float3";
-    if (t == "vec4") return "float4";
-    if (t == "ivec2") return "int2";
-    if (t == "ivec3") return "int3";
-    if (t == "ivec4") return "int4";
-    if (t == "uvec2") return "uint2";
-    if (t == "uvec3") return "uint3";
-    if (t == "uvec4") return "uint4";
-    if (t == "mat2" || t == "mat2x2") return "float2x2";
-    if (t == "mat3" || t == "mat3x3") return "float3x3";
-    if (t == "mat4" || t == "mat4x4") return "float4x4";
-    if (t == "mat2x3") return "float3x2";
-    if (t == "mat2x4") return "float4x2";
-    if (t == "mat3x2") return "float2x3";
-    if (t == "mat3x4") return "float4x3";
-    if (t == "mat4x2") return "float2x4";
-    if (t == "mat4x3") return "float3x4";
-    return std::string(t);
+inline ref<str> ToHLSLType(ref<str> t) {
+    if (t == "vec2"_str) return "float2"_str;
+    if (t == "vec3"_str) return "float3"_str;
+    if (t == "vec4"_str) return "float4"_str;
+    if (t == "ivec2"_str) return "int2"_str;
+    if (t == "ivec3"_str) return "int3"_str;
+    if (t == "ivec4"_str) return "int4"_str;
+    if (t == "uvec2"_str) return "uint2"_str;
+    if (t == "uvec3"_str) return "uint3"_str;
+    if (t == "uvec4"_str) return "uint4"_str;
+    if (t == "mat2"_str || t == "mat2x2"_str) return "float2x2"_str;
+    if (t == "mat3"_str || t == "mat3x3"_str) return "float3x3"_str;
+    if (t == "mat4"_str || t == "mat4x4"_str) return "float4x4"_str;
+    if (t == "mat2x3"_str) return "float3x2"_str;
+    if (t == "mat2x4"_str) return "float4x2"_str;
+    if (t == "mat3x2"_str) return "float2x3"_str;
+    if (t == "mat3x4"_str) return "float4x3"_str;
+    if (t == "mat4x2"_str) return "float2x4"_str;
+    if (t == "mat4x3"_str) return "float3x4"_str;
+    return t;
 }
 
+// Declarations borrow sources kept alive throughout final synthesis.
 struct IODecl {
-    char        storage; // 'a' for attribute, 'v' for varying, 'i' for GS `in`, 'o' for GS `out'
-    std::string type;    // GLSL type as captured (vec2/vec4/mat3/...)
-    std::string name;
-    std::string array; // "[N]" or empty
+    char     storage; // 'a' for attribute, 'v' for varying, 'i' for GS `in`, 'o' for GS `out'
+    ref<str> type;    // GLSL type as captured (vec2/vec4/mat3/...)
+    ref<str> name;
+    ref<str> array; // "[N]" or empty
 };
 
-inline char StorageCharFor(const std::string& storage_word) {
-    if (storage_word == "attribute") return 'a';
-    if (storage_word == "in") return 'i';
-    if (storage_word == "out") return 'o';
+inline char StorageCharFor(ref<str> storage_word) {
+    if (storage_word == "attribute"_str) return 'a';
+    if (storage_word == "in"_str) return 'i';
+    if (storage_word == "out"_str) return 'o';
     return 'v'; // varying
 }
 
 struct SamplerDecl {
-    std::string sampler_type; // "sampler2D" / "samplerCube" / ...
-    std::string name;
+    ref<str> sampler_type; // "sampler2D" / "samplerCube" / ...
+    ref<str> name;
 };
 
-inline std::pair<std::vector<SamplerDecl>, std::string>
-ScanAndStripSamplers(const std::string& src) {
-    std::vector<SamplerDecl> decls;
-    std::string              out;
-    out.reserve(src.size());
-    std::size_t cursor = 0;
-    ForEachDeclLine(rstd::cppstd::as_str(src).unwrap(), { "uniform"_str }, [&](const DeclMatch& m) {
+inline tuple<Vec<SamplerDecl>, String> ScanAndStripSamplers(ref<str> src) {
+    Vec<SamplerDecl> decls;
+    String           out;
+    out.reserve(src.len());
+    rstd::size_t cursor = 0;
+    ForEachDeclLine(src, kUniformKeyword.as_slice(), [&](const DeclMatch& m) {
         if (! IsSamplerType(m.type)) return;
-        out.append(src, cursor, m.start - cursor);
-        out.append(src, m.start, m.keep_prefix);
+        out.push_str(*src.get(usize(cursor), usize(m.start)));
+        out.push_str(*src.get(usize(m.start), usize(m.start + m.keep_prefix)));
         cursor = m.end;
-        decls.push_back({ rstd::cppstd::to_string(m.type), rstd::cppstd::to_string(m.name) });
+        decls.push({ m.type, m.name });
     });
-    out.append(src, cursor, std::string::npos);
-    return { std::move(decls), std::move(out) };
+    out.push_str(*src.get(usize(cursor), src.len()));
+    return { rstd::move(decls), rstd::move(out) };
 }
 
-inline const char* HLSLSamplerType(std::string_view glsl) {
-    if (glsl == "sampler2D") return "Texture2D<float4>";
-    if (glsl == "sampler3D") return "Texture3D<float4>";
-    if (glsl == "samplerCube") return "TextureCube<float4>";
+inline ref<str> HLSLSamplerType(ref<str> glsl) {
+    if (glsl == "sampler2D"_str) return "Texture2D<float4>"_str;
+    if (glsl == "sampler3D"_str) return "Texture3D<float4>"_str;
+    if (glsl == "samplerCube"_str) return "TextureCube<float4>"_str;
     // GLSL shadow / comparison samplers: scalar-result texture with a
     // SamplerComparisonState. We bind a Texture2D<float> and a paired
     // SamplerComparisonState (the latter chosen via HLSLSamplerStateType).
-    if (glsl == "sampler2DComparison" || glsl == "sampler2DShadow") return "Texture2D<float>";
-    return "Texture2D<float4>";
+    if (glsl == "sampler2DComparison"_str || glsl == "sampler2DShadow"_str)
+        return "Texture2D<float>"_str;
+    return "Texture2D<float4>"_str;
 }
 
-inline const char* HLSLSamplerStateType(std::string_view glsl) {
-    if (glsl == "sampler2DComparison" || glsl == "sampler2DShadow") return "SamplerComparisonState";
-    return "SamplerState";
+inline ref<str> HLSLSamplerStateType(ref<str> glsl) {
+    if (glsl == "sampler2DComparison"_str || glsl == "sampler2DShadow"_str)
+        return "SamplerComparisonState"_str;
+    return "SamplerState"_str;
 }
 
-inline bool IsSamplerCombinedImage(std::string_view glsl) {
+inline bool IsSamplerCombinedImage(ref<str> glsl) {
     // All sampler types in WE are combined image samplers from the
     // descriptor-set side. The HLSL sampling intrinsic differs (Sample
     // vs SampleCmp) but binding semantics are identical.
@@ -951,16 +950,16 @@ inline bool IsSamplerCombinedImage(std::string_view glsl) {
 // Strip every `uniform TYPE NAME;` declaration (including samplers — already
 // stripped by ScanAndStripSamplers when called in sequence, idempotent). The
 // caller re-emits them as members of a shared cbuffer.
-inline std::string StripUniforms(const std::string& src) {
-    std::string out;
-    out.reserve(src.size());
-    std::size_t cursor = 0;
-    ForEachDeclLine(rstd::cppstd::as_str(src).unwrap(), { "uniform"_str }, [&](const DeclMatch& m) {
-        out.append(src, cursor, m.start - cursor);
-        out.append(src, m.start, m.keep_prefix);
+inline String StripUniforms(ref<str> src) {
+    String out;
+    out.reserve(src.len());
+    rstd::size_t cursor = 0;
+    ForEachDeclLine(src, kUniformKeyword.as_slice(), [&](const DeclMatch& m) {
+        out.push_str(*src.get(usize(cursor), usize(m.start)));
+        out.push_str(*src.get(usize(m.start), usize(m.start + m.keep_prefix)));
         cursor = m.end;
     });
-    out.append(src, cursor, std::string::npos);
+    out.push_str(*src.get(usize(cursor), src.len()));
     return out;
 }
 
@@ -971,13 +970,13 @@ inline bool IsGlobalVariableQualifier(ref<str> token) {
 
 // GLSL file-scope variables are private shader state. HLSL instead places an
 // unqualified file-scope variable in an implicit $Global uniform block.
-inline std::string QualifyGlobalVariablesForHlsl(const std::string& src) {
-    auto               source = rstd::cppstd::as_str(src).unwrap();
-    shader_lex::Lexer  lexer(source);
-    std::vector<usize> insertions;
-    int                brace_depth { 0 };
-    bool               statement_start { true };
-    bool               directive { false };
+inline String QualifyGlobalVariablesForHlsl(ref<str> src) {
+    auto              source = src;
+    shader_lex::Lexer lexer(source);
+    Vec<usize>        insertions;
+    int               brace_depth { 0 };
+    bool              statement_start { true };
+    bool              directive { false };
 
     for (;;) {
         auto token = lexer.Next();
@@ -1012,7 +1011,7 @@ inline std::string QualifyGlobalVariablesForHlsl(const std::string& src) {
         }
         if (! statement_start) continue;
         if (token.kind != shader_lex::TokenKind::Ident) continue;
-        if (token.text == rstd::cppstd::as_str(SHADER_PLACEHOLD).unwrap()) continue;
+        if (token.text == SHADER_PLACEHOLD) continue;
         statement_start = false;
 
         const auto declaration_start = token.offset;
@@ -1033,35 +1032,33 @@ inline std::string QualifyGlobalVariablesForHlsl(const std::string& src) {
             }
         }
         lexer.Restore(probe);
-        if (variable && ! has_static) insertions.push_back(declaration_start);
+        if (variable && ! has_static) insertions.push(usize(declaration_start));
     }
 
-    if (insertions.empty()) return src;
-    std::string out;
-    out.reserve(src.size() + insertions.size() * 7);
-    std::size_t copied {};
+    if (insertions.is_empty()) return String::make(src);
+    String out;
+    out.reserve(usize(src.len().to_primitive() + insertions.len().to_primitive() * 7));
+    rstd::size_t copied {};
     for (auto offset : insertions) {
         auto pos = offset.to_primitive();
-        out.append(src, copied, pos - copied);
-        out.append("static ");
+        out.push_str(*src.get(usize(copied), usize(pos)));
+        out.push_str("static "_str);
         copied = pos;
     }
-    out.append(src, copied, std::string::npos);
+    out.push_str(*src.get(usize(copied), src.len()));
     return out;
 }
 
-inline Option<IODecl> ParseIODecl(const std::string& line) {
+inline Option<IODecl> ParseIODecl(ref<str> line) {
     // Skip leading newline / CR that the capture loops preserved as an anchor.
-    std::size_t start = 0;
-    while (start < line.size() && shader_lex::IsVSpace(line[start])) ++start;
-    auto m = TryParseDeclLine(rstd::cppstd::as_str(line).unwrap(),
-                              usize(start),
-                              { "attribute"_str, "varying"_str, "in"_str, "out"_str });
+    rstd::size_t start = 0;
+    auto         bytes = line.as_bytes();
+    while (start < bytes.len().to_primitive() &&
+           shader_lex::IsVSpace(static_cast<char>(bytes[usize(start)].to_primitive())))
+        ++start;
+    auto m = TryParseDeclLine(line, usize(start), kStorageKeywords.as_slice());
     if (m.is_none()) return None();
-    return Some(IODecl { StorageCharFor(rstd::cppstd::to_string(m->storage)),
-                         rstd::cppstd::to_string(m->type),
-                         rstd::cppstd::to_string(m->name),
-                         rstd::cppstd::to_string(m->array) });
+    return Some(IODecl { StorageCharFor(m->storage), m->type, m->name, m->array });
 }
 
 enum class IODeclPrecedence
@@ -1070,7 +1067,7 @@ enum class IODeclPrecedence
     PreferIncoming,
 };
 
-inline void AddIODecl(std::vector<IODecl>& decls, const IODecl& decl, IODeclPrecedence precedence) {
+inline void AddIODecl(Vec<IODecl>& decls, const IODecl& decl, IODeclPrecedence precedence) {
     for (auto& existing : decls) {
         if (existing.name != decl.name) continue;
         if (precedence == IODeclPrecedence::PreferIncoming) {
@@ -1079,7 +1076,7 @@ inline void AddIODecl(std::vector<IODecl>& decls, const IODecl& decl, IODeclPrec
         }
         return;
     }
-    decls.push_back(decl);
+    decls.push(IODecl(decl));
 }
 
 // Pull all `attribute|varying|in|out TYPE NAME;` decls out, return them
@@ -1087,24 +1084,19 @@ inline void AddIODecl(std::vector<IODecl>& decls, const IODecl& decl, IODeclPrec
 // essential: `attribute`/`varying` are not HLSL keywords; the entry-point
 // synthesizer re-emits canonical `static TYPE NAME;` decls so it never
 // drifts from what DXC's preprocessor actually compiled.
-inline std::pair<std::vector<IODecl>, std::string> ScanAndStripIO(const std::string& src) {
-    std::vector<IODecl> decls;
-    std::string         out;
-    out.reserve(src.size());
-    std::size_t cursor = 0;
-    ForEachDeclLine(rstd::cppstd::as_str(src).unwrap(),
-                    { "attribute"_str, "varying"_str, "in"_str, "out"_str },
-                    [&](const DeclMatch& m) {
-                        out.append(src, cursor, m.start - cursor);
-                        out.append(src, m.start, m.keep_prefix);
-                        cursor = m.end;
-                        decls.push_back({ StorageCharFor(rstd::cppstd::to_string(m.storage)),
-                                          rstd::cppstd::to_string(m.type),
-                                          rstd::cppstd::to_string(m.name),
-                                          rstd::cppstd::to_string(m.array) });
-                    });
-    out.append(src, cursor, std::string::npos);
-    return { std::move(decls), std::move(out) };
+inline tuple<Vec<IODecl>, String> ScanAndStripIO(ref<str> src) {
+    Vec<IODecl> decls;
+    String      out;
+    out.reserve(usize(src.len().to_primitive()));
+    rstd::size_t cursor = 0;
+    ForEachDeclLine(src, kStorageKeywords.as_slice(), [&](const DeclMatch& m) {
+        out.push_str(*src.get(usize(cursor), usize(cursor + (m.start - cursor))));
+        out.push_str(*src.get(usize(m.start), usize(m.start + (m.keep_prefix))));
+        cursor = m.end;
+        decls.push({ StorageCharFor(m.storage), m.type, m.name, m.array });
+    });
+    out.push_str(*src.get(usize(cursor), src.len()));
+    return { rstd::move(decls), rstd::move(out) };
 }
 
 // Synthesizer output split in two: `pre` is `static TYPE NAME;` decls
@@ -1112,69 +1104,72 @@ inline std::pair<std::vector<IODecl>, std::string> ScanAndStripIO(const std::str
 // declared before use). `post` is the HLSL entry-point wrapper that
 // must follow `void main()` so it can call the renamed `shader_main()`.
 struct SynthOutput {
-    std::string pre;
-    std::string post;
+    String pre;
+    String post;
 };
 
-inline std::size_t ArraySlots(const std::string& arr) {
-    if (arr.size() < 3 || arr.front() != '[' || arr.back() != ']') return 1;
-    std::size_t n = 0;
-    for (std::size_t i = 1; i + 1 < arr.size(); ++i) {
-        const char c = arr[i];
-        if (c < '0' || c > '9') return 1;
-        n = n * 10 + static_cast<std::size_t>(c - '0');
+inline rstd::size_t ArraySlots(ref<str> arr) {
+    const auto bytes = arr.as_bytes();
+    if (bytes.len() < usize(3) || bytes[usize()] != u8('[') ||
+        bytes[bytes.len() - usize(1)] != u8(']'))
+        return 1;
+    rstd::size_t n = 0;
+    for (usize i(1); i + usize(1) < bytes.len(); ++i) {
+        auto c = bytes[i];
+        if (c < u8('0') || c > u8('9')) return 1;
+        n = n * 10 + static_cast<rstd::size_t>((c - u8('0')).to_primitive());
     }
     return n > 0 ? n : 1;
 }
 
 struct PackedIOArray {
-    std::string_view vector_type;
-    std::size_t      elements;
-    std::size_t      components;
-    std::size_t      slots;
+    ref<str>     vector_type;
+    rstd::size_t elements;
+    rstd::size_t components;
+    rstd::size_t slots;
 };
 
 inline Option<PackedIOArray> BuildPackedIOArray(const IODecl& decl) {
-    if (decl.array.empty()) return None();
+    if (decl.array.is_empty()) return None();
 
     const auto elements = ArraySlots(decl.array);
     if (elements <= 1) return None();
 
-    const auto       type = ToHLSLType(decl.type);
-    std::string_view vector_type;
-    std::size_t      components {};
-    if (type == "float") {
-        vector_type = "float4";
+    const auto   type = ToHLSLType(decl.type);
+    ref<str>     vector_type;
+    rstd::size_t components {};
+    if (type == "float"_str) {
+        vector_type = "float4"_str;
         components  = 1;
-    } else if (type == "float2") {
-        vector_type = "float4";
+    } else if (type == "float2"_str) {
+        vector_type = "float4"_str;
         components  = 2;
-    } else if (type == "float3") {
-        vector_type = "float4";
+    } else if (type == "float3"_str) {
+        vector_type = "float4"_str;
         components  = 3;
-    } else if (type == "int") {
-        vector_type = "int4";
+    } else if (type == "int"_str) {
+        vector_type = "int4"_str;
         components  = 1;
-    } else if (type == "int2") {
-        vector_type = "int4";
+    } else if (type == "int2"_str) {
+        vector_type = "int4"_str;
         components  = 2;
-    } else if (type == "int3") {
-        vector_type = "int4";
+    } else if (type == "int3"_str) {
+        vector_type = "int4"_str;
         components  = 3;
-    } else if (type == "uint") {
-        vector_type = "uint4";
+    } else if (type == "uint"_str) {
+        vector_type = "uint4"_str;
         components  = 1;
-    } else if (type == "uint2") {
-        vector_type = "uint4";
+    } else if (type == "uint2"_str) {
+        vector_type = "uint4"_str;
         components  = 2;
-    } else if (type == "uint3") {
-        vector_type = "uint4";
+    } else if (type == "uint3"_str) {
+        vector_type = "uint4"_str;
         components  = 3;
     } else {
         return None();
     }
 
-    if (elements > std::numeric_limits<std::size_t>::max() / components) return None();
+    if (elements > rstd::usize::MAX.to_primitive() / components) return None();
     const auto scalar_count = elements * components;
     return Some(PackedIOArray {
         .vector_type = vector_type,
@@ -1184,24 +1179,28 @@ inline Option<PackedIOArray> BuildPackedIOArray(const IODecl& decl) {
     });
 }
 
-inline std::string PackedIOField(const IODecl& decl) { return "_ww_packed_" + decl.name; }
+inline String PackedIOField(const IODecl& decl) { return rstd::format("_ww_packed_{}", decl.name); }
 
-inline void EmitPackedIOCopy(std::string& out, const IODecl& decl, std::string_view packed_owner,
-                             bool pack) {
+inline void EmitPackedIOCopy(String& out, const IODecl& decl, ref<str> packed_owner, bool pack) {
     auto layout = BuildPackedIOArray(decl);
     if (layout.is_none()) return;
 
-    static constexpr std::string_view components { "xyzw" };
-    const auto                        field = PackedIOField(decl);
-    for (std::size_t element = 0; element < layout->elements; ++element) {
-        for (std::size_t component = 0; component < layout->components; ++component) {
-            const auto  scalar = element * layout->components + component;
-            std::string source = decl.name + "[" + std::to_string(element) + "]";
-            if (layout->components > 1) source += "." + std::string(1, components[component]);
-            std::string packed = std::string(packed_owner) + "." + field + "[" +
-                                 std::to_string(scalar / 4) + "]." +
-                                 std::string(1, components[scalar % 4]);
-            out += "    " + (pack ? packed : source) + " = " + (pack ? source : packed) + ";\n";
+    static constexpr ref<str> components { "xyzw"_str };
+    const auto                field = PackedIOField(decl);
+    for (rstd::size_t element = 0; element < layout->elements; ++element) {
+        for (rstd::size_t component = 0; component < layout->components; ++component) {
+            const auto scalar = element * layout->components + component;
+            String     source = rstd::format("{}[{}]", decl.name, element);
+            if (layout->components > 1)
+                source.push_str(
+                    rstd::format(".{}", *components.get(usize(component), usize(component + 1))));
+            String packed = rstd::format("{}.{}[{}].{}",
+                                         packed_owner,
+                                         field,
+                                         scalar / 4,
+                                         *components.get(usize(scalar % 4), usize(scalar % 4 + 1)));
+            out.push_str(
+                rstd::format("    {} = {};\n", (pack ? packed : source), (pack ? source : packed)));
         }
     }
 }
@@ -1210,24 +1209,21 @@ inline void EmitPackedIOCopy(std::string& out, const IODecl& decl, std::string_v
 // list of IO decls, with locations assigned alphabetically so neighbouring
 // stages agree without explicit coordination. `is_input` picks the storage
 // qualifier (in vs out). Returns the joined block.
-inline std::string EmitStageIOLayout(std::vector<IODecl> decls, bool is_input) {
+inline String EmitStageIOLayout(Vec<IODecl> decls, bool is_input) {
     // gl_Position is a GLSL builtin; never re-declare it. _ww_sv_position is
     // the GS-side macro alias for the same slot.
-    decls.erase(std::remove_if(decls.begin(),
-                               decls.end(),
-                               [](const IODecl& d) {
-                                   return d.name == "gl_Position" || d.name == "_ww_sv_position";
-                               }),
-                decls.end());
-    std::sort(decls.begin(), decls.end(), [](const IODecl& a, const IODecl& b) {
-        return a.name < b.name;
+    decls.retain([](const IODecl& d) {
+        return d.name != "gl_Position"_str && d.name != "_ww_sv_position"_str;
     });
-    const char* qual = is_input ? "in" : "out";
-    std::string out;
-    std::size_t loc = 0;
+    sort_unstable_by(decls.as_mut_slice().as_mut_ref(), [](const IODecl& a, const IODecl& b) {
+        return a.name.bytes().cmp(b.name.bytes()) < 0;
+    });
+    ref<str>     qual = is_input ? "in"_str : "out"_str;
+    String       out;
+    rstd::size_t loc = 0;
     for (const auto& d : decls) {
-        out += "layout(location = " + std::to_string(loc) + ") " + qual + " " + ToGLSLType(d.type) +
-               " " + d.name + d.array + ";\n";
+        out.push_str(rstd::format(
+            "layout(location = {}) {} {} {}{};\n", loc, qual, ToGLSLType(d.type), d.name, d.array));
         loc += ArraySlots(d.array);
     }
     return out;
@@ -1236,32 +1232,30 @@ inline std::string EmitStageIOLayout(std::vector<IODecl> decls, bool is_input) {
 // HLSL-side struct emission for the GS synth. Drops `[[vk::location(N)]]`
 // for the same reason as EmitVSFSStruct — glslang's HLSL frontend collapses
 // every element of an explicitly-located array onto the same Location.
-inline std::string EmitGSHLSLStruct(std::string_view name, std::vector<IODecl> decls) {
-    decls.erase(std::remove_if(decls.begin(),
-                               decls.end(),
-                               [](const IODecl& d) {
-                                   return d.name == "gl_Position" || d.name == "_ww_sv_position";
-                               }),
-                decls.end());
-    std::sort(decls.begin(), decls.end(), [](const IODecl& a, const IODecl& b) {
-        return a.name < b.name;
+inline String EmitGSHLSLStruct(ref<str> name, Vec<IODecl> decls) {
+    decls.retain([](const IODecl& d) {
+        return d.name != "gl_Position"_str && d.name != "_ww_sv_position"_str;
     });
-    std::string out;
-    out += "struct ";
-    out += name;
-    out += " {\n";
-    out += "    float4 _ww_sv_position : SV_Position;\n";
+    sort_unstable_by(decls.as_mut_slice().as_mut_ref(), [](const IODecl& a, const IODecl& b) {
+        return a.name.bytes().cmp(b.name.bytes()) < 0;
+    });
+    String out;
+    out.push_str("struct "_str);
+    out.push_str(name);
+    out.push_str(" {\n"_str);
+    out.push_str("    float4 _ww_sv_position : SV_Position;\n"_str);
     for (const auto& d : decls) {
-        out += "    " + ToHLSLType(d.type) + " " + d.name + d.array + " : " + d.name + ";\n";
+        out.push_str(
+            rstd::format("    {} {}{} : {};\n", ToHLSLType(d.type), d.name, d.array, d.name));
     }
-    out += "};\n";
+    out.push_str("};\n"_str);
     return out;
 }
 
-inline std::string_view HLSLSystemSemantic(std::string_view name) {
-    if (name == "gl_VertexID") return "SV_VertexID";
-    if (name == "gl_InstanceID") return "SV_InstanceID";
-    if (name == "gl_ViewportIndex") return "SV_ViewportArrayIndex";
+inline ref<str> HLSLSystemSemantic(ref<str> name) {
+    if (name == "gl_VertexID"_str) return "SV_VertexID"_str;
+    if (name == "gl_InstanceID"_str) return "SV_InstanceID"_str;
+    if (name == "gl_ViewportIndex"_str) return "SV_ViewportArrayIndex"_str;
     return {};
 }
 
@@ -1279,36 +1273,39 @@ inline std::string_view HLSLSystemSemantic(std::string_view name) {
 // Direct VS/FS interfaces pack sub-vec4 arrays because glslang otherwise
 // consumes one full location per element and can exceed Vulkan's component
 // limit even when the scalar payload itself fits.
-inline std::string EmitVSFSStruct(std::string_view name, std::vector<IODecl> decls,
-                                  bool include_sv_position, bool pack_arrays = false) {
-    decls.erase(std::remove_if(decls.begin(),
-                               decls.end(),
-                               [](const IODecl& d) {
-                                   return d.name == "gl_Position" || d.name == "_ww_sv_position";
-                               }),
-                decls.end());
-    std::sort(decls.begin(), decls.end(), [](const IODecl& a, const IODecl& b) {
-        return a.name < b.name;
+inline String EmitVSFSStruct(ref<str> name, Vec<IODecl> decls, bool include_sv_position,
+                             bool pack_arrays = false) {
+    decls.retain([](const IODecl& d) {
+        return d.name != "gl_Position"_str && d.name != "_ww_sv_position"_str;
     });
-    std::string out;
-    out += "struct ";
-    out += name;
-    out += " {\n";
+    sort_unstable_by(decls.as_mut_slice().as_mut_ref(), [](const IODecl& a, const IODecl& b) {
+        return a.name.bytes().cmp(b.name.bytes()) < 0;
+    });
+    String out;
+    out.push_str("struct "_str);
+    out.push_str(name);
+    out.push_str(" {\n"_str);
     if (include_sv_position) {
-        out += "    float4 _ww_sv_position : SV_Position;\n";
+        out.push_str("    float4 _ww_sv_position : SV_Position;\n"_str);
     }
     for (const auto& d : decls) {
         const auto semantic = HLSLSystemSemantic(d.name);
         auto       packed   = pack_arrays ? BuildPackedIOArray(d) : None();
         if (packed.is_some()) {
-            out += "    " + std::string(packed->vector_type) + " " + PackedIOField(d) + "[" +
-                   std::to_string(packed->slots) + "] : " + d.name + ";\n";
+            out.push_str(rstd::format("    {} {}[{}] : {};\n",
+                                      packed->vector_type,
+                                      PackedIOField(d),
+                                      packed->slots,
+                                      d.name));
         } else {
-            out += "    " + ToHLSLType(d.type) + " " + d.name + d.array + " : " +
-                   (semantic.empty() ? d.name : std::string(semantic)) + ";\n";
+            out.push_str(rstd::format("    {} {}{} : {};\n",
+                                      ToHLSLType(d.type),
+                                      d.name,
+                                      d.array,
+                                      (semantic.is_empty() ? d.name : semantic)));
         }
     }
-    out += "};\n";
+    out.push_str("};\n"_str);
     return out;
 }
 
@@ -1316,92 +1313,91 @@ inline std::string EmitVSFSStruct(std::string_view name, std::vector<IODecl> dec
 // post = entry-point wrapper) for VS or FS. Locations are alphabetical so
 // vert/frag stages agree without explicit coordination — both are called
 // with the same cross-stage varying union.
-inline SynthOutput SynthesizeHLSLEntry(ShaderType stage, std::vector<IODecl> attrs,
-                                       std::vector<IODecl> varyings, bool pack_varying_arrays) {
+inline SynthOutput SynthesizeHLSLEntry(ShaderType stage, Vec<IODecl> attrs, Vec<IODecl> varyings,
+                                       bool pack_varying_arrays) {
     SynthOutput so;
     if (stage == ShaderType::GEOMETRY) return so;
 
     // gl_Position propagates via the SV_Position field, not a regular slot.
     // Filter both names (the GS prologue rewrites `gl_Position` to
     // `_ww_sv_position`, so its post-preprocess form needs filtering too).
-    auto drop_position = [](std::vector<IODecl>& v) {
-        v.erase(std::remove_if(v.begin(),
-                               v.end(),
-                               [](const IODecl& d) {
-                                   return d.name == "gl_Position" || d.name == "_ww_sv_position";
-                               }),
-                v.end());
+    auto drop_position = [](Vec<IODecl>& v) {
+        v.retain([](const IODecl& d) {
+            return d.name != "gl_Position"_str && d.name != "_ww_sv_position"_str;
+        });
     };
     drop_position(attrs);
     drop_position(varyings);
 
     auto by_name = [](const IODecl& a, const IODecl& b) {
-        return a.name < b.name;
+        return a.name.bytes().cmp(b.name.bytes()) < 0;
     };
-    std::sort(attrs.begin(), attrs.end(), by_name);
-    std::sort(varyings.begin(), varyings.end(), by_name);
+    sort_unstable_by(attrs.as_mut_slice().as_mut_ref(), by_name);
+    sort_unstable_by(varyings.as_mut_slice().as_mut_ref(), by_name);
 
     // Static globals so the user shader body resolves `a_Position`,
     // `v_TexCoord`, etc. regardless of #if-branch visibility — the wrapper
     // copies from/to the entry struct.
-    so.pre += "\n// === auto-generated stage I/O statics ===\n";
+    so.pre.push_str("\n// === auto-generated stage I/O statics ===\n"_str);
     for (const auto& d : attrs) {
-        so.pre += "static " + ToHLSLType(d.type) + " " + d.name + d.array + ";\n";
+        so.pre.push_str(rstd::format("static {} {}{};\n", ToHLSLType(d.type), d.name, d.array));
     }
     for (const auto& d : varyings) {
-        so.pre += "static " + ToHLSLType(d.type) + " " + d.name + d.array + ";\n";
+        so.pre.push_str(rstd::format("static {} {}{};\n", ToHLSLType(d.type), d.name, d.array));
     }
 
-    std::string& out = so.post;
-    out += "\n// === auto-generated entry point ===\n";
+    String& out = so.post;
+    out.push_str("\n// === auto-generated entry point ===\n"_str);
     if (stage == ShaderType::VERTEX) {
-        out += EmitVSFSStruct("WW_VSIn", attrs, /*sv_pos=*/false);
-        out += EmitVSFSStruct("WW_VSOut", varyings, /*sv_pos=*/true, pack_varying_arrays);
-        out += "WW_VSOut main_vs(WW_VSIn _ww_in) {\n";
+        out.push_str(EmitVSFSStruct("WW_VSIn"_str, attrs.clone(), /*sv_pos=*/false));
+        out.push_str(
+            EmitVSFSStruct("WW_VSOut"_str, varyings.clone(), /*sv_pos=*/true, pack_varying_arrays));
+        out.push_str("WW_VSOut main_vs(WW_VSIn _ww_in) {\n"_str);
         for (const auto& a : attrs) {
-            out += "    " + a.name + " = _ww_in." + a.name + ";\n";
+            out.push_str(rstd::format("    {} = _ww_in.{};\n", a.name, a.name));
         }
-        out += "    shader_main();\n";
-        out += "    WW_VSOut _ww_out;\n";
-        out += "    _ww_out._ww_sv_position = gl_Position;\n";
+        out.push_str("    shader_main();\n"_str);
+        out.push_str("    WW_VSOut _ww_out;\n"_str);
+        out.push_str("    _ww_out._ww_sv_position = gl_Position;\n"_str);
         for (const auto& v : varyings) {
-            if (v.name == "gl_Position" || v.name == "_ww_sv_position") continue;
+            if (v.name == "gl_Position"_str || v.name == "_ww_sv_position"_str) continue;
             if (pack_varying_arrays && BuildPackedIOArray(v).is_some()) {
-                EmitPackedIOCopy(out, v, "_ww_out", true);
+                EmitPackedIOCopy(out, v, "_ww_out"_str, true);
             } else {
-                out += "    _ww_out." + v.name + " = " + v.name + ";\n";
+                out.push_str(rstd::format("    _ww_out.{} = {};\n", v.name, v.name));
             }
         }
-        out += "    return _ww_out;\n";
-        out += "}\n";
+        out.push_str("    return _ww_out;\n"_str);
+        out.push_str("}\n"_str);
     } else { // FRAGMENT
-        out += EmitVSFSStruct("WW_PSIn", varyings, /*sv_pos=*/true, pack_varying_arrays);
-        out += "float4 main_ps(WW_PSIn _ww_in) : SV_Target0 {\n";
-        out += "    gl_FragCoord = _ww_in._ww_sv_position;\n";
+        out.push_str(
+            EmitVSFSStruct("WW_PSIn"_str, varyings.clone(), /*sv_pos=*/true, pack_varying_arrays));
+        out.push_str("float4 main_ps(WW_PSIn _ww_in) : SV_Target0 {\n"_str);
+        out.push_str("    gl_FragCoord = _ww_in._ww_sv_position;\n"_str);
         for (const auto& v : varyings) {
-            if (v.name == "gl_Position" || v.name == "_ww_sv_position") continue;
+            if (v.name == "gl_Position"_str || v.name == "_ww_sv_position"_str) continue;
             if (pack_varying_arrays && BuildPackedIOArray(v).is_some()) {
-                EmitPackedIOCopy(out, v, "_ww_in", false);
+                EmitPackedIOCopy(out, v, "_ww_in"_str, false);
             } else {
-                out += "    " + v.name + " = _ww_in." + v.name + ";\n";
+                out.push_str(rstd::format("    {} = _ww_in.{};\n", v.name, v.name));
             }
         }
-        out += "    shader_main();\n";
-        out += "    return glOutColor;\n";
-        out += "}\n";
+        out.push_str("    shader_main();\n"_str);
+        out.push_str("    return glOutColor;\n"_str);
+        out.push_str("}\n"_str);
     }
     return so;
 }
 
 // Find a literal `void main()` call in `src` (no regex). Replace with the GS
 // entry-point signature. Returns the modified source unchanged if no match.
-inline std::string RewriteGSMain(std::string src) {
-    static constexpr std::string_view marker { "void main()" };
-    static constexpr std::string_view repl {
-        "void main_gs(point WW_VSOut IN[1], inout TriangleStream<WW_PSIn> OUT)"
+inline String RewriteGSMain(String src) {
+    static constexpr ref<str> marker { "void main()"_str };
+    static constexpr ref<str> repl {
+        "void main_gs(point WW_VSOut IN[1], inout TriangleStream<WW_PSIn> OUT)"_str
     };
-    if (auto pos = src.find(marker); pos != std::string::npos) {
-        src.replace(pos, marker.size(), repl);
+    if (auto pos = src.as_str().find(marker); pos.is_some()) {
+        src.replace_range(*pos, *pos + marker.len(), repl);
     }
     return src;
 }
@@ -1410,117 +1406,127 @@ inline std::string RewriteGSMain(std::string src) {
 // scales). HLSL form (`floatRxC`, `floatN`, scalars). Unknown types fall back
 // to vec4-equivalent which is always safely-aligned, never under-padded.
 struct Std140Layout {
-    std::size_t align;
-    std::size_t size;
+    rstd::size_t align;
+    rstd::size_t size;
 };
-inline Std140Layout Std140Base(std::string_view hlsl_base) {
-    if (hlsl_base == "float" || hlsl_base == "int" || hlsl_base == "uint" || hlsl_base == "bool")
+inline Std140Layout Std140Base(ref<str> hlsl_base) {
+    if (hlsl_base == "float"_str || hlsl_base == "int"_str || hlsl_base == "uint"_str ||
+        hlsl_base == "bool"_str)
         return { 4, 4 };
-    if (hlsl_base == "float2" || hlsl_base == "int2" || hlsl_base == "uint2") return { 8, 8 };
-    if (hlsl_base == "float3" || hlsl_base == "int3" || hlsl_base == "uint3") return { 16, 12 };
-    if (hlsl_base == "float4" || hlsl_base == "int4" || hlsl_base == "uint4") return { 16, 16 };
+    if (hlsl_base == "float2"_str || hlsl_base == "int2"_str || hlsl_base == "uint2"_str)
+        return { 8, 8 };
+    if (hlsl_base == "float3"_str || hlsl_base == "int3"_str || hlsl_base == "uint3"_str)
+        return { 16, 12 };
+    if (hlsl_base == "float4"_str || hlsl_base == "int4"_str || hlsl_base == "uint4"_str)
+        return { 16, 16 };
     // column_major float<R>x<C> = C columns of vec<R>, each padded to 16
     // bytes by std140 → 16*C bytes total.
-    if (hlsl_base.size() == 8 && hlsl_base.substr(0, 5) == "float" && hlsl_base[6] == 'x' &&
-        hlsl_base[5] >= '2' && hlsl_base[5] <= '4' && hlsl_base[7] >= '2' && hlsl_base[7] <= '4') {
-        std::size_t cols = (std::size_t)(hlsl_base[7] - '0');
+    if (hlsl_base.len() == usize(8) && *hlsl_base.get(usize(), usize(5)) == "float"_str &&
+        static_cast<char>(hlsl_base.as_bytes()[usize(6)].to_primitive()) == 'x' &&
+        static_cast<char>(hlsl_base.as_bytes()[usize(5)].to_primitive()) >= '2' &&
+        static_cast<char>(hlsl_base.as_bytes()[usize(5)].to_primitive()) <= '4' &&
+        static_cast<char>(hlsl_base.as_bytes()[usize(7)].to_primitive()) >= '2' &&
+        static_cast<char>(hlsl_base.as_bytes()[usize(7)].to_primitive()) <= '4') {
+        rstd::size_t cols =
+            (rstd::size_t)(static_cast<char>(hlsl_base.as_bytes()[usize(7)].to_primitive()) - '0');
         return { 16, cols * 16 };
     }
     return { 16, 16 };
 }
 
-inline std::pair<std::string_view, std::string_view> SplitUniformType(std::string_view ty) {
-    if (auto pos = ty.find('['); pos != std::string_view::npos) {
-        return { ty.substr(0, pos), ty.substr(pos) };
-    }
-    return { ty, {} };
+inline tuple<ref<str>, ref<str>> SplitUniformType(ref<str> ty) {
+    if (auto pos = ty.find("["_str); pos.is_some())
+        return { *ty.get(usize(), *pos), *ty.get(*pos, ty.len()) };
+    return { ty, ref<str> {} };
 }
 
 struct UniformLayout {
-    std::string_view array;
-    std::string      hlsl_ty;
-    std::size_t      align;
-    std::size_t      size;
+    ref<str>     array;
+    ref<str>     hlsl_ty;
+    rstd::size_t align;
+    rstd::size_t size;
 };
 
-inline std::size_t ParseArrayCount(std::string_view arr) {
-    if (arr.size() < 3 || arr.front() != '[' || arr.back() != ']') return 1;
-    std::string_view inner = arr.substr(1, arr.size() - 2);
-    std::size_t      n     = 0;
-    for (char c : inner) {
-        if (c == ' ' || c == '\t') continue;
-        if (c < '0' || c > '9') return 1;
-        n = n * 10 + (std::size_t)(c - '0');
+inline rstd::size_t ParseArrayCount(ref<str> arr) {
+    auto bytes = arr.as_bytes();
+    if (bytes.len() < usize(3) || bytes[usize()] != u8('[') ||
+        bytes[bytes.len() - usize(1)] != u8(']'))
+        return 1;
+    rstd::size_t n = 0;
+    for (usize i(1); i + usize(1) < bytes.len(); ++i) {
+        auto c = bytes[i];
+        if (c == u8(' ') || c == u8('\t')) continue;
+        if (c < u8('0') || c > u8('9')) return 1;
+        n = n * 10 + static_cast<rstd::size_t>((c - u8('0')).to_primitive());
     }
     return n == 0 ? 1 : n;
 }
 
-inline UniformLayout LayoutUniform(std::string_view ty) {
+inline UniformLayout LayoutUniform(ref<str> ty) {
     const auto [base_ty, array] = SplitUniformType(ty);
     auto       hlsl_ty          = ToHLSLType(base_ty);
     const auto n                = ParseArrayCount(array);
     const auto L                = Std140Base(hlsl_ty);
     return {
         .array   = array,
-        .hlsl_ty = std::move(hlsl_ty),
-        .align   = (n > 1) ? std::size_t(16) : L.align,
-        .size    = (n > 1) ? ((L.size + 15) & ~std::size_t(15)) * n : L.size,
+        .hlsl_ty = rstd::move(hlsl_ty),
+        .align   = (n > 1) ? rstd::size_t(16) : L.align,
+        .size    = (n > 1) ? ((L.size + 15) & ~rstd::size_t(15)) * n : L.size,
     };
 }
 
-inline void MergeUniform(Map<std::string, std::string>& uniforms_union, std::string_view name,
-                         std::string_view ty) {
-    auto [it, inserted] = uniforms_union.try_emplace(std::string(name), std::string(ty));
-    if (inserted) return;
-
-    const auto old_layout = LayoutUniform(it->second);
+inline void MergeUniform(BTreeMap<String, String>& uniforms_union, ref<str> name, ref<str> ty) {
+    auto current = uniforms_union.get_mut(name);
+    if (current.is_none()) {
+        (void)uniforms_union.insert(rstd::into(name), rstd::into(ty));
+        return;
+    }
+    const auto old_layout = LayoutUniform((**current).as_str());
     const auto new_layout = LayoutUniform(ty);
     if (new_layout.size > old_layout.size ||
-        (new_layout.size == old_layout.size && new_layout.align > old_layout.align)) {
-        it->second = std::string(ty);
-    }
+        (new_layout.size == old_layout.size && new_layout.align > old_layout.align))
+        **current = rstd::into(ty);
 }
 
-Map<std::string, std::string> BuildUniformUnion(std::span<const ShaderUnit> units) {
-    Map<std::string, std::string> uniforms;
+BTreeMap<String, String> BuildUniformUnion(slice<ShaderUnit> units) {
+    BTreeMap<String, String> uniforms;
     for (const auto& unit : units) {
-        for (const auto& [name, ty] : unit.preprocess_info.uniforms) {
-            MergeUniform(uniforms, name, ty);
+        for (const auto& [name, ty] : unit.preprocess_info.uniforms.iter()) {
+            MergeUniform(uniforms, name->as_str(), ty->as_str());
         }
     }
     return uniforms;
 }
 
-std::string CanonicalizeGlobalUniformAliases(std::string source) {
-    auto              view = rstd::cppstd::as_str(source).unwrap();
+String CanonicalizeGlobalUniformAliases(String source) {
+    auto              view = source.as_str();
     shader_lex::Lexer lexer(view);
-    std::string       out;
-    std::size_t       copied {};
+    String            out;
+    usize             copied {};
     for (auto token = lexer.Next(); token.kind != shader_lex::TokenKind::Eof;
          token      = lexer.Next()) {
         if (token.kind != shader_lex::TokenKind::Ident) continue;
         auto field = FindGlobalUniform(token.text);
         if (field.is_none() || (**field).alias.is_empty() || token.text != (**field).alias)
             continue;
-        const auto begin = token.offset.to_primitive();
-        out.append(source, copied, begin - copied);
-        out.append(rstd::cppstd::as_string_view((**field).name));
-        copied = begin + token.text.size().to_primitive();
+        out.push_str(view.get(copied, token.offset).unwrap());
+        out.push_str((**field).name);
+        copied = token.offset + token.text.len();
     }
-    if (copied == 0) return source;
-    out.append(source, copied, std::string::npos);
+    if (copied == usize()) return source;
+    out.push_str(view.get(copied, view.len()).unwrap());
     return out;
 }
 
-Set<std::string> ReferencedUniformNames(std::span<const ShaderUnit> units) {
-    Set<std::string> names;
+HashSet<String> ReferencedUniformNames(slice<ShaderUnit> units) {
+    HashSet<String> names;
     for (const auto& unit : units) {
-        auto              body = StripUniforms(unit.src);
-        shader_lex::Lexer lexer(rstd::cppstd::as_str(body).unwrap());
+        auto              body = StripUniforms(unit.src.as_str());
+        shader_lex::Lexer lexer(body);
         for (auto token = lexer.Next(); token.kind != shader_lex::TokenKind::Eof;
              token      = lexer.Next()) {
             if (token.kind == shader_lex::TokenKind::Ident) {
-                names.insert(rstd::cppstd::to_string(token.text));
+                (void)names.insert(rstd::into(token.text));
             }
         }
     }
@@ -1528,55 +1534,53 @@ Set<std::string> ReferencedUniformNames(std::span<const ShaderUnit> units) {
 }
 
 struct UniformCompileInterface {
-    bool                          legacy { false };
-    Vec<GlobalUniformBlockKind>   global_blocks;
-    Map<std::string, std::string> local;
+    bool                        legacy { false };
+    Vec<GlobalUniformBlockKind> global_blocks;
+    BTreeMap<String, String>    local;
 };
 
-UniformCompileInterface BuildUniformInterface(std::span<ShaderUnit> units) {
+UniformCompileInterface BuildUniformInterface(mut_ref<ShaderUnit[]> units) {
     UniformCompileInterface result;
     for (const auto& unit : units) {
-        for (const auto& [name, type] : unit.preprocess_info.uniforms) {
-            auto field = FindGlobalUniform(rstd::cppstd::as_str(name).unwrap());
+        for (const auto& [name, type] : unit.preprocess_info.uniforms.iter()) {
+            auto field = FindGlobalUniform(name->as_str());
             if (field.is_none()) continue;
-            const auto expected = LayoutUniform(rstd::cppstd::as_string_view((**field).type));
-            const auto authored = LayoutUniform(type);
+            const auto expected = LayoutUniform((**field).type);
+            const auto authored = LayoutUniform(type->as_str());
             if (expected.hlsl_ty != authored.hlsl_ty || expected.array != authored.array) {
                 rstd_warn("uniform {} type {} does not match canonical type {}; using legacy ABI",
-                          name,
-                          type,
+                          name->as_str(),
+                          type->as_str(),
                           (**field).type);
                 result.legacy = true;
             }
         }
     }
     if (result.legacy) {
-        result.local = BuildUniformUnion(units);
+        result.local = BuildUniformUnion(units.as_ref());
         return result;
     }
 
     for (auto& unit : units) {
         unit.src = CanonicalizeGlobalUniformAliases(rstd::move(unit.src));
-        Map<std::string, std::string> canonical;
-        for (const auto& [name, type] : unit.preprocess_info.uniforms) {
-            auto field = FindGlobalUniform(rstd::cppstd::as_str(name).unwrap());
+        BTreeMap<String, String> canonical;
+        for (const auto& [name, type] : unit.preprocess_info.uniforms.iter()) {
+            auto field = FindGlobalUniform(name->as_str());
             if (field.is_none()) {
-                MergeUniform(canonical, name, type);
+                MergeUniform(canonical, name->as_str(), type->as_str());
                 continue;
             }
-            MergeUniform(canonical,
-                         rstd::cppstd::to_string((**field).name),
-                         rstd::cppstd::as_string_view((**field).type));
+            MergeUniform(canonical, (**field).name, (**field).type);
         }
         unit.preprocess_info.uniforms = rstd::move(canonical);
     }
 
-    const auto referenced = ReferencedUniformNames(units);
+    const auto referenced = ReferencedUniformNames(units.as_ref());
     for (const auto& block : GlobalUniformBlocks()) {
         bool active = false;
         for (const auto& field : GlobalUniformFields()) {
             if (GlobalUniformBlockFor(field.producer) != block.kind) continue;
-            if (referenced.contains(rstd::cppstd::to_string(field.name))) {
+            if (referenced.contains(field.name)) {
                 active = true;
                 break;
             }
@@ -1584,48 +1588,49 @@ UniformCompileInterface BuildUniformInterface(std::span<ShaderUnit> units) {
         if (active) result.global_blocks.push(GlobalUniformBlockKind(block.kind));
     }
     for (const auto& unit : units) {
-        for (const auto& [name, type] : unit.preprocess_info.uniforms) {
-            if (FindGlobalUniform(rstd::cppstd::as_str(name).unwrap()).is_some() ||
-                ! referenced.contains(name)) {
+        for (const auto& [name, type] : unit.preprocess_info.uniforms.iter()) {
+            if (FindGlobalUniform(name->as_str()).is_some() ||
+                ! referenced.contains(name->as_str())) {
                 continue;
             }
-            MergeUniform(result.local, name, type);
+            MergeUniform(result.local, name->as_str(), type->as_str());
         }
     }
     return result;
 }
 
-usize LinearUniformElementCount(std::string_view ty) {
+usize LinearUniformElementCount(ref<str> ty) {
     const auto [base_ty, array] = SplitUniformType(ty);
-    if (! array.empty()) return usize();
+    if (! array.is_empty()) return usize();
 
     const auto hlsl_ty = ToHLSLType(base_ty);
-    if (hlsl_ty == "float" || hlsl_ty == "int" || hlsl_ty == "uint" || hlsl_ty == "bool") {
+    if (hlsl_ty == "float"_str || hlsl_ty == "int"_str || hlsl_ty == "uint"_str ||
+        hlsl_ty == "bool"_str) {
         return usize(1);
     }
-    for (std::string_view prefix : { "float", "int", "uint", "bool" }) {
-        if (! hlsl_ty.starts_with(prefix) || hlsl_ty.size() != prefix.size() + 1) continue;
-        const char width = hlsl_ty.back();
-        if (width >= '2' && width <= '4') return usize(static_cast<std::size_t>(width - '0'));
+    for (ref<str> prefix : { "float"_str, "int"_str, "uint"_str, "bool"_str }) {
+        if (! hlsl_ty.starts_with(prefix) || hlsl_ty.size() != prefix.len() + usize(1)) continue;
+        const char width =
+            static_cast<char>(hlsl_ty.as_bytes()[hlsl_ty.len() - usize(1)].to_primitive());
+        if (width >= '2' && width <= '4') return usize(static_cast<rstd::size_t>(width - '0'));
     }
     return usize();
 }
 
-void ShapeShaderValues(ShaderValues& values, const Map<std::string, std::string>& uniforms) {
-    for (auto& [name, value] : values) {
-        if (value.size() != usize(1)) continue;
-        auto uniform = uniforms.find(name);
-        if (uniform == uniforms.end()) continue;
-        const auto elements = LinearUniformElementCount(uniform->second);
+void ShapeShaderValues(ShaderValues& values, const BTreeMap<String, String>& uniforms) {
+    for (auto [name, value] : values.iter_mut()) {
+        if (value->size() != usize(1)) continue;
+        auto uniform = uniforms.get(name->as_str());
+        if (uniform.is_none()) continue;
+        const auto elements = LinearUniformElementCount((**uniform).as_str());
         if (elements <= usize(1) || elements > usize(4)) continue;
 
-        std::array<float, 4> shaped;
-        shaped.fill(value[usize()]);
-        value = ShaderValue(shaped.data(), elements);
+        auto shaped = array<float, 4>::repeat((*value)[usize()]);
+        *value      = ShaderValue(shaped.data(), elements);
     }
 }
 
-void ShapeShaderDefaults(std::span<const ShaderUnit> units, ShaderInfo& info) {
+void ShapeShaderDefaults(slice<ShaderUnit> units, ShaderInfo& info) {
     const auto uniforms = BuildUniformUnion(units);
     ShapeShaderValues(info.svs, uniforms);
     ShapeShaderValues(info.baseConstSvs, uniforms);
@@ -1637,84 +1642,88 @@ void ShapeShaderDefaults(std::span<const ShaderUnit> units, ShaderInfo& info) {
 // without `packoffset`, scalars get packed into the trailing padding of
 // vec3 / vec3[] members. Explicit offsets keep the shared block layout
 // identical across stages and leave physical padding to reflected serialization.
-inline std::string EmitCBufferStd140(const Map<std::string, std::string>& uniforms_union,
-                                     std::string_view block_name, u32 set, u32 binding) {
-    std::string out;
-    out += "[[vk::binding(" + std::to_string(binding.to_primitive()) + ", " +
-           std::to_string(set.to_primitive()) + ")]] cbuffer " + std::string(block_name) + " {\n";
-    std::size_t offset = 0;
-    for (const auto& [name, ty] : uniforms_union) {
-        const auto  layout    = LayoutUniform(ty);
-        std::string array     = std::string(layout.array);
-        offset                = (offset + layout.align - 1) & ~(layout.align - 1);
-        std::size_t reg       = offset / 16;
-        std::size_t comp      = (offset % 16) / 4;
-        const char  letter    = "xyzw"[comp];
-        const bool  is_matrix = layout.hlsl_ty == "float2x2" || layout.hlsl_ty == "float3x3" ||
-                                layout.hlsl_ty == "float4x4" || layout.hlsl_ty == "float2x3" ||
-                                layout.hlsl_ty == "float2x4" || layout.hlsl_ty == "float3x2" ||
-                                layout.hlsl_ty == "float3x4" || layout.hlsl_ty == "float4x2" ||
-                                layout.hlsl_ty == "float4x3";
-        out += "    ";
-        if (is_matrix) out += "column_major ";
-        out += layout.hlsl_ty + " " + name + array;
-        out += " : packoffset(c" + std::to_string(reg);
+inline String EmitCBufferStd140(const BTreeMap<String, String>& uniforms_union, ref<str> block_name,
+                                u32 set, u32 binding) {
+    String out;
+    out.push_str(rstd::format("[[vk::binding({}, {})]] cbuffer {} {{\n",
+                              binding.to_primitive(),
+                              set.to_primitive(),
+                              block_name));
+    rstd::size_t offset = 0;
+    for (const auto& [name, ty] : uniforms_union.iter()) {
+        const auto layout   = LayoutUniform(ty->as_str());
+        ref<str>   array    = layout.array;
+        offset              = (offset + layout.align - 1) & ~(layout.align - 1);
+        rstd::size_t reg    = offset / 16;
+        rstd::size_t comp   = (offset % 16) / 4;
+        const char   letter = "xyzw"[comp];
+        const bool   is_matrix =
+            layout.hlsl_ty == "float2x2"_str || layout.hlsl_ty == "float3x3"_str ||
+            layout.hlsl_ty == "float4x4"_str || layout.hlsl_ty == "float2x3"_str ||
+            layout.hlsl_ty == "float2x4"_str || layout.hlsl_ty == "float3x2"_str ||
+            layout.hlsl_ty == "float3x4"_str || layout.hlsl_ty == "float4x2"_str ||
+            layout.hlsl_ty == "float4x3"_str;
+        out.push_str("    "_str);
+        if (is_matrix) out.push_str("column_major "_str);
+        out.push_str(rstd::format("{} {}{}", layout.hlsl_ty, name->as_str(), array));
+        out.push_str(rstd::format(" : packoffset(c{}", reg));
         if (comp != 0) {
-            out += ".";
-            out += letter;
+            out.push_str("."_str);
+            out.push_ascii(letter);
         }
-        out += ");\n";
+        out.push_str(");\n"_str);
         offset += layout.size;
     }
-    out += "};\n";
+    out.push_str("};\n"_str);
     return out;
 }
 
-inline std::string EmitGlobalCBufferStd140(const GlobalUniformBlockSchema& block) {
-    std::string out;
-    out += "[[vk::binding(" + std::to_string(block.binding.to_primitive()) + ", " +
-           std::to_string(kGlobalUniformSet.to_primitive()) + ")]] cbuffer " +
-           rstd::cppstd::to_string(block.name) + " {\n";
+inline String EmitGlobalCBufferStd140(const GlobalUniformBlockSchema& block) {
+    String out;
+    out.push_str(rstd::format("[[vk::binding({}, {})]] cbuffer {} {{\n",
+                              block.binding.to_primitive(),
+                              kGlobalUniformSet.to_primitive(),
+                              block.name));
     for (const auto& field : GlobalUniformFields()) {
         if (GlobalUniformBlockFor(field.producer) != block.kind) continue;
-        const auto layout = LayoutUniform(rstd::cppstd::as_string_view(field.type));
+        const auto layout = LayoutUniform(field.type);
         const auto offset = field.offset.to_primitive();
         const auto reg    = offset / 16;
         const auto comp   = (offset % 16) / 4;
-        out += "    " + layout.hlsl_ty + " " + rstd::cppstd::to_string(field.name) +
-               std::string(layout.array) + " : packoffset(c" + std::to_string(reg);
-        if (comp != 0) out += "." + std::string(1, "xyzw"[comp]);
-        out += ");\n";
+        out.push_str(rstd::format(
+            "    {} {}{} : packoffset(c{}", layout.hlsl_ty, field.name, layout.array, reg));
+        if (comp != 0)
+            out.push_str(rstd::format(".{}", *"xyzw"_str.get(usize(comp), usize(comp + 1))));
+        out.push_str(");\n"_str);
     }
-    out += "};\n";
+    out.push_str("};\n"_str);
     return out;
 }
 
-inline std::string EmitGlobalCBuffersStd140(const UniformCompileInterface& interface) {
-    std::string out;
+inline String EmitGlobalCBuffersStd140(const UniformCompileInterface& interface) {
+    String out;
     for (const auto kind : interface.global_blocks) {
         auto block = FindGlobalUniformBlock(kind);
-        if (block.is_some()) out += EmitGlobalCBufferStd140(**block);
+        if (block.is_some()) out.push_str(EmitGlobalCBufferStd140(**block));
     }
     return out;
 }
 
-inline std::string Finalprocessor(const ShaderUnit& unit, const PreprocessorInfo* pre,
-                                  const PreprocessorInfo*        next,
-                                  const UniformCompileInterface* interface,
-                                  bool                           pack_varying_arrays) {
+inline String Finalprocessor(const ShaderUnit& unit, const PreprocessorInfo* pre,
+                             const PreprocessorInfo* next, const UniformCompileInterface* interface,
+                             bool pack_varying_arrays) {
     // GS: feed glslang's HLSL frontend. Strip GLSL-style top-level `in`/`out`
     // decls, emit HLSL structs (WW_VSOut/WW_PSIn) + ww_Uniforms cbuffer, and
     // rewrite `void main()` to the entry signature `point WW_VSOut IN[1],
     // inout TriangleStream<WW_PSIn> OUT`.
     if (unit.stage == ShaderType::GEOMETRY) {
-        auto [io_decls, stripped] = ScanAndStripIO(unit.src);
-        std::string body          = QualifyGlobalVariablesForHlsl(StripUniforms(stripped));
+        auto [io_decls, stripped] = ScanAndStripIO(unit.src.as_str());
+        String body               = QualifyGlobalVariablesForHlsl(StripUniforms(stripped));
 
-        std::vector<IODecl> in_decls, out_decls;
-        auto add_to = [](std::vector<IODecl>& v,
-                         const IODecl&        d,
-                         IODeclPrecedence     precedence = IODeclPrecedence::KeepExisting) {
+        Vec<IODecl> in_decls, out_decls;
+        auto        add_to = [](Vec<IODecl>&     v,
+                                const IODecl&    d,
+                                IODeclPrecedence precedence = IODeclPrecedence::KeepExisting) {
             AddIODecl(v, d, precedence);
         };
         auto add_in = [&](const IODecl& d) {
@@ -1730,221 +1739,240 @@ inline std::string Finalprocessor(const ShaderUnit& unit, const PreprocessorInfo
                 add_out(d);
         }
         if (pre)
-            for (auto& [k, v] : pre->output) {
-                if (auto d = ParseIODecl(v); d) {
+            for (const auto& [k, v] : pre->output.iter()) {
+                if (auto d = ParseIODecl(v->as_str()); d) {
                     add_to(in_decls, *d, IODeclPrecedence::PreferIncoming);
                 }
             }
         if (next)
-            for (auto& [k, v] : next->input) {
-                if (auto d = ParseIODecl(v); d) add_out(*d);
+            for (const auto& [k, v] : next->input.iter()) {
+                if (auto d = ParseIODecl(v->as_str()); d) add_out(*d);
             }
 
-        std::string synth;
-        synth += "\n// === auto-generated GS stage I/O (HLSL) ===\n";
-        synth += EmitGSHLSLStruct("WW_VSOut", std::move(in_decls));
-        synth += EmitGSHLSLStruct("WW_PSIn", std::move(out_decls));
+        String synth;
+        synth.push_str("\n// === auto-generated GS stage I/O (HLSL) ===\n"_str);
+        synth.push_str(EmitGSHLSLStruct("WW_VSOut"_str, rstd::move(in_decls)));
+        synth.push_str(EmitGSHLSLStruct("WW_PSIn"_str, rstd::move(out_decls)));
 
         // Legacy callers still synthesize one cross-stage uniform block.
-        Map<std::string, std::string> uniforms_union_local;
+        BTreeMap<String, String> uniforms_union_local;
         if (! interface) {
-            auto absorb = [&](const Map<std::string, std::string>& m) {
-                for (const auto& [k, v] : m) MergeUniform(uniforms_union_local, k, v);
+            auto absorb = [&](const BTreeMap<String, String>& m) {
+                for (const auto& [k, v] : m.iter())
+                    MergeUniform(uniforms_union_local, k->as_str(), v->as_str());
             };
             absorb(unit.preprocess_info.uniforms);
             if (pre) absorb(pre->uniforms);
             if (next) absorb(next->uniforms);
         }
-        const Map<std::string, std::string>& uniforms_union =
+        const BTreeMap<String, String>& uniforms_union =
             interface ? interface->local : uniforms_union_local;
-        if (interface && ! interface->legacy) synth += EmitGlobalCBuffersStd140(*interface);
-        if (! uniforms_union.empty()) {
-            synth += "\n// === auto-generated draw uniforms (HLSL, std140 via packoffset) ===\n";
-            synth += EmitCBufferStd140(uniforms_union,
-                                       interface && ! interface->legacy
-                                           ? rstd::cppstd::as_string_view(kDrawUniformBlockName)
-                                           : "ww_Uniforms",
-                                       kDrawUniformSet,
-                                       u32(0));
+        if (interface && ! interface->legacy) synth.push_str(EmitGlobalCBuffersStd140(*interface));
+        if (! uniforms_union.is_empty()) {
+            synth.push_str(
+                "\n// === auto-generated draw uniforms (HLSL, std140 via packoffset) ===\n"_str);
+            synth.push_str(EmitCBufferStd140(
+                uniforms_union,
+                interface && ! interface->legacy ? kDrawUniformBlockName : "ww_Uniforms"_str,
+                kDrawUniformSet,
+                u32(0)));
         }
 
-        body = RewriteGSMain(std::move(body));
-        return ReplaceAll(std::move(body), SHADER_PLACEHOLD, synth);
+        body = RewriteGSMain(rstd::move(body));
+        return ReplaceAll(rstd::move(body), SHADER_PLACEHOLD, synth);
     }
 
     // Strip `attribute/varying` lines and collect them as structured decls.
-    auto [io_decls, stage1] = ScanAndStripIO(unit.src);
+    auto [io_decls, stage1] = ScanAndStripIO(unit.src.as_str());
 
     // Strip sampler declarations; they are re-emitted with explicit bindings.
     auto [sampler_decls, stage2] = ScanAndStripSamplers(stage1);
 
     // Strip non-sampler declarations; they are re-emitted through the selected ABI.
-    std::string stage3 = QualifyGlobalVariablesForHlsl(StripUniforms(stage2));
+    String stage3 = QualifyGlobalVariablesForHlsl(StripUniforms(stage2));
 
     // Partition IO decls into VS inputs and varyings
     // (everything else). The producing stage owns each cross-stage interface
     // type; consumers only contribute names missing from that interface.
-    std::vector<IODecl> attrs, varyings;
+    Vec<IODecl> attrs, varyings;
     auto add = [&](const IODecl& d, IODeclPrecedence precedence = IODeclPrecedence::KeepExisting) {
         const bool vertex_input =
             unit.stage == ShaderType::VERTEX && (d.storage == 'a' || d.storage == 'i');
-        std::vector<IODecl>& v = vertex_input ? attrs : varyings;
+        Vec<IODecl>& v = vertex_input ? attrs : varyings;
         AddIODecl(v, d, precedence);
     };
     for (const auto& d : io_decls) add(d);
-    auto add_varying_from_line = [&](const std::string& line, IODeclPrecedence precedence) {
+    auto add_varying_from_line = [&](ref<str> line, IODeclPrecedence precedence) {
         if (auto d = ParseIODecl(line); d) AddIODecl(varyings, *d, precedence);
     };
     if (unit.stage == ShaderType::VERTEX && next) {
-        for (auto& [k, v] : next->input) {
-            add_varying_from_line(v, IODeclPrecedence::KeepExisting);
+        for (const auto& [k, v] : next->input.iter()) {
+            add_varying_from_line(v->as_str(), IODeclPrecedence::KeepExisting);
         }
     } else if (unit.stage == ShaderType::FRAGMENT && pre) {
-        for (auto& [k, v] : pre->output) {
-            add_varying_from_line(v, IODeclPrecedence::PreferIncoming);
+        for (const auto& [k, v] : pre->output.iter()) {
+            add_varying_from_line(v->as_str(), IODeclPrecedence::PreferIncoming);
         }
     }
 
     // Synthesize the HLSL entry point: static globals for every attr /
     // varying, WW_VSIn/WW_VSOut/WW_PSIn structs, and a main_vs / main_ps
     // wrapper that copies between the struct and the statics.
-    SynthOutput synth = SynthesizeHLSLEntry(unit.stage, attrs, varyings, pack_varying_arrays);
+    SynthOutput synth = SynthesizeHLSLEntry(
+        unit.stage, rstd::move(attrs), rstd::move(varyings), pack_varying_arrays);
 
     // Legacy callers still synthesize one cross-stage uniform block.
-    Map<std::string, std::string> uniforms_union_local;
+    BTreeMap<String, String> uniforms_union_local;
     if (! interface) {
-        auto absorb = [&](const Map<std::string, std::string>& m) {
-            for (const auto& [k, v] : m) MergeUniform(uniforms_union_local, k, v);
+        auto absorb = [&](const BTreeMap<String, String>& m) {
+            for (const auto& [k, v] : m.iter())
+                MergeUniform(uniforms_union_local, k->as_str(), v->as_str());
         };
         absorb(unit.preprocess_info.uniforms);
         if (pre) absorb(pre->uniforms);
         if (next) absorb(next->uniforms);
     }
-    const Map<std::string, std::string>& uniforms_union =
+    const BTreeMap<String, String>& uniforms_union =
         interface ? interface->local : uniforms_union_local;
 
-    std::string uniform_block;
-    if (interface && ! interface->legacy) uniform_block += EmitGlobalCBuffersStd140(*interface);
-    if (! uniforms_union.empty()) {
-        uniform_block +=
-            "\n// === auto-generated draw uniforms (HLSL, std140 via packoffset) ===\n";
-        uniform_block += EmitCBufferStd140(uniforms_union,
-                                           interface && ! interface->legacy
-                                               ? rstd::cppstd::as_string_view(kDrawUniformBlockName)
-                                               : "ww_Uniforms",
-                                           kDrawUniformSet,
-                                           u32(0));
+    String uniform_block;
+    if (interface && ! interface->legacy)
+        uniform_block.push_str(EmitGlobalCBuffersStd140(*interface));
+    if (! uniforms_union.is_empty()) {
+        uniform_block.push_str(
+            "\n// === auto-generated draw uniforms (HLSL, std140 via packoffset) ===\n"_str);
+        uniform_block.push_str(EmitCBufferStd140(
+            uniforms_union,
+            interface && ! interface->legacy ? kDrawUniformBlockName : "ww_Uniforms"_str,
+            kDrawUniformSet,
+            u32(0)));
     }
 
     // Binding 0 stays reserved for the draw uniform block. `vk::combinedImageSampler`
     // joins each texture and sampler pair into one Vulkan descriptor.
-    Set<std::string> sampler_seen;
-    std::string      sampler_block;
-    if (! sampler_decls.empty()) sampler_block += "\n// === auto-generated samplers (HLSL) ===\n";
-    std::size_t sampler_idx = 1;
+    HashSet<String> sampler_seen;
+    String          sampler_block;
+    if (! sampler_decls.is_empty())
+        sampler_block.push_str("\n// === auto-generated samplers (HLSL) ===\n"_str);
+    rstd::size_t sampler_idx = 1;
     for (const auto& s : sampler_decls) {
-        if (! sampler_seen.insert(s.name).second) continue;
-        const char* tex_ty   = HLSLSamplerType(s.sampler_type);
-        const char* state_ty = HLSLSamplerStateType(s.sampler_type);
-        sampler_block +=
-            "[[vk::combinedImageSampler]][[vk::binding(" + std::to_string(sampler_idx) + ", " +
-            std::to_string(kDrawUniformSet.to_primitive()) + ")]] " + tex_ty + " " + s.name + ";\n";
-        sampler_block += "[[vk::combinedImageSampler]][[vk::binding(" +
-                         std::to_string(sampler_idx) + ", " +
-                         std::to_string(kDrawUniformSet.to_primitive()) + ")]] " + state_ty + " " +
-                         s.name + "_ww_sampler;\n";
+        if (! sampler_seen.insert(String::make(s.name))) continue;
+        ref<str> tex_ty   = HLSLSamplerType(s.sampler_type);
+        ref<str> state_ty = HLSLSamplerStateType(s.sampler_type);
+        sampler_block.push_str(
+            rstd::format("[[vk::combinedImageSampler]][[vk::binding({}, {})]] {} {};\n",
+                         sampler_idx,
+                         kDrawUniformSet.to_primitive(),
+                         tex_ty,
+                         s.name));
+        sampler_block.push_str(
+            rstd::format("[[vk::combinedImageSampler]][[vk::binding({}, {})]] {} {}_ww_sampler;\n",
+                         sampler_idx,
+                         kDrawUniformSet.to_primitive(),
+                         state_ty,
+                         s.name));
         ++sampler_idx;
     }
 
     // Splice synth.pre into the placeholder slot, then append synth.post
     // (which contains the entry-point wrapper that has to follow the user's
     // shader_main()).
-    std::string with_decls =
-        ReplaceAll(stage3, SHADER_PLACEHOLD, synth.pre + uniform_block + sampler_block);
-    return with_decls + synth.post;
+    String with_decls = ReplaceAll(
+        stage3, SHADER_PLACEHOLD, rstd::format("{}{}{}", synth.pre, uniform_block, sampler_block));
+    return rstd::format("{}{}", with_decls, synth.post);
 }
 
-using ShaderCacheDigest = std::array<std::uint8_t, 20>;
+using ShaderCacheDigest = array<rstd::uint8_t, 20>;
 
-constexpr std::array<std::uint8_t, 8> kShaderCacheMagic { 'O', 'W', 'E', 'S', 'P', 'V', '3', 0 };
-constexpr std::uint32_t               kShaderCacheFormatVersion = 3;
-constexpr std::uint32_t               kShaderCacheAbiVersion    = 19;
+constexpr array<rstd::uint8_t, 8> kShaderCacheMagic { rstd::uint8_t('O'), rstd::uint8_t('W'),
+                                                      rstd::uint8_t('E'), rstd::uint8_t('S'),
+                                                      rstd::uint8_t('P'), rstd::uint8_t('V'),
+                                                      rstd::uint8_t('3'), rstd::uint8_t(0) };
+constexpr rstd::uint32_t          kShaderCacheFormatVersion = 3;
+constexpr rstd::uint32_t          kShaderCacheAbiVersion    = 19;
 // 8-byte magic, six u32 fields, and four SHA-1 digests total 112 bytes.
-constexpr std::uint32_t kShaderCacheHeaderSize = static_cast<std::uint32_t>(
-    kShaderCacheMagic.size() + 6 * sizeof(std::uint32_t) + 4 * ShaderCacheDigest {}.size());
-constexpr std::uint32_t kMaxShaderCacheStages      = 16;
-constexpr std::uint32_t kMaxShaderCacheMapEntries  = 4096;
-constexpr std::uint32_t kMaxShaderCacheSlots       = 1024;
-constexpr std::uint32_t kMaxShaderCacheStringSize  = 32 * 1024 * 1024;
-constexpr std::uint32_t kMaxShaderCachePayloadSize = 256 * 1024 * 1024;
+constexpr rstd::uint32_t kShaderCacheHeaderSize = static_cast<rstd::uint32_t>(
+    kShaderCacheMagic.len().to_primitive() + 6 * sizeof(rstd::uint32_t) +
+    4 * ShaderCacheDigest {}.len().to_primitive());
+constexpr rstd::uint32_t kMaxShaderCacheStages      = 16;
+constexpr rstd::uint32_t kMaxShaderCacheMapEntries  = 4096;
+constexpr rstd::uint32_t kMaxShaderCacheSlots       = 1024;
+constexpr rstd::uint32_t kMaxShaderCacheStringSize  = 32 * 1024 * 1024;
+constexpr rstd::uint32_t kMaxShaderCachePayloadSize = 256 * 1024 * 1024;
 
 class ShaderCacheByteWriter {
 public:
-    void U32(std::uint32_t value) {
-        m_bytes.push_back(static_cast<std::uint8_t>(value));
-        m_bytes.push_back(static_cast<std::uint8_t>(value >> 8));
-        m_bytes.push_back(static_cast<std::uint8_t>(value >> 16));
-        m_bytes.push_back(static_cast<std::uint8_t>(value >> 24));
+    void U32(rstd::uint32_t value) {
+        m_bytes.push(static_cast<rstd::uint8_t>(value));
+        m_bytes.push(static_cast<rstd::uint8_t>(value >> 8));
+        m_bytes.push(static_cast<rstd::uint8_t>(value >> 16));
+        m_bytes.push(static_cast<rstd::uint8_t>(value >> 24));
     }
 
-    bool Bytes(std::span<const std::uint8_t> value) {
-        if (m_bytes.size() > std::numeric_limits<std::uint32_t>::max() ||
-            value.size() > std::numeric_limits<std::uint32_t>::max() - m_bytes.size()) {
+    bool Bytes(slice<rstd::uint8_t> value) {
+        if (m_bytes.len().to_primitive() > rstd::u32::MAX.to_primitive() ||
+            value.len().to_primitive() >
+                rstd::u32::MAX.to_primitive() - m_bytes.len().to_primitive()) {
             return false;
         }
-        m_bytes.insert(m_bytes.end(), value.begin(), value.end());
+        for (auto byte : value) m_bytes.push(rstd::uint8_t(byte));
         return true;
     }
 
-    bool String(std::string_view value) {
-        if (value.size() > kMaxShaderCacheStringSize) return false;
-        U32(static_cast<std::uint32_t>(value.size()));
-        return Bytes(std::span<const std::uint8_t>(
-            reinterpret_cast<const std::uint8_t*>(value.data()), value.size()));
+    bool String(ref<str> value) {
+        if (value.len() > usize(kMaxShaderCacheStringSize)) return false;
+        U32(static_cast<rstd::uint32_t>(value.len().to_primitive()));
+        return Bytes(slice<rstd::uint8_t>::from_raw_parts(
+            reinterpret_cast<const rstd::uint8_t*>(value.data()), value.len()));
     }
 
-    const std::vector<std::uint8_t>& bytes() const noexcept { return m_bytes; }
-    std::vector<std::uint8_t>        Take() noexcept { return std::move(m_bytes); }
+    const Vec<rstd::uint8_t>& bytes() const noexcept { return m_bytes; }
+    Vec<rstd::uint8_t>        Take() noexcept { return rstd::move(m_bytes); }
 
 private:
-    std::vector<std::uint8_t> m_bytes;
+    Vec<rstd::uint8_t> m_bytes;
 };
 
 class ShaderCacheByteReader {
 public:
-    explicit ShaderCacheByteReader(std::span<const std::uint8_t> bytes): m_bytes(bytes) {}
+    explicit ShaderCacheByteReader(slice<rstd::uint8_t> bytes): m_bytes(bytes) {}
 
-    bool U32(std::uint32_t& value) {
-        std::span<const std::uint8_t> bytes;
+    bool U32(rstd::uint32_t& value) {
+        slice<rstd::uint8_t> bytes;
         if (! Bytes(4, bytes)) return false;
-        value = static_cast<std::uint32_t>(bytes[0]) | (static_cast<std::uint32_t>(bytes[1]) << 8) |
-                (static_cast<std::uint32_t>(bytes[2]) << 16) |
-                (static_cast<std::uint32_t>(bytes[3]) << 24);
+        value = static_cast<rstd::uint32_t>(bytes[usize(0)]) |
+                (static_cast<rstd::uint32_t>(bytes[usize(1)]) << 8) |
+                (static_cast<rstd::uint32_t>(bytes[usize(2)]) << 16) |
+                (static_cast<rstd::uint32_t>(bytes[usize(3)]) << 24);
         return true;
     }
 
-    bool Bytes(std::size_t size, std::span<const std::uint8_t>& value) {
+    bool Bytes(rstd::size_t size, slice<rstd::uint8_t>& value) {
         if (size > remaining()) return false;
-        value = m_bytes.subspan(m_position, size);
+        value =
+            slice<rstd::uint8_t>::from_raw_parts(m_bytes.as_raw_ptr() + m_position, usize(size));
         m_position += size;
         return true;
     }
 
-    bool String(std::string& value) {
-        std::uint32_t size = 0;
+    bool String(::alloc::string::String& value) {
+        rstd::uint32_t size {};
         if (! U32(size) || size > kMaxShaderCacheStringSize) return false;
-        std::span<const std::uint8_t> bytes;
+        slice<rstd::uint8_t> bytes;
         if (! Bytes(size, bytes)) return false;
-        value.assign(reinterpret_cast<const char*>(bytes.data()), bytes.size());
+        auto text = rstd::str_::from_utf8(slice<u8>::from_raw_parts(
+            reinterpret_cast<const byte*>(bytes.as_raw_ptr()), bytes.len()));
+        if (text.is_err()) return false;
+        value = rstd::into(text.unwrap());
         return true;
     }
 
-    std::size_t remaining() const noexcept { return m_bytes.size() - m_position; }
-    bool        done() const noexcept { return m_position == m_bytes.size(); }
+    rstd::size_t remaining() const noexcept { return m_bytes.len().to_primitive() - m_position; }
+    bool         done() const noexcept { return m_position == m_bytes.len().to_primitive(); }
 
 private:
-    std::span<const std::uint8_t> m_bytes;
-    std::size_t                   m_position { 0 };
+    slice<rstd::uint8_t> m_bytes;
+    rstd::size_t         m_position { 0 };
 };
 
 int HexDigit(char value) {
@@ -1954,131 +1982,134 @@ int HexDigit(char value) {
     return -1;
 }
 
-Option<ShaderCacheDigest> DecodeShaderCacheDigest(std::string_view value) {
-    if (value.size() != 40) return None();
+Option<ShaderCacheDigest> DecodeShaderCacheDigest(ref<str> value) {
+    if (value.len() != usize(40)) return None();
     ShaderCacheDigest digest {};
-    for (std::size_t i = 0; i < digest.size(); ++i) {
-        const int hi = HexDigit(value[i * 2]);
-        const int lo = HexDigit(value[i * 2 + 1]);
+    for (rstd::size_t i = 0; i < digest.len().to_primitive(); ++i) {
+        const int hi = HexDigit(static_cast<char>(value.as_bytes()[usize(i * 2)].to_primitive()));
+        const int lo =
+            HexDigit(static_cast<char>(value.as_bytes()[usize(i * 2 + 1)].to_primitive()));
         if (hi < 0 || lo < 0) return None();
-        digest[i] = static_cast<std::uint8_t>((hi << 4) | lo);
+        digest[usize(i)] = static_cast<rstd::uint8_t>((hi << 4) | lo);
     }
     return Some(digest);
 }
 
-Option<ShaderCacheDigest> HashShaderCacheBytes(std::span<const std::uint8_t> bytes) {
-    return DecodeShaderCacheDigest(utils::genSha1(
-        std::span<const char>(reinterpret_cast<const char*>(bytes.data()), bytes.size())));
+Option<ShaderCacheDigest> HashShaderCacheBytes(slice<rstd::uint8_t> bytes) {
+    auto digest = utils::genSha1(slice<rstd::byte>::from_raw_parts(
+        reinterpret_cast<const rstd::byte*>(bytes.as_raw_ptr()), bytes.len()));
+    return DecodeShaderCacheDigest(digest.as_str());
 }
 
 struct ShaderCacheIdentity {
     ShaderCacheDigest cache_key;
     ShaderCacheDigest source;
     ShaderCacheDigest combos;
-    std::string       cache_key_hex;
+    String            cache_key_hex;
 };
 
-Option<ShaderCacheIdentity> MakeShaderCacheIdentity(std::span<const ShaderUnit> units,
-                                                    const Combos&               combos) {
-    if (units.size() > kMaxShaderCacheStages || combos.size() > kMaxShaderCacheMapEntries) {
+Option<ShaderCacheIdentity> MakeShaderCacheIdentity(slice<ShaderUnit> units, const Combos& combos) {
+    if (units.len().to_primitive() > kMaxShaderCacheStages ||
+        combos.len().to_primitive() > kMaxShaderCacheMapEntries) {
         return None();
     }
 
     ShaderCacheByteWriter source;
-    source.U32(static_cast<std::uint32_t>(units.size()));
+    source.U32(static_cast<rstd::uint32_t>(units.len().to_primitive()));
     for (const auto& unit : units) {
-        source.U32(static_cast<std::uint32_t>(unit.stage));
-        if (! source.String(unit.src)) return None();
+        source.U32(static_cast<rstd::uint32_t>(unit.stage));
+        if (! source.String(unit.src.as_str())) return None();
     }
 
     ShaderCacheByteWriter combo;
-    combo.U32(static_cast<std::uint32_t>(combos.size()));
-    for (const auto& [name, value] : combos) {
-        if (! combo.String(name) || ! combo.String(value)) return None();
+    combo.U32(static_cast<rstd::uint32_t>(combos.len().to_primitive()));
+    for (const auto& [name, value] : combos.iter()) {
+        if (! combo.String(name->as_str()) || ! combo.String(value->as_str())) return None();
     }
 
-    auto source_digest = HashShaderCacheBytes(
-        std::span<const std::uint8_t>(source.bytes().data(), source.bytes().size()));
-    auto combo_digest = HashShaderCacheBytes(
-        std::span<const std::uint8_t>(combo.bytes().data(), combo.bytes().size()));
+    auto source_digest = HashShaderCacheBytes(slice<rstd::uint8_t>::from_raw_parts(
+        source.bytes().data(), usize(source.bytes().len().to_primitive())));
+    auto combo_digest  = HashShaderCacheBytes(slice<rstd::uint8_t>::from_raw_parts(
+        combo.bytes().data(), usize(combo.bytes().len().to_primitive())));
     if (source_digest.is_none() || combo_digest.is_none()) return None();
 
     ShaderCacheByteWriter key;
-    key.String("owe.shader-cache.v3");
+    key.String("owe.shader-cache.v3"_str);
     key.U32(kShaderCacheAbiVersion);
-    key.Bytes(std::span<const std::uint8_t>(source_digest->data(), source_digest->size()));
-    key.Bytes(std::span<const std::uint8_t>(combo_digest->data(), combo_digest->size()));
-    key.String("vulkan-1.1");
-    key.String("hlsl");
+    key.Bytes(slice<rstd::uint8_t>::from_raw_parts(source_digest->data(),
+                                                   usize(source_digest->len().to_primitive())));
+    key.Bytes(slice<rstd::uint8_t>::from_raw_parts(combo_digest->data(),
+                                                   usize(combo_digest->len().to_primitive())));
+    key.String("vulkan-1.1"_str);
+    key.String("hlsl"_str);
     key.U32(0);
 
-    const std::string key_hex    = utils::genSha1(std::span<const char>(
-        reinterpret_cast<const char*>(key.bytes().data()), key.bytes().size()));
-    auto              key_digest = DecodeShaderCacheDigest(key_hex);
+    auto key_hex    = utils::genSha1(slice<rstd::byte>::from_raw_parts(
+        reinterpret_cast<const rstd::byte*>(key.bytes().data()), key.bytes().len()));
+    auto key_digest = DecodeShaderCacheDigest(key_hex.as_str());
     if (key_digest.is_none()) return None();
     return Some(ShaderCacheIdentity {
         .cache_key     = *key_digest,
         .source        = *source_digest,
         .combos        = *combo_digest,
-        .cache_key_hex = key_hex,
+        .cache_key_hex = rstd::move(key_hex),
     });
 }
 
-inline rstd::path::PathBuf GetCachePath(ref<rstd::path::Path> cache_dir, std::string_view scene_id,
-                                        std::string_view filename) {
+inline rstd::path::PathBuf GetCachePath(ref<rstd::path::Path> cache_dir, ref<str> scene_id,
+                                        ref<str> filename) {
     auto path = rstd::path::PathBuf::from(cache_dir);
-    path.push(ref<rstd::path::Path>(rstd::cppstd::as_str(scene_id).unwrap()));
-    path.push(ref<rstd::path::Path>(rstd::cppstd::as_str(SHADER_DIR).unwrap()));
-    const std::string cache_filename = std::string(filename) + "." SHADER_SUFFIX;
-    path.push(ref<rstd::path::Path>(rstd::cppstd::as_str(cache_filename).unwrap()));
+    path.push(ref<rstd::path::Path>(scene_id));
+    path.push(ref<rstd::path::Path>(SHADER_DIR ""_str));
+    const auto cache_filename = rstd::format("{}.{}", filename, SHADER_SUFFIX);
+    path.push(ref<rstd::path::Path>(cache_filename.as_str()));
     return path;
 }
 
-bool WriteCacheMap(ShaderCacheByteWriter& writer, const Map<std::string, std::string>& values) {
-    if (values.size() > kMaxShaderCacheMapEntries) return false;
-    writer.U32(static_cast<std::uint32_t>(values.size()));
-    for (const auto& [name, value] : values) {
-        if (! writer.String(name) || ! writer.String(value)) return false;
+bool WriteCacheMap(ShaderCacheByteWriter& writer, const BTreeMap<String, String>& values) {
+    if (values.len() > usize(kMaxShaderCacheMapEntries)) return false;
+    writer.U32(static_cast<rstd::uint32_t>(values.len().to_primitive()));
+    for (const auto& [name, value] : values.iter()) {
+        if (! writer.String(name->as_str()) || ! writer.String(value->as_str())) return false;
     }
     return true;
 }
 
-bool ReadCacheMap(ShaderCacheByteReader& reader, Map<std::string, std::string>& values) {
-    std::uint32_t count = 0;
+bool ReadCacheMap(ShaderCacheByteReader& reader, BTreeMap<String, String>& values) {
+    rstd::uint32_t count = 0;
     if (! reader.U32(count) || count > kMaxShaderCacheMapEntries) return false;
     values.clear();
-    for (std::uint32_t i = 0; i < count; ++i) {
-        std::string name;
-        std::string value;
-        if (! reader.String(name) || ! reader.String(value) ||
-            ! values.emplace(std::move(name), std::move(value)).second) {
+    for (rstd::uint32_t i = 0; i < count; ++i) {
+        String name;
+        String value;
+        if (! reader.String(name) || ! reader.String(value) || values.contains_key(name.as_str()))
             return false;
-        }
+        (void)values.insert(rstd::move(name), rstd::move(value));
     }
     return true;
 }
 
-bool WriteCacheSlots(ShaderCacheByteWriter& writer, const Set<unsigned>& slots) {
-    if (slots.size() > kMaxShaderCacheSlots) return false;
-    writer.U32(static_cast<std::uint32_t>(slots.size()));
-    for (const auto slot : slots) writer.U32(static_cast<std::uint32_t>(slot));
+bool WriteCacheSlots(ShaderCacheByteWriter& writer, const BTreeSet<u32>& slots) {
+    if (slots.len().to_primitive() > kMaxShaderCacheSlots) return false;
+    writer.U32(static_cast<rstd::uint32_t>(slots.len().to_primitive()));
+    for (const auto slot : slots.iter()) writer.U32(slot->to_primitive());
     return true;
 }
 
-bool ReadCacheSlots(ShaderCacheByteReader& reader, Set<unsigned>& slots) {
-    std::uint32_t count = 0;
+bool ReadCacheSlots(ShaderCacheByteReader& reader, BTreeSet<u32>& slots) {
+    rstd::uint32_t count = 0;
     if (! reader.U32(count) || count > kMaxShaderCacheSlots) return false;
     slots.clear();
-    for (std::uint32_t i = 0; i < count; ++i) {
-        std::uint32_t slot = 0;
-        if (! reader.U32(slot) || ! slots.insert(static_cast<unsigned>(slot)).second) return false;
+    for (rstd::uint32_t i = 0; i < count; ++i) {
+        rstd::uint32_t slot = 0;
+        if (! reader.U32(slot) || ! slots.insert(u32(slot))) return false;
     }
     return true;
 }
 
 struct ShaderCacheArtifact {
-    std::vector<ShaderUnit> units;
-    std::vector<ShaderCode> codes;
+    Vec<ShaderUnit> units;
+    Vec<ShaderCode> codes;
 };
 
 enum class ShaderCacheReadStatus
@@ -2091,108 +2122,111 @@ enum class ShaderCacheReadStatus
 struct ShaderCacheReadResult {
     ShaderCacheReadStatus status { ShaderCacheReadStatus::Invalid };
     ShaderCacheArtifact   artifact;
-    std::string           reason;
+    String                reason;
 };
 
 class ShaderCacheArtifactCodec {
 public:
-    static Option<std::vector<std::uint8_t>> Encode(const ShaderCacheIdentity&  identity,
-                                                    std::span<const ShaderUnit> units,
-                                                    std::span<const ShaderCode> codes) {
-        if (units.empty() || units.size() != codes.size() || units.size() > kMaxShaderCacheStages) {
+    static Option<Vec<rstd::uint8_t>> Encode(const ShaderCacheIdentity& identity,
+                                             slice<ShaderUnit> units, slice<ShaderCode> codes) {
+        if (units.is_empty() || units.len().to_primitive() != codes.len().to_primitive() ||
+            units.len().to_primitive() > kMaxShaderCacheStages) {
             return None();
         }
 
         ShaderCacheByteWriter payload;
-        for (std::size_t i = 0; i < units.size(); ++i) {
-            if (static_cast<std::uint32_t>(units[i].stage) >
-                static_cast<std::uint32_t>(ShaderType::FRAGMENT)) {
+        for (rstd::size_t i = 0; i < units.len().to_primitive(); ++i) {
+            if (static_cast<rstd::uint32_t>(units[usize(i)].stage) >
+                static_cast<rstd::uint32_t>(ShaderType::FRAGMENT)) {
                 return None();
             }
             ShaderCacheByteWriter record;
-            record.U32(static_cast<std::uint32_t>(units[i].stage));
-            if (! record.String(units[i].src) ||
-                ! WriteCacheMap(record, units[i].preprocess_info.input) ||
-                ! WriteCacheMap(record, units[i].preprocess_info.output) ||
-                ! WriteCacheMap(record, units[i].preprocess_info.uniforms) ||
-                ! WriteCacheSlots(record, units[i].preprocess_info.active_tex_slots) ||
-                codes[i].size() > std::numeric_limits<std::uint32_t>::max() / 4) {
+            record.U32(static_cast<rstd::uint32_t>(units[usize(i)].stage));
+            if (! record.String(units[usize(i)].src.as_str()) ||
+                ! WriteCacheMap(record, units[usize(i)].preprocess_info.input) ||
+                ! WriteCacheMap(record, units[usize(i)].preprocess_info.output) ||
+                ! WriteCacheMap(record, units[usize(i)].preprocess_info.uniforms) ||
+                ! WriteCacheSlots(record, units[usize(i)].preprocess_info.active_tex_slots) ||
+                codes[usize(i)].len().to_primitive() > rstd::u32::MAX.to_primitive() / 4) {
                 return None();
             }
 
-            record.U32(static_cast<std::uint32_t>(codes[i].size() * 4));
-            for (const auto word : codes[i]) record.U32(word);
-            if (record.bytes().size() > kMaxShaderCachePayloadSize - sizeof(std::uint32_t) ||
-                payload.bytes().size() >
-                    kMaxShaderCachePayloadSize - sizeof(std::uint32_t) - record.bytes().size()) {
+            record.U32(static_cast<rstd::uint32_t>(codes[usize(i)].len().to_primitive() * 4));
+            for (const auto word : codes[usize(i)]) record.U32(word);
+            if (record.bytes().len().to_primitive() >
+                    kMaxShaderCachePayloadSize - sizeof(rstd::uint32_t) ||
+                payload.bytes().len().to_primitive() > kMaxShaderCachePayloadSize -
+                                                           sizeof(rstd::uint32_t) -
+                                                           record.bytes().len().to_primitive()) {
                 return None();
             }
-            payload.U32(static_cast<std::uint32_t>(record.bytes().size()));
-            if (! payload.Bytes(
-                    std::span<const std::uint8_t>(record.bytes().data(), record.bytes().size()))) {
+            payload.U32(static_cast<rstd::uint32_t>(record.bytes().len().to_primitive()));
+            if (! payload.Bytes(slice<rstd::uint8_t>::from_raw_parts(
+                    record.bytes().data(), usize(record.bytes().len().to_primitive())))) {
                 return None();
             }
         }
-        if (payload.bytes().size() > kMaxShaderCachePayloadSize) return None();
+        if (payload.bytes().len().to_primitive() > kMaxShaderCachePayloadSize) return None();
 
-        auto payload_digest = HashShaderCacheBytes(
-            std::span<const std::uint8_t>(payload.bytes().data(), payload.bytes().size()));
+        auto payload_digest = HashShaderCacheBytes(slice<rstd::uint8_t>::from_raw_parts(
+            payload.bytes().data(), usize(payload.bytes().len().to_primitive())));
         if (payload_digest.is_none()) return None();
 
         ShaderCacheByteWriter artifact;
-        artifact.Bytes(
-            std::span<const std::uint8_t>(kShaderCacheMagic.data(), kShaderCacheMagic.size()));
+        artifact.Bytes(slice<rstd::uint8_t>::from_raw_parts(
+            kShaderCacheMagic.data(), usize(kShaderCacheMagic.len().to_primitive())));
         artifact.U32(kShaderCacheFormatVersion);
         artifact.U32(kShaderCacheAbiVersion);
         artifact.U32(kShaderCacheHeaderSize);
-        artifact.U32(static_cast<std::uint32_t>(payload.bytes().size()));
-        artifact.U32(static_cast<std::uint32_t>(units.size()));
+        artifact.U32(static_cast<rstd::uint32_t>(payload.bytes().len().to_primitive()));
+        artifact.U32(static_cast<rstd::uint32_t>(units.len().to_primitive()));
         artifact.U32(0);
-        artifact.Bytes(
-            std::span<const std::uint8_t>(identity.cache_key.data(), identity.cache_key.size()));
-        artifact.Bytes(
-            std::span<const std::uint8_t>(identity.source.data(), identity.source.size()));
-        artifact.Bytes(
-            std::span<const std::uint8_t>(identity.combos.data(), identity.combos.size()));
-        artifact.Bytes(
-            std::span<const std::uint8_t>(payload_digest->data(), payload_digest->size()));
-        if (artifact.bytes().size() != kShaderCacheHeaderSize ||
-            ! artifact.Bytes(
-                std::span<const std::uint8_t>(payload.bytes().data(), payload.bytes().size()))) {
+        artifact.Bytes(slice<rstd::uint8_t>::from_raw_parts(
+            identity.cache_key.data(), usize(identity.cache_key.len().to_primitive())));
+        artifact.Bytes(slice<rstd::uint8_t>::from_raw_parts(
+            identity.source.data(), usize(identity.source.len().to_primitive())));
+        artifact.Bytes(slice<rstd::uint8_t>::from_raw_parts(
+            identity.combos.data(), usize(identity.combos.len().to_primitive())));
+        artifact.Bytes(slice<rstd::uint8_t>::from_raw_parts(
+            payload_digest->data(), usize(payload_digest->len().to_primitive())));
+        if (artifact.bytes().len().to_primitive() != kShaderCacheHeaderSize ||
+            ! artifact.Bytes(slice<rstd::uint8_t>::from_raw_parts(
+                payload.bytes().data(), usize(payload.bytes().len().to_primitive())))) {
             return None();
         }
         return Some(artifact.Take());
     }
 
-    static ShaderCacheReadResult Decode(const ShaderCacheIdentity&    identity,
-                                        std::span<const ShaderUnit>   expected_units,
-                                        std::span<const std::uint8_t> bytes) {
-        if (bytes.size() < kShaderCacheHeaderSize) return Invalid("truncated header");
-        if (bytes.size() > kShaderCacheHeaderSize + kMaxShaderCachePayloadSize) {
-            return Invalid("artifact exceeds size limit");
+    static ShaderCacheReadResult Decode(const ShaderCacheIdentity& identity,
+                                        slice<ShaderUnit>          expected_units,
+                                        slice<rstd::uint8_t>       bytes) {
+        if (bytes.len().to_primitive() < kShaderCacheHeaderSize)
+            return Invalid("truncated header"_str);
+        if (bytes.len().to_primitive() > kShaderCacheHeaderSize + kMaxShaderCachePayloadSize) {
+            return Invalid("artifact exceeds size limit"_str);
         }
 
-        ShaderCacheByteReader         reader(bytes);
-        std::span<const std::uint8_t> magic;
-        std::uint32_t                 format_version = 0;
-        std::uint32_t                 shader_abi     = 0;
-        std::uint32_t                 header_size    = 0;
-        std::uint32_t                 payload_size   = 0;
-        std::uint32_t                 stage_count    = 0;
-        std::uint32_t                 flags          = 0;
-        if (! reader.Bytes(kShaderCacheMagic.size(), magic) ||
-            ! std::equal(magic.begin(), magic.end(), kShaderCacheMagic.begin()) ||
-            ! reader.U32(format_version) || ! reader.U32(shader_abi) || ! reader.U32(header_size) ||
-            ! reader.U32(payload_size) || ! reader.U32(stage_count) || ! reader.U32(flags)) {
-            return Invalid("invalid header");
+        ShaderCacheByteReader reader(bytes);
+        slice<rstd::uint8_t>  magic;
+        rstd::uint32_t        format_version = 0;
+        rstd::uint32_t        shader_abi     = 0;
+        rstd::uint32_t        header_size    = 0;
+        rstd::uint32_t        payload_size   = 0;
+        rstd::uint32_t        stage_count    = 0;
+        rstd::uint32_t        flags          = 0;
+        if (! reader.Bytes(kShaderCacheMagic.len().to_primitive(), magic) ||
+            magic != kShaderCacheMagic.as_slice() || ! reader.U32(format_version) ||
+            ! reader.U32(shader_abi) || ! reader.U32(header_size) || ! reader.U32(payload_size) ||
+            ! reader.U32(stage_count) || ! reader.U32(flags)) {
+            return Invalid("invalid header"_str);
         }
         if (format_version != kShaderCacheFormatVersion || shader_abi != kShaderCacheAbiVersion ||
             header_size != kShaderCacheHeaderSize || flags != 0) {
-            return Invalid("unsupported format or ABI");
+            return Invalid("unsupported format or ABI"_str);
         }
         if (stage_count == 0 || stage_count > kMaxShaderCacheStages ||
-            stage_count != expected_units.size()) {
-            return Invalid("stage count mismatch");
+            stage_count != expected_units.len().to_primitive()) {
+            return Invalid("stage count mismatch"_str);
         }
 
         ShaderCacheDigest cache_key {};
@@ -2201,95 +2235,96 @@ public:
         ShaderCacheDigest payload_digest {};
         if (! ReadDigest(reader, cache_key) || ! ReadDigest(reader, source) ||
             ! ReadDigest(reader, combos) || ! ReadDigest(reader, payload_digest)) {
-            return Invalid("truncated identity");
+            return Invalid("truncated identity"_str);
         }
         if (cache_key != identity.cache_key || source != identity.source ||
             combos != identity.combos) {
-            return Invalid("identity mismatch");
+            return Invalid("identity mismatch"_str);
         }
         if (payload_size > kMaxShaderCachePayloadSize || payload_size != reader.remaining()) {
-            return Invalid("payload size mismatch");
+            return Invalid("payload size mismatch"_str);
         }
 
-        std::span<const std::uint8_t> payload;
+        slice<rstd::uint8_t> payload;
         if (! reader.Bytes(payload_size, payload) || ! reader.done()) {
-            return Invalid("truncated payload");
+            return Invalid("truncated payload"_str);
         }
         auto actual_payload_digest = HashShaderCacheBytes(payload);
         if (! actual_payload_digest || *actual_payload_digest != payload_digest) {
-            return Invalid("payload digest mismatch");
+            return Invalid("payload digest mismatch"_str);
         }
 
         ShaderCacheArtifact artifact;
-        artifact.units.reserve(stage_count);
-        artifact.codes.reserve(stage_count);
+        artifact.units.reserve(usize(stage_count));
+        artifact.codes.reserve(usize(stage_count));
         ShaderCacheByteReader payload_reader(payload);
-        for (std::uint32_t i = 0; i < stage_count; ++i) {
-            std::uint32_t                 record_size = 0;
-            std::span<const std::uint8_t> record_bytes;
+        for (rstd::uint32_t i = 0; i < stage_count; ++i) {
+            rstd::uint32_t       record_size = 0;
+            slice<rstd::uint8_t> record_bytes;
             if (! payload_reader.U32(record_size) || record_size > payload_reader.remaining() ||
                 ! payload_reader.Bytes(record_size, record_bytes)) {
-                return Invalid("invalid stage record size");
+                return Invalid("invalid stage record size"_str);
             }
 
             ShaderCacheByteReader record(record_bytes);
-            std::uint32_t         stage_value = 0;
+            rstd::uint32_t        stage_value = 0;
             if (! record.U32(stage_value) ||
-                stage_value > static_cast<std::uint32_t>(ShaderType::FRAGMENT)) {
-                return Invalid("invalid shader stage");
+                stage_value > static_cast<rstd::uint32_t>(ShaderType::FRAGMENT)) {
+                return Invalid("invalid shader stage"_str);
             }
             const auto stage = static_cast<ShaderType>(stage_value);
-            if (stage != expected_units[i].stage) return Invalid("shader stage mismatch");
+            if (stage != expected_units[usize(i)].stage)
+                return Invalid("shader stage mismatch"_str);
 
             ShaderUnit unit { .stage = stage };
             if (! record.String(unit.src) || ! ReadCacheMap(record, unit.preprocess_info.input) ||
                 ! ReadCacheMap(record, unit.preprocess_info.output) ||
                 ! ReadCacheMap(record, unit.preprocess_info.uniforms) ||
                 ! ReadCacheSlots(record, unit.preprocess_info.active_tex_slots)) {
-                return Invalid("invalid shader metadata");
+                return Invalid("invalid shader metadata"_str);
             }
 
-            std::uint32_t spirv_size = 0;
+            rstd::uint32_t spirv_size = 0;
             if (! record.U32(spirv_size) || spirv_size % 4 != 0 ||
                 spirv_size > record.remaining()) {
-                return Invalid("invalid SPIR-V size");
+                return Invalid("invalid SPIR-V size"_str);
             }
             ShaderCode code;
-            code.reserve(spirv_size / 4);
-            for (std::uint32_t word = 0; word < spirv_size / 4; ++word) {
-                std::uint32_t value = 0;
-                if (! record.U32(value)) return Invalid("truncated SPIR-V");
-                code.push_back(value);
+            code.reserve(usize(spirv_size / 4));
+            for (rstd::uint32_t word = 0; word < spirv_size / 4; ++word) {
+                rstd::uint32_t value = 0;
+                if (! record.U32(value)) return Invalid("truncated SPIR-V"_str);
+                code.push(rstd::uint32_t(value));
             }
-            if (! record.done()) return Invalid("unexpected stage data");
-            artifact.units.push_back(std::move(unit));
-            artifact.codes.push_back(std::move(code));
+            if (! record.done()) return Invalid("unexpected stage data"_str);
+            artifact.units.push(rstd::move(unit));
+            artifact.codes.push(rstd::move(code));
         }
-        if (! payload_reader.done()) return Invalid("unexpected payload data");
+        if (! payload_reader.done()) return Invalid("unexpected payload data"_str);
         return ShaderCacheReadResult {
             .status   = ShaderCacheReadStatus::Hit,
-            .artifact = std::move(artifact),
+            .artifact = rstd::move(artifact),
         };
     }
 
 private:
     static bool ReadDigest(ShaderCacheByteReader& reader, ShaderCacheDigest& digest) {
-        std::span<const std::uint8_t> bytes;
-        if (! reader.Bytes(digest.size(), bytes)) return false;
-        std::copy(bytes.begin(), bytes.end(), digest.begin());
+        slice<rstd::uint8_t> bytes;
+        if (! reader.Bytes(digest.len().to_primitive(), bytes)) return false;
+        for (usize i {}; i < bytes.len(); ++i) digest[i] = bytes[i];
         return true;
     }
 
-    static ShaderCacheReadResult Invalid(std::string reason) {
+    static ShaderCacheReadResult Invalid(ref<str> reason) {
         return ShaderCacheReadResult {
             .status = ShaderCacheReadStatus::Invalid,
-            .reason = std::move(reason),
+            .reason = String::make(reason),
         };
     }
 };
 
-bool PublishShaderCacheArtifact(ref<rstd::path::Path> path, std::string_view cache_key,
-                                std::span<const std::uint8_t> bytes) {
+bool PublishShaderCacheArtifact(ref<rstd::path::Path> path, ref<str> cache_key,
+                                slice<rstd::uint8_t> bytes) {
     auto parent = path.parent();
     if (parent.is_none()) return false;
 
@@ -2301,14 +2336,15 @@ bool PublishShaderCacheArtifact(ref<rstd::path::Path> path, std::string_view cac
         return false;
     }
 
-    static std::atomic<std::uint64_t> temporary_sequence { 0 };
+    static Atomic<u64> temporary_sequence { u64() };
     for (unsigned attempt = 0; attempt < 16; ++attempt) {
-        const std::string temporary_name =
-            std::string(cache_key) + "." + std::to_string(rstd::process::id().to_primitive()) +
-            "." + std::to_string(temporary_sequence.fetch_add(1, std::memory_order_relaxed)) +
-            ".tmp";
+        const auto temporary_name =
+            rstd::format("{}.{}.{}.tmp",
+                         cache_key,
+                         rstd::process::id(),
+                         temporary_sequence.fetch_add(u64(1), Ordering::Relaxed));
         auto temporary_path = rstd::path::PathBuf::from(*parent);
-        temporary_path.push(ref<rstd::path::Path>(rstd::cppstd::as_str(temporary_name).unwrap()));
+        temporary_path.push(ref<rstd::path::Path>(temporary_name.as_str()));
 
         auto opened = rstd::fs::File::create_new(temporary_path.as_path());
         if (opened.is_err()) {
@@ -2323,8 +2359,9 @@ bool PublishShaderCacheArtifact(ref<rstd::path::Path> path, std::string_view cac
         bool write_ok = false;
         {
             auto file = rstd::move(opened).unwrap_unchecked();
-            auto data = rstd::slice<u8>::from_raw_parts(reinterpret_cast<const byte*>(bytes.data()),
-                                                        rstd::usize(bytes.size()));
+            auto data =
+                rstd::slice<u8>::from_raw_parts(reinterpret_cast<const byte*>(bytes.as_raw_ptr()),
+                                                rstd::usize(bytes.len().to_primitive()));
             auto written = file.write_all(data);
             if (written.is_err()) {
                 rstd_warn("cannot write shader cache temporary file '{}': {}",
@@ -2365,11 +2402,11 @@ bool PublishShaderCacheArtifact(ref<rstd::path::Path> path, std::string_view cac
 namespace
 {
 
-Option<String> MakeShaderSourceCacheKey(const std::string&                source,
-                                        const std::vector<ShaderTexInfo>& texinfos) {
+Option<String> MakeShaderSourceCacheKey(ref<str> source, slice<ShaderTexInfo> texinfos) {
     ShaderCacheByteWriter key;
-    if (! key.String(source) || texinfos.size() > kMaxShaderCacheMapEntries) return None();
-    key.U32(u32(texinfos.size()).to_primitive());
+    if (! key.String(source) || texinfos.len().to_primitive() > kMaxShaderCacheMapEntries)
+        return None();
+    key.U32(u32(texinfos.len().to_primitive()).to_primitive());
     for (const auto& texinfo : texinfos) {
         u32 bits { texinfo.enabled ? 1u : 0u };
         for (usize index {}; index < texinfo.composEnabled.len(); ++index) {
@@ -2377,25 +2414,23 @@ Option<String> MakeShaderSourceCacheKey(const std::string&                source
         }
         key.U32(bits.to_primitive());
     }
-    auto digest = utils::genSha1(std::span<const char>(
-        reinterpret_cast<const char*>(key.bytes().data()), key.bytes().size()));
-    return Some(String::make(rstd::cppstd::as_str(digest).unwrap()));
+    auto digest = utils::genSha1(slice<rstd::byte>::from_raw_parts(
+        reinterpret_cast<const rstd::byte*>(key.bytes().data()), key.bytes().len()));
+    return Some(rstd::move(digest));
 }
 
 usize EstimateShaderAnnotations(const ShaderInfo& info) {
     usize bytes { sizeof(ShaderInfo) };
-    auto  add_map = [&](const auto& values) {
-        bytes += usize(values.size() * 128);
-        for (const auto& [name, value] : values) bytes += usize(name.size() + value.size());
-    };
-    add_map(info.combos);
-    add_map(info.alias);
-    for (const auto& [name, value] : info.svs) {
-        bytes += usize(name.size() + sizeof(value) + 96);
+    bytes += info.combos.len() * usize(128);
+    for (const auto& [name, value] : info.combos.iter()) bytes += name->len() + value->len();
+    bytes += info.alias.len() * usize(128);
+    for (const auto& [name, value] : info.alias.iter()) bytes += name->len() + value->len();
+    for (const auto& [name, value] : info.svs.iter()) {
+        bytes += name->len() + usize(sizeof(ShaderValue) + 96);
     }
     for (const auto& [slot, texture] : info.defTexs) {
         static_cast<void>(slot);
-        bytes += usize(texture.size() + 64);
+        bytes += texture.len() + usize(64);
     }
     bytes += (info.combo_defs.len() + info.texture_uniforms.len() + info.scalar_uniforms.len()) *
              usize(512);
@@ -2404,10 +2439,13 @@ usize EstimateShaderAnnotations(const ShaderInfo& info) {
 }
 
 void MergeShaderAnnotations(ShaderInfo& target, const ShaderInfo& source) {
-    for (const auto& [name, value] : source.combos) target.combos[name] = value;
-    for (const auto& [name, value] : source.svs) target.svs[name] = value;
-    for (const auto& [name, value] : source.alias) target.alias[name] = value;
-    target.defTexs.insert(target.defTexs.end(), source.defTexs.begin(), source.defTexs.end());
+    for (const auto& [name, value] : source.combos.iter())
+        (void)target.combos.insert(name->clone(), value->clone());
+    for (const auto& [name, value] : source.svs.iter())
+        (void)target.svs.insert(name->clone(), value->clone());
+    for (const auto& [name, value] : source.alias.iter())
+        (void)target.alias.insert(name->clone(), value->clone());
+    for (const auto& texture : source.defTexs) target.defTexs.push(texture.clone());
     for (const auto& combo : source.combo_defs) target.combo_defs.push(combo.clone());
     for (const auto& uniform : source.texture_uniforms) {
         target.texture_uniforms.push(uniform.clone());
@@ -2421,36 +2459,31 @@ void MergeShaderAnnotations(ShaderInfo& target, const ShaderInfo& source) {
 } // namespace
 
 Combos ShaderParser::ResolveShaderCombos(const ShaderInfo& info, const Combos& input_combos) {
-    Combos                                  resolved = input_combos;
-    Map<std::string, const wpscene::Combo*> definitions;
-    Map<std::string, bool>                  active;
+    auto                                    resolved = input_combos.clone();
+    BTreeMap<String, const wpscene::Combo*> definitions;
+    BTreeMap<String, bool>                  active;
 
     for (const auto& combo : info.combo_defs) {
-        auto name         = rstd::cppstd::to_string(combo.combo.as_str());
-        definitions[name] = &combo;
-        active[name]      = true;
-        if (! resolved.contains(name)) {
-            resolved[name] = std::to_string(combo.default_.to_primitive());
-        }
+        (void)definitions.insert(combo.combo.clone(), &combo);
+        (void)active.insert(combo.combo.clone(), true);
+        if (! resolved.contains_key(combo.combo.as_str()))
+            (void)resolved.insert(combo.combo.clone(), rstd::format("{}", combo.default_));
     }
 
     bool changed = true;
     while (changed) {
         changed = false;
-        for (const auto& [name, combo] : definitions) {
-            if (! active[name]) continue;
-            auto requirements = combo->require.iter();
-            for (auto item = requirements.next(); item.is_some(); item = requirements.next()) {
-                auto require_name_value = item->template get<0>();
-                auto require_value      = item->template get<1>();
-                auto require_name       = rstd::cppstd::to_string(require_name_value->as_str());
-                auto value              = resolved.find(require_name);
-                auto dependency         = active.find(require_name);
-                if (value == resolved.end() ||
-                    value->second != std::to_string(require_value->to_primitive()) ||
-                    (dependency != active.end() && ! dependency->second)) {
-                    active[name] = false;
-                    changed      = true;
+        for (const auto& [name, definition] : definitions.iter()) {
+            if (! **active.get(name->as_str())) continue;
+            const auto* combo = *definition;
+            for (const auto& [required_name, required_value] : combo->require.iter()) {
+                auto value      = resolved.get(required_name->as_str());
+                auto dependency = active.get(required_name->as_str());
+                if (value.is_none() ||
+                    (**value).as_str() != rstd::format("{}", *required_value).as_str() ||
+                    (dependency.is_some() && ! **dependency)) {
+                    **active.get_mut(name->as_str()) = false;
+                    changed                          = true;
                     break;
                 }
             }
@@ -2459,21 +2492,19 @@ Combos ShaderParser::ResolveShaderCombos(const ShaderInfo& info, const Combos& i
 
     // Saved materials retain values for hidden editor controls. Compile hidden combos at their
     // declared defaults; leave a zero default undefined so shader-side aliases can define it.
-    for (const auto& [name, combo] : definitions) {
-        if (active[name]) continue;
-        if (combo->default_ == i32()) {
-            resolved.erase(name);
-        } else {
-            resolved[name] = std::to_string(combo->default_.to_primitive());
-        }
+    for (const auto& [name, definition] : definitions.iter()) {
+        if (**active.get(name->as_str())) continue;
+        const auto* combo = *definition;
+        if (combo->default_ == i32())
+            (void)resolved.remove(name->as_str());
+        else
+            (void)resolved.insert(name->clone(), rstd::format("{}", combo->default_));
     }
     return resolved;
 }
 
-std::string ShaderParser::PreShaderSrc(fs::VFS& vfs, const std::string& src,
-                                       ShaderInfo*                       pShaderInfo,
-                                       const std::vector<ShaderTexInfo>& texinfos,
-                                       ShaderCache*                      cache) {
+String ShaderParser::PreShaderSrc(fs::VFS& vfs, ref<str> src, ShaderInfo* pShaderInfo,
+                                  slice<ShaderTexInfo> texinfos, ShaderCache* cache) {
     // Expand `#include "FILE"` in place: replace each include line with its
     // resolved content (recursively expanded). Preserves the include's
     // original position so a `struct Grid { ... }; #include "common.h"`
@@ -2488,17 +2519,17 @@ std::string ShaderParser::PreShaderSrc(fs::VFS& vfs, const std::string& src,
             auto cached = cache->m_source_entries.get(source_cache_key->as_str());
             if (cached.is_some()) {
                 MergeShaderAnnotations(*pShaderInfo, (*cached)->annotations);
-                return rstd::cppstd::to_string((*cached)->source.as_str());
+                return (*cached)->source.clone();
             }
         }
     }
 
-    std::string newsrc;
-    newsrc.reserve(src.size());
-    std::string all_includes;
+    String newsrc;
+    newsrc.reserve(src.len());
+    String all_includes;
 
-    std::size_t            cursor = 0;
-    auto                   source = rstd::cppstd::as_str(src).unwrap();
+    usize                  cursor {};
+    auto                   source = src;
     shader_lex::LineWalker w(source);
     for (; ! w.Done(); w.Step()) {
         shader_lex::Cursor c(source);
@@ -2508,39 +2539,36 @@ std::string ShaderParser::PreShaderSrc(fs::VFS& vfs, const std::string& src,
         // Copy bytes up to this line, then splice in the recursively-expanded
         // include body. The newline after the directive stays as part of the
         // splice (we step the outer cursor to LineEnd).
-        newsrc.append(src, cursor, w.LineStart().to_primitive() - cursor);
-        std::string line =
-            src.substr(w.LineStart().to_primitive(), (w.LineEnd() - w.LineStart()).to_primitive());
-        auto include_line = String::make(rstd::cppstd::as_str(line).unwrap());
+        newsrc.push_str(src.get(cursor, w.LineStart()).unwrap());
+        auto include_line = String::make(src.get(w.LineStart(), w.LineEnd()).unwrap());
         include_line.push_ascii(u8('\n'));
-        std::string expanded = LoadGlslInclude(vfs, include_line.as_str());
-        newsrc.append(expanded);
-        all_includes.append(expanded);
-        cursor = w.LineEnd().to_primitive();
+        auto expanded = LoadGlslInclude(vfs, include_line.as_str());
+        newsrc.push_str(expanded.as_str());
+        all_includes.push_str(expanded.as_str());
+        cursor = w.LineEnd();
     }
-    newsrc.append(src, cursor, std::string::npos);
+    newsrc.push_str(src.get(cursor, src.len()).unwrap());
     if (cache == nullptr) {
-        ParseShader(all_includes, pShaderInfo, texinfos);
-        ParseShader(newsrc, pShaderInfo, texinfos);
+        ParseShader(all_includes.as_str(), pShaderInfo, texinfos);
+        ParseShader(newsrc.as_str(), pShaderInfo, texinfos);
         return newsrc;
     }
 
     ShaderInfo annotations;
-    ParseShader(all_includes, &annotations, texinfos);
-    ParseShader(newsrc, &annotations, texinfos);
+    ParseShader(all_includes.as_str(), &annotations, texinfos);
+    ParseShader(newsrc.as_str(), &annotations, texinfos);
     MergeShaderAnnotations(*pShaderInfo, annotations);
     if (source_cache_key.is_some()) {
-        auto bytes = usize(newsrc.size()) * usize(4) + EstimateShaderAnnotations(annotations) +
+        auto bytes = newsrc.len() * usize(4) + EstimateShaderAnnotations(annotations) +
                      source_cache_key->len() * usize(2) + usize(128);
         if (cache->ReserveSource(bytes)) {
             auto order_key = source_cache_key->clone();
-            cache->m_source_entries.insert(
-                source_cache_key.take().unwrap_unchecked(),
-                ShaderCache::SourceEntry {
-                    .source      = String::make(rstd::cppstd::as_str(newsrc).unwrap()),
-                    .annotations = rstd::move(annotations),
-                    .bytes       = bytes,
-                });
+            cache->m_source_entries.insert(source_cache_key.take().unwrap_unchecked(),
+                                           ShaderCache::SourceEntry {
+                                               .source      = newsrc.clone(),
+                                               .annotations = rstd::move(annotations),
+                                               .bytes       = bytes,
+                                           });
             cache->m_source_order.push(rstd::move(order_key));
             cache->m_source_bytes += bytes;
         }
@@ -2548,26 +2576,30 @@ std::string ShaderParser::PreShaderSrc(fs::VFS& vfs, const std::string& src,
     return newsrc;
 }
 
-std::string ShaderParser::PreShaderHeader(const std::string& src, const Combos& combos,
-                                          ShaderType type) {
+String ShaderParser::PreShaderHeader(ref<str> src, const Combos& combos, ShaderType type) {
     // Some workshop shaders contain full-width semicolons, which glslang rejects
     // while compiling the Vulkan shader source.
-    auto compatible = ReplaceAll(src, "\xEF\xBC\x9B", ";");
-    auto undefined  = UndefBeforeConflictingMacroDefines(rstd::cppstd::as_str(compatible).unwrap());
+    auto compatible = String::make(src);
+    for (;;) {
+        auto pos = compatible.as_str().find("\xEF\xBC\x9B"_str);
+        if (pos.is_none()) break;
+        compatible.replace_range(*pos, *pos + usize(3), ";"_str);
+    }
+    auto undefined        = UndefBeforeConflictingMacroDefines(compatible.as_str());
     auto normalized_audio = NormalizePackedAudioSpectrumAccess(undefined.as_str());
     auto normalized_mul   = NormalizeLeadingIntegerMulLiteral(normalized_audio.as_str());
-    auto user_src         = rstd::cppstd::to_string(normalized_mul.as_str());
+    auto user_src         = normalized_mul.as_str();
 
     // All stages route through glslang's HLSL frontend.
-    std::string pre;
+    String pre;
     if (type == ShaderType::GEOMETRY) {
-        pre = pre_shader_code_gs_hlsl;
+        pre = rstd::into(pre_shader_code_gs_hlsl);
     } else {
-        pre = pre_shader_code;
-        const char* tail =
+        pre = rstd::into(pre_shader_code);
+        ref<str> tail =
             (type == ShaderType::FRAGMENT) ? pre_shader_tail_frag : pre_shader_tail_vert;
-        if (auto pos = pre.find("__SHADER_TAIL__"); pos != std::string::npos) {
-            pre.replace(pos, std::string_view("__SHADER_TAIL__").size(), tail);
+        if (auto pos = pre.as_str().find("__SHADER_TAIL__"_str); pos.is_some()) {
+            pre.replace_range(*pos, *pos + "__SHADER_TAIL__"_str.len(), tail);
         }
     }
 
@@ -2575,15 +2607,14 @@ std::string ShaderParser::PreShaderHeader(const std::string& src, const Combos& 
     // prologue's mod overloads to avoid redefinition errors. Substring scan
     // is good enough — function decls always start with one of these tokens
     // followed by a space and `mod(`.
-    static constexpr std::string_view kModSentinels[] = {
-        "\nfloat mod(", "\nfloat2 mod(", "\nfloat3 mod(", "\nfloat4 mod(",
-        "\nvec2 mod(",  "\nvec3 mod(",   "\nvec4 mod(",
+    static constexpr ref<str> kModSentinels[] = {
+        "\nfloat mod("_str, "\nfloat2 mod("_str, "\nfloat3 mod("_str, "\nfloat4 mod("_str,
+        "\nvec2 mod("_str,  "\nvec3 mod("_str,   "\nvec4 mod("_str,
     };
     bool user_mod = false;
     for (auto needle : kModSentinels) {
-        if (user_src.find(needle) != std::string::npos ||
-            (user_src.size() >= needle.size() - 1 &&
-             std::string_view(user_src).substr(0, needle.size() - 1) == needle.substr(1))) {
+        if (user_src.contains(needle) ||
+            user_src.starts_with(needle.get(usize(1), needle.len()).unwrap())) {
             user_mod = true;
             break;
         }
@@ -2591,20 +2622,24 @@ std::string ShaderParser::PreShaderHeader(const std::string& src, const Combos& 
     if (user_mod) {
         // Inject #define ahead of the prologue text so the #ifndef guard
         // around our `mod` overloads sees it during glslang preprocess.
-        pre = "#define WW_USER_MOD 1\n" + pre;
+        pre.insert_str(usize(), "#define WW_USER_MOD 1\n"_str);
     }
 
-    std::string combo_defines;
-    for (const auto& c : combos) {
-        std::string cup(c.first);
-        std::transform(c.first.begin(), c.first.end(), cup.begin(), [](unsigned char value) {
-            return static_cast<char>(std::toupper(value));
-        });
-        if (c.second.empty()) {
+    String combo_defines;
+    for (const auto& [name, value] : combos.iter()) {
+        auto bytes = Vec<u8>::with_capacity(name->len());
+        for (auto character : name->as_str().as_bytes())
+            bytes.push(u8(static_cast<rstd::uint8_t>(std::toupper(character.to_primitive()))));
+        auto cup = String::from_utf8(rstd::move(bytes)).unwrap();
+        if (value->is_empty()) {
             rstd_error("combo '{}' can't be empty", cup);
             continue;
         }
-        combo_defines += "#define " + cup + " " + c.second + "\n";
+        combo_defines.push_str("#define "_str);
+        combo_defines.push_str(cup.as_str());
+        combo_defines.push_str(" "_str);
+        combo_defines.push_str(value->as_str());
+        combo_defines.push_ascii(u8(10));
     }
 
     // Combo `#define`s land before __SHADER_PLACEHOLD__ so they're visible
@@ -2612,12 +2647,13 @@ std::string ShaderParser::PreShaderHeader(const std::string& src, const Combos& 
     // slot itself is filled by Finalprocessor *after* preprocessing, so
     // the synthesized cbuffer always sees combo references already
     // expanded to literal numbers (e.g. `g_Bones[BONECOUNT]` → `[4]`).
-    if (auto pos = pre.find(SHADER_PLACEHOLD); pos != std::string::npos) {
-        pre.insert(pos, combo_defines);
+    if (auto pos = pre.as_str().find(SHADER_PLACEHOLD); pos.is_some()) {
+        pre.insert_str(*pos, combo_defines.as_str());
     } else {
-        pre += combo_defines;
+        pre.push_str(combo_defines.as_str());
     }
-    return pre + user_src;
+    pre.push_str(user_src);
+    return pre;
 }
 
 namespace
@@ -2627,146 +2663,122 @@ namespace
 // raw post-PreShaderSrc state (includes resolved, prologue not yet
 // applied, regex extraction not yet run) so a replay through the full
 // pipeline exercises every transform downstream.
-Json BuildShaderRecord(std::string_view scene_id, std::span<const ShaderUnit> units,
-                       const ShaderInfo* shader_info, std::span<const ShaderTexInfo> texs) {
-    auto stage_name = [](ShaderType s) -> const char* {
+Json BuildShaderRecord(ref<str> scene_id, slice<ShaderUnit> units, const ShaderInfo* shader_info,
+                       slice<ShaderTexInfo> texs) {
+    auto stage_name = [](ShaderType s) -> ref<str> {
         switch (s) {
-        case ShaderType::VERTEX: return "VERTEX";
-        case ShaderType::FRAGMENT: return "FRAGMENT";
-        case ShaderType::GEOMETRY: return "GEOMETRY";
+        case ShaderType::VERTEX: return "VERTEX"_str;
+        case ShaderType::FRAGMENT: return "FRAGMENT"_str;
+        case ShaderType::GEOMETRY: return "GEOMETRY"_str;
         }
-        return "UNKNOWN";
+        return "UNKNOWN"_str;
     };
 
     auto rec = rstd::json::Map::make();
-    rec.insert(::alloc::string::String::make("scene_id"_str), JsonFromStd(scene_id));
+    rec.insert("scene_id"_Str, Json::String(rstd::into(scene_id)));
 
     auto js_stages = rstd::json::Array::make();
     for (const auto& u : units) {
         auto stage = rstd::json::Map::make();
-        stage.insert(::alloc::string::String::make("stage"_str), JsonFromStd(stage_name(u.stage)));
-        stage.insert(::alloc::string::String::make("src"_str), JsonFromStd(u.src));
+        stage.insert("stage"_Str, rstd::into<owe::Json>(String::make(stage_name(u.stage))));
+        stage.insert("src"_Str, Json::String(u.src.clone()));
         js_stages.push(Json::Object(rstd::move(stage)));
     }
-    rec.insert(::alloc::string::String::make("stages"_str), Json::Array(rstd::move(js_stages)));
+    rec.insert("stages"_Str, Json::Array(rstd::move(js_stages)));
 
     auto js_combos = rstd::json::Map::make();
     if (shader_info) {
-        for (const auto& [k, v] : shader_info->combos)
-            js_combos.insert(::alloc::string::String::make(rstd::cppstd::as_str(k).unwrap()),
-                             JsonFromStd(v));
+        for (const auto& [k, v] : shader_info->combos.iter())
+            js_combos.insert(k->clone(), Json::String(v->clone()));
     }
-    rec.insert(::alloc::string::String::make("combos"_str), Json::Object(rstd::move(js_combos)));
+    rec.insert("combos"_Str, Json::Object(rstd::move(js_combos)));
 
     auto js_texs = rstd::json::Array::make();
     for (const auto& t : texs) {
         auto compos = rstd::json::Array::make();
         for (bool enabled : t.composEnabled) compos.push(rstd::into<Json>(enabled));
         auto tex = rstd::json::Map::make();
-        tex.insert(::alloc::string::String::make("enabled"_str),
-                   rstd::into<Json>(bool { t.enabled }));
-        tex.insert(::alloc::string::String::make("compos"_str), Json::Array(rstd::move(compos)));
+        tex.insert("enabled"_Str, rstd::into<Json>(bool { t.enabled }));
+        tex.insert("compos"_Str, Json::Array(rstd::move(compos)));
         js_texs.push(Json::Object(rstd::move(tex)));
     }
-    rec.insert(::alloc::string::String::make("tex_infos"_str), Json::Array(rstd::move(js_texs)));
+    rec.insert("tex_infos"_Str, Json::Array(rstd::move(js_texs)));
 
     return Json::Object(rstd::move(rec));
 }
 
-// Appends one JSONL line to WP_SHADER_RECORD's path. O_APPEND is atomic
-// for writes ≤ PIPE_BUF on Linux, which is more than enough for a single
-// JSON line; concurrent recorders won't interleave.
-void MaybeRecordCompile(std::string_view scene_id, std::span<const ShaderUnit> units,
-                        const ShaderInfo* shader_info, std::span<const ShaderTexInfo> texs) {
-    const char* path = std::getenv("WP_SHADER_RECORD");
-    if (! path || path[0] == '\0') return;
-    Json        rec  = BuildShaderRecord(scene_id, units, shader_info, texs);
-    std::string line = Dump(rec);
-    line.push_back('\n');
-    if (FILE* f = std::fopen(path, "a")) {
-        std::fwrite(line.data(), 1, line.size(), f);
-        std::fclose(f);
+void MaybeRecordCompile(ref<str> scene_id, slice<ShaderUnit> units, const ShaderInfo* shader_info,
+                        slice<ShaderTexInfo> texs) {
+    auto path = rstd::env::var_os("WP_SHADER_RECORD"_str);
+    if (! path || path->is_empty()) return;
+    Json rec  = BuildShaderRecord(scene_id, units, shader_info, texs);
+    auto line = DumpString(rec);
+    line.push_ascii('\n');
+    auto file = OpenOptions::make().append(true).create(true).open(ref<Path>(path->as_os_str()));
+    if (file.is_ok()) {
+        (void)file->write_all(line.as_str().as_bytes());
     } else {
-        rstd_warn("WP_SHADER_RECORD: cannot open '{}' for append", path);
+        rstd_warn("WP_SHADER_RECORD: cannot open '{}' for append", path->as_os_str().display());
     }
 }
 
 } // namespace
 
-bool ShaderParser::CompileToSpv(std::string_view scene_id, std::span<ShaderUnit> units,
-                                std::vector<ShaderCode>& codes, ShaderInfo* shader_info,
-                                std::span<const ShaderTexInfo> texs, ShaderCache* cache) {
-    MaybeRecordCompile(scene_id, units, shader_info, texs);
+bool ShaderParser::CompileToSpv(ref<str> scene_id, mut_ref<ShaderUnit[]> units,
+                                Vec<ShaderCode>& codes, ShaderInfo* shader_info,
+                                slice<ShaderTexInfo> texs, ShaderCache* cache) {
+    MaybeRecordCompile(scene_id, units.as_ref(), shader_info, texs);
 
-    auto make_compile_entry =
-        [](std::span<const ShaderUnit> source_units, std::span<const ShaderCode> source_codes) {
-            ShaderCache::CompileEntry entry;
-            entry.stages.reserve(usize(source_units.size()));
-            entry.codes.reserve(usize(source_codes.size()));
-            entry.bytes = usize(sizeof(ShaderCache::CompileEntry));
-            for (const auto& unit : source_units) {
-                ShaderCache::CompiledStage stage { .stage = unit.stage };
-                stage.uniforms.reserve(usize(unit.preprocess_info.uniforms.size()));
-                for (const auto& [name, value] : unit.preprocess_info.uniforms) {
-                    stage.uniforms.insert(String::make(rstd::cppstd::as_str(name).unwrap()),
-                                          String::make(rstd::cppstd::as_str(value).unwrap()));
-                }
-                stage.active_tex_slots.reserve(usize(unit.preprocess_info.active_tex_slots.size()));
-                for (const auto slot : unit.preprocess_info.active_tex_slots) {
-                    stage.active_tex_slots.push(u32(slot));
-                }
-                entry.stages.push(rstd::move(stage));
-                entry.bytes += usize(sizeof(ShaderCache::CompiledStage));
-                for (const auto& [name, value] : unit.preprocess_info.uniforms) {
-                    entry.bytes += usize(name.size() + value.size() + 128);
-                }
-                entry.bytes += usize(unit.preprocess_info.active_tex_slots.size() * 64);
+    auto make_compile_entry = [](slice<ShaderUnit> source_units, slice<ShaderCode> source_codes) {
+        ShaderCache::CompileEntry entry;
+        entry.stages.reserve(usize(source_units.len().to_primitive()));
+        entry.codes.reserve(source_codes.len());
+        entry.bytes = usize(sizeof(ShaderCache::CompileEntry));
+        for (const auto& unit : source_units) {
+            ShaderCache::CompiledStage stage { .stage = unit.stage };
+            stage.uniforms = unit.preprocess_info.uniforms.clone();
+            stage.active_tex_slots.reserve(
+                usize(unit.preprocess_info.active_tex_slots.len().to_primitive()));
+            for (const auto slot : unit.preprocess_info.active_tex_slots.iter()) {
+                stage.active_tex_slots.push(u32(*slot));
             }
-            for (const auto& code : source_codes) {
-                auto cached_code = Vec<u32>::with_capacity(usize(code.size()));
-                for (const auto word : code) cached_code.push(u32(word));
-                entry.codes.push(rstd::move(cached_code));
-                entry.bytes += usize(sizeof(Vec<u32>) + code.size() * sizeof(u32));
+            entry.stages.push(rstd::move(stage));
+            entry.bytes += usize(sizeof(ShaderCache::CompiledStage));
+            for (const auto& [name, value] : unit.preprocess_info.uniforms.iter()) {
+                entry.bytes += name->len() + value->len() + usize(128);
             }
-            return entry;
-        };
+            entry.bytes += usize(unit.preprocess_info.active_tex_slots.len().to_primitive() * 64);
+        }
+        for (const auto& code : source_codes) {
+            entry.codes.push(code.clone());
+            entry.bytes += usize(sizeof(ShaderCode)) + code.len() * usize(sizeof(rstd::uint32_t));
+        }
+        return entry;
+    };
 
     auto apply_compile_entry = [&](const ShaderCache::CompileEntry& entry) {
-        if (entry.stages.len() != usize(units.size()) || entry.codes.len() != usize(units.size())) {
+        if (entry.stages.len() != usize(units.len().to_primitive()) ||
+            entry.codes.len() != usize(units.len().to_primitive())) {
             return false;
         }
         for (usize index {}; index < entry.stages.len(); ++index) {
             const auto& stage = entry.stages[index];
-            auto&       unit  = units[index.to_primitive()];
+            auto&       unit  = units[usize(index.to_primitive())];
             if (stage.stage != unit.stage) return false;
-            unit.preprocess_info.uniforms.clear();
-            auto uniform = stage.uniforms.iter();
-            for (auto item = uniform.next(); item.is_some(); item = uniform.next()) {
-                auto name  = item->template get<0>();
-                auto value = item->template get<1>();
-                unit.preprocess_info.uniforms.emplace(rstd::cppstd::to_string(name->as_str()),
-                                                      rstd::cppstd::to_string(value->as_str()));
-            }
+            unit.preprocess_info.uniforms = stage.uniforms.clone();
             unit.preprocess_info.active_tex_slots.clear();
             for (const auto slot : stage.active_tex_slots) {
-                unit.preprocess_info.active_tex_slots.insert(slot.to_primitive());
+                (void)unit.preprocess_info.active_tex_slots.insert(slot);
             }
         }
-        codes.clear();
-        codes.reserve(entry.codes.len().to_primitive());
-        for (const auto& cached_code : entry.codes) {
-            ShaderCode code;
-            code.reserve(cached_code.len().to_primitive());
-            for (const auto word : cached_code) code.push_back(word.to_primitive());
-            codes.push_back(rstd::move(code));
-        }
-        ShapeShaderDefaults(units, *shader_info);
+        codes.clone_from(entry.codes);
+        ShapeShaderDefaults(units.as_ref(), *shader_info);
         return true;
     };
 
-    auto store_compile_entry = [&](std::string_view key, ShaderCache::CompileEntry entry) {
+    auto store_compile_entry = [&](ref<str> key, ShaderCache::CompileEntry entry) {
         if (cache == nullptr) return;
-        auto owned_key = String::make(rstd::cppstd::as_str(key).unwrap());
+        auto owned_key = String::make(key);
         entry.bytes += owned_key.len() * usize(2) + usize(128);
         if (! cache->ReserveCompile(entry.bytes)) return;
         const auto bytes     = entry.bytes;
@@ -2779,9 +2791,9 @@ bool ShaderParser::CompileToSpv(std::string_view scene_id, std::span<ShaderUnit>
     Option<rstd::path::PathBuf> cache_file_path;
     Option<ShaderCacheIdentity> cache_identity;
     if (cache != nullptr) {
-        cache_identity = MakeShaderCacheIdentity(units, shader_info->combos);
+        cache_identity = MakeShaderCacheIdentity(units.as_ref(), shader_info->combos);
         if (cache_identity) {
-            auto key    = rstd::cppstd::as_str(cache_identity->cache_key_hex).unwrap();
+            auto key    = cache_identity->cache_key_hex.as_str();
             auto memory = cache->m_compile_entries.get(key);
             if (memory.is_some()) {
                 return apply_compile_entry(**memory);
@@ -2789,18 +2801,18 @@ bool ShaderParser::CompileToSpv(std::string_view scene_id, std::span<ShaderUnit>
 
             auto cache_dir = cache->directory();
             if (cache_dir.is_some()) {
-                cache_file_path =
-                    Some(GetCachePath(*cache_dir, scene_id, cache_identity->cache_key_hex));
+                cache_file_path = Some(
+                    GetCachePath(*cache_dir, scene_id, cache_identity->cache_key_hex.as_str()));
                 auto                  cached = rstd::fs::read(cache_file_path->as_path());
                 ShaderCacheReadResult decoded;
                 if (cached.is_ok()) {
                     auto cached_bytes = rstd::move(cached).unwrap_unchecked();
                     decoded           = ShaderCacheArtifactCodec::Decode(
                         *cache_identity,
-                        std::span<const ShaderUnit>(units.data(), units.size()),
-                        std::span<const std::uint8_t>(
-                            reinterpret_cast<const std::uint8_t*>(cached_bytes.data()),
-                            cached_bytes.len().to_primitive()));
+                        units.as_ref(),
+                        slice<rstd::uint8_t>::from_raw_parts(
+                            reinterpret_cast<const rstd::uint8_t*>(cached_bytes.data()),
+                            usize(cached_bytes.len().to_primitive())));
                 } else {
                     auto error = rstd::move(cached).unwrap_err_unchecked();
                     if (error.kind().code == rstd::io::error::ErrorKind::NotFound) {
@@ -2811,16 +2823,14 @@ bool ShaderParser::CompileToSpv(std::string_view scene_id, std::span<ShaderUnit>
                     }
                 }
                 if (decoded.status == ShaderCacheReadStatus::Hit) {
-                    auto entry = make_compile_entry(
-                        std::span<const ShaderUnit>(decoded.artifact.units.data(),
-                                                    decoded.artifact.units.size()),
-                        std::span<const ShaderCode>(decoded.artifact.codes.data(),
-                                                    decoded.artifact.codes.size()));
+                    auto entry = make_compile_entry(decoded.artifact.units.as_slice(),
+                                                    decoded.artifact.codes.as_slice());
                     if (! apply_compile_entry(entry)) return false;
-                    store_compile_entry(cache_identity->cache_key_hex, rstd::move(entry));
+                    store_compile_entry(cache_identity->cache_key_hex.as_str(), rstd::move(entry));
                     return true;
                 }
-                if (decoded.status == ShaderCacheReadStatus::Invalid && ! decoded.reason.empty()) {
+                if (decoded.status == ShaderCacheReadStatus::Invalid &&
+                    ! decoded.reason.is_empty()) {
                     rstd_warn("shader cache '{}' is invalid ({}); recompiling",
                               cache_file_path->as_path(),
                               decoded.reason);
@@ -2831,12 +2841,13 @@ bool ShaderParser::CompileToSpv(std::string_view scene_id, std::span<ShaderUnit>
         }
     }
 
-    std::for_each(units.begin(), units.end(), [shader_info](auto& unit) {
-        unit.src = Preprocessor(unit.src, unit.stage, shader_info->combos, unit.preprocess_info);
-    });
-    ShapeShaderDefaults(units, *shader_info);
+    for (auto& unit : units) {
+        unit.src =
+            Preprocessor(unit.src.as_str(), unit.stage, shader_info->combos, unit.preprocess_info);
+    }
+    ShapeShaderDefaults(units.as_ref(), *shader_info);
 
-    auto compile = [](std::span<ShaderUnit> units, std::vector<ShaderCode>& codes) {
+    auto compile = [](mut_ref<ShaderUnit[]> units, Vec<ShaderCode>& codes) {
         // Build the cross-stage interface before rewriting each source. Using
         // only adjacent sources misses uniforms that
         // lives on a non-adjacent stage (e.g. FS-only `g_Brightness` not seen
@@ -2845,64 +2856,63 @@ bool ShaderParser::CompileToSpv(std::string_view scene_id, std::span<ShaderUnit>
         // the longest stage.
         auto uniform_interface = BuildUniformInterface(units);
 
-        std::vector<vulkan::ShaderCompUnit> vunits(units.size());
-        for (std::size_t i = 0; i < units.size(); i++) {
-            auto&             unit     = units[i];
-            auto&             vunit    = vunits[i];
-            PreprocessorInfo* pre_info = i >= 1 ? &units[i - 1].preprocess_info : nullptr;
+        auto vunits = Vec<vulkan::ShaderCompUnit>::with_capacity(usize(units.len().to_primitive()));
+        for (rstd::size_t i = 0; i < units.len().to_primitive(); i++) {
+            auto&             unit     = units[usize(i)];
+            PreprocessorInfo* pre_info = i >= 1 ? &units[usize(i - 1)].preprocess_info : nullptr;
             PreprocessorInfo* post_info =
-                i + 1 < units.size() ? &units[i + 1].preprocess_info : nullptr;
+                i + 1 < units.len().to_primitive() ? &units[usize(i + 1)].preprocess_info : nullptr;
 
             const bool pack_varying_arrays =
-                (unit.stage == ShaderType::VERTEX && i + 1 < units.size() &&
-                 units[i + 1].stage == ShaderType::FRAGMENT) ||
+                (unit.stage == ShaderType::VERTEX && i + 1 < units.len().to_primitive() &&
+                 units[usize(i + 1)].stage == ShaderType::FRAGMENT) ||
                 (unit.stage == ShaderType::FRAGMENT && i >= 1 &&
-                 units[i - 1].stage == ShaderType::VERTEX);
+                 units[usize(i - 1)].stage == ShaderType::VERTEX);
             unit.src =
                 Finalprocessor(unit, pre_info, post_info, &uniform_interface, pack_varying_arrays);
 
-            vunit.src   = unit.src;
-            vunit.stage = unit.stage;
-            vunit.lang  = vulkan::SourceLang::Hlsl;
+            vunits.push(vulkan::ShaderCompUnit {
+                .stage = unit.stage,
+                .src   = unit.src.clone(),
+                .lang  = vulkan::SourceLang::Hlsl,
+            });
         }
 
         vulkan::ShaderCompOpt opt;
         opt.target   = vulkan::VulkanTarget::Vulkan_1_1;
         opt.optimize = false;
 
-        std::vector<vulkan::Uni_ShaderSpv> spvs;
-        spvs.reserve(units.size());
+        Vec<vulkan::Uni_ShaderSpv> spvs;
+        spvs.reserve(usize(units.len().to_primitive()));
 
-        if (! vulkan::CompileAndLinkShaderUnits(vunits, opt, spvs)) {
+        if (! vulkan::CompileAndLinkShaderUnits(vunits.as_slice(), opt, spvs)) {
             return false;
         }
 
         codes.clear();
         for (auto& spv : spvs) {
-            codes.emplace_back(std::move(spv->spirv));
+            codes.push(rstd::move(spv->spirv));
         }
         return true;
     };
 
     if (! compile(units, codes)) return false;
     if (cache != nullptr && cache_identity) {
-        store_compile_entry(
-            cache_identity->cache_key_hex,
-            make_compile_entry(units, std::span<const ShaderCode>(codes.data(), codes.size())));
+        store_compile_entry(cache_identity->cache_key_hex.as_str(),
+                            make_compile_entry(units.as_ref(), codes.as_slice()));
     }
     if (cache_file_path.is_some() && cache_identity) {
-        auto artifact = ShaderCacheArtifactCodec::Encode(
-            *cache_identity,
-            std::span<const ShaderUnit>(units.data(), units.size()),
-            std::span<const ShaderCode>(codes.data(), codes.size()));
+        auto artifact =
+            ShaderCacheArtifactCodec::Encode(*cache_identity, units.as_ref(), codes.as_slice());
         if (! artifact) {
             rstd_warn("cannot encode shader cache artifact '{}'; continuing without cache",
                       cache_file_path->as_path());
         } else {
             PublishShaderCacheArtifact(
                 cache_file_path->as_path(),
-                cache_identity->cache_key_hex,
-                std::span<const std::uint8_t>(artifact->data(), artifact->size()));
+                cache_identity->cache_key_hex.as_str(),
+                slice<rstd::uint8_t>::from_raw_parts(artifact->data(),
+                                                     usize(artifact->len().to_primitive())));
         }
     }
     return true;
@@ -2925,184 +2935,188 @@ SceneShaderTextureCompileInfo ToSceneShaderTextureCompileInfo(const ShaderTexInf
     };
 }
 
-std::vector<SceneShaderDefaultTexture> ToSceneShaderDefaultTextures(const ShaderInfo& info) {
-    std::vector<SceneShaderDefaultTexture> out;
-    out.reserve(info.defTexs.size());
-    for (const auto& [slot, texture] : info.defTexs) {
-        out.push_back(SceneShaderDefaultTexture { .slot = slot, .texture = texture });
-    }
-    return out;
-}
-
 void MergeVariantFallbackMetadata(ShaderInfo& info, const SceneShaderVariantDesc& desc) {
-    for (const auto& [key, value] : desc.uniform_aliases) {
-        if (! info.alias.contains(key)) info.alias[key] = value;
+    for (const auto& [key, value] : desc.uniform_aliases.iter()) {
+        if (! info.alias.contains_key(key->as_str()))
+            (void)info.alias.insert(key->clone(), value->clone());
     }
-    for (const auto& [key, value] : desc.default_uniforms) {
-        if (! info.svs.contains(key)) info.svs[key] = value;
+    for (const auto& [key, value] : desc.default_uniforms.iter()) {
+        if (! info.svs.contains_key(key->as_str()))
+            (void)info.svs.insert(key->clone(), value->clone());
     }
     for (const auto& texture : desc.default_textures) {
-        auto found = std::find_if(info.defTexs.begin(), info.defTexs.end(), [&](const auto& item) {
-            return item.first == texture.slot;
+        const bool found = info.defTexs.iter().any([&](auto parsed) {
+            return parsed->slot == texture.slot;
         });
-        if (found == info.defTexs.end()) info.defTexs.push_back({ texture.slot, texture.texture });
+        if (! found) info.defTexs.push(texture.clone());
     }
 }
 
 } // namespace
 
-void ShaderParser::UpdateSceneShaderVariantDescFromCompiledUnits(
-    SceneShaderVariantDesc& desc, std::span<const ShaderUnit> units,
-    std::span<const ShaderCode> codes) {
-    for (std::size_t i = 0; i < desc.stages.size() && i < units.size(); ++i) {
-        desc.stages[i].active_texture_slots = units[i].preprocess_info.active_tex_slots;
-        desc.stages[i].uniforms             = units[i].preprocess_info.uniforms;
-        if (i < codes.size()) desc.stages[i].code_hash = SceneShaderStageCodeHash(codes[i]);
+void ShaderParser::UpdateSceneShaderVariantDescFromCompiledUnits(SceneShaderVariantDesc& desc,
+                                                                 slice<ShaderUnit>       units,
+                                                                 slice<ShaderCode>       codes) {
+    for (rstd::size_t i = 0; i < desc.stages.len().to_primitive() && i < units.len().to_primitive();
+         ++i) {
+        desc.stages[usize(i)].active_texture_slots =
+            units[usize(i)].preprocess_info.active_tex_slots.clone();
+        desc.stages[usize(i)].uniforms = units[usize(i)].preprocess_info.uniforms.clone();
+        if (i < codes.len().to_primitive())
+            desc.stages[usize(i)].code_hash = SceneShaderStageCodeHash(codes[usize(i)]);
     }
 
-    std::vector<vulkan::Uni_ShaderSpv> spvs;
-    vulkan::ShaderReflected            reflected;
+    Vec<vulkan::Uni_ShaderSpv> spvs;
+    vulkan::ShaderReflected    reflected;
     if (! vulkan::GenReflect(codes, spvs, reflected)) return;
 
     desc.sampler_bindings.clear();
-    constexpr std::string_view texture_prefix { "g_Texture" };
-    for (const auto& [name, binding] : reflected.binding_map) {
+    constexpr ref<str> texture_prefix { "g_Texture"_str };
+    for (const auto& [name_ref, binding_ref] : reflected.binding_map.iter()) {
+        const auto  name    = name_ref->as_str();
+        const auto& binding = *binding_ref;
         if (binding.layout.descriptorType != VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ||
-            ! std::string_view(name).starts_with(texture_prefix)) {
+            ! name.starts_with(texture_prefix)) {
             continue;
         }
-        const auto suffix = std::string_view(name).substr(texture_prefix.size());
-        if (suffix.empty() || (suffix.size() > 1 && suffix.front() == '0')) continue;
-        std::size_t slot { 0 };
-        const auto [end, error] =
-            std::from_chars(suffix.data(), suffix.data() + suffix.size(), slot);
-        if (error != std::errc() || end != suffix.data() + suffix.size()) continue;
-        desc.sampler_bindings.push_back(SceneSamplerBinding {
+        const auto suffix = *name.get(texture_prefix.len(), name.len());
+        if (suffix.is_empty() || (suffix.len() > usize(1) && suffix.starts_with("0"_str))) continue;
+        if (! suffix.bytes().all([](u8 value) {
+                return value >= u8('0') && value <= u8('9');
+            }))
+            continue;
+        auto parsed_slot = rstd::from_str<usize>(suffix);
+        if (parsed_slot.is_err()) continue;
+        const auto slot = parsed_slot.unwrap().to_primitive();
+        desc.sampler_bindings.push(SceneSamplerBinding {
             .texture_slot  = slot,
-            .shader_member = name,
+            .shader_member = name_ref->clone(),
         });
     }
-    std::sort(desc.sampler_bindings.begin(),
-              desc.sampler_bindings.end(),
-              [](const auto& lhs, const auto& rhs) {
-                  return lhs.texture_slot < rhs.texture_slot;
-              });
+    sort_unstable_by(desc.sampler_bindings.as_mut_slice().as_mut_ref(),
+                     [](const auto& lhs, const auto& rhs) {
+                         return lhs.texture_slot < rhs.texture_slot;
+                     });
 
     struct BindingRecord {
-        std::string name;
-        uint32_t    set { 0 };
-        uint32_t    binding { 0 };
-        uint32_t    descriptor_type { 0 };
-        uint32_t    descriptor_count { 0 };
-        uint32_t    stage_flags { 0 };
+        ref<str>       name;
+        rstd::uint32_t set { 0 };
+        rstd::uint32_t binding { 0 };
+        rstd::uint32_t descriptor_type { 0 };
+        rstd::uint32_t descriptor_count { 0 };
+        rstd::uint32_t stage_flags { 0 };
     };
     struct UniformMemberRecord {
-        std::string name;
-        unsigned    offset { 0 };
-        std::size_t size { 0 };
-        std::size_t num { 0 };
+        ref<str>     name;
+        unsigned     offset { 0 };
+        rstd::size_t size { 0 };
+        rstd::size_t num { 0 };
     };
     struct UniformBlockRecord {
-        std::string                      name;
-        unsigned                         size { 0 };
-        std::vector<UniformMemberRecord> members;
+        ref<str>                 name;
+        unsigned                 size { 0 };
+        Vec<UniformMemberRecord> members;
     };
 
     auto binding_less = [](const BindingRecord& lhs, const BindingRecord& rhs) {
         if (lhs.set != rhs.set) return lhs.set < rhs.set;
         if (lhs.binding != rhs.binding) return lhs.binding < rhs.binding;
-        return lhs.name < rhs.name;
+        return lhs.name.bytes().cmp(rhs.name.bytes()) < 0;
     };
     auto member_less = [](const UniformMemberRecord& lhs, const UniformMemberRecord& rhs) {
         if (lhs.offset != rhs.offset) return lhs.offset < rhs.offset;
-        return lhs.name < rhs.name;
+        return lhs.name.bytes().cmp(rhs.name.bytes()) < 0;
     };
     auto block_less = [](const UniformBlockRecord& lhs, const UniformBlockRecord& rhs) {
-        return lhs.name < rhs.name;
+        return lhs.name.bytes().cmp(rhs.name.bytes()) < 0;
     };
 
-    std::vector<BindingRecord> bindings;
-    bindings.reserve(reflected.binding_map.size());
-    for (const auto& [name, binding] : reflected.binding_map) {
-        bindings.push_back(BindingRecord {
-            .name             = name,
+    Vec<BindingRecord> bindings;
+    bindings.reserve(reflected.binding_map.len());
+    for (const auto& [name_ref, binding_ref] : reflected.binding_map.iter()) {
+        const auto& binding = *binding_ref;
+        bindings.push(BindingRecord {
+            .name             = name_ref->as_str(),
             .set              = binding.set,
             .binding          = binding.layout.binding,
-            .descriptor_type  = static_cast<uint32_t>(binding.layout.descriptorType),
+            .descriptor_type  = static_cast<rstd::uint32_t>(binding.layout.descriptorType),
             .descriptor_count = binding.layout.descriptorCount,
             .stage_flags      = binding.layout.stageFlags,
         });
     }
-    std::sort(bindings.begin(), bindings.end(), binding_less);
+    sort_unstable_by(bindings.as_mut_slice().as_mut_ref(), binding_less);
 
-    std::vector<UniformBlockRecord> blocks;
-    blocks.reserve(reflected.blocks.size());
+    Vec<UniformBlockRecord> blocks;
+    blocks.reserve(reflected.blocks.len());
     for (const auto& block : reflected.blocks) {
         UniformBlockRecord record {
-            .name = block.name,
+            .name = block.name.as_str(),
             .size = block.size,
         };
-        record.members.reserve(block.member_map.size());
-        for (const auto& [name, member] : block.member_map) {
-            record.members.push_back(UniformMemberRecord {
-                .name   = name,
+        record.members.reserve(block.member_map.len());
+        for (const auto& [name_ref, member_ref] : block.member_map.iter()) {
+            const auto& member = *member_ref;
+            record.members.push(UniformMemberRecord {
+                .name   = name_ref->as_str(),
                 .offset = member.offset,
                 .size   = member.size.to_primitive(),
                 .num    = member.num.to_primitive(),
             });
         }
-        std::sort(record.members.begin(), record.members.end(), member_less);
-        blocks.push_back(std::move(record));
+        sort_unstable_by(record.members.as_mut_slice().as_mut_ref(), member_less);
+        blocks.push(rstd::move(record));
     }
-    std::sort(blocks.begin(), blocks.end(), block_less);
+    sort_unstable_by(blocks.as_mut_slice().as_mut_ref(), block_less);
 
-    std::size_t seed { 0 };
-    utils::hash_combine(seed, bindings.size());
+    DefaultHasher seed;
+    hash_into(bindings.len().to_primitive(), seed);
     for (const auto& binding : bindings) {
-        utils::hash_combine(seed, binding.name);
-        utils::hash_combine(seed, binding.set);
-        utils::hash_combine(seed, binding.binding);
-        utils::hash_combine(seed, binding.descriptor_type);
-        utils::hash_combine(seed, binding.descriptor_count);
-        utils::hash_combine(seed, binding.stage_flags);
+        hash_into(binding.name, seed);
+        hash_into(binding.set, seed);
+        hash_into(binding.binding, seed);
+        hash_into(binding.descriptor_type, seed);
+        hash_into(binding.descriptor_count, seed);
+        hash_into(binding.stage_flags, seed);
     }
-    utils::hash_combine(seed, blocks.size());
+    hash_into(blocks.len().to_primitive(), seed);
     for (const auto& block : blocks) {
-        utils::hash_combine(seed, block.name);
-        utils::hash_combine(seed, block.size);
-        utils::hash_combine(seed, block.members.size());
+        hash_into(block.name, seed);
+        hash_into(block.size, seed);
+        hash_into(block.members.len().to_primitive(), seed);
         for (const auto& member : block.members) {
-            utils::hash_combine(seed, member.name);
-            utils::hash_combine(seed, member.offset);
-            utils::hash_combine(seed, member.size);
-            utils::hash_combine(seed, member.num);
+            hash_into(member.name, seed);
+            hash_into(member.offset, seed);
+            hash_into(member.size, seed);
+            hash_into(member.num, seed);
         }
     }
-    desc.descriptor_layout_hash = seed;
+    desc.descriptor_layout_hash = rstd::as_cast<usize>(seed.finish());
 
     desc.uniform_blocks.clear();
     bool canonical_abi = false;
     for (const auto& block : reflected.blocks) {
-        std::size_t block_seed {};
-        utils::hash_combine(block_seed, block.set);
-        utils::hash_combine(block_seed, block.binding);
-        utils::hash_combine(block_seed, block.name);
-        utils::hash_combine(block_seed, block.size);
-        for (const auto& [name, member] : block.member_map) {
-            utils::hash_combine(block_seed, name);
-            utils::hash_combine(block_seed, member.offset);
-            utils::hash_combine(block_seed, member.size.to_primitive());
+        DefaultHasher block_seed;
+        hash_into(block.set, block_seed);
+        hash_into(block.binding, block_seed);
+        hash_into(block.name.as_str(), block_seed);
+        hash_into(block.size, block_seed);
+        for (const auto& [name_ref, member_ref] : block.member_map.iter()) {
+            const auto  name   = name_ref->as_str();
+            const auto& member = *member_ref;
+            hash_into(name, block_seed);
+            hash_into(member.offset, block_seed);
+            hash_into(member.size.to_primitive(), block_seed);
         }
-        auto       shared_block = FindGlobalUniformBlock(rstd::cppstd::as_str(block.name).unwrap());
+        auto       shared_block = FindGlobalUniformBlock(block.name.as_str());
         const bool shared       = shared_block.is_some();
         canonical_abi           = canonical_abi || shared;
-        desc.uniform_blocks.push_back(SceneShaderUniformBlockInterface {
-            .name    = block.name,
+        desc.uniform_blocks.push(SceneShaderUniformBlockInterface {
+            .name    = block.name.clone(),
             .set     = u32(block.set),
             .binding = u32(block.binding),
             .scope =
                 shared ? SceneShaderUniformBlockScope::Shared : SceneShaderUniformBlockScope::Local,
-            .identity = shared ? (**shared_block).identity : u64(block_seed),
+            .identity = shared ? (**shared_block).identity : block_seed.finish(),
         });
     }
 
@@ -3113,7 +3127,7 @@ void ShaderParser::UpdateSceneShaderVariantDescFromCompiledUnits(
             if (set.set == u32(binding.set)) target = rstd::addressof(set);
         }
         if (target == nullptr) {
-            desc.descriptor_sets.push_back(SceneShaderDescriptorSetInterface {
+            desc.descriptor_sets.push(SceneShaderDescriptorSetInterface {
                 .set = u32(binding.set),
                 .push_descriptor =
                     ! canonical_abi || binding.set != kGlobalUniformSet.to_primitive(),
@@ -3121,10 +3135,10 @@ void ShaderParser::UpdateSceneShaderVariantDescFromCompiledUnits(
                                 ? kGlobalUniformSetIdentity
                                 : u64(),
             });
-            target = rstd::addressof(desc.descriptor_sets.back());
+            target = rstd::addressof(desc.descriptor_sets[desc.descriptor_sets.len() - usize(1)]);
         }
-        target->bindings.push_back(SceneShaderDescriptorBindingInterface {
-            .name             = binding.name,
+        target->bindings.push(SceneShaderDescriptorBindingInterface {
+            .name             = rstd::into(binding.name),
             .binding          = u32(binding.binding),
             .descriptor_type  = u32(binding.descriptor_type),
             .descriptor_count = u32(binding.descriptor_count),
@@ -3137,7 +3151,7 @@ void ShaderParser::UpdateSceneShaderVariantDescFromCompiledUnits(
         bool has_draw_set = false;
         for (const auto& set : desc.descriptor_sets) has_draw_set |= set.set == kDrawUniformSet;
         if (! has_draw_set) {
-            desc.descriptor_sets.push_back(SceneShaderDescriptorSetInterface {
+            desc.descriptor_sets.push(SceneShaderDescriptorSetInterface {
                 .set             = kDrawUniformSet,
                 .push_descriptor = true,
             });
@@ -3145,151 +3159,157 @@ void ShaderParser::UpdateSceneShaderVariantDescFromCompiledUnits(
     }
     for (auto& set : desc.descriptor_sets) {
         if (set.identity != u64()) continue;
-        std::size_t set_seed {};
-        utils::hash_combine(set_seed, set.set.to_primitive());
+        DefaultHasher set_seed;
+        hash_into(set.set.to_primitive(), set_seed);
         for (const auto& binding : set.bindings) {
-            utils::hash_combine(set_seed, binding.name);
-            utils::hash_combine(set_seed, binding.binding.to_primitive());
-            utils::hash_combine(set_seed, binding.descriptor_type.to_primitive());
-            utils::hash_combine(set_seed, binding.descriptor_count.to_primitive());
-            utils::hash_combine(set_seed, binding.stage_flags.to_primitive());
+            hash_into(binding.name.as_str(), set_seed);
+            hash_into(binding.binding.to_primitive(), set_seed);
+            hash_into(binding.descriptor_type.to_primitive(), set_seed);
+            hash_into(binding.descriptor_count.to_primitive(), set_seed);
+            hash_into(binding.stage_flags.to_primitive(), set_seed);
         }
-        set.identity = u64(set_seed);
+        set.identity = set_seed.finish();
     }
-    std::sort(desc.descriptor_sets.begin(),
-              desc.descriptor_sets.end(),
-              [](const auto& lhs, const auto& rhs) {
-                  return lhs.set < rhs.set;
-              });
+    sort_unstable_by(desc.descriptor_sets.as_mut_slice().as_mut_ref(),
+                     [](const auto& lhs, const auto& rhs) {
+                         return lhs.set < rhs.set;
+                     });
 }
 
 CompileSceneShaderVariantResult
 ShaderParser::CompileSceneShaderVariant(const SceneShaderVariantDesc& desc, fs::VFS& vfs,
                                         const Combos& combos_override, ShaderCache* cache) {
     CompileSceneShaderVariantResult result;
-    result.variant = desc;
+    result.variant = desc.clone();
 
     if (! desc.Valid()) {
-        result.error = "invalid shader variant descriptor";
+        result.error = "invalid shader variant descriptor"_Str;
         return result;
     }
 
-    result.tex_info.reserve(desc.texture_infos.size());
+    result.tex_info.reserve(desc.texture_infos.len());
     for (const auto& texinfo : desc.texture_infos) {
-        result.tex_info.push_back(ToShaderTexInfo(texinfo));
+        result.tex_info.push(ToShaderTexInfo(texinfo));
     }
 
-    std::vector<ShaderUnit> units;
-    units.reserve(desc.stages.size());
+    Vec<ShaderUnit> units;
+    units.reserve(desc.stages.len());
     bool has_geometry_stage = false;
     for (const auto& stage : desc.stages) {
-        if (stage.source.empty()) {
-            result.error = "shader variant stage source is empty";
+        if (stage.source.is_empty()) {
+            result.error = "shader variant stage source is empty"_Str;
             return result;
         }
         has_geometry_stage = has_geometry_stage || stage.stage == ShaderType::GEOMETRY;
-        units.push_back(ShaderUnit {
+        units.push(ShaderUnit {
             .stage           = stage.stage,
-            .src             = stage.source,
+            .src             = stage.source.clone(),
             .preprocess_info = {},
         });
     }
 
     for (auto& unit : units) {
-        unit.src = ShaderParser::PreShaderSrc(vfs, unit.src, &result.info, result.tex_info, cache);
+        unit.src = ShaderParser::PreShaderSrc(
+            vfs, unit.src.as_str(), &result.info, result.tex_info.as_slice(), cache);
     }
 
-    Combos input_combos = result.info.combos;
-    for (const auto& [key, value] : desc.resolved_combos) input_combos[key] = value;
-    for (const auto& [key, value] : desc.input_combos) input_combos[key] = value;
-    for (const auto& [key, value] : combos_override) {
-        input_combos[key] = value;
+    Combos input_combos = result.info.combos.clone();
+    for (const auto& [key, value] : desc.resolved_combos.iter())
+        (void)input_combos.insert(key->clone(), value->clone());
+    for (const auto& [key, value] : desc.input_combos.iter())
+        (void)input_combos.insert(key->clone(), value->clone());
+    for (const auto& [key, value] : combos_override.iter()) {
+        (void)input_combos.insert(key->clone(), value->clone());
     }
-    if (has_geometry_stage && ! input_combos.contains(rstd::cppstd::to_string(WE_CB_GS_ENABLED))) {
-        input_combos[rstd::cppstd::to_string(WE_CB_GS_ENABLED)] = "1";
+    if (has_geometry_stage && ! input_combos.contains_key(WE_CB_GS_ENABLED)) {
+        (void)input_combos.insert(rstd::into(WE_CB_GS_ENABLED), "1"_Str);
     }
     result.info.combos          = ResolveShaderCombos(result.info, input_combos);
     result.variant.input_combos = rstd::move(input_combos);
     MergeVariantFallbackMetadata(result.info, desc);
 
-    result.variant.resolved_combos         = result.info.combos;
-    result.variant.uniform_aliases         = result.info.alias;
-    result.variant.default_uniforms        = result.info.svs;
-    result.variant.default_textures        = ToSceneShaderDefaultTextures(result.info);
+    result.variant.resolved_combos         = result.info.combos.clone();
+    result.variant.uniform_aliases         = result.info.alias.clone();
+    result.variant.default_uniforms        = result.info.svs.clone();
+    result.variant.default_textures        = result.info.defTexs.clone();
     result.variant.geometry_shader_enabled = has_geometry_stage;
     result.variant.texture_infos.clear();
-    result.variant.texture_infos.reserve(result.tex_info.size());
-    for (const auto& texinfo : result.tex_info) {
-        result.variant.texture_infos.push_back(ToSceneShaderTextureCompileInfo(texinfo));
+    result.variant.texture_infos.reserve(usize(result.tex_info.len().to_primitive()));
+    for (auto entry : result.tex_info.iter()) {
+        const auto& texinfo = *entry;
+        result.variant.texture_infos.push(ToSceneShaderTextureCompileInfo(texinfo));
     }
 
-    std::vector<ShaderCode> spvs;
-    const bool              ok = CompileToSpv(desc.scene_id,
-                                              std::span<ShaderUnit>(units.data(), units.size()),
-                                              spvs,
-                                              &result.info,
-                                              result.tex_info,
-                                              cache);
+    Vec<ShaderCode> spvs;
+    const bool      ok = CompileToSpv(desc.scene_id.as_str(),
+                                      units.as_mut_slice().as_mut_ref(),
+                                      spvs,
+                                      &result.info,
+                                      result.tex_info.as_slice(),
+                                      cache);
     if (! ok) {
-        result.error = "CompileToSpv failed";
+        result.error = "CompileToSpv failed"_Str;
         return result;
     }
-    result.variant.default_uniforms = result.info.svs;
-    ShaderParser::UpdateSceneShaderVariantDescFromCompiledUnits(result.variant, units, spvs);
+    result.variant.default_uniforms = result.info.svs.clone();
+    ShaderParser::UpdateSceneShaderVariantDescFromCompiledUnits(
+        result.variant, units.as_slice(), spvs.as_slice());
 
-    auto shader               = std::make_shared<SceneShader>();
-    shader->name              = desc.shader_name;
+    auto shader               = Arc<SceneShader>::make();
+    shader->name              = desc.shader_name.clone();
     shader->matrix_convention = ShaderMatrixConvention::RowVector;
     shader->matrix_abi        = ShaderMatrixAbi::Hlsl;
-    shader->codes             = std::move(spvs);
-    shader->sampler_bindings  = result.variant.sampler_bindings;
-    shader->uniform_blocks    = result.variant.uniform_blocks;
-    shader->descriptor_sets   = result.variant.descriptor_sets;
-    shader->default_uniforms  = result.info.svs;
-    result.shader             = std::move(shader);
+    shader->codes             = rstd::move(spvs);
+    shader->sampler_bindings  = result.variant.sampler_bindings.clone();
+    shader->uniform_blocks    = result.variant.uniform_blocks.clone();
+    shader->descriptor_sets   = result.variant.descriptor_sets.clone();
+    shader->default_uniforms  = result.info.svs.clone();
+    result.shader             = Some(rstd::move(shader));
     result.ok                 = true;
     return result;
 }
 
-CompileMaterialShaderResult ShaderParser::CompileMaterialShader(const Json&      material_json,
-                                                                fs::VFS&         vfs,
-                                                                std::string_view scene_id,
-                                                                const Combos&    combos_override,
-                                                                ShaderCache*     cache) {
+CompileMaterialShaderResult ShaderParser::CompileMaterialShader(const Json& material_json,
+                                                                fs::VFS& vfs, ref<str> scene_id,
+                                                                const Combos& combos_override,
+                                                                ShaderCache*  cache) {
     CompileMaterialShaderResult r;
 
     wpscene::Material mat;
     if (! mat.FromJson(material_json)) {
-        r.error = "Material::FromJson failed";
+        r.error = "Material::FromJson failed"_Str;
         return r;
     }
-    r.shader_name = mat.shader;
+    r.shader_name = mat.shader.clone();
 
-    if (mat.shader.empty()) {
-        r.error = "material has no shader name";
+    if (mat.shader.is_empty()) {
+        r.error = "material has no shader name"_Str;
         return r;
     }
 
-    const std::string shader_path = "/assets/shaders/" + mat.shader;
-    auto              vert_source = fs::ReadFileContent(vfs, shader_path + ".vert");
-    auto              frag_source = fs::ReadFileContent(vfs, shader_path + ".frag");
+    const auto shader_path = rstd::format("/assets/shaders/{}", mat.shader);
+    auto       vert_source =
+        fs::ReadFileContent(vfs, fs::Path(rstd::format("{}.vert", shader_path).as_str()));
+    auto frag_source =
+        fs::ReadFileContent(vfs, fs::Path(rstd::format("{}.frag", shader_path).as_str()));
     if (vert_source.is_err() || frag_source.is_err()) {
-        r.error = "shader source missing: " + shader_path + ".{vert,frag}";
+        r.error = rstd::format("shader source missing: {}.{{vert,frag}}", shader_path);
         return r;
     }
-    std::string vert_src = rstd::move(vert_source).unwrap_unchecked();
-    std::string frag_src = rstd::move(frag_source).unwrap_unchecked();
-    std::string geom_src;
-    if (mat.shader == "genericparticle" || mat.shader == "genericropeparticle") {
-        auto geom_source = fs::ReadFileContent(vfs, shader_path + ".geom");
+    String vert_src = rstd::move(vert_source).unwrap_unchecked();
+    String frag_src = rstd::move(frag_source).unwrap_unchecked();
+    String geom_src;
+    if (mat.shader == "genericparticle"_str || mat.shader == "genericropeparticle"_str) {
+        auto geom_source =
+            fs::ReadFileContent(vfs, fs::Path(rstd::format("{}.geom", shader_path).as_str()));
         if (geom_source.is_err()) {
-            r.error = "shader source missing: " + shader_path + ".geom";
+            r.error = rstd::format("shader source missing: {}.geom", shader_path);
             return r;
         }
         geom_src = rstd::move(geom_source).unwrap_unchecked();
     }
-    if (vert_src.empty() || frag_src.empty()) {
-        r.error = "shader source missing: " + shader_path + ".{vert,frag}";
+    if (vert_src.is_empty() || frag_src.is_empty()) {
+        r.error = rstd::format("shader source missing: {}.{{vert,frag}}", shader_path);
         return r;
     }
 
@@ -3298,47 +3318,46 @@ CompileMaterialShaderResult ShaderParser::CompileMaterialShader(const Json&     
     // header parse keeps this entry path lightweight; sprite-sheet /
     // packed-channel materials may accordingly compile a different variant
     // than the production path.
-    r.tex_info.reserve(mat.textures.size());
+    r.tex_info.reserve(mat.textures.len());
     for (const auto& t : mat.textures) {
-        r.tex_info.push_back({ ! t.empty() });
+        r.tex_info.push({ ! t.is_empty() });
     }
 
-    std::vector<ShaderUnit> units;
-    units.push_back({ ShaderType::VERTEX, std::move(vert_src), {} });
-    if (! geom_src.empty()) {
-        units.push_back({ ShaderType::GEOMETRY, std::move(geom_src), {} });
-        r.info.combos[rstd::cppstd::to_string(WE_CB_GS_ENABLED)] = "1";
+    Vec<ShaderUnit> units;
+    units.push({ ShaderType::VERTEX, rstd::move(vert_src), {} });
+    if (! geom_src.is_empty()) {
+        units.push({ ShaderType::GEOMETRY, rstd::move(geom_src), {} });
+        (void)r.info.combos.insert(rstd::into(WE_CB_GS_ENABLED), "1"_Str);
     }
-    units.push_back({ ShaderType::FRAGMENT, std::move(frag_src), {} });
+    units.push({ ShaderType::FRAGMENT, rstd::move(frag_src), {} });
 
     for (auto& u : units) {
-        u.src = ShaderParser::PreShaderSrc(vfs, u.src, &r.info, r.tex_info, cache);
+        u.src =
+            ShaderParser::PreShaderSrc(vfs, u.src.as_str(), &r.info, r.tex_info.as_slice(), cache);
     }
 
-    Combos input_combos = r.info.combos;
-    for (const auto& kv : mat.combos) {
-        input_combos[kv.first] = std::to_string(kv.second.to_primitive());
+    Combos input_combos = r.info.combos.clone();
+    for (auto [key, value] : mat.combos.iter()) {
+        (void)input_combos.insert(key->clone(), rstd::format("{}", *value));
     }
-    for (const auto& kv : combos_override) input_combos[kv.first] = kv.second;
-    if (! input_combos.contains(rstd::cppstd::to_string(WE_CB_BLENDMODE)))
-        input_combos[rstd::cppstd::to_string(WE_CB_BLENDMODE)] = "0";
-    if (! input_combos.contains(rstd::cppstd::to_string(WE_CB_BONECOUNT)))
-        input_combos[rstd::cppstd::to_string(WE_CB_BONECOUNT)] = "1";
+    for (const auto& [key, value] : combos_override.iter())
+        (void)input_combos.insert(key->clone(), value->clone());
+    if (! input_combos.contains_key(WE_CB_BLENDMODE))
+        (void)input_combos.insert(rstd::into(WE_CB_BLENDMODE), "0"_Str);
+    if (! input_combos.contains_key(WE_CB_BONECOUNT))
+        (void)input_combos.insert(rstd::into(WE_CB_BONECOUNT), "1"_Str);
     r.info.combos = ResolveShaderCombos(r.info, input_combos);
 
-    const bool ok = ShaderParser::CompileToSpv(scene_id,
-                                               std::span<ShaderUnit>(units.data(), units.size()),
-                                               r.spvs,
-                                               &r.info,
-                                               r.tex_info,
-                                               cache);
-    r.ok          = ok;
+    const bool ok = ShaderParser::CompileToSpv(
+        scene_id, units.as_mut_slice().as_mut_ref(), r.spvs, &r.info, r.tex_info.as_slice(), cache);
+    r.ok = ok;
     if (! ok) {
-        r.error = "CompileToSpv failed";
+        r.error = "CompileToSpv failed"_Str;
         return r;
     }
     SceneShaderVariantDesc variant;
-    ShaderParser::UpdateSceneShaderVariantDescFromCompiledUnits(variant, units, r.spvs);
+    ShaderParser::UpdateSceneShaderVariantDescFromCompiledUnits(
+        variant, units.as_slice(), r.spvs.as_slice());
     r.uniform_blocks  = rstd::move(variant.uniform_blocks);
     r.descriptor_sets = rstd::move(variant.descriptor_sets);
     return r;

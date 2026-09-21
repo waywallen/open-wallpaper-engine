@@ -10,6 +10,7 @@ export module wescene.testing.pkg_header;
 
 import rstd.cppstd;
 import wescene.fs;
+using namespace rstd::literals;
 
 export namespace owe::testing
 {
@@ -48,7 +49,8 @@ std::string ReadSizedString(owe::fs::BinaryReader& f) {
 
 bool ReadPkgHeader(const std::string& pkg_path, std::string& version,
                    std::vector<PkgEntry>& entries) {
-    auto stream = owe::fs::OpenPhysicalBinary(pkg_path);
+    auto stream =
+        owe::fs::OpenPhysicalBinary(owe::fs::Path(rstd::cppstd::as_str(pkg_path).unwrap()));
     if (stream.is_err()) return false;
     version            = ReadSizedString(*stream);
     std::int32_t count = stream->ReadInt32();

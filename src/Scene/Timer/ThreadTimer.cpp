@@ -1,49 +1,56 @@
-module;
-
-#include <rstd/macro.hpp>
-
 module wescene.timer;
-import rstd.cppstd;
+import rstd;
 
+using namespace rstd::prelude;
+using rstd::time::Duration;
 using namespace owe;
-using micros = std::chrono::microseconds;
 
-ThreadTimer::ThreadTimer(std::function<void()> cb): m_callback(cb) {}
+ThreadTimer::ThreadTimer(Callback callback): m_callback(rstd::move(callback)) {}
 ThreadTimer::~ThreadTimer() { Stop(); }
 
-bool ThreadTimer::Running() const { return m_running; }
+bool ThreadTimer::Running() const { return m_state.lock().unwrap()->running; }
 
-void ThreadTimer::SetInterval(micros v) { m_interval = v; }
+void ThreadTimer::SetInterval(Duration interval) {
+    auto state      = m_state.lock().unwrap();
+    state->interval = interval;
+}
 
 void ThreadTimer::Start() {
-    std::unique_lock<std::mutex> lock(m_op_mutex);
-
-    if (Running()) return;
-    m_timer_thread = std::thread([this]() {
-        while (Running()) {
+    auto operation = m_op_mutex.lock().unwrap();
+    {
+        auto state = m_state.lock().unwrap();
+        if (state->running) return;
+        state->running = true;
+    }
+    auto thread = rstd::thread::spawn([this] {
+        for (;;) {
             {
-                std::unique_lock<std::mutex> lock(m_cond_mutex);
-                m_condition.wait_for(lock, m_interval.load());
+                auto state = m_state.lock().unwrap();
+                if (! state->running) break;
+                m_condition.wait_timeout_while(state, state->interval, [](const State& value) {
+                    return value.running;
+                });
+                if (! state->running) break;
             }
-            if (m_callback) m_callback();
+            m_callback->operator()();
         }
     });
-    m_running      = true;
+    if (thread.is_err()) {
+        auto state     = m_state.lock().unwrap();
+        state->running = false;
+    }
+    m_timer_thread = Some(rstd::move(thread).unwrap());
 }
 
 void ThreadTimer::Stop() {
-    std::unique_lock<std::mutex> lock(m_op_mutex);
-    rstd_assert(std::this_thread::get_id() != m_timer_thread.get_id());
-
-    if (! Running()) return;
-    m_running = false;
-
+    auto operation = m_op_mutex.lock().unwrap();
+    if (! m_timer_thread) return;
+    if (rstd::thread::current_id() == m_timer_thread->thread().id())
+        rstd::panic { "ThreadTimer cannot stop from its callback" };
     {
-        std::unique_lock<std::mutex> lock(m_cond_mutex);
-        m_condition.notify_all();
+        auto state     = m_state.lock().unwrap();
+        state->running = false;
     }
-
-    if (m_timer_thread.joinable()) {
-        m_timer_thread.join();
-    }
+    m_condition.notify_all();
+    rstd::move(m_timer_thread.take().unwrap()).join().unwrap();
 }

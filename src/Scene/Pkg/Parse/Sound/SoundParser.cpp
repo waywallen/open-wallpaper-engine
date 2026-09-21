@@ -1,11 +1,11 @@
 module wescene.pkg.parse;
 import wescene.core;
 import wescene.scene;
-import rstd.cppstd;
 import rstd.log;
 import rstd;
 
 using namespace rstd::prelude;
+using namespace rstd::literals;
 using namespace owe;
 using rstd::sync::Arc;
 using rstd::sync::atomic::Atomic;
@@ -18,12 +18,12 @@ enum class PlaybackMode
     Single
 };
 
-static PlaybackMode ToPlaybackMode(std::string_view s) {
-    if (s == "loop")
+static PlaybackMode ToPlaybackMode(ref<str> s) {
+    if (s == "loop"_str)
         return PlaybackMode::Loop;
-    else if (s == "random")
+    else if (s == "random"_str)
         return PlaybackMode::Random;
-    else if (s == "single")
+    else if (s == "single"_str)
         return PlaybackMode::Single;
     return PlaybackMode::Loop;
 };
@@ -70,12 +70,12 @@ public:
         f32          volume { 1.0f };
         PlaybackMode mode { PlaybackMode::Loop };
     };
-    SoundStream(const std::vector<std::string>& paths, fs::VFS& vfs, Config c,
-                Arc<SoundState> state, Option<Arc<SceneAudioAverage>> audio_average)
+    SoundStream(Vec<String> paths, fs::VFS& vfs, Config c, Arc<SoundState> state,
+                Option<Arc<SceneAudioAverage>> audio_average)
         : vfs(vfs),
           m_config(c),
           m_state(rstd::move(state)),
-          m_soundPaths(paths),
+          m_soundPaths(rstd::move(paths)),
           m_audio_average(rstd::move(audio_average)) {};
     virtual ~SoundStream() = default;
 
@@ -88,15 +88,15 @@ public:
             Switch();
         }
 
-        u64 frameReads = m_curActive ? m_curActive->next_pcm(pData, frameCount) : u64();
+        u64 frameReads = m_curActive ? (*m_curActive)->stream().next_pcm(pData, frameCount) : u64();
         if (frameReads == u64() && ! m_dead) {
-            m_curActive.reset();
+            m_curActive = None();
             if (m_config.mode == PlaybackMode::Single) {
                 m_state->playing.store(false, Ordering::Release);
                 return u64();
             }
             Switch();
-            frameReads = m_curActive ? m_curActive->next_pcm(pData, frameCount) : u64();
+            frameReads = m_curActive ? (*m_curActive)->stream().next_pcm(pData, frameCount) : u64();
         }
         UpdateAudioAverage(pData, frameReads);
         {
@@ -116,22 +116,22 @@ public:
     // audio callback stops re-trying every tick (which spammed FFmpeg's
     // demuxer-probe errors at audio-callback rate).
     void Switch() {
-        m_curActive.reset();
-        const auto n = rstd::as_cast<u32>(usize(m_soundPaths.size()));
+        m_curActive  = None();
+        const auto n = rstd::as_cast<u32>(m_soundPaths.len());
         if (n == u32()) {
             m_dead = true;
             return;
         }
         const u32 base = SelectStartIndex(n);
         for (u32 tried {}; tried < n; ++tried) {
-            const std::string& path   = m_soundPaths[((base + tried) % n).to_primitive()];
-            auto               source = vfs.open_read(fs::ToPath("/assets/" + path));
+            const auto& path   = m_soundPaths[rstd::as_cast<usize>((base + tried) % n)];
+            auto        source = vfs.open_read(fs::Path(rstd::format("/assets/{}", path).as_str()));
             if (source.is_err()) continue;
             auto handle =
                 rstd::io::ReadSeekHandle::make(rstd::move(source).unwrap_unchecked().into_reader());
             auto stream = wavsen::audio::make_stream(rstd::move(handle), m_desc);
             if (stream) {
-                m_curActive = std::move(stream);
+                m_curActive = rstd::move(stream);
                 return;
             }
         }
@@ -157,14 +157,14 @@ private:
         const u32 stop_seq = m_state->stop_seq.load(Ordering::Acquire);
         if (stop_seq != m_seenStopSeq) {
             m_seenStopSeq = stop_seq;
-            m_curActive.reset();
-            m_dead = false;
+            m_curActive   = None();
+            m_dead        = false;
         }
         const u32 play_seq = m_state->play_seq.load(Ordering::Acquire);
         if (play_seq != m_seenPlaySeq) {
             m_seenPlaySeq = play_seq;
-            m_curActive.reset();
-            m_dead = false;
+            m_curActive   = None();
+            m_dead        = false;
         }
     }
 
@@ -182,12 +182,13 @@ private:
             if (end <= begin) continue;
 
             float sum = 0.0f;
-            for (usize i = begin; i < end; ++i) sum += std::abs(samples[i.to_primitive()]);
-            float level =
-                std::clamp(sum / static_cast<float>((end - begin).to_primitive()), 0.0f, 1.0f);
+            for (usize i = begin; i < end; ++i)
+                sum += f32(samples[i.to_primitive()]).abs().to_primitive();
+            float level = rstd::cmp::min(
+                1.0f, rstd::cmp::max(0.0f, sum / static_cast<float>((end - begin).to_primitive())));
 
             const float old = (*m_audio_average)->Load(bin).to_primitive();
-            (*m_audio_average)->Store(bin, f32(std::max(old * 0.75f, level)));
+            (*m_audio_average)->Store(bin, f32(rstd::cmp::max(level, old * 0.75f)));
         }
     }
 
@@ -200,9 +201,9 @@ private:
     u32             m_seenStopSeq {};
     bool            m_dead { false };
 
-    const std::vector<std::string>              m_soundPaths;
-    std::unique_ptr<wavsen::audio::SoundStream> m_curActive;
-    Option<Arc<SceneAudioAverage>>              m_audio_average;
+    const Vec<String>                                  m_soundPaths;
+    Option<Box<dyn<wavsen::audio::SoundStreamObject>>> m_curActive;
+    Option<Arc<SceneAudioAverage>>                     m_audio_average;
 };
 
 Arc<dyn<SceneSoundControl>> SoundParser::Parse(const wpscene::SoundObject& obj, fs::VFS& vfs,
@@ -210,7 +211,7 @@ Arc<dyn<SceneSoundControl>> SoundParser::Parse(const wpscene::SoundObject& obj, 
     SoundStream::Config config { .maxtime = f32(obj.maxtime),
                                  .mintime = f32(obj.mintime),
                                  .volume  = f32(obj.volume).clamp(f32(), f32(1.0f)),
-                                 .mode    = ToPlaybackMode(obj.playbackmode) };
+                                 .mode    = ToPlaybackMode(obj.playbackmode.as_str()) };
 
     Option<Arc<SceneAudioAverage>> audio_average = None();
     if (scene != nullptr) audio_average = Some(scene->AudioAverageHandle());
@@ -221,8 +222,9 @@ Arc<dyn<SceneSoundControl>> SoundParser::Parse(const wpscene::SoundObject& obj, 
     state->playing.store(obj.visible && ! obj.startsilent, Ordering::Release);
     state->volume.store(config.volume, Ordering::Release);
     auto control = Arc<dyn<SceneSoundControl>>::make(SoundControl(state.clone()));
-    auto ss      = std::make_unique<SoundStream>(
-        obj.sound, vfs, config, rstd::move(state), rstd::move(audio_average));
-    sm.mount(std::move(ss));
+    auto ss      = Box<SoundStream>::make(
+        obj.sound.clone(), vfs, config, rstd::move(state), rstd::move(audio_average));
+    sm.mount(Box<dyn<wavsen::audio::SoundStreamObject>>::from_raw(
+        dyn<wavsen::audio::SoundStreamObject>::from_ptr(rstd::move(ss).into_raw())));
     return control;
 }

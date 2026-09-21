@@ -10,7 +10,6 @@ import eigen;
 import rstd;
 import wescene.core;
 import wescene.json;
-import rstd.cppstd;
 import wescene.types;
 import wescene.spec_names;
 
@@ -29,6 +28,8 @@ using rstd::collections::BTreeMap;
 using rstd::collections::BTreeSet;
 using rstd::collections::HashMap;
 using rstd::collections::HashSet;
+using rstd::hash::DefaultHasher;
+using rstd::hash::hash_into;
 using rstd::sync::Arc;
 using rstd::sync::atomic::Atomic;
 using rstd::sync::atomic::Ordering;
@@ -39,19 +40,24 @@ export namespace owe
 // ============================================================================
 // SceneShader.h
 // ============================================================================
-using ShaderCode = std::vector<unsigned int>;
 
 struct ShaderAttribute {
 public:
-    std::string name;
-    u32         location;
+    String          name;
+    u32             location;
+    ShaderAttribute clone() const { return { .name = name.clone(), .location = location }; }
+    void            clone_from(const ShaderAttribute& other) { *this = other.clone(); }
 };
 
 struct SceneSamplerBinding {
-    std::size_t texture_slot { 0 };
-    std::string shader_member;
+    rstd::size_t texture_slot { 0 };
+    String       shader_member;
 
-    bool operator==(const SceneSamplerBinding&) const = default;
+    bool                operator==(const SceneSamplerBinding&) const = default;
+    SceneSamplerBinding clone() const {
+        return { .texture_slot = texture_slot, .shader_member = shader_member.clone() };
+    }
+    void clone_from(const SceneSamplerBinding& other) { *this = other.clone(); }
 };
 
 enum class SceneShaderUniformBlockScope : rstd::uint8_t
@@ -61,89 +67,115 @@ enum class SceneShaderUniformBlockScope : rstd::uint8_t
 };
 
 struct SceneShaderUniformBlockInterface {
-    std::string                  name;
+    String                       name;
     u32                          set {};
     u32                          binding {};
     SceneShaderUniformBlockScope scope { SceneShaderUniformBlockScope::Local };
     u64                          identity {};
 
     bool operator==(const SceneShaderUniformBlockInterface&) const = default;
+    SceneShaderUniformBlockInterface clone() const {
+        return { .name     = name.clone(),
+                 .set      = set,
+                 .binding  = binding,
+                 .scope    = scope,
+                 .identity = identity };
+    }
+    void clone_from(const SceneShaderUniformBlockInterface& other) { *this = other.clone(); }
 };
 
 struct SceneShaderDescriptorBindingInterface {
-    std::string name;
-    u32         binding {};
-    u32         descriptor_type {};
-    u32         descriptor_count { u32(1) };
-    u32         stage_flags {};
+    String name;
+    u32    binding {};
+    u32    descriptor_type {};
+    u32    descriptor_count { u32(1) };
+    u32    stage_flags {};
 
     bool operator==(const SceneShaderDescriptorBindingInterface&) const = default;
+    SceneShaderDescriptorBindingInterface clone() const {
+        return { .name             = name.clone(),
+                 .binding          = binding,
+                 .descriptor_type  = descriptor_type,
+                 .descriptor_count = descriptor_count,
+                 .stage_flags      = stage_flags };
+    }
+    void clone_from(const SceneShaderDescriptorBindingInterface& other) { *this = other.clone(); }
 };
 
 struct SceneShaderDescriptorSetInterface {
-    u32                                                set {};
-    bool                                               push_descriptor { false };
-    u64                                                identity {};
-    std::vector<SceneShaderDescriptorBindingInterface> bindings;
+    u32                                        set {};
+    bool                                       push_descriptor { false };
+    u64                                        identity {};
+    Vec<SceneShaderDescriptorBindingInterface> bindings;
 
     bool operator==(const SceneShaderDescriptorSetInterface&) const = default;
+    SceneShaderDescriptorSetInterface clone() const {
+        return { .set             = set,
+                 .push_descriptor = push_descriptor,
+                 .identity        = identity,
+                 .bindings        = bindings.clone() };
+    }
+    void clone_from(const SceneShaderDescriptorSetInterface& other) { *this = other.clone(); }
 };
 
 struct SceneShader {
 public:
     u32                    id { 0 };
-    std::string            name;
+    String                 name;
     ShaderMatrixConvention matrix_convention { ShaderMatrixConvention::ColumnVector };
     ShaderMatrixAbi        matrix_abi { ShaderMatrixAbi::NativeSpirv };
 
-    std::vector<ShaderCode> codes;
+    Vec<ShaderCode> codes;
 
-    std::vector<ShaderAttribute>                   attrs;
-    std::vector<SceneSamplerBinding>               sampler_bindings;
-    std::vector<SceneShaderUniformBlockInterface>  uniform_blocks;
-    std::vector<SceneShaderDescriptorSetInterface> descriptor_sets;
-    ShaderValues                                   default_uniforms;
+    Vec<ShaderAttribute>                   attrs;
+    Vec<SceneSamplerBinding>               sampler_bindings;
+    Vec<SceneShaderUniformBlockInterface>  uniform_blocks;
+    Vec<SceneShaderDescriptorSetInterface> descriptor_sets;
+    ShaderValues                           default_uniforms;
 
-    std::string_view SamplerMember(std::size_t texture_slot) const {
+    ref<str> SamplerMember(rstd::size_t texture_slot) const {
         for (const auto& binding : sampler_bindings) {
-            if (binding.texture_slot == texture_slot) return binding.shader_member;
+            if (binding.texture_slot == texture_slot) return binding.shader_member.as_str();
         }
-        return {};
+        return ""_str;
     }
 };
 
 inline usize SceneShaderStageCodeHash(const ShaderCode& code) {
-    std::size_t seed { 0 };
-    utils::hash_combine(seed, code.size());
-    for (auto word : code) utils::hash_combine(seed, word);
-    return usize(seed);
+    DefaultHasher seed;
+    hash_into(code.len().to_primitive(), seed);
+    for (auto word : code) hash_into(word, seed);
+    return rstd::as_cast<usize>(seed.finish());
 }
 
-inline usize SceneShaderCodeHash(std::span<const ShaderCode> codes) {
-    std::size_t seed { 0 };
-    utils::hash_combine(seed, codes.size());
+inline usize SceneShaderCodeHash(slice<ShaderCode> codes) {
+    DefaultHasher seed;
+    hash_into(codes.len().to_primitive(), seed);
     for (const auto& code : codes) {
-        utils::hash_combine(seed, SceneShaderStageCodeHash(code).to_primitive());
+        hash_into(SceneShaderStageCodeHash(code).to_primitive(), seed);
     }
-    return usize(seed);
+    return rstd::as_cast<usize>(seed.finish());
 }
 
 inline usize SceneShaderCodeHash(const SceneShader& shader) {
-    std::size_t seed = SceneShaderCodeHash(shader.codes).to_primitive();
-    utils::hash_combine(seed, static_cast<unsigned>(shader.matrix_convention));
-    utils::hash_combine(seed, static_cast<unsigned>(shader.matrix_abi));
+    DefaultHasher seed;
+    hash_into(SceneShaderCodeHash(shader.codes.as_slice()), seed);
+    hash_into(static_cast<unsigned>(shader.matrix_convention), seed);
+    hash_into(static_cast<unsigned>(shader.matrix_abi), seed);
+    hash_into(shader.descriptor_sets.len(), seed);
     for (const auto& set : shader.descriptor_sets) {
-        utils::hash_combine(seed, set.set.to_primitive());
-        utils::hash_combine(seed, set.identity.to_primitive());
-        utils::hash_combine(seed, set.push_descriptor);
+        hash_into(set.set.to_primitive(), seed);
+        hash_into(set.identity.to_primitive(), seed);
+        hash_into(set.push_descriptor, seed);
     }
+    hash_into(shader.uniform_blocks.len(), seed);
     for (const auto& block : shader.uniform_blocks) {
-        utils::hash_combine(seed, block.set.to_primitive());
-        utils::hash_combine(seed, block.binding.to_primitive());
-        utils::hash_combine(seed, block.identity.to_primitive());
-        utils::hash_combine(seed, static_cast<unsigned>(block.scope));
+        hash_into(block.set.to_primitive(), seed);
+        hash_into(block.binding.to_primitive(), seed);
+        hash_into(block.identity.to_primitive(), seed);
+        hash_into(static_cast<unsigned>(block.scope), seed);
     }
-    return usize(seed);
+    return rstd::as_cast<usize>(seed.finish());
 }
 
 struct SceneShaderTextureCompileInfo {
@@ -152,39 +184,71 @@ struct SceneShaderTextureCompileInfo {
 };
 
 struct SceneShaderVariantStage {
-    ShaderType                    stage { ShaderType::VERTEX };
-    std::string                   source_key;
-    std::string                   source;
-    Set<unsigned>                 active_texture_slots;
-    Map<std::string, std::string> uniforms;
-    usize                         code_hash { 0 };
+    ShaderType               stage { ShaderType::VERTEX };
+    String                   source_key;
+    String                   source;
+    BTreeSet<u32>            active_texture_slots;
+    BTreeMap<String, String> uniforms;
+    usize                    code_hash { 0 };
+    SceneShaderVariantStage  clone() const {
+        return { .stage                = stage,
+                 .source_key           = source_key.clone(),
+                 .source               = source.clone(),
+                 .active_texture_slots = active_texture_slots.clone(),
+                 .uniforms             = uniforms.clone(),
+                 .code_hash            = code_hash };
+    }
+    void clone_from(const SceneShaderVariantStage& other) { *this = other.clone(); }
 };
 
 struct SceneShaderDefaultTexture {
-    i32         slot {};
-    std::string texture;
+    i32                       slot {};
+    String                    texture;
+    SceneShaderDefaultTexture clone() const { return { .slot = slot, .texture = texture.clone() }; }
+    void clone_from(const SceneShaderDefaultTexture& other) { *this = other.clone(); }
 };
 
 struct SceneShaderVariantDesc {
-    std::string scene_id;
-    std::string shader_name;
+    String scene_id;
+    String shader_name;
 
-    Map<std::string, std::string>                  input_combos;
-    Map<std::string, std::string>                  resolved_combos;
-    Map<std::string, std::string>                  uniform_aliases;
-    ShaderValues                                   default_uniforms;
-    std::vector<SceneShaderDefaultTexture>         default_textures;
-    std::vector<std::string>                       texture_slots;
-    std::vector<SceneSamplerBinding>               sampler_bindings;
-    std::vector<SceneShaderUniformBlockInterface>  uniform_blocks;
-    std::vector<SceneShaderDescriptorSetInterface> descriptor_sets;
+    BTreeMap<String, String>               input_combos;
+    BTreeMap<String, String>               resolved_combos;
+    BTreeMap<String, String>               uniform_aliases;
+    ShaderValues                           default_uniforms;
+    Vec<SceneShaderDefaultTexture>         default_textures;
+    Vec<String>                            texture_slots;
+    Vec<SceneSamplerBinding>               sampler_bindings;
+    Vec<SceneShaderUniformBlockInterface>  uniform_blocks;
+    Vec<SceneShaderDescriptorSetInterface> descriptor_sets;
 
-    std::vector<SceneShaderTextureCompileInfo> texture_infos;
-    std::vector<SceneShaderVariantStage>       stages;
-    std::size_t                                descriptor_layout_hash { 0 };
-    bool                                       geometry_shader_enabled { false };
+    Vec<SceneShaderTextureCompileInfo> texture_infos;
+    Vec<SceneShaderVariantStage>       stages;
+    usize                              descriptor_layout_hash { 0 };
+    bool                               geometry_shader_enabled { false };
 
-    bool Valid() const { return ! shader_name.empty() && ! stages.empty(); }
+    SceneShaderVariantDesc clone() const {
+        return {
+            .scene_id                = scene_id.clone(),
+            .shader_name             = shader_name.clone(),
+            .input_combos            = input_combos.clone(),
+            .resolved_combos         = resolved_combos.clone(),
+            .uniform_aliases         = uniform_aliases.clone(),
+            .default_uniforms        = default_uniforms.clone(),
+            .default_textures        = default_textures.clone(),
+            .texture_slots           = texture_slots.clone(),
+            .sampler_bindings        = sampler_bindings.clone(),
+            .uniform_blocks          = uniform_blocks.clone(),
+            .descriptor_sets         = descriptor_sets.clone(),
+            .texture_infos           = texture_infos.clone(),
+            .stages                  = stages.clone(),
+            .descriptor_layout_hash  = descriptor_layout_hash,
+            .geometry_shader_enabled = geometry_shader_enabled,
+        };
+    }
+    void clone_from(const SceneShaderVariantDesc& other) { *this = other.clone(); }
+
+    bool Valid() const { return ! shader_name.is_empty() && ! stages.is_empty(); }
 };
 
 // ============================================================================
@@ -192,11 +256,14 @@ struct SceneShaderVariantDesc {
 // ============================================================================
 
 struct SceneTexture {
-    std::string     url;
+    String          url;
     TextureSample   sample;
     bool            isSprite { false };
     bool            isVideo { false };
     SpriteAnimation spriteAnim;
+    auto            clone() const -> SceneTexture {
+        return { url.clone(), sample, isSprite, isVideo, spriteAnim.clone() };
+    }
 };
 
 // ============================================================================
@@ -211,10 +278,11 @@ enum class SceneRenderTargetKind
 
 struct SceneRenderTarget {
     struct Bind {
-        bool        enable { false };
-        std::string name {};
-        bool        screen { false };
-        double      scale { 1.0 };
+        bool   enable { false };
+        String name;
+        bool   screen { false };
+        double scale { 1.0 };
+        auto   clone() const -> Bind { return { enable, name.clone(), screen, scale }; }
     };
 
     i32 width {};
@@ -251,6 +319,27 @@ struct SceneRenderTarget {
     // Blended draws may preserve backdrop alpha; replacement draws still initialize RGBA.
     Option<bool> blend_alpha_write;
 
+    auto clone() const -> SceneRenderTarget {
+        return { .width                  = width,
+                 .height                 = height,
+                 .physical_width         = physical_width,
+                 .physical_height        = physical_height,
+                 .allowReuse             = allowReuse,
+                 .withDepth              = withDepth,
+                 .kind                   = kind,
+                 .depth_clear_value      = depth_clear_value,
+                 .has_mipmap             = has_mipmap,
+                 .mipmap_level           = mipmap_level,
+                 .sample_count           = sample_count,
+                 .sample                 = sample,
+                 .bind                   = bind.clone(),
+                 .force_clear            = force_clear,
+                 .clear_on_first_write   = clear_on_first_write,
+                 .initialize_transparent = initialize_transparent,
+                 .preserve_on_write      = preserve_on_write,
+                 .blend_alpha_write      = blend_alpha_write };
+    }
+
     i32 PhysicalWidth() const { return physical_width > i32() ? physical_width : width; }
     i32 PhysicalHeight() const { return physical_height > i32() ? physical_height : height; }
 };
@@ -266,32 +355,29 @@ using SceneVertexWriteResult = vrento::VertexWriteResult;
 class SceneVertexArray : public vrento::VertexArray {
 public:
     using vrento::VertexArray::VertexArray;
-    using SceneVertexAttribute       = vrento::VertexArray::VertexAttribute;
-    using SceneVertexAttributeOffset = vrento::VertexArray::VertexAttributeOffset;
-    bool GetOption(std::string_view name) const {
-        auto found = m_options.find(name);
-        return found != m_options.end() && found->second;
+    using SceneVertexAttribute = vrento::VertexArray::VertexAttribute;
+    bool GetOption(ref<str> name) const {
+        auto found = m_options.get(name);
+        return found.is_some() && **found;
     }
-    void SetOption(std::string_view name, bool value) { m_options[std::string(name)] = value; }
+    void SetOption(ref<str> name, bool value) { (void)m_options.insert(rstd::into(name), value); }
 
 private:
-    Map<std::string, bool> m_options;
+    HashMap<String, bool> m_options;
 };
 
 // Build a SceneVertexAttribute vector from compile-time VertexAttrSpec literals.
 // Lets callsites write `MakeAttrSet({VAttr::Position, VAttr::TexCoord})` instead
 // of hand-typing string/type pairs.
-inline std::vector<SceneVertexArray::SceneVertexAttribute>
-MakeAttrSet(std::span<const VertexAttrSpec> specs) {
-    std::vector<SceneVertexArray::SceneVertexAttribute> out;
-    out.reserve(specs.size());
-    for (auto& s : specs) out.push_back({ rstd::cppstd::to_string(s.name), s.type, s.padding });
+inline Vec<SceneVertexArray::SceneVertexAttribute> MakeAttrSet(slice<VertexAttrSpec> specs) {
+    auto out = Vec<SceneVertexArray::SceneVertexAttribute>::with_capacity(specs.len());
+    for (const auto& s : specs) out.push({ rstd::into(s.name), s.type, s.padding });
     return out;
 }
 
-inline std::vector<SceneVertexArray::SceneVertexAttribute>
-MakeAttrSet(std::initializer_list<VertexAttrSpec> specs) {
-    return MakeAttrSet(std::span<const VertexAttrSpec>(specs.begin(), specs.size()));
+inline Vec<SceneVertexArray::SceneVertexAttribute>
+MakeAttrSet(initializer_list<VertexAttrSpec> specs) {
+    return MakeAttrSet(slice<VertexAttrSpec>::from_raw_parts(specs.begin(), usize(specs.size())));
 }
 
 // ============================================================================
@@ -313,7 +399,7 @@ struct SceneShaderValueAnimation {
 using SceneShaderValueAnimationMap = BTreeMap<String, SceneShaderValueAnimation>;
 
 struct SceneMaterialCustomShader {
-    std::shared_ptr<SceneShader>   shader;
+    Option<Arc<SceneShader>>       shader;
     ShaderValues                   constValues;
     SceneShaderValueAnimationMap   valueAnimations;
     Option<SceneShaderVariantDesc> variant;
@@ -380,9 +466,9 @@ struct SceneMaterialTextureSource {
     i32                            wallpaper_layer { -1 };
 };
 
-inline SceneMaterialTextureDependency ClassifySceneMaterialTexture(std::string_view texture) {
-    if (texture.empty()) return SceneMaterialTextureDependency::Empty;
-    auto text = rstd::cppstd::as_str(texture).unwrap();
+inline SceneMaterialTextureDependency ClassifySceneMaterialTexture(ref<str> texture) {
+    if (texture.is_empty()) return SceneMaterialTextureDependency::Empty;
+    auto text = texture;
     if (IsSpecLinkTex(text)) return SceneMaterialTextureDependency::LinkRenderTarget;
     if (text.starts_with(WE_MIP_MAPPED_FRAME_BUFFER))
         return SceneMaterialTextureDependency::MipMappedFramebuffer;
@@ -395,12 +481,11 @@ inline bool IsLocalSceneMaterialTextureDependency(SceneMaterialTextureDependency
            dep == SceneMaterialTextureDependency::Imported;
 }
 
-inline bool CanRefreshSceneMaterialTextureBinding(std::string_view old_texture,
-                                                  std::string_view new_texture,
-                                                  std::string_view pass_output = {}) {
+inline bool CanRefreshSceneMaterialTextureBinding(ref<str> old_texture, ref<str> new_texture,
+                                                  ref<str> pass_output = ""_str) {
     if (old_texture == new_texture) return true;
-    if ((! old_texture.empty() && old_texture == pass_output) ||
-        (! new_texture.empty() && new_texture == pass_output))
+    if ((! old_texture.is_empty() && old_texture == pass_output) ||
+        (! new_texture.is_empty() && new_texture == pass_output))
         return false;
     auto old_dep = ClassifySceneMaterialTexture(old_texture);
     auto new_dep = ClassifySceneMaterialTexture(new_texture);
@@ -438,32 +523,33 @@ inline constexpr SceneMaterialDirtyFlags SceneMaterialDirtyAll {
 
 inline bool SceneShaderVariantHasActiveTextureMetadata(const SceneShaderVariantDesc& desc) {
     for (const auto& stage : desc.stages) {
-        if (! stage.active_texture_slots.empty()) return true;
+        if (! stage.active_texture_slots.is_empty()) return true;
     }
     return false;
 }
 
-inline Set<unsigned> SceneShaderVariantActiveTextureSlots(const SceneShaderVariantDesc& desc) {
-    Set<unsigned> slots;
+inline BTreeSet<u32> SceneShaderVariantActiveTextureSlots(const SceneShaderVariantDesc& desc) {
+    BTreeSet<u32> slots;
     for (const auto& stage : desc.stages) {
-        slots.insert(stage.active_texture_slots.begin(), stage.active_texture_slots.end());
+        for (const auto slot : stage.active_texture_slots.iter()) (void)slots.insert(*slot);
     }
     return slots;
 }
 
-inline Map<std::string, std::string>
+inline BTreeMap<String, String>
 SceneShaderVariantUniformLayout(const SceneShaderVariantDesc& desc) {
-    Map<std::string, std::string> uniforms;
+    BTreeMap<String, String> uniforms;
     for (const auto& stage : desc.stages) {
-        for (const auto& [name, ty] : stage.uniforms) uniforms[name] = ty;
+        for (const auto& [name, ty] : stage.uniforms.iter())
+            (void)uniforms.insert(name->clone(), ty->clone());
     }
     return uniforms;
 }
 
 inline bool SameSceneShaderVariantStageSet(const SceneShaderVariantDesc& lhs,
                                            const SceneShaderVariantDesc& rhs) {
-    if (lhs.stages.size() != rhs.stages.size()) return false;
-    for (std::size_t i = 0; i < lhs.stages.size(); ++i) {
+    if (lhs.stages.len() != rhs.stages.len()) return false;
+    for (usize i {}; i < lhs.stages.len(); ++i) {
         if (lhs.stages[i].stage != rhs.stages[i].stage) return false;
     }
     return true;
@@ -473,12 +559,12 @@ inline bool SameSceneShaderVariantUniformShape(const SceneShaderVariantDesc& lhs
                                                const SceneShaderVariantDesc& rhs) {
     auto lhs_layout = SceneShaderVariantUniformLayout(lhs);
     auto rhs_layout = SceneShaderVariantUniformLayout(rhs);
-    if (! lhs_layout.empty() || ! rhs_layout.empty()) return lhs_layout == rhs_layout;
+    if (! lhs_layout.is_empty() || ! rhs_layout.is_empty()) return lhs_layout == rhs_layout;
 
-    if (lhs.default_uniforms.size() != rhs.default_uniforms.size()) return false;
-    for (const auto& [name, value] : lhs.default_uniforms) {
-        auto it = rhs.default_uniforms.find(name);
-        if (it == rhs.default_uniforms.end() || it->second.size() != value.size()) return false;
+    if (lhs.default_uniforms.len() != rhs.default_uniforms.len()) return false;
+    for (const auto& [name, value] : lhs.default_uniforms.iter()) {
+        auto it = rhs.default_uniforms.get(name->as_str());
+        if (it.is_none() || (**it).size() != value->size()) return false;
     }
     return true;
 }
@@ -495,8 +581,8 @@ inline bool SameSceneShaderVariantCodeHashes(const SceneShaderVariantDesc& lhs,
     const bool lhs_has_hashes = SceneShaderVariantHasCodeHashes(lhs);
     const bool rhs_has_hashes = SceneShaderVariantHasCodeHashes(rhs);
     if (! lhs_has_hashes && ! rhs_has_hashes) return true;
-    if (lhs.stages.size() != rhs.stages.size()) return false;
-    for (std::size_t i = 0; i < lhs.stages.size(); ++i) {
+    if (lhs.stages.len() != rhs.stages.len()) return false;
+    for (usize i {}; i < lhs.stages.len(); ++i) {
         if (lhs.stages[i].code_hash != rhs.stages[i].code_hash) return false;
     }
     return true;
@@ -504,7 +590,7 @@ inline bool SameSceneShaderVariantCodeHashes(const SceneShaderVariantDesc& lhs,
 
 inline bool SameSceneShaderVariantDescriptorLayout(const SceneShaderVariantDesc& lhs,
                                                    const SceneShaderVariantDesc& rhs) {
-    if (lhs.descriptor_layout_hash == 0 && rhs.descriptor_layout_hash == 0) return true;
+    if (lhs.descriptor_layout_hash == usize() && rhs.descriptor_layout_hash == usize()) return true;
     return lhs.descriptor_layout_hash == rhs.descriptor_layout_hash;
 }
 
@@ -515,8 +601,11 @@ ClassifySceneShaderVariantMutation(const SceneShaderVariantDesc& current,
     if (current.shader_name != next.shader_name) return SceneMaterialDirtyGraph;
     if (SceneShaderVariantHasActiveTextureMetadata(current) ||
         SceneShaderVariantHasActiveTextureMetadata(next)) {
-        if (SceneShaderVariantActiveTextureSlots(current) !=
-            SceneShaderVariantActiveTextureSlots(next))
+        auto current_slots = SceneShaderVariantActiveTextureSlots(current);
+        auto next_slots    = SceneShaderVariantActiveTextureSlots(next);
+        if (current_slots.len() != next_slots.len() || current_slots.iter().any([&](auto slot) {
+                return ! next_slots.contains(*slot);
+            }))
             return SceneMaterialDirtyGraph;
     }
 
@@ -527,7 +616,7 @@ ClassifySceneShaderVariantMutation(const SceneShaderVariantDesc& current,
     }
     if (current.resolved_combos != next.resolved_combos ||
         current.input_combos != next.input_combos ||
-        current.texture_infos.size() != next.texture_infos.size() ||
+        current.texture_infos.len() != next.texture_infos.len() ||
         current.geometry_shader_enabled != next.geometry_shader_enabled) {
         flags |= SceneMaterialDirtyResources | SceneMaterialDirtyPipeline;
     }
@@ -538,8 +627,8 @@ ClassifySceneShaderVariantMutation(const SceneShaderVariantDesc& current,
     if (! SameSceneShaderVariantDescriptorLayout(current, next)) {
         flags |= SceneMaterialDirtyResources | SceneMaterialDirtyPipeline;
     }
-    if (flags == SceneMaterialDirtyNone && current.stages.size() == next.stages.size()) {
-        for (std::size_t i = 0; i < current.stages.size(); ++i) {
+    if (flags == SceneMaterialDirtyNone && current.stages.len() == next.stages.len()) {
+        for (usize i {}; i < current.stages.len(); ++i) {
             if (current.stages[i].source_key != next.stages[i].source_key ||
                 current.stages[i].source != next.stages[i].source) {
                 flags |= SceneMaterialDirtyPipeline;
@@ -554,13 +643,13 @@ struct SceneMaterial {
 public:
     SceneMaterial() = default;
     SceneMaterial(const SceneMaterial& other) { copyFrom(other); }
-    SceneMaterial(SceneMaterial&& other) noexcept { moveFrom(std::move(other)); }
+    SceneMaterial(SceneMaterial&& other) noexcept { moveFrom(rstd::move(other)); }
     SceneMaterial& operator=(const SceneMaterial& other) {
         if (this != &other) copyFrom(other);
         return *this;
     }
     SceneMaterial& operator=(SceneMaterial&& other) noexcept {
-        if (this != &other) moveFrom(std::move(other));
+        if (this != &other) moveFrom(rstd::move(other));
         return *this;
     }
 
@@ -613,12 +702,11 @@ public:
         SetPipelineDirty();
         return true;
     }
-    bool SetShaderValue(std::string uniform_name, const ShaderValue& value) {
-        if (uniform_name.empty()) return false;
-        auto shaped                            = ShapeShaderValue(uniform_name, value);
-        customShader.constValues[uniform_name] = shaped;
-        auto animation =
-            customShader.valueAnimations.get_mut(rstd::cppstd::as_str(uniform_name).unwrap());
+    bool SetShaderValue(ref<str> uniform_name, const ShaderValue& value) {
+        if (uniform_name.is_empty()) return false;
+        auto shaped = ShapeShaderValue(uniform_name, value);
+        (void)customShader.constValues.insert(rstd::into(uniform_name), shaped);
+        auto animation = customShader.valueAnimations.get_mut(uniform_name);
         if (animation.is_some()) (**animation).base = shaped;
         TouchShaderValues();
         return true;
@@ -631,104 +719,104 @@ public:
     auto ShaderValueAnimation(ref<str> uniform_name) const -> Option<Arc<SceneAnimationPlayback>>;
     void RegisterAnimations(SceneNode&) const;
     bool TickShaderValueAnimations();
-    bool SetShaderVariant(std::shared_ptr<SceneShader> shader, SceneShaderVariantDesc variant) {
+    bool SetShaderVariant(Option<Arc<SceneShader>> shader, SceneShaderVariantDesc variant) {
         if (! shader || ! variant.Valid()) return false;
         SceneMaterialDirtyFlags flags =
             customShader.variant.is_some()
                 ? ClassifySceneShaderVariantMutation(*customShader.variant, variant)
                 : SceneMaterialDirtyGraph;
         if (flags == SceneMaterialDirtyNone) return false;
-        if (! variant.texture_slots.empty() &&
+        if (! variant.texture_slots.is_empty() &&
             SceneShaderVariantHasActiveTextureMetadata(variant)) {
-            auto previous_textures = textures;
-            auto previous_metadata = texture_metadata;
-            auto previous_sources  = texture_sources.clone();
-            textures               = variant.texture_slots;
-            texture_metadata.resize(textures.size());
-            texture_sources.resize(usize(textures.size()), SceneMaterialTextureSource {});
-            for (std::size_t i = 0; i < textures.size(); ++i) {
-                if (i >= previous_textures.size() || previous_textures[i] != textures[i]) {
+            auto previous_textures = rstd::move(textures);
+            auto previous_metadata = rstd::move(texture_metadata);
+            auto previous_sources  = rstd::move(texture_sources);
+            textures               = variant.texture_slots.clone();
+            texture_metadata.resize(textures.len(), SceneMaterialTextureMetadata {});
+            texture_sources.resize(usize(textures.len()), SceneMaterialTextureSource {});
+            for (usize i {}; i < textures.len(); ++i) {
+                if (i >= previous_textures.len() || previous_textures[i] != textures[i]) {
                     texture_metadata[i]       = {};
                     texture_sources[usize(i)] = {};
-                } else if (i < previous_metadata.size()) {
+                } else if (i < previous_metadata.len()) {
                     texture_metadata[i] = previous_metadata[i];
-                    if (i < previous_sources.len().to_primitive())
+                    if (i < previous_sources.len())
                         texture_sources[usize(i)] = previous_sources[usize(i)];
                 }
             }
             auto active = SceneShaderVariantActiveTextureSlots(variant);
-            for (std::size_t i = 0; i < textures.size(); ++i) {
-                if (! active.contains(static_cast<unsigned>(i))) {
+            for (usize i {}; i < textures.len(); ++i) {
+                if (! active.contains(rstd::as_cast<u32>(i))) {
                     textures[i].clear();
                     texture_metadata[i]       = {};
                     texture_sources[usize(i)] = {};
                 }
             }
         }
-        customShader.shader  = std::move(shader);
+        customShader.shader  = rstd::move(shader);
         customShader.variant = Some(rstd::move(variant));
         SetDirty(flags);
         return true;
     }
 
-    std::string                               name;
-    std::vector<std::string>                  textures;
-    std::vector<SceneMaterialTextureMetadata> texture_metadata;
-    Vec<SceneMaterialTextureSource>           texture_sources;
-    std::vector<std::string>                  defines;
+    String                            name;
+    Vec<String>                       textures;
+    Vec<SceneMaterialTextureMetadata> texture_metadata;
+    Vec<SceneMaterialTextureSource>   texture_sources;
+    Vec<String>                       defines;
 
     bool hasSprite { false };
 
-    SceneMaterialCustomShader      customShader;
-    std::shared_ptr<SceneMaterial> shadow_variant;
+    SceneMaterialCustomShader  customShader;
+    Option<Arc<SceneMaterial>> shadow_variant;
 
 private:
-    ShaderValue ShapeShaderValue(std::string_view uniform_name, const ShaderValue& value) const {
+    ShaderValue ShapeShaderValue(ref<str> uniform_name, const ShaderValue& value) const {
         if (value.size() == usize()) return value;
 
         usize target_size {};
-        if (auto it = customShader.constValues.find(std::string(uniform_name));
-            it != customShader.constValues.end()) {
-            target_size = it->second.size();
+        if (auto it = customShader.constValues.get(uniform_name); it.is_some()) {
+            target_size = (**it).size();
         }
         if (customShader.shader) {
-            if (auto it = customShader.shader->default_uniforms.find(std::string(uniform_name));
-                it != customShader.shader->default_uniforms.end()) {
-                if (it->second.size() > target_size) target_size = it->second.size();
+            if (auto it = (*customShader.shader)->default_uniforms.get(uniform_name);
+                it.is_some()) {
+                if ((**it).size() > target_size) target_size = (**it).size();
             }
         }
         if (target_size <= value.size() || target_size > usize(4)) return value;
 
-        const auto         fill = value.size() == usize(1) ? value[usize()] : 0.0f;
-        std::vector<float> shaped(target_size.to_primitive(), fill);
+        const auto fill   = value.size() == usize(1) ? value[usize()] : 0.0f;
+        auto       shaped = Vec<float>::make();
+        shaped.resize(target_size, fill);
         for (usize index {}; index < value.size(); ++index) {
-            shaped[index.to_primitive()] = value[index];
+            shaped[index] = value[index];
         }
-        return ShaderValue(std::span<const float>(shaped));
+        return ShaderValue(shaped.as_slice());
     }
 
     void copyFrom(const SceneMaterial& other) {
-        name                        = other.name;
-        textures                    = other.textures;
-        texture_metadata            = other.texture_metadata;
+        name                        = other.name.clone();
+        textures                    = other.textures.clone();
+        texture_metadata            = other.texture_metadata.clone();
         texture_sources             = other.texture_sources.clone();
-        defines                     = other.defines;
+        defines                     = other.defines.clone();
         hasSprite                   = other.hasSprite;
         customShader                = other.customShader.Clone();
         const bool pipeline_changed = m_pipeline.Set(other.Pipeline());
-        shadow_variant              = other.shadow_variant;
+        shadow_variant              = other.shadow_variant.clone();
         m_dirty_flags.fetch_or(
             other.m_dirty_flags.load() |
             (pipeline_changed ? SceneMaterialDirtyPipeline : SceneMaterialDirtyNone));
     }
     void moveFrom(SceneMaterial&& other) {
-        name                        = std::move(other.name);
-        textures                    = std::move(other.textures);
-        texture_metadata            = std::move(other.texture_metadata);
+        name                        = rstd::move(other.name);
+        textures                    = rstd::move(other.textures);
+        texture_metadata            = rstd::move(other.texture_metadata);
         texture_sources             = rstd::move(other.texture_sources);
-        defines                     = std::move(other.defines);
+        defines                     = rstd::move(other.defines);
         hasSprite                   = other.hasSprite;
-        customShader                = std::move(other.customShader);
+        customShader                = rstd::move(other.customShader);
         const bool pipeline_changed = m_pipeline.Set(other.Pipeline());
         shadow_variant              = rstd::move(other.shadow_variant);
         m_dirty_flags.fetch_or(
@@ -736,8 +824,8 @@ private:
             (pipeline_changed ? SceneMaterialDirtyPipeline : SceneMaterialDirtyNone));
     }
 
-    std::atomic<SceneMaterialDirtyFlags> m_dirty_flags { SceneMaterialDirtyNone };
-    vrento::MaterialPipelineState        m_pipeline;
+    Atomic<SceneMaterialDirtyFlags> m_dirty_flags { SceneMaterialDirtyNone };
+    vrento::MaterialPipelineState   m_pipeline;
 };
 
 // ============================================================================
@@ -780,21 +868,21 @@ public:
     // exactly one (single-slot compat); SceneParser will emit N for
     // .mdl meshes with mesh_count > 1.
     struct Submesh {
-        std::vector<SceneVertexArray>      vertex_arrays;
-        std::vector<SceneIndexArray>       index_arrays;
-        std::vector<DrawRange>             draw_ranges;
+        Vec<SceneVertexArray>              vertex_arrays;
+        Vec<SceneIndexArray>               index_arrays;
+        Vec<DrawRange>                     draw_ranges;
         Option<Arc<dyn<Fn<Vec<usize>()>>>> draw_range_order;
         u32                                material_slot {};
         // Non-empty value redirects this submesh's pass output to the
         // named RT (instead of the SceneNode's default). Used by puppet
         // clipping-mask submeshes to write into a shared `_rt_puppet_mask`
         // that the main puppet pass samples via g_Texture8.
-        std::string output_override;
-        bool        preserve_output { false };
+        String output_override;
+        bool   preserve_output { false };
     };
 
     SceneMesh(bool dynamic = false)
-        : m_dynamic(dynamic), m_dirty(false), m_data(std::make_shared<Data>()) {}
+        : m_dynamic(dynamic), m_dirty(false), m_data(Arc<Data>::make()) {}
 
     MeshPrimitive Primitive() const { return m_primitive; }
     u32           PointSize() const { return m_pointSize; }
@@ -824,106 +912,103 @@ public:
     void SetPointSize(u32 v) { m_pointSize = v; }
 
     // ---- New submesh API ----
-    const std::vector<Submesh>& Submeshes() const { return m_data->submeshes; }
-    std::vector<Submesh>&       Submeshes() { return m_data->submeshes; }
+    const Vec<Submesh>& Submeshes() const { return m_data->submeshes; }
+    Vec<Submesh>&       Submeshes() { return m_data->submeshes; }
 
     auto BufferView(u32 submesh_index) const -> Option<vrento::GeometryView> {
-        if (submesh_index.to_primitive() >= m_data->submeshes.size()) return None();
-        const auto&          submesh = m_data->submeshes[submesh_index.to_primitive()];
+        if (submesh_index.to_primitive() >= m_data->submeshes.len().to_primitive()) return None();
+        const auto&          submesh = m_data->submeshes[usize(submesh_index.to_primitive())];
         vrento::GeometryView view { .dynamic = m_dynamic };
-        view.vertices.reserve(usize(submesh.vertex_arrays.size()));
+        view.vertices.reserve(submesh.vertex_arrays.len());
         for (const auto& vertex : submesh.vertex_arrays) view.vertices.push(vertex.BufferView());
-        if (! submesh.index_arrays.empty()) view.index = Some(submesh.index_arrays[0].BufferView());
+        if (! submesh.index_arrays.is_empty())
+            view.index = Some(submesh.index_arrays[usize(0)].BufferView());
         return Some(rstd::move(view));
     }
 
     // Materials are per-mesh-instance, NOT shared via ChangeMeshDataFrom — same
     // contract as the legacy m_material field.
-    const std::vector<std::shared_ptr<SceneMaterial>>& MaterialSlots() const { return m_materials; }
-    std::vector<std::shared_ptr<SceneMaterial>>&       MaterialSlots() { return m_materials; }
+    const Vec<Arc<SceneMaterial>>& MaterialSlots() const { return m_materials; }
+    Vec<Arc<SceneMaterial>>&       MaterialSlots() { return m_materials; }
 
     // ---- Legacy single-slot compat (routes through submeshes[0] / materials[0]) ----
-    usize VertexCount() const { return usize(submesh0().vertex_arrays.size()); }
-    usize IndexCount() const { return usize(submesh0().index_arrays.size()); }
+    usize VertexCount() const { return submesh0().vertex_arrays.len(); }
+    usize IndexCount() const { return submesh0().index_arrays.len(); }
 
     const SceneVertexArray& GetVertexArray(usize index) const {
-        return submesh0().vertex_arrays[index.to_primitive()];
+        return submesh0().vertex_arrays[index];
     }
     const SceneIndexArray& GetIndexArray(usize index) const {
-        return submesh0().index_arrays[index.to_primitive()];
+        return submesh0().index_arrays[index];
     }
-    SceneVertexArray& GetVertexArray(usize index) {
-        return ensureSubmesh0().vertex_arrays[index.to_primitive()];
-    }
-    SceneIndexArray& GetIndexArray(usize index) {
-        return ensureSubmesh0().index_arrays[index.to_primitive()];
-    }
+    SceneVertexArray& GetVertexArray(usize index) { return ensureSubmesh0().vertex_arrays[index]; }
+    SceneIndexArray&  GetIndexArray(usize index) { return ensureSubmesh0().index_arrays[index]; }
 
     void AddIndexArray(SceneIndexArray&& array) {
-        ensureSubmesh0().index_arrays.emplace_back(std::move(array));
+        ensureSubmesh0().index_arrays.emplace_back(rstd::move(array));
     }
     void AddVertexArray(SceneVertexArray&& array) {
-        ensureSubmesh0().vertex_arrays.emplace_back(std::move(array));
+        ensureSubmesh0().vertex_arrays.emplace_back(rstd::move(array));
     }
     void AddMaterial(SceneMaterial&& material) {
-        m_materials.push_back(std::make_shared<SceneMaterial>(std::move(material)));
+        m_materials.push(Arc<SceneMaterial>::make(rstd::move(material)));
     }
 
-    SceneMaterial* Material() { return m_materials.empty() ? nullptr : m_materials[0].get(); }
+    SceneMaterial* Material() {
+        return m_materials.is_empty() ? nullptr : m_materials[usize()].as_ptr().as_raw_ptr();
+    }
 
     const Eigen::Matrix4d& GeometryTransform() const { return m_data->geometry_transform; }
     void                   SetGeometryTransform(Eigen::Matrix4d transform) {
         m_data->geometry_transform = rstd::move(transform);
     }
 
-    void ChangeMeshDataFrom(const SceneMesh& o) { m_data = o.m_data; }
+    void ChangeMeshDataFrom(const SceneMesh& o) { m_data = o.m_data.clone(); }
 
-    std::shared_ptr<SceneMesh> CloneInstance() const {
-        auto clone         = std::make_shared<SceneMesh>(m_dynamic);
+    Arc<SceneMesh> CloneInstance() const {
+        auto clone         = Arc<SceneMesh>::make(m_dynamic);
         clone->m_primitive = m_primitive;
         clone->m_pointSize = m_pointSize;
-        clone->m_data      = m_data;
-        clone->m_materials.reserve(m_materials.size());
+        clone->m_data      = m_data.clone();
+        clone->m_materials.reserve(m_materials.len());
         for (const auto& material : m_materials) {
-            clone->m_materials.push_back(material ? std::make_shared<SceneMaterial>(*material)
-                                                  : nullptr);
+            clone->m_materials.push(material ? Arc<SceneMaterial>::make(*material)
+                                             : material.clone());
         }
         return clone;
     }
     void RegisterAnimations(SceneNode&) const;
 
-    const std::vector<DrawRange>& DrawRanges() const {
-        static const std::vector<DrawRange> kEmpty;
-        return m_data->submeshes.empty() ? kEmpty : m_data->submeshes[0].draw_ranges;
+    const Vec<DrawRange>& DrawRanges() const {
+        static const Vec<DrawRange> kEmpty;
+        return m_data->submeshes.is_empty() ? kEmpty : m_data->submeshes[usize(0)].draw_ranges;
     }
-    void SetDrawRanges(std::vector<DrawRange> ranges) {
-        ensureSubmesh0().draw_ranges = std::move(ranges);
-    }
+    void SetDrawRanges(Vec<DrawRange> ranges) { ensureSubmesh0().draw_ranges = rstd::move(ranges); }
 
 private:
     struct Data {
-        Eigen::Matrix4d      geometry_transform { Eigen::Matrix4d::Identity() };
-        std::vector<Submesh> submeshes;
+        Eigen::Matrix4d geometry_transform { Eigen::Matrix4d::Identity() };
+        Vec<Submesh>    submeshes;
     };
 
     Submesh& ensureSubmesh0() {
-        if (m_data->submeshes.empty()) m_data->submeshes.emplace_back();
-        return m_data->submeshes[0];
+        if (m_data->submeshes.is_empty()) m_data->submeshes.emplace_back();
+        return m_data->submeshes[usize(0)];
     }
     const Submesh& submesh0() const {
         static const Submesh kEmpty;
-        return m_data->submeshes.empty() ? kEmpty : m_data->submeshes[0];
+        return m_data->submeshes.is_empty() ? kEmpty : m_data->submeshes[usize(0)];
     }
 
-    u32               m_id { u32::MAX };
-    MeshPrimitive     m_primitive { MeshPrimitive::TRIANGLE };
-    u32               m_pointSize { 1 };
-    bool              m_dynamic;
-    std::atomic<bool> m_dirty;
+    u32           m_id { u32::MAX };
+    MeshPrimitive m_primitive { MeshPrimitive::TRIANGLE };
+    u32           m_pointSize { 1 };
+    bool          m_dynamic;
+    Atomic<bool>  m_dirty;
 
-    std::shared_ptr<Data>                       m_data;      // shared via ChangeMeshDataFrom
-    std::vector<std::shared_ptr<SceneMaterial>> m_materials; // per-instance
-    std::atomic<SceneMeshDirtyFlags>            m_dirty_flags { SceneMeshDirtyNone };
+    Arc<Data>                   m_data;      // shared via ChangeMeshDataFrom
+    Vec<Arc<SceneMaterial>>     m_materials; // per-instance
+    Atomic<SceneMeshDirtyFlags> m_dirty_flags { SceneMeshDirtyNone };
 };
 
 class SceneNode;
@@ -1396,18 +1481,18 @@ public:
         MarkTransDirty();
     }
     SceneNode(const Eigen::Vector3f& translate, const Eigen::Vector3f& scale,
-              const Eigen::Vector3f& rotation, const std::string& name = "")
-        : m_name(name), m_translate(translate), m_scale(scale), m_rotation(rotation) {
+              const Eigen::Vector3f& rotation, ref<str> name = ""_str)
+        : m_name(rstd::into(name)), m_translate(translate), m_scale(scale), m_rotation(rotation) {
         MarkTransDirty();
     }
 
-    const auto&     Camera() const { return m_cameraName; }
-    void            SetCamera(const std::string& name) { m_cameraName = name; }
+    ref<str>        Camera() const { return m_cameraName.as_str(); }
+    void            SetCamera(ref<str> name) { m_cameraName = rstd::into(name); }
     bool            Perspective() const { return m_perspective; }
     void            SetPerspective(bool value) { m_perspective = value; }
     bool            Reflected() const { return m_reflected; }
     void            SetReflected(bool value) { m_reflected = value; }
-    void            AddMesh(std::shared_ptr<SceneMesh> mesh) { m_mesh = mesh; }
+    void            AddMesh(Arc<SceneMesh> mesh) { m_mesh = Some(rstd::move(mesh)); }
     bool            AppendChild(Arc<SceneNode> sub) { return m_node.AppendChild(rstd::move(sub)); }
     bool            RemoveChild(SceneNode& child) { return m_node.RemoveChild(child); }
     void            ClearChildren() { m_node.ClearChildren(); }
@@ -1504,7 +1589,7 @@ public:
     }
     const SceneUserVisibilityBinding& VisibleUserBinding() const { return m_visible_user_binding; }
     void                              SetVisibleUserBinding(SceneUserVisibilityBinding binding) {
-        m_visible_user_binding = std::move(binding);
+        m_visible_user_binding = rstd::move(binding);
     }
 
     bool  IsBrightnessOverridden() const { return m_brightness_overridden; }
@@ -1600,7 +1685,7 @@ public:
     }
     float Volume() const { return m_volume; }
     void  SetVolume(float volume) {
-        m_volume = rstd::f32(volume).clamp(rstd::f32(), rstd::f32(1.0f)).to_primitive();
+        m_volume = f32(volume).clamp(f32(), f32(1.0f)).to_primitive();
         if (m_sound_control) (*m_sound_control)->SetVolume(m_volume);
     }
     void SetParticleControl(Arc<dyn<SceneParticleControl>> control) {
@@ -1633,14 +1718,14 @@ public:
     void            UpdateTrans();
     Eigen::Matrix4d ModelTrans() const { return m_node.WorldMatrix(); };
 
-    SceneMesh*                        Mesh() { return m_mesh.get(); }
-    const std::shared_ptr<SceneMesh>& MeshShared() const { return m_mesh; }
-    bool HasMaterial() const { return m_mesh && m_mesh->Material() != nullptr; };
+    SceneMesh* Mesh() const { return m_mesh.is_some() ? m_mesh->as_ptr().as_raw_ptr() : nullptr; }
+    const Option<Arc<SceneMesh>>& MeshShared() const { return m_mesh; }
+    bool HasMaterial() const { return m_mesh && (*m_mesh)->Material() != nullptr; };
 
     const auto& GetChildren() const { return m_node.Children(); }
 
-    const std::string& Name() const { return m_name; }
-    SceneNode*         Parent() const { return m_node.Parent(); }
+    ref<str>   Name() const { return m_name.as_str(); }
+    SceneNode* Parent() const { return m_node.Parent(); }
 
     // Anchor for transform-only inheritance. The node does NOT join `p`'s
     // children, so TraverseNode never visits it through `p`. Used for the
@@ -1649,14 +1734,14 @@ public:
     bool SetParentAnchor(SceneNode* p) { return m_node.SetTransformParent(p); }
 
     // BFS over self + descendants; returns first node whose Name() matches.
-    SceneNode* FindByName(std::string_view name);
+    SceneNode* FindByName(ref<str> name);
 
     SceneNodeId              Identity() const { return m_identity; }
     Option<WallpaperLayerId> WallpaperIdentity() const { return m_wallpaper_identity; }
-    void        AttachLayer(std::shared_ptr<SceneNodeLayer> layer) { m_layer = rstd::move(layer); }
+    void        AttachLayer(Arc<SceneNodeLayer> layer) { m_layer = Some(rstd::move(layer)); }
     bool        HasLayer() const { return static_cast<bool>(m_layer); }
-    auto&       Layer() { return m_layer; }
-    const auto& Layer() const { return m_layer; }
+    auto&       Layer() { return *m_layer; }
+    const auto& Layer() const { return *m_layer; }
 
     i32  ID() const { return m_id; }
     i32& ID() { return m_id; }
@@ -1671,7 +1756,7 @@ private:
     SceneNodeId              m_identity;
     Option<WallpaperLayerId> m_wallpaper_identity;
     i32                      m_id { -1 };
-    std::string              m_name;
+    String                   m_name;
 
     vrento::NodeState<SceneNode, Eigen::Matrix4d> m_node { *this };
 
@@ -1703,13 +1788,13 @@ private:
     Option<Arc<dyn<SceneParticleControl>>> m_particle_control;
     Option<Arc<VideoPlaybackState>>        m_video_control;
 
-    std::shared_ptr<SceneMesh> m_mesh;
+    Option<Arc<SceneMesh>> m_mesh;
 
-    std::string m_cameraName;
-    bool        m_perspective { false };
-    bool        m_reflected { false };
+    String m_cameraName;
+    bool   m_perspective { false };
+    bool   m_reflected { false };
 
-    std::shared_ptr<SceneNodeLayer> m_layer;
+    Option<Arc<SceneNodeLayer>> m_layer;
 };
 
 // ============================================================================
@@ -1725,12 +1810,14 @@ enum class SceneEffectTargetKind
 
 struct SceneEffectTarget {
     SceneEffectTarget() = default;
-    SceneEffectTarget(std::string value)
-        : kind(SceneEffectTargetKind::Named), key(std::move(value)) {}
-    SceneEffectTarget(std::string_view value): kind(SceneEffectTargetKind::Named), key(value) {}
+    SceneEffectTarget(ref<str> value): kind(SceneEffectTargetKind::Named), key(rstd::into(value)) {}
 
-    static auto Named(std::string value) -> SceneEffectTarget {
-        return SceneEffectTarget(std::move(value));
+    static auto Named(ref<str> value) -> SceneEffectTarget { return SceneEffectTarget(value); }
+    auto        clone() const -> SceneEffectTarget {
+        SceneEffectTarget target;
+        target.kind = kind;
+        target.key  = key.clone();
+        return target;
     }
     static auto LayerPrevious() -> SceneEffectTarget {
         SceneEffectTarget target;
@@ -1744,7 +1831,7 @@ struct SceneEffectTarget {
     }
 
     SceneEffectTargetKind kind { SceneEffectTargetKind::Named };
-    std::string           key;
+    String                key;
 };
 
 struct SceneImageEffectNode {
@@ -1765,21 +1852,28 @@ struct SceneImageEffect {
         SceneEffectTarget src;
         i32               afterpos { 0 };
     };
-    std::string                     name;
-    SceneEffectId                   id;
-    SceneNodeId                     owner;
-    std::vector<Command>            commands;
-    std::list<SceneImageEffectNode> nodes;
-    SceneUserVisibilityBinding      visible_user_binding;
-    bool                            runtime_visible { true };
+    String        name;
+    SceneEffectId id;
+    SceneNodeId   owner;
+    Vec<Command>  commands;
+    void          AddNode(SceneImageEffectNode node) {
+        m_nodes.push(Box<SceneImageEffectNode>::make(rstd::move(node)));
+    }
+    auto Nodes() { return m_nodes.deref_mut(); }
+    auto Nodes() const -> slice<Box<SceneImageEffectNode>> { return m_nodes.as_slice(); }
+    SceneUserVisibilityBinding visible_user_binding;
+    bool                       runtime_visible { true };
+
+private:
+    Vec<Box<SceneImageEffectNode>> m_nodes;
 };
 
 class SceneNodeLayer {
 public:
-    SceneNodeLayer(SceneNode* node, float w, float h, std::string_view composite_target);
+    SceneNodeLayer(SceneNode* node, float w, float h, ref<str> composite_target);
 
-    void AddEffect(const std::shared_ptr<SceneImageEffect>& node) {
-        m_effects.push_back(node);
+    void AddEffect(const Arc<SceneImageEffect>& node) {
+        m_effects.push(node.clone());
         m_resolved = false;
     }
     bool SetEffectRuntimeVisible(SceneImageEffect& effect, bool visible) {
@@ -1788,22 +1882,23 @@ public:
         m_resolved             = false;
         return true;
     }
-    usize EffectCount() const { return usize(m_effects.size()); }
-    auto& GetEffect(usize index) { return m_effects.at(index.to_primitive()); }
-    std::shared_ptr<SceneImageEffect> FindEffect(std::string_view name) {
-        auto it = std::find_if(m_effects.begin(), m_effects.end(), [name](const auto& effect) {
-            return effect && effect->name == name;
-        });
-        return it == m_effects.end() ? nullptr : *it;
+    usize                         EffectCount() const { return m_effects.len(); }
+    auto&                         GetEffect(usize index) { return m_effects[index]; }
+    Option<Arc<SceneImageEffect>> FindEffect(ref<str> name) {
+        for (const auto& effect : m_effects) {
+            if (effect && effect->name.as_str() == name) return Some(effect.clone());
+        }
+        return None();
     }
     bool HasRuntimeVisibleEffect() const {
-        return std::any_of(m_effects.begin(), m_effects.end(), [](const auto& effect) {
-            return effect && effect->runtime_visible;
-        });
+        for (const auto& effect : m_effects) {
+            if (effect && effect->runtime_visible) return true;
+        }
+        return false;
     }
     bool RequiresIntermediateTarget() const {
         return m_final_resolve_effect || m_published_effect || m_visible_resolve_effect ||
-               m_effects.empty() || HasRuntimeVisibleEffect();
+               m_effects.is_empty() || HasRuntimeVisibleEffect();
     }
     bool HasRenderEffects() const {
         return m_final_resolve_effect || m_published_effect || m_visible_resolve_effect ||
@@ -1811,11 +1906,11 @@ public:
     }
     void             SetSourceDraw(SceneNode& node);
     void             ConfigureSourceDraw(bool intermediate);
-    const auto&      CompositeTarget() const { return m_composite_target; }
+    ref<str>         CompositeTarget() const { return m_composite_target.as_str(); }
     SceneMesh&       FinalMesh() { return *m_final_mesh.get(); }
     const SceneMesh& FinalMesh() const { return *m_final_mesh.as_ptr(); }
     void             AddPrefillNode(SceneImageEffectNode node) {
-        m_prefill_nodes.push_back(std::move(node));
+        m_prefill_nodes.push(rstd::move(node));
         m_resolved = false;
     }
     auto& PrefillNodes() { return m_prefill_nodes; }
@@ -1834,33 +1929,41 @@ public:
         m_final_cull_mode   = material.Pipeline().cull_mode;
         m_resolved          = false;
     }
-    void SetFinalTarget(std::string t) {
-        m_final_target = std::move(t);
+    void SetFinalTarget(ref<str> t) {
+        m_final_target = rstd::into(t);
         m_resolved     = false;
     }
-    const auto& FinalTarget() const { return m_final_target; }
-    void        SetFinalCamera(std::string camera) {
-        if (m_final_camera == camera) return;
-        m_final_camera = std::move(camera);
+    ref<str> FinalTarget() const { return m_final_target.as_str(); }
+    void     SetFinalCamera(ref<str> camera) {
+        if (m_final_camera.as_str() == camera) return;
+        m_final_camera = rstd::into(camera);
         m_resolved     = false;
     }
-    void SetFinalResolveEffect(std::shared_ptr<SceneImageEffect> effect) {
-        m_final_resolve_effect = std::move(effect);
+    void SetFinalResolveEffect(Arc<SceneImageEffect> effect) {
+        m_final_resolve_effect = Some(rstd::move(effect));
         m_resolved             = false;
     }
-    const auto& FinalResolveEffect() const { return m_final_resolve_effect; }
-    void        SetPublishedEffect(std::shared_ptr<SceneImageEffect> effect) {
-        m_published_effect = rstd::move(effect);
+    auto FinalResolveEffect() const -> SceneImageEffect* {
+        return m_final_resolve_effect.is_some() ? m_final_resolve_effect->as_ptr().as_raw_ptr()
+                                                : nullptr;
+    }
+    void SetPublishedEffect(Arc<SceneImageEffect> effect) {
+        m_published_effect = Some(rstd::move(effect));
         m_resolved         = false;
     }
-    const auto& PublishedEffect() const { return m_published_effect; }
-    void        SetVisibleResolveEffect(std::shared_ptr<SceneImageEffect> effect) {
-        m_visible_resolve_effect = rstd::move(effect);
+    auto PublishedEffect() const -> SceneImageEffect* {
+        return m_published_effect.is_some() ? m_published_effect->as_ptr().as_raw_ptr() : nullptr;
+    }
+    void SetVisibleResolveEffect(Arc<SceneImageEffect> effect) {
+        m_visible_resolve_effect = Some(rstd::move(effect));
         m_resolved               = false;
     }
-    const auto& VisibleResolveEffect() const { return m_visible_resolve_effect; }
-    bool        PublishesOutput() const { return static_cast<bool>(m_published_effect); }
-    void        SetVisibleOutputEnabled(bool value) {
+    auto VisibleResolveEffect() const -> SceneImageEffect* {
+        return m_visible_resolve_effect.is_some() ? m_visible_resolve_effect->as_ptr().as_raw_ptr()
+                                                  : nullptr;
+    }
+    bool PublishesOutput() const { return static_cast<bool>(m_published_effect); }
+    void SetVisibleOutputEnabled(bool value) {
         if (m_visible_output_enabled == value) return;
         m_visible_output_enabled = value;
         m_resolved               = false;
@@ -1868,8 +1971,9 @@ public:
     bool        VisibleOutputEnabled() const { return m_visible_output_enabled; }
     const auto& ResolvedEffects() const { return m_resolved_effects; }
     auto        ResolvedTarget(const SceneImageEffectNode& node) const -> SceneEffectTarget {
-        if (m_direct_final_output == &node) return SceneEffectTarget::Named(m_final_target);
-        return node.output;
+        if (m_direct_final_output == &node)
+            return SceneEffectTarget::Named(m_final_target.as_str());
+        return node.output.clone();
     }
     void SetFinalLocal(bool value) {
         m_final_local = value;
@@ -1891,15 +1995,15 @@ public:
 
     // Idempotent: second and later calls are no-ops until any of the
     // mutating setters above (or AddEffect) flips m_resolved back to false.
-    void ResolveEffect(const SceneMesh& defualt_mesh, std::string_view effect_cam);
+    void ResolveEffect(const SceneMesh& defualt_mesh, ref<str> effect_cam);
 
 private:
-    SceneNode*  m_worldNode;
-    SceneNode*  m_sourceNode;
-    float       m_width { 1.0f };
-    float       m_height { 1.0f };
-    std::string m_composite_target;
-    std::string m_source_camera;
+    SceneNode* m_worldNode;
+    SceneNode* m_sourceNode;
+    float      m_width { 1.0f };
+    float      m_height { 1.0f };
+    String     m_composite_target;
+    String     m_source_camera;
 
     bool              fullscreen { false };
     bool              m_final_local { false };
@@ -1908,21 +2012,21 @@ private:
     bool              m_final_depth_test { false };
     bool              m_final_depth_write { false };
     CullMode          m_final_cull_mode { CullMode::None };
-    std::string       m_final_target { rstd::cppstd::to_string(SpecTex_Default) };
-    std::string       m_final_camera;
+    String            m_final_target { rstd::into(SpecTex_Default) };
+    String            m_final_camera;
     bool              m_skip_when_no_runtime_effect { false };
     bool              m_requires_source_draw { true };
     Option<BlendMode> m_intermediate_source_blend;
     bool              m_visible_output_enabled { true };
     bool              m_resolved { false };
 
-    std::vector<std::shared_ptr<SceneImageEffect>> m_effects;
-    std::shared_ptr<SceneImageEffect>              m_final_resolve_effect;
-    std::shared_ptr<SceneImageEffect>              m_published_effect;
-    std::shared_ptr<SceneImageEffect>              m_visible_resolve_effect;
-    std::vector<SceneImageEffect*>                 m_resolved_effects;
-    std::vector<SceneImageEffectNode>              m_prefill_nodes;
-    SceneImageEffectNode*                          m_direct_final_output { nullptr };
+    Vec<Arc<SceneImageEffect>>    m_effects;
+    Option<Arc<SceneImageEffect>> m_final_resolve_effect;
+    Option<Arc<SceneImageEffect>> m_published_effect;
+    Option<Arc<SceneImageEffect>> m_visible_resolve_effect;
+    Vec<SceneImageEffect*>        m_resolved_effects;
+    Vec<SceneImageEffectNode>     m_prefill_nodes;
+    SceneImageEffectNode*         m_direct_final_output { nullptr };
 };
 
 struct SceneImageEffectRef {
@@ -1938,12 +2042,12 @@ struct SceneImageEffectRef {
 
 struct ScenePostProcessPass {
     Arc<SceneNode> node;   // synthetic; mesh + material only
-    std::string    output; // RT key; empty -> SpecTex_Default
+    String         output; // RT key; empty -> SpecTex_Default
 };
 
 struct ScenePostProcessCopy {
-    std::string src;
-    std::string dst;
+    String src;
+    String dst;
 };
 
 class ScenePostProcessStep {
@@ -1952,7 +2056,7 @@ class ScenePostProcessStep {
 };
 
 struct ScenePostProcess {
-    std::string               name;
+    String                    name;
     Vec<ScenePostProcessStep> steps;
 };
 
@@ -2236,9 +2340,9 @@ struct SceneShadowDefinition {
 };
 
 struct RenderShadowCasterRecord {
-    RenderItemId                   render_item;
-    std::shared_ptr<SceneMaterial> material;
-    u32                            instance_count { 1 };
+    RenderItemId       render_item;
+    Arc<SceneMaterial> material;
+    u32                instance_count { 1 };
 };
 
 struct SceneMeshDirtyEvent {
@@ -2265,8 +2369,8 @@ struct SceneMaterialTextureSlotMutation {
 };
 
 struct SceneShaderVariantMutation {
-    std::shared_ptr<SceneShader> shader;
-    SceneShaderVariantDesc       variant;
+    Option<Arc<SceneShader>> shader;
+    SceneShaderVariantDesc   variant;
 };
 
 struct SceneMaterialShaderVariantMutation {
@@ -2424,19 +2528,18 @@ public:
     auto ShadowDefinitions() const -> slice<SceneShadowDefinition>;
 
     struct ShaderUserBinding {
-        std::shared_ptr<SceneMaterial> material;
-        String                         uniform;
+        Arc<SceneMaterial> material;
+        String             uniform;
     };
 
-    void RegisterShaderUserBinding(String key, std::shared_ptr<SceneMaterial> material,
-                                   String uniform);
+    void RegisterShaderUserBinding(String key, Arc<SceneMaterial> material, String uniform);
     auto ShaderUserBindings(ref<str> key) const -> slice<ShaderUserBinding>;
 
     struct ShaderComboUserBinding {
-        std::shared_ptr<SceneMaterial> material;
-        String                         combo;
-        String                         fallback;
-        HashMap<String, String>        options;
+        Arc<SceneMaterial>      material;
+        String                  combo;
+        String                  fallback;
+        HashMap<String, String> options;
     };
     void RegisterShaderComboUserBinding(String key, ShaderComboUserBinding binding);
     auto ShaderComboUserBindings(ref<str> key) const -> slice<ShaderComboUserBinding>;
@@ -2448,13 +2551,13 @@ public:
     // Retain both the node and its materials so a binding left pointing at
     // such an object stays valid instead of dangling.
     struct ImagePropertyBinding {
-        Arc<SceneNode>                      node;
-        Vec<std::shared_ptr<SceneMaterial>> materials;
+        Arc<SceneNode>          node;
+        Vec<Arc<SceneMaterial>> materials;
     };
     void RegisterImageColorUserBinding(String key, const Arc<SceneNode>& node,
-                                       slice<std::shared_ptr<SceneMaterial>> materials);
+                                       slice<Arc<SceneMaterial>> materials);
     void RegisterImageAlphaUserBinding(String key, const Arc<SceneNode>& node,
-                                       slice<std::shared_ptr<SceneMaterial>> materials);
+                                       slice<Arc<SceneMaterial>> materials);
     auto ImageColorUserBindings(ref<str> key) const -> slice<ImagePropertyBinding>;
     auto ImageAlphaUserBindings(ref<str> key) const -> slice<ImagePropertyBinding>;
 
@@ -2465,9 +2568,9 @@ public:
     bool ApplyUserPropertyBindings(ref<str> key, const Json& property);
 
     struct MaterialTextureUserBinding {
-        std::shared_ptr<SceneMaterial> material;
-        u32                            slot { 0 };
-        String                         fallback;
+        Arc<SceneMaterial> material;
+        u32                slot { 0 };
+        String             fallback;
     };
     void RegisterMaterialTextureUserBinding(String key, MaterialTextureUserBinding binding);
     auto MaterialTextureUserBindings(ref<str> key) const -> slice<MaterialTextureUserBinding>;
@@ -2494,7 +2597,7 @@ public:
     auto ActiveCameraTransforms() const -> Option<SceneCameraTransforms>;
     bool SetActiveCameraTransforms(const SceneCameraTransforms& transforms);
 
-    Option<SceneImageEffectRef> FindNodeImageEffect(const SceneNode& node, std::string_view name);
+    Option<SceneImageEffectRef> FindNodeImageEffect(const SceneNode& node, ref<str> name);
     Option<SceneImageEffectRef> FindNodeImageEffect(const SceneNode& node, usize index);
     usize                       NodeImageEffectCount(const SceneNode& node);
     String                      ImageEffectName(const SceneImageEffectRef& ref) const;
@@ -2504,10 +2607,10 @@ public:
     void EnablePlanarReflection();
     bool PlanarReflectionEnabled() const { return m_planar_reflection_enabled; }
     bool ConsumeRenderGraphDirty();
-    bool ApplyUserNodeVisibilityBindings(std::string_view key, const Json& property);
-    bool ApplyUserImageEffectVisibilityBindings(std::string_view key, const Json& property);
-    bool ApplyUserLightVisibilityBindings(std::string_view key, const Json& property);
-    bool ApplyUserCameraPathVisibilityBindings(std::string_view key, const Json& property);
+    bool ApplyUserNodeVisibilityBindings(ref<str> key, const Json& property);
+    bool ApplyUserImageEffectVisibilityBindings(ref<str> key, const Json& property);
+    bool ApplyUserLightVisibilityBindings(ref<str> key, const Json& property);
+    bool ApplyUserCameraPathVisibilityBindings(ref<str> key, const Json& property);
 
     void RegisterSoundVolumeBinding(ref<str> key, Arc<dyn<SceneSoundControl>> control) {
         auto controls = m_sound_volume_user_index.get_mut(key);
@@ -2548,7 +2651,7 @@ public:
     }
     SceneNodeId   RegisterNode(SceneNode& node, Option<WallpaperLayerId> wallpaper = None());
     SceneEffectId RegisterEffect(SceneNodeId owner, SceneNodeLayer& layer,
-                                 std::shared_ptr<SceneImageEffect> effect);
+                                 Arc<SceneImageEffect> effect);
     void          AttachRuntimeNode(SceneNode& parent, Arc<SceneNode> node);
     auto          LayerIndex(const SceneNode& node) const -> Option<usize>;
     bool          SortLayer(SceneNode& node, usize index);
@@ -2671,17 +2774,17 @@ public:
     void RegisterLinkedCamera(String source, String linked);
     void UpdateLinkedCamera(ref<str> name);
 
-    void        TickCameraPaths();
-    void        TickMaterialShaderAnimations();
-    void        CaptureCameraPathViewports();
-    std::string EnsureLinkRenderTarget(WallpaperLayerId source_layer, const SceneNode& source_node);
-    bool        EnsureTextureDescriptor(std::string_view key);
-    bool        SetMaterialShaderValue(SceneMaterial& material, ref<str> uniform_name,
+    void   TickCameraPaths();
+    void   TickMaterialShaderAnimations();
+    void   CaptureCameraPathViewports();
+    String EnsureLinkRenderTarget(WallpaperLayerId source_layer, const SceneNode& source_node);
+    bool   EnsureTextureDescriptor(ref<str> key);
+    bool   SetMaterialShaderValue(SceneMaterial& material, ref<str> uniform_name,
+                                  const ShaderValue& value);
+    bool   SetMaterialShaderValueByKey(SceneMaterial& material, ref<str> material_key,
                                        const ShaderValue& value);
-    bool        SetMaterialShaderValueByKey(SceneMaterial& material, ref<str> material_key,
-                                            const ShaderValue& value);
     SceneMaterialTextureSlotMutation SetMaterialTextureSlot(SceneMaterial& material, u32 slot,
-                                                            std::string_view texture);
+                                                            ref<str> texture);
     bool SetMaterialLayerPreviousSource(SceneMaterial& material, u32 slot, SceneNodeId layer,
                                         ref<str> composite_target);
     void ResolveMaterialTextureSources(SceneMaterial& material);
@@ -2732,15 +2835,15 @@ public:
 
 private:
     struct ImageEffectRecord {
-        SceneNodeId                       owner;
-        SceneNodeLayer*                   layer { nullptr };
-        std::shared_ptr<SceneImageEffect> effect;
+        SceneNodeId           owner;
+        SceneNodeLayer*       layer { nullptr };
+        Arc<SceneImageEffect> effect;
     };
 
     SceneUniformRegistry          m_uniforms;
     SceneTextureAnimationRegistry m_texture_animations;
     SceneRuntime                  m_runtime;
-    String                        m_scene_id { String::make("unknown_id"_str) };
+    String                        m_scene_id { "unknown_id"_Str };
     SceneMesh                     m_default_effect_mesh;
     array<i32, 2>                 m_ortho { i32(1920), i32(1080) };
     f32                           m_viewport_scale { 1.0f };

@@ -50,7 +50,6 @@ export module waywallen.bridge;
 
 export import vvk;
 import rstd;
-import rstd.cppstd;
 import rstd.log;
 
 export inline constexpr uint32_t WW_BRIDGE_SUPPORTED_PROTOCOL_VERSION =

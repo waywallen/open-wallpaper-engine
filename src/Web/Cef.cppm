@@ -34,6 +34,7 @@ export using ::LOGSEVERITY_INFO;
 export using ::LOGSEVERITY_VERBOSE;
 export using ::LOGSEVERITY_WARNING;
 export using ::PET_VIEW;
+export using ::PET_POPUP;
 export using ::PID_BROWSER;
 export using ::PID_RENDERER;
 export using ::V8_PROPERTY_ATTRIBUTE_DONTDELETE;

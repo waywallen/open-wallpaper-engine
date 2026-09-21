@@ -68,14 +68,14 @@ auto BuildMaterial(fs::VFS&, ShaderCache&, const SceneShaderEnvironment&, const 
     -> Result<MaterialBuild, MaterialBuildError>;
 auto ApplyLayerColorBlend(wpscene::Material&, i32 color_blend_mode) -> Option<BlendMode>;
 auto NeutralColorUniforms(ShaderValueMap) -> ShaderValueMap;
-void ParseSpecTexName(std::string&, const wpscene::Material&, const ShaderInfo&, Scene&);
-auto IsLegacyAtmosphereShadowValue(const wpscene::Material&, std::string_view) -> bool;
-void RegisterMaterialBindings(Scene&, const std::shared_ptr<SceneMaterial>&,
-                              const wpscene::Material&, const ShaderInfo&,
+void ParseSpecTexName(String&, const wpscene::Material&, const ShaderInfo&, Scene&);
+auto IsLegacyAtmosphereShadowValue(const wpscene::Material&, ref<str>) -> bool;
+void RegisterMaterialBindings(Scene&, const Arc<SceneMaterial>&, const wpscene::Material&,
+                              const ShaderInfo&,
                               Option<ref<wpscene::Material>> user_texture_fallback = None());
 void RegisterLayerPreviousBindings(Scene&, SceneMaterial&, const wpscene::Material&, SceneNodeId,
                                    ref<str> composite_target);
-void ApplyTextureBinds(wpscene::Material&, std::span<const wpscene::MaterialPassBindItem>,
+void ApplyTextureBinds(wpscene::Material&, slice<wpscene::MaterialPassBindItem>,
                        const EffectRenderTargets&);
 void LoadConstvalue(SceneParseContext&, SceneMaterial&, const wpscene::Material&, const ShaderInfo&,
                     SceneShaderValueAnimationMap* = nullptr);
@@ -150,8 +150,8 @@ struct SceneParseContext {
     Arc<UniformSceneState>       uniform_state { Arc<UniformSceneState>::make(
         audio_response_demand.clone()) };
     struct TextUniformConfigDraft {
-        Arc<SceneNode>                                   node;
-        std::shared_ptr<text::TextEffectProjectionState> effect_projection;
+        Arc<SceneNode>                               node;
+        Option<Arc<text::TextEffectProjectionState>> effect_projection;
     };
     Vec<TextUniformConfigDraft>          text_uniform_configs;
     Vec<ParticleTrailUniformConfigDraft> particle_trail_uniform_configs;
@@ -166,14 +166,14 @@ struct SceneParseContext {
         Option<Box<dyn<FnMut<void(Eigen::Vector3f)>>>> apply_attachment_offset;
         Vec<Arc<SceneNode>>                            ordered_before_nodes;
     };
-    HashMap<i32, NodeRef>       node_id_map;
-    HashMap<i32, u32>           object_parent_ids;
-    HashSet<i32>                solid_layer_ids;
-    Vec<i32>                    node_id_order;
-    HashMap<i32, std::uint64_t> script_initialization_orders;
-    HashMap<i32, Json>          initial_layer_configs;
-    HashSet<i32>                parallax_depth_user_binding_ids;
-    HashSet<i32>                ride_parent_parallax_ids;
+    HashMap<i32, NodeRef>        node_id_map;
+    HashMap<i32, u32>            object_parent_ids;
+    HashSet<i32>                 solid_layer_ids;
+    Vec<i32>                     node_id_order;
+    HashMap<i32, rstd::uint64_t> script_initialization_orders;
+    HashMap<i32, Json>           initial_layer_configs;
+    HashSet<i32>                 parallax_depth_user_binding_ids;
+    HashSet<i32>                 ride_parent_parallax_ids;
 
     i32                             next_synthetic_object_id { -1 };
     Vec<owe::script::FieldScript*>  registered_asset_scripts;
@@ -218,7 +218,7 @@ void RegisterNodeRef(SceneParseContext&, i32, SceneParseContext::NodeRef);
 
 bool SceneWritesLayerText(slice<SceneObjectVar>);
 bool SceneHasScripts(slice<SceneObjectVar>);
-auto LoadJsonFile(fs::VFS&, const std::string&) -> Option<Json>;
+auto LoadJsonFile(fs::VFS&, ref<str>) -> Option<Json>;
 bool AppendLayerCompositePassthroughEffect(fs::VFS&, wpscene::ImageObject&);
 auto MakePuppetLayer(Arc<Puppet>, slice<wpscene::PuppetAnimationLayer>) -> Arc<PuppetLayer>;
 void WirePuppetAnimationScripts(SceneParseContext&, SceneNode*, Arc<PuppetLayer>,
@@ -238,8 +238,8 @@ auto ScriptValueAsVec2(const script::ScriptValue&) -> Option<array<float, 2>>;
 auto ScriptValueAsVec3(const script::ScriptValue&, const Eigen::Vector3f&)
     -> Option<Eigen::Vector3f>;
 void WireFieldScripts(SceneParseContext&, const Arc<SceneNode>&, const wpscene::FieldBindings&,
-                      std::function<void(const script::ScriptValue&)> = {},
-                      std::function<void(const script::ScriptValue&)> = {});
+                      Option<Arc<dyn<FnMut<void(const script::ScriptValue&)>>>> = {},
+                      Option<Arc<dyn<FnMut<void(const script::ScriptValue&)>>>> = {});
 void WireImageEffectVisibilityScript(SceneParseContext&, SceneNode*, const wpscene::ImageEffect&,
                                      SceneEffectId);
 void WireCameraShakeScripts(SceneParseContext&, const wpscene::FieldBindings&);
@@ -247,12 +247,12 @@ void WireCameraFieldScripts(SceneParseContext&, const Arc<SceneNode>&, const Arc
                             const Arc<SceneCameraPath>&, const wpscene::FieldBindings&,
                             const Eigen::Vector3f&, const Eigen::Vector3f&);
 void WireMaterialShaderValueScripts(SceneParseContext&, const Arc<SceneNode>&,
-                                    const std::shared_ptr<SceneMaterial>&, const wpscene::Material&,
+                                    const Arc<SceneMaterial>&, const wpscene::Material&,
                                     const ShaderInfo&);
 auto ScriptValueAsShaderValue(const script::ScriptValue&) -> Option<ShaderValue>;
 auto UsesUnitFinalQuad(const wpscene::Material&) -> bool;
 auto HasSolidCompositeContext(const SceneParseContext&, const wpscene::ImageObject&) -> bool;
-auto CanCompositeFinalEffectMaterial(std::string_view, const ShaderInfo&, bool) -> bool;
+auto CanCompositeFinalEffectMaterial(ref<str>, const ShaderInfo&, bool) -> bool;
 auto AlignmentOffset(ref<str>, Eigen::Vector2f) -> Eigen::Vector3f;
 void ApplyUserTextureBindings(SceneParseContext&, wpscene::Material&);
 void IndexSystemMediaImageFallbacks(SceneParseContext&, slice<SceneObjectVar>);

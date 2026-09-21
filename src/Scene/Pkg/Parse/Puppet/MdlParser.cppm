@@ -9,6 +9,7 @@ import wescene.scene;
 import wescene.pkg.scene_obj;
 
 export import wescene.pkg.puppet;
+
 import :shader_parser; // ShaderInfo
 
 using namespace rstd::prelude;
@@ -42,34 +43,34 @@ struct Mdl {
         bool            has_aabb { false }; // mdlv>=17
 
         // SoA attributes; empty means the bit was not set in `flag`.
-        Vec<array<float, 3>>    positions;
-        Vec<array<float, 3>>    normals;
-        Vec<array<float, 4>>    tangents; // tangent[3] + tangent_sign
-        Vec<array<uint8_t, 4>>  extra4;
-        Vec<array<uint32_t, 4>> blend_indices;
-        Vec<array<float, 4>>    blend_weights;
-        Vec<array<float, 2>>    texcoords;
-        Vec<array<float, 2>>    texcoord2;
+        Vec<array<float, 3>>          positions;
+        Vec<array<float, 3>>          normals;
+        Vec<array<float, 4>>          tangents; // tangent[3] + tangent_sign
+        Vec<array<uint8_t, 4>>        extra4;
+        Vec<array<rstd::uint32_t, 4>> blend_indices;
+        Vec<array<float, 4>>          blend_weights;
+        Vec<array<float, 2>>          texcoords;
+        Vec<array<float, 2>>          texcoord2;
 
-        Vec<array<uint32_t, 3>> indices;
+        Vec<array<rstd::uint32_t, 3>> indices;
 
         // V21+ Parts sub-block — uv2 region per vertex + part draw ranges.
         struct Part {
-            uint32_t id;
-            uint32_t start;
-            uint32_t size;
-            int32_t  draw_order_offset { 0 };
+            rstd::uint32_t id;
+            rstd::uint32_t start;
+            rstd::uint32_t size;
+            rstd::int32_t  draw_order_offset { 0 };
         };
         Vec<array<float, 2>> part_uv2;
-        Vec<uint32_t>        part_uv2_pad;
+        Vec<rstd::uint32_t>  part_uv2_pad;
         Vec<Part>            parts;
 
         // V23+ Mask blocks attached to a single-puppet mesh.
         struct MaskBlock {
-            uint32_t      leading_a;
-            String        mat_json;
-            Vec<uint32_t> part_ids_a;
-            Vec<uint32_t> part_ids_b;
+            rstd::uint32_t      leading_a;
+            String              mat_json;
+            Vec<rstd::uint32_t> part_ids_a;
+            Vec<rstd::uint32_t> part_ids_b;
         };
         Vec<MaskBlock> masks;
     };
@@ -83,9 +84,9 @@ struct Mdl {
     // MDMP morph sections — present when an animation drives shape blends.
     // Each section keyed by event_time matching a v4 AnimV4Event.time.
     struct MorphSectionData {
-        uint32_t                shape_id;
+        rstd::uint32_t          shape_id;
         String                  tag;
-        uint32_t                hash;
+        rstd::uint32_t          hash;
         Vec<array<uint16_t, 3>> vertices;
         Vec<uint16_t>           vertex_trailers; // shape_id != 0
         Vec<uint8_t>            trailer;         // shape_id == 0
@@ -133,8 +134,8 @@ public:
     // in `clip_part_ids` — used for clipping-mask submeshes that only cover the
     // affected (e.g. iris) parts. Material slot is the caller's responsibility.
     static void GenMaskSubmeshFromMdl(SceneMesh::Submesh& submesh, const Mdl::Mesh& src,
-                                      slice<uint32_t> clip_part_ids,
-                                      array<float, 2> texcoord_scale = { 1.0f, 1.0f });
+                                      slice<rstd::uint32_t> clip_part_ids,
+                                      array<float, 2>       texcoord_scale = { 1.0f, 1.0f });
     static void BindDrawOrder(SceneMesh::Submesh&, const Mdl::Mesh&, Arc<PuppetLayer>);
 };
 

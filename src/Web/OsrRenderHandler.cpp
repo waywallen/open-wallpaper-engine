@@ -1,44 +1,64 @@
 module weweb;
 
-import rstd.cppstd;
+import rstd;
 
 import :cef;
 import :cef_internal;
 
+using namespace rstd::prelude;
+
 namespace weweb
 {
 
+void OsrRenderHandler::SetAcceleratedPaintCallback(Option<AcceleratedPaintCallback> cb) {
+    Option<AcceleratedPaintCallback> previous;
+    {
+        auto state      = state_.lock().unwrap();
+        previous        = state->accel_cb.take();
+        state->accel_cb = rstd::move(cb);
+    }
+}
+
+void OsrRenderHandler::SetCpuPaintCallback(Option<CpuPaintCallback> cb) {
+    Option<CpuPaintCallback> previous;
+    {
+        auto state    = state_.lock().unwrap();
+        previous      = state->cpu_cb.take();
+        state->cpu_cb = rstd::move(cb);
+    }
+}
+
 void OsrRenderHandler::SetViewSize(int width, int height) {
     if (width <= 0 || height <= 0) return;
-    std::lock_guard lk(mu_);
-    view_w_ = width;
-    view_h_ = height;
+    auto state    = state_.lock().unwrap();
+    state->view_w = width;
+    state->view_h = height;
 }
 
 void OsrRenderHandler::SetDeviceScaleFactor(float scale) {
-    if (! std::isfinite(scale) || scale <= 0.0f) return;
-    std::lock_guard lk(mu_);
-    device_scale_factor_ = scale;
+    if (! f32(scale).is_finite() || scale <= 0.0f) return;
+    auto state                 = state_.lock().unwrap();
+    state->device_scale_factor = scale;
 }
 
 void OsrRenderHandler::GetViewRect(CefRefPtr<CefBrowser> /*browser*/, CefRect& rect) {
-    std::lock_guard lk(mu_);
+    auto state  = state_.lock().unwrap();
     rect.x      = 0;
     rect.y      = 0;
-    rect.width  = view_w_;
-    rect.height = view_h_;
+    rect.width  = state->view_w;
+    rect.height = state->view_h;
 }
 
 bool OsrRenderHandler::GetScreenInfo(CefRefPtr<CefBrowser> /*browser*/, CefScreenInfo& info) {
-    std::lock_guard lk(mu_);
-    info.device_scale_factor = device_scale_factor_;
+    auto state               = state_.lock().unwrap();
+    info.device_scale_factor = state->device_scale_factor;
     info.depth               = 32;
     info.depth_per_component = 8;
     info.is_monochrome       = false;
     info.rect.x              = 0;
     info.rect.y              = 0;
-    info.rect.width          = view_w_;
-    info.rect.height         = view_h_;
+    info.rect.width          = state->view_w;
+    info.rect.height         = state->view_h;
     info.available_rect      = info.rect;
     return true;
 }
@@ -47,7 +67,13 @@ void OsrRenderHandler::OnPaint(CefRefPtr<CefBrowser> /*browser*/, PaintElementTy
                                const RectList& /*dirtyRects*/, const void* buffer, int width,
                                int height) {
     if (type != PET_VIEW) return;
-    if (! cpu_cb_ || ! buffer || width <= 0 || height <= 0) return;
+    if (! buffer || width <= 0 || height <= 0) return;
+    Option<CpuPaintCallback> callback;
+    {
+        auto state = state_.lock().unwrap();
+        callback   = state->cpu_cb.clone();
+    }
+    if (callback.is_none()) return;
 
     CpuPaintFrame frame;
     frame.buffer     = buffer;
@@ -55,7 +81,7 @@ void OsrRenderHandler::OnPaint(CefRefPtr<CefBrowser> /*browser*/, PaintElementTy
     frame.height     = height;
     frame.row_stride = static_cast<uint32_t>(width) * 4u;
     frame.format     = DmaBufFormat::BGRA8_UNORM;
-    cpu_cb_(frame);
+    (*callback)->operator()(frame);
 }
 
 void OsrRenderHandler::OnAcceleratedPaint(CefRefPtr<CefBrowser> /*browser*/, PaintElementType type,
@@ -68,7 +94,12 @@ void OsrRenderHandler::OnAcceleratedPaint(CefRefPtr<CefBrowser> /*browser*/, Pai
     // The supported macOS path is OnPaint followed by a GPU upload.
     (void)info;
 #else
-    if (! accel_cb_) return;
+    Option<AcceleratedPaintCallback> callback;
+    {
+        auto state = state_.lock().unwrap();
+        callback   = state->accel_cb.clone();
+    }
+    if (callback.is_none()) return;
 
     DmaBufFrame frame;
     frame.plane_count = info.plane_count;
@@ -89,7 +120,7 @@ void OsrRenderHandler::OnAcceleratedPaint(CefRefPtr<CefBrowser> /*browser*/, Pai
 
     // Synchronous: callback must finish before this returns; CEF
     // reclaims the DMA-BUF the moment we exit.
-    accel_cb_(frame);
+    (*callback)->operator()(frame);
 #endif
 }
 

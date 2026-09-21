@@ -5,10 +5,10 @@ import :id;
 import :runtime;
 import eigen;
 import rstd;
-import rstd.cppstd;
 import wescene.core;
 
 using namespace rstd::prelude;
+using rstd::collections::BTreeMap;
 using rstd::collections::HashMap;
 
 export namespace owe
@@ -24,6 +24,8 @@ class ShaderValue : public vrento::UniformValue {
 public:
     using vrento::UniformValue::UniformValue;
     ShaderValue() = default;
+    ShaderValue clone() const { return *this; }
+    void        clone_from(const ShaderValue& other) { *this = other; }
     ShaderValue(vrento::UniformValue value): vrento::UniformValue(rstd::move(value)) {}
 
     static ShaderValue fromMatrix(const Eigen::Ref<const Eigen::MatrixXf>& mat) {
@@ -40,7 +42,7 @@ public:
 };
 
 using UniformValue   = ShaderValue;
-using ShaderValues   = Map<std::string, ShaderValue>;
+using ShaderValues   = BTreeMap<String, ShaderValue>;
 using ShaderValueMap = ShaderValues;
 
 using vrento::UniformBlockDefinition;

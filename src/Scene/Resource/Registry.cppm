@@ -7,7 +7,6 @@ namespace resource_registry = vrento::resource_registry;
 namespace vulkan
 {
 using vrento::vulkan::CanonicalCacheKeyData;
-using vrento::vulkan::CanonicalCacheKeyStdHash;
 using vrento::vulkan::FramebufferAttachmentDesc;
 using vrento::vulkan::FramebufferAttachmentIdentity;
 using vrento::vulkan::FramebufferCacheKey;

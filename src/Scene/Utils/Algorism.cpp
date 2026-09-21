@@ -1,18 +1,19 @@
 module wescene.utils;
 import eigen;
-import rstd.cppstd;
+
+using rstd::f64;
 
 using namespace owe;
 using namespace Eigen;
 
 double algorism::CalculatePersperctiveDistance(double fov, double height) noexcept {
-    double k = std::tan(Radians(fov / 2.0f)) * 2.0f;
+    double k = f64(Radians(fov / 2.0f)).tan().to_primitive() * 2.0f;
     return height / k;
 }
 
 double algorism::CalculatePersperctiveFov(double distence, double height) noexcept {
     double k     = height / distence / 2.0f;
-    double angle = std::atan(k) * 2;
+    double angle = f64(k).atan().to_primitive() * 2;
     return angle / Radians(180.0f) * 180.0f;
 }
 
@@ -75,11 +76,12 @@ double algorism::PerlinNoise(double x, double y, double z) noexcept {
         150, 254, 138, 236, 205, 93,  222, 114, 67,  29,  24,  72,  243, 141, 128, 195, 78,  66,
         215, 61,  156, 180
     };
-    int X = (int)std::floor(x) & 255, Y = (int)std::floor(y) & 255, Z = (int)std::floor(z) & 255;
+    int X = (int)f64(x).floor().to_primitive() & 255, Y = (int)f64(y).floor().to_primitive() & 255,
+        Z = (int)f64(z).floor().to_primitive() & 255;
 
-    x -= std::floor(x);
-    y -= std::floor(y);
-    z -= std::floor(z);
+    x -= f64(x).floor().to_primitive();
+    y -= f64(y).floor().to_primitive();
+    z -= f64(z).floor().to_primitive();
 
     double u = algorism::PerlinEase(x), v = algorism::PerlinEase(y), w = algorism::PerlinEase(z);
 

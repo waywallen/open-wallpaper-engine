@@ -1,17 +1,19 @@
 module;
 
-#include <cstdio>
 #include <dlfcn.h>
 
 module wescene.types;
-import rstd.cppstd;
+import rstd;
+
+using namespace rstd::prelude;
+using namespace rstd::literals;
 
 namespace owe
 {
 
-std::string ToString(const ImageType& type) {
+ref<str> ToString(const ImageType& type) {
 #define IMG(x) \
-    case ImageType::x: return #x;
+    case ImageType::x: return #x ""_str;
     switch (type) {
         IMG(UNKNOWN);
         IMG(BMP);
@@ -20,14 +22,16 @@ std::string ToString(const ImageType& type) {
         IMG(JNG);
         IMG(PNG);
         IMG(VIDEO);
-    default: std::fprintf(stderr, "[ERROR] Not valid image type: %d\n", (int)type); return "";
+    default:
+        rstd::io::eprintln { "[ERROR] Not valid image type: {}", static_cast<int>(type) };
+        return ""_str;
     }
 #undef IMG
 }
 
-std::string ToString(const TextureFormat& format) {
+ref<str> ToString(const TextureFormat& format) {
 #define FMT(x) \
-    case TextureFormat::x: return #x;
+    case TextureFormat::x: return #x ""_str;
     switch (format) {
         FMT(RGBA8);
         FMT(BC1);
@@ -37,7 +41,9 @@ std::string ToString(const TextureFormat& format) {
         FMT(RG8);
         FMT(R8);
         FMT(D32F);
-    default: std::fprintf(stderr, "[ERROR] Not valid tex format: %d\n", (int)format); return "";
+    default:
+        rstd::io::eprintln { "[ERROR] Not valid tex format: {}", static_cast<int>(format) };
+        return ""_str;
     }
 #undef FMT
 }
@@ -51,10 +57,10 @@ DynamicLibrary::DynamicLibrary() = default;
 DynamicLibrary::DynamicLibrary(const char* filename) { Open(filename); }
 DynamicLibrary::~DynamicLibrary() { Close(); }
 DynamicLibrary::DynamicLibrary(DynamicLibrary&& o) noexcept
-    : handle(std::exchange(o.handle, nullptr)) {}
+    : handle(rstd::exchange(o.handle, nullptr)) {}
 DynamicLibrary& DynamicLibrary::operator=(DynamicLibrary&& o) noexcept {
     Close();
-    handle = std::exchange(o.handle, nullptr);
+    handle = rstd::exchange(o.handle, nullptr);
     return *this;
 }
 bool DynamicLibrary::Open(const char* filename) {

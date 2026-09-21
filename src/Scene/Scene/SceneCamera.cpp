@@ -5,8 +5,9 @@ module wescene.scene;
 import eigen;
 import rstd;
 import rstd.log;
-import rstd.cppstd;
 import wescene.utils;
+
+using rstd::f64;
 
 using namespace owe;
 using namespace Eigen;
@@ -30,7 +31,7 @@ Matrix4d NodeCameraFrame(SceneNode& node) {
         frame.block<3, 1>(0, 2) = z.normalized();
     }
 
-    if (! frame.allFinite() || std::abs(frame.determinant()) <= kAxisEps)
+    if (! frame.allFinite() || f64(frame.determinant()).abs().to_primitive() <= kAxisEps)
         return Matrix4d::Identity();
     return frame;
 }

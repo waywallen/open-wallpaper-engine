@@ -25,7 +25,7 @@
 //
 // kParsedGeneralKeys / kParsedObjectKeys must be kept in sync with
 // src/Scene/Pkg/SceneObj/SceneDocument.cpp and src/Scene/Pkg/SceneObj/*Object.cpp
-// respectively; when you add a new owe::GetJsonValue(json, "key", ...) call for a
+// respectively; when you add a new owe::GetJsonValue(json, "key"_str, ...) call for a
 // top-level field, list it here too.
 
 #include <rstd/test/gtest.hpp>
@@ -36,6 +36,20 @@ import wescene.pkg.scene_obj;
 import wescene.testing.scene_keys;
 
 using namespace rstd::literals;
+
+TEST(SceneGeneralVersion, ReadsTransparentSortingFromVersion21) {
+    auto json = owe::ParseJson(R"({"transparentsorting":true,"fogdistance":true})"_str).unwrap();
+    for (auto version : { owe::wpscene::SceneVersion(20),
+                          owe::wpscene::SceneVersion(21),
+                          owe::wpscene::SceneVersion(22),
+                          owe::wpscene::kSceneVersionUnknown }) {
+        owe::wpscene::SceneGeneral general;
+        ASSERT_TRUE(general.FromJson(json, version));
+        EXPECT_EQ(general.transparentsorting, version != 20);
+        EXPECT_EQ(general.fogdistance,
+                  version == 22 || version == owe::wpscene::kSceneVersionUnknown);
+    }
+}
 
 TEST(CameraPathDocument, ParsesClipCurvesAndInheritedOptions) {
     auto json = owe::ParseJson(R"({
@@ -52,7 +66,7 @@ TEST(CameraPathDocument, ParsesClipCurvesAndInheritedOptions) {
             "fov": [{"frame": 0, "value": 45.0}],
             "zoom": null
         }]
-    })")
+    })"_str)
                     .unwrap();
 
     owe::wpscene::CameraPathDocument document;
@@ -63,12 +77,12 @@ TEST(CameraPathDocument, ParsesClipCurvesAndInheritedOptions) {
     EXPECT_FLOAT_EQ(clip.options.fps, 24.0f);
     EXPECT_EQ(clip.options.length, rstd::i32(120));
     ASSERT_TRUE(clip.eye.is_some());
-    EXPECT_EQ(clip.eye->c0.size(), 1u);
-    EXPECT_EQ(clip.eye->c1.size(), 1u);
-    EXPECT_EQ(clip.eye->c2.size(), 1u);
+    EXPECT_EQ(clip.eye->c0.len(), rstd::usize(1));
+    EXPECT_EQ(clip.eye->c1.len(), rstd::usize(1));
+    EXPECT_EQ(clip.eye->c2.len(), rstd::usize(1));
     EXPECT_EQ(clip.eye->options.length, rstd::i32(120));
     ASSERT_TRUE(clip.fov.is_some());
-    EXPECT_EQ(clip.fov->c0.size(), 1u);
+    EXPECT_EQ(clip.fov->c0.len(), rstd::usize(1));
     EXPECT_TRUE(clip.zoom.is_none());
 }
 
@@ -117,7 +131,8 @@ const auto& kParsedGeneralKeys() {
                 "bloomhdrthreshold" } },
         { 20u, set { "bloomtint" } },
         { 21u,
-          set { "perspectiveoverridefov",
+          set { "transparentsorting",
+                "perspectiveoverridefov",
                 "lightconfig",
                 "windenabled",
                 "winddirection",
@@ -125,8 +140,7 @@ const auto& kParsedGeneralKeys() {
                 "gravitydirection",
                 "gravitystrength" } },
         { 22u,
-          set { "transparentsorting",
-                "fogdistance",
+          set { "fogdistance",
                 "fogdistancestart",
                 "fogdistanceend",
                 "fogdistancecolor",
@@ -164,7 +178,7 @@ const std::set<std::string>& kParsedObjectKeys() {
         "dependencies",
         "instance",
         // shared by drawable kinds
-        "reflected",
+        // "reflected", // Supported by the parser; no sample in the local corpus.
         // image-only
         "image",
         "alignment",

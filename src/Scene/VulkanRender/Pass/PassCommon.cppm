@@ -1,10 +1,12 @@
 module;
 
 export module wescene.vulkan_render:pass_common;
-import rstd.cppstd;
+import rstd;
 import wescene.types;
 import wescene.vulkan;
 import vrento.material;
+
+using namespace rstd::prelude;
 
 export namespace owe::vulkan
 {
@@ -97,8 +99,8 @@ inline void SetRasterState(const vrento::MaterialPipelineDesc& material, bool de
     state.depthBiasSlopeFactor    = material.depth_bias_slope;
 }
 
-inline std::string MsaaTwinName(std::string_view tex_name, VkSampleCountFlagBits samples) {
-    return std::string(tex_name) + "::msaa" + std::to_string((unsigned)samples);
+inline String MsaaTwinName(ref<str> tex_name, VkSampleCountFlagBits samples) {
+    return rstd::format("{}::msaa{}", tex_name, static_cast<unsigned>(samples));
 }
 
 } // namespace owe::vulkan

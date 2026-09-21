@@ -20,6 +20,24 @@ public:
     explicit DebugPass(const Desc&) {}
 };
 
+struct PassPrefix {
+    virtual ~PassPrefix() = default;
+    int marker { 73 };
+};
+
+class alignas(128) OwnedPass : public PassPrefix, public owe::rg::Pass {
+public:
+    struct Desc {
+        int* destroyed {};
+    };
+
+    explicit OwnedPass(const Desc& desc): destroyed(desc.destroyed) {}
+    ~OwnedPass() override { ++*destroyed; }
+
+private:
+    int* destroyed;
+};
+
 std::string ReadFile(const std::filesystem::path& path) {
     std::ifstream file(path);
     return { std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>() };
@@ -44,6 +62,54 @@ auto CompositeDesc() -> owe::rg::TextureDesc {
 }
 
 } // namespace
+
+TEST(RenderGraphOwnership, PreservesConcreteObjectsAcrossGrowthAndMoves) {
+    int destroyed          = 0;
+    int replaced_destroyed = 0;
+    {
+        owe::rg::RenderGraph     graph;
+        Vec<owe::rg::PassHandle> handles;
+        Vec<OwnedPass*>          addresses;
+        for (int i = 0; i < 128; ++i) {
+            auto node =
+                graph.addPass<OwnedPass>("owned"_str,
+                                         owe::rg::PassNode::Type::CustomShader,
+                                         [&](owe::rg::RenderGraphBuilder&, OwnedPass::Desc& desc) {
+                                             desc.destroyed = &destroyed;
+                                         });
+            auto state = graph.passState(node);
+            ASSERT_TRUE(state.is_some());
+            auto pass = graph.getPass(state->pass);
+            ASSERT_TRUE(pass.is_some());
+            auto* concrete = dynamic_cast<OwnedPass*>(&*pass);
+            ASSERT_NE(concrete, nullptr);
+            EXPECT_EQ(reinterpret_cast<rstd::uintptr_t>(concrete) % alignof(OwnedPass), 0u);
+            EXPECT_EQ(concrete->marker, 73);
+            handles.push(owe::rg::PassHandle(state->pass));
+            addresses.push(rstd::move(concrete));
+        }
+        EXPECT_EQ(destroyed, 0);
+        owe::rg::RenderGraph moved(rstd::move(graph));
+        owe::rg::RenderGraph assigned;
+        assigned.addPass<OwnedPass>("replaced"_str,
+                                    owe::rg::PassNode::Type::CustomShader,
+                                    [&](owe::rg::RenderGraphBuilder&, OwnedPass::Desc& desc) {
+                                        desc.destroyed = &replaced_destroyed;
+                                    });
+        assigned = rstd::move(moved);
+        EXPECT_EQ(replaced_destroyed, 1);
+        const auto& borrowed = assigned;
+        for (usize i {}; i < handles.len(); ++i) {
+            auto pass = borrowed.getPass(handles[i]);
+            ASSERT_TRUE(pass.is_some());
+            EXPECT_EQ(dynamic_cast<const OwnedPass*>(&*pass), addresses[i]);
+        }
+        EXPECT_TRUE(assigned.getPass(owe::rg::PassHandle {}).is_none());
+        EXPECT_EQ(destroyed, 0);
+    }
+    EXPECT_EQ(destroyed, 128);
+    EXPECT_EQ(replaced_destroyed, 1);
+}
 
 TEST(DependencyGraph, StoresHandlesAndDeduplicatesEdges) {
     owe::rg::DependencyGraph graph;
@@ -498,23 +564,24 @@ TEST(SceneRenderGraph, OrdersShadowAtlasWriterBeforeReceiver) {
 
     auto caster                    = Arc<owe::SceneNode>::make();
     caster->shadow.cast            = true;
-    auto               caster_mesh = std::make_shared<owe::SceneMesh>();
+    auto               caster_mesh = Arc<owe::SceneMesh>::make();
     owe::SceneMaterial caster_material;
-    caster_material.name                 = "caster-main";
-    caster_material.shadow_variant       = std::make_shared<owe::SceneMaterial>();
-    caster_material.shadow_variant->name = "caster-shadow";
+    caster_material.name                    = "caster-main"_Str;
+    caster_material.shadow_variant          = Some(Arc<owe::SceneMaterial>::make());
+    (*caster_material.shadow_variant)->name = "caster-shadow"_Str;
     caster_mesh->AddMaterial(rstd::move(caster_material));
-    caster_mesh->Submeshes().push_back(owe::SceneMesh::Submesh {});
+    caster_mesh->Submeshes().push(owe::SceneMesh::Submesh {});
     caster->AddMesh(rstd::move(caster_mesh));
     scene.RootMut()->AppendChild(caster.clone());
 
     auto               receiver      = Arc<owe::SceneNode>::make();
-    auto               receiver_mesh = std::make_shared<owe::SceneMesh>();
+    auto               receiver_mesh = Arc<owe::SceneMesh>::make();
     owe::SceneMaterial receiver_material;
-    receiver_material.name     = "receiver";
-    receiver_material.textures = { "_rt_shadowAtlas" };
+    receiver_material.name = "receiver"_Str;
+    receiver_material.textures.clear();
+    receiver_material.textures.push("_rt_shadowAtlas"_Str);
     receiver_mesh->AddMaterial(rstd::move(receiver_material));
-    receiver_mesh->Submeshes().push_back(owe::SceneMesh::Submesh {});
+    receiver_mesh->Submeshes().push(owe::SceneMesh::Submesh {});
     receiver->AddMesh(rstd::move(receiver_mesh));
     scene.RootMut()->AppendChild(receiver.clone());
 
@@ -560,11 +627,11 @@ TEST(SceneRenderGraph, SharesOneLinkTargetForMultipleConsumers) {
     auto source  = rstd::sync::Arc<owe::SceneNode>::make();
     source->ID() = rstd::i32(7);
     source->SetSize({ 64.0f, 32.0f });
-    auto               source_mesh = std::make_shared<owe::SceneMesh>();
+    auto               source_mesh = Arc<owe::SceneMesh>::make();
     owe::SceneMaterial source_material;
-    source_material.name = "source";
+    source_material.name = "source"_Str;
     source_mesh->AddMaterial(std::move(source_material));
-    source_mesh->Submeshes().push_back(owe::SceneMesh::Submesh {});
+    source_mesh->Submeshes().push(owe::SceneMesh::Submesh {});
     source->AddMesh(std::move(source_mesh));
     scene.RootMut()->AppendChild(source.clone());
     scene.RegisterLayerLinkSource(owe::WallpaperLayerId { .value = rstd::i32(7) }, *source);
@@ -572,12 +639,14 @@ TEST(SceneRenderGraph, SharesOneLinkTargetForMultipleConsumers) {
 
     auto consumer                    = rstd::sync::Arc<owe::SceneNode>::make();
     consumer->ID()                   = rstd::i32(42);
-    auto               consumer_mesh = std::make_shared<owe::SceneMesh>();
+    auto               consumer_mesh = Arc<owe::SceneMesh>::make();
     owe::SceneMaterial consumer_material;
-    consumer_material.name     = "consumer";
-    consumer_material.textures = { "_rt_link_7", "_rt_link_7" };
+    consumer_material.name = "consumer"_Str;
+    consumer_material.textures.clear();
+    consumer_material.textures.push("_rt_link_7"_Str);
+    consumer_material.textures.push("_rt_link_7"_Str);
     consumer_mesh->AddMaterial(std::move(consumer_material));
-    consumer_mesh->Submeshes().push_back(owe::SceneMesh::Submesh {});
+    consumer_mesh->Submeshes().push(owe::SceneMesh::Submesh {});
     consumer->AddMesh(std::move(consumer_mesh));
     scene.RootMut()->AppendChild(consumer.clone());
 
@@ -605,12 +674,13 @@ TEST(SceneRenderGraph, ResolvesLinkedSurfaceFromProducerRegardlessOfSceneOrder) 
 
     auto make_consumer = [](std::string name) {
         auto               node = Arc<owe::SceneNode>::make();
-        auto               mesh = std::make_shared<owe::SceneMesh>();
+        auto               mesh = Arc<owe::SceneMesh>::make();
         owe::SceneMaterial material;
-        material.name     = std::move(name);
-        material.textures = { "_rt_link_7" };
+        material.name = rstd::into(rstd::cppstd::as_str(name).unwrap());
+        material.textures.clear();
+        material.textures.push("_rt_link_7"_Str);
         mesh->AddMaterial(std::move(material));
-        mesh->Submeshes().push_back(owe::SceneMesh::Submesh {});
+        mesh->Submeshes().push(owe::SceneMesh::Submesh {});
         node->AddMesh(std::move(mesh));
         return node;
     };
@@ -620,11 +690,11 @@ TEST(SceneRenderGraph, ResolvesLinkedSurfaceFromProducerRegardlessOfSceneOrder) 
 
     auto source = Arc<owe::SceneNode>::make();
     source->SetSize({ 64.0f, 32.0f });
-    auto               source_mesh = std::make_shared<owe::SceneMesh>();
+    auto               source_mesh = Arc<owe::SceneMesh>::make();
     owe::SceneMaterial source_material;
-    source_material.name = "source";
+    source_material.name = "source"_Str;
     source_mesh->AddMaterial(std::move(source_material));
-    source_mesh->Submeshes().push_back(owe::SceneMesh::Submesh {});
+    source_mesh->Submeshes().push(owe::SceneMesh::Submesh {});
     source->AddMesh(std::move(source_mesh));
     scene.RootMut()->AppendChild(source.clone());
     scene.RegisterLayerLinkSource(owe::WallpaperLayerId { .value = rstd::i32(7) }, *source);
@@ -692,11 +762,11 @@ TEST(SceneRenderGraph, ElidesSceneOwnedVisibilityHiddenSubtreeAndRestoresIt) {
     parent->ID()            = rstd::i32(7);
     auto child              = Arc<owe::SceneNode>::make();
     child->ID()             = rstd::i32(8);
-    auto               mesh = std::make_shared<owe::SceneMesh>();
+    auto               mesh = Arc<owe::SceneMesh>::make();
     owe::SceneMaterial material;
-    material.name = "child";
+    material.name = "child"_Str;
     mesh->AddMaterial(std::move(material));
-    mesh->Submeshes().push_back(owe::SceneMesh::Submesh {});
+    mesh->Submeshes().push(owe::SceneMesh::Submesh {});
     child->AddMesh(std::move(mesh));
     parent->AppendChild(child.clone());
     scene.RootMut()->AppendChild(parent.clone());
@@ -729,11 +799,11 @@ TEST(SceneRenderGraph, PreservesLinkedSourceBelowVisibilityHiddenParent) {
     parent->ID()                   = rstd::i32(7);
     auto source                    = Arc<owe::SceneNode>::make();
     source->ID()                   = rstd::i32(8);
-    auto               source_mesh = std::make_shared<owe::SceneMesh>();
+    auto               source_mesh = Arc<owe::SceneMesh>::make();
     owe::SceneMaterial source_material;
-    source_material.name = "source";
+    source_material.name = "source"_Str;
     source_mesh->AddMaterial(std::move(source_material));
-    source_mesh->Submeshes().push_back(owe::SceneMesh::Submesh {});
+    source_mesh->Submeshes().push(owe::SceneMesh::Submesh {});
     source->AddMesh(std::move(source_mesh));
     parent->AppendChild(source.clone());
     scene.RootMut()->AppendChild(parent.clone());
@@ -743,12 +813,13 @@ TEST(SceneRenderGraph, PreservesLinkedSourceBelowVisibilityHiddenParent) {
 
     auto consumer                    = Arc<owe::SceneNode>::make();
     consumer->ID()                   = rstd::i32(42);
-    auto               consumer_mesh = std::make_shared<owe::SceneMesh>();
+    auto               consumer_mesh = Arc<owe::SceneMesh>::make();
     owe::SceneMaterial consumer_material;
-    consumer_material.name     = "consumer";
-    consumer_material.textures = { "_rt_link_8" };
+    consumer_material.name = "consumer"_Str;
+    consumer_material.textures.clear();
+    consumer_material.textures.push("_rt_link_8"_Str);
     consumer_mesh->AddMaterial(std::move(consumer_material));
-    consumer_mesh->Submeshes().push_back(owe::SceneMesh::Submesh {});
+    consumer_mesh->Submeshes().push(owe::SceneMesh::Submesh {});
     consumer->AddMesh(std::move(consumer_mesh));
     scene.RootMut()->AppendChild(consumer.clone());
 
@@ -762,5 +833,5 @@ TEST(SceneRenderGraph, PreservesLinkedSourceBelowVisibilityHiddenParent) {
 
 TEST(VulkanRenderDiagnostics, EmptyBeforeProgramBuild) {
     owe::vulkan::VulkanRender render;
-    EXPECT_TRUE(render.preparedPassDiagnostics().empty());
+    EXPECT_TRUE(render.preparedPassDiagnostics().is_empty());
 }

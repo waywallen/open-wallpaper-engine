@@ -135,8 +135,8 @@ DftPlan32::DftPlan32(rstd::size_t size): size_(size) {
             const double angle =
                 -2.0 * pi * static_cast<double>(index) / static_cast<double>(length);
             twiddles_.push({
-                .real = static_cast<float>(std::cos(angle)),
-                .imag = static_cast<float>(std::sin(angle)),
+                .real = static_cast<float>(f64(angle).cos().to_primitive()),
+                .imag = static_cast<float>(f64(angle).sin().to_primitive()),
             });
         }
     }
@@ -148,8 +148,8 @@ DftPlan32::DftPlan32(rstd::size_t size): size_(size) {
     for (rstd::size_t index = 0; index < size_; ++index) {
         const double position = static_cast<double>(index);
         const double angle    = pi * position * position / static_cast<double>(size_);
-        const float  real     = static_cast<float>(std::cos(angle));
-        const float  imag     = static_cast<float>(std::sin(angle));
+        const float  real     = static_cast<float>(f64(angle).cos().to_primitive());
+        const float  imag     = static_cast<float>(f64(angle).sin().to_primitive());
         chirp_.push({ .real = real, .imag = imag });
         conjugate_chirp_.push({ .real = real, .imag = -imag });
     }

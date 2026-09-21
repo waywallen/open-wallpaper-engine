@@ -4,6 +4,9 @@ module;
 export module wescene.vfs;
 import rstd;
 
+using rstd::sync::Arc;
+using rstd::sync::Mutex;
+
 using ::alloc::string::String;
 using ::alloc::sync::Arc;
 using ::alloc::vec::Vec;
@@ -263,8 +266,8 @@ public:
     VFS(const VFS&)                    = delete;
     auto operator=(const VFS&) -> VFS& = delete;
 
-    auto Snapshot() const -> rstd::sync::Arc<VFS> {
-        auto result   = rstd::sync::Arc<VFS>::make();
+    auto Snapshot() const -> Arc<VFS> {
+        auto result   = Arc<VFS>::make();
         auto state    = result->m_state.lock().unwrap_unchecked();
         state->mounts = snapshot();
         for (const auto& mount : state->mounts) {
@@ -414,7 +417,7 @@ private:
         return result;
     }
 
-    rstd::sync::Mutex<State> m_state;
+    Mutex<State> m_state;
 };
 
 } // namespace owe::fs

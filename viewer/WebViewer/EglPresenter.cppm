@@ -5,14 +5,15 @@ module;
 #include <GLES3/gl3.h>
 #include <GLES2/gl2ext.h>
 
-struct GLFWwindow;
 struct wl_egl_window;
 
 export module viewer.web:egl_presenter;
 
-import rstd.cppstd;
 import weweb;
 import :presenter;
+import viewer.glfw_vulkan;
+
+using viewer::glfw::GLFWwindow;
 
 export namespace weweb
 {
@@ -37,8 +38,8 @@ public:
     bool Init(GLFWwindow* window) override;
     void Shutdown() override;
 
-    std::uint32_t Width() const override { return width_; }
-    std::uint32_t Height() const override { return height_; }
+    rstd::uint32_t Width() const override { return width_; }
+    rstd::uint32_t Height() const override { return height_; }
 
     bool Resize() override;
     bool AcceptDmaBuf(const DmaBufFrame& frame) override;
@@ -74,8 +75,8 @@ private:
     int    owned_h_ { 0 };
     bool   owned_has_data_ { false };
 
-    std::uint32_t width_ { 0 };
-    std::uint32_t height_ { 0 };
+    rstd::uint32_t width_ { 0 };
+    rstd::uint32_t height_ { 0 };
 
     unsigned import_count_ { 0 };
     unsigned render_count_ { 0 };

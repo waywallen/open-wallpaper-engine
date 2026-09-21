@@ -159,10 +159,10 @@ TEST(TransformUniformSource, AppliesGeometryTransformAfterNodeTransform) {
     auto node     = Arc<owe::SceneNode>::make();
     node->SetTranslate({ 100.0f, 200.0f, 0.0f });
     node->SetScale({ 2.0f, 3.0f, 1.0f });
-    auto mesh = std::make_shared<owe::SceneMesh>();
+    auto mesh = Arc<owe::SceneMesh>::make();
     mesh->SetGeometryTransform(
         Eigen::Affine3d(Eigen::Translation3d(Eigen::Vector3d(10.0, -20.0, 0.0))).matrix());
-    node->AddMesh(mesh);
+    node->AddMesh(mesh.clone());
     auto node_state = Arc<owe::UniformNodeState>::make(node.clone(), rstd::move(resolver));
     owe::TransformUniformSource source(state.clone(), rstd::move(node_state));
 
@@ -569,7 +569,7 @@ TEST(SceneParserSoundScript, UserPropertyCanStartSilentSoundFromVolumeField) {
                     "volume": 0.7
                 }
             ]
-        })JSON",
+        })JSON"_str,
         owe::wpscene::kSceneVersionUnknown);
     ASSERT_TRUE(document.is_some());
 
@@ -584,18 +584,60 @@ TEST(SceneParserSoundScript, UserPropertyCanStartSilentSoundFromVolumeField) {
     ASSERT_TRUE(parsed.is_ok());
 
     auto scene      = rstd::move(parsed).unwrap();
-    auto controller = scene.scene->RootMut()->FindByName("BGM Controller");
-    auto target     = scene.scene->RootMut()->FindByName("BGM Target");
+    auto controller = scene.scene->RootMut()->FindByName("BGM Controller"_str);
+    auto target     = scene.scene->RootMut()->FindByName("BGM Target"_str);
     ASSERT_NE(controller, nullptr);
     ASSERT_NE(target, nullptr);
     EXPECT_FALSE(target->IsPlaying());
 
     auto property = rstd::json::from_str(R"({"type":"combo","value":"0"})"_str).unwrap();
-    owe::script::SetSceneUserProperty(*scene.scene, "song_selection", property);
+    owe::script::SetSceneUserProperty(*scene.scene, "song_selection"_str, property);
     EXPECT_TRUE(target->IsPlaying());
 
     owe::script::TickSceneScripts(*scene.scene, owe::script::FrameInputs {});
     EXPECT_FLOAT_EQ(controller->Volume(), 0.35f);
+}
+
+TEST(SceneParserBindings, OwnsKeysAndNamesAfterDocumentDestruction) {
+    auto document = owe::wpscene::ParseSceneDocumentJson(R"({
+        "camera":{},
+        "general":{
+            "clearcolor":{"value":"0 0 0","user":"background"},
+            "cameraparallaxamount":{"value":0.5,"user":"amount"},
+            "camerashakeamplitude":{"value":0.5,"user":"shake"}
+        },
+        "objects":[
+            {"id":1,"name":"parent","visible":{"value":false,"user":"enabled"}},
+            {"id":2,"name":"child","parent":1,"text":""}
+        ]
+    })"_str,
+                                                         owe::wpscene::kSceneVersionUnknown);
+    ASSERT_TRUE(document.is_some());
+    owe::fs::VFS                vfs;
+    wavsen::audio::SoundManager sound_manager;
+    owe::SceneParser            parser;
+    auto                        parsed = parser.Parse(
+        "binding-lifetime"_str,
+        ref<owe::wpscene::SceneDocument>::from_raw_parts(rstd::addressof(*document)),
+        mut_ref<owe::fs::VFS>::from_raw_parts(rstd::addressof(vfs)),
+        mut_ref<wavsen::audio::SoundManager>::from_raw_parts(rstd::addressof(sound_manager)));
+    ASSERT_TRUE(parsed.is_ok());
+    auto scene  = rstd::move(parsed).unwrap();
+    document    = None();
+    auto parent = scene.scene->RootMut()->FindByName("parent"_str);
+    auto child  = scene.scene->RootMut()->FindByName("child"_str);
+    ASSERT_NE(parent, nullptr);
+    ASSERT_NE(child, nullptr);
+    EXPECT_EQ(parent->VisibleUserBinding().key, "enabled"_str);
+    EXPECT_FALSE(parent->Visible());
+    EXPECT_EQ(scene.scene->ClearColorUserKey(), "background"_str);
+    auto value = owe::ParseJson("0.75"_str).unwrap();
+    EXPECT_TRUE(scene.scene->ApplyUserPropertyBindings("amount"_str, value));
+    EXPECT_TRUE(scene.scene->ApplyUserPropertyBindings("shake"_str, value));
+    EXPECT_FALSE(scene.scene->ApplyUserPropertyBindings("missing"_str, value));
+    scene.scene->ApplyUserNodeVisibilityBindings("enabled"_str,
+                                                 owe::ParseJson("true"_str).unwrap());
+    EXPECT_TRUE(parent->Visible());
 }
 
 TEST(SceneParserScript, FractionSliderPreservesAuthoredValue) {
@@ -614,14 +656,14 @@ TEST(SceneParserScript, FractionSliderPreservesAuthoredValue) {
                     "value": "0.00004 0.00004 0.00004"
                 }
             }]
-        })JSON",
+        })JSON"_str,
         owe::wpscene::kSceneVersionUnknown);
     ASSERT_TRUE(document.is_some());
 
     auto user_properties = rstd::json::Map::make();
     user_properties.insert(
         String::make("clocksize"_str),
-        owe::ParseJson(R"({"type":"slider","fraction":true,"value":0.4})").unwrap());
+        owe::ParseJson(R"({"type":"slider","fraction":true,"value":0.4})"_str).unwrap());
 
     owe::fs::VFS                vfs;
     wavsen::audio::SoundManager sound_manager;
@@ -638,7 +680,7 @@ TEST(SceneParserScript, FractionSliderPreservesAuthoredValue) {
     ASSERT_TRUE(parsed.is_ok());
 
     auto scene = rstd::move(parsed).unwrap();
-    auto group = scene.scene->RootMut()->FindByName("Clock Group");
+    auto group = scene.scene->RootMut()->FindByName("Clock Group"_str);
     ASSERT_NE(group, nullptr);
 
     owe::script::TickSceneScripts(*scene.scene, owe::script::FrameInputs {});
@@ -662,11 +704,12 @@ TEST(SceneParserScript, DynamicObjectsUseSceneIdentity) {
                 },
                 {"id": 7, "name": "Low"}
             ]
-        })JSON",
+        })JSON"_str,
         owe::wpscene::kSceneVersionUnknown);
     ASSERT_TRUE(document.is_some());
 
-    auto assets = owe::fs::make_physical_fs(owe::fs::ToPath(WAYWALLEN_ASSETS_DIR));
+    auto assets = owe::fs::make_physical_fs(
+        owe::fs::Path(rstd::cppstd::as_str(WAYWALLEN_ASSETS_DIR).unwrap()));
     ASSERT_TRUE(assets.is_ok());
     owe::fs::VFS vfs;
     ASSERT_TRUE(vfs.mount("/assets"_str, rstd::move(assets).unwrap_unchecked()).is_ok());
@@ -681,8 +724,8 @@ TEST(SceneParserScript, DynamicObjectsUseSceneIdentity) {
     ASSERT_TRUE(parsed.is_ok());
 
     auto scene      = rstd::move(parsed).unwrap();
-    auto controller = scene.scene->RootMut()->FindByName("Controller");
-    auto dynamic    = scene.scene->RootMut()->FindByName("__createLayer");
+    auto controller = scene.scene->RootMut()->FindByName("Controller"_str);
+    auto dynamic    = scene.scene->RootMut()->FindByName("__createLayer"_str);
     ASSERT_NE(controller, nullptr);
     ASSERT_NE(dynamic, nullptr);
     EXPECT_TRUE(dynamic->Identity().Valid());
@@ -721,7 +764,7 @@ TEST(SceneParserText, EmptyStaticTextPreservesLayerHierarchy) {
                     "origin": [10, 20, 0]
                 }
             ]
-        })JSON",
+        })JSON"_str,
         owe::wpscene::kSceneVersionUnknown);
     ASSERT_TRUE(document.is_some());
 
@@ -736,8 +779,8 @@ TEST(SceneParserText, EmptyStaticTextPreservesLayerHierarchy) {
     ASSERT_TRUE(parsed.is_ok());
 
     auto scene  = rstd::move(parsed).unwrap();
-    auto parent = scene.scene->RootMut()->FindByName("Empty Text Parent");
-    auto child  = scene.scene->RootMut()->FindByName("Authored Child");
+    auto parent = scene.scene->RootMut()->FindByName("Empty Text Parent"_str);
+    auto child  = scene.scene->RootMut()->FindByName("Authored Child"_str);
     ASSERT_NE(parent, nullptr);
     ASSERT_NE(child, nullptr);
     EXPECT_EQ(child->Parent(), parent);
@@ -766,7 +809,7 @@ TEST(SceneParserText, ScriptSceneExposesTextWritesWithoutSourceInspection) {
                     "font": "systemfont_arial"
                 }
             ]
-        })JSON",
+        })JSON"_str,
         owe::wpscene::kSceneVersionUnknown);
     ASSERT_TRUE(document.is_some());
 
@@ -781,7 +824,7 @@ TEST(SceneParserText, ScriptSceneExposesTextWritesWithoutSourceInspection) {
     ASSERT_TRUE(parsed.is_ok());
 
     auto scene = rstd::move(parsed).unwrap();
-    auto value = scene.scene->RootMut()->FindByName("Value");
+    auto value = scene.scene->RootMut()->FindByName("Value"_str);
     ASSERT_NE(value, nullptr);
     ASSERT_NE(value->Mesh(), nullptr);
     value->Mesh()->ConsumeDirtyFlags();
@@ -803,7 +846,7 @@ TEST(SceneUserTextBinding, AppliesDescriptorPayloadToMatchingBindings) {
                                       second = to_string(value);
                                   }));
 
-    auto property = owe::ParseJson(R"({"type":"textinput","value":"updated"})").unwrap();
+    auto property = owe::ParseJson(R"({"type":"textinput","value":"updated"})"_str).unwrap();
     EXPECT_TRUE(scene.ApplyUserTextBindings("title"_str, property));
     EXPECT_EQ(first, "updated");
     EXPECT_EQ(second, "updated");
@@ -818,7 +861,7 @@ TEST(SceneUserTextBinding, AppliesEmptyString) {
                                       value = to_string(next);
                                   }));
 
-    auto property = owe::ParseJson(R"({"type":"textinput","value":""})").unwrap();
+    auto property = owe::ParseJson(R"({"type":"textinput","value":""})"_str).unwrap();
     EXPECT_TRUE(scene.ApplyUserTextBindings("title"_str, property));
     EXPECT_TRUE(value.empty());
 }
@@ -832,7 +875,7 @@ TEST(SceneUserPropertyBinding, AppliesJsonPayloadToOwnedCallback) {
             called = property->is_object();
         }));
 
-    auto property = owe::ParseJson(R"({"value":true})").unwrap();
+    auto property = owe::ParseJson(R"({"value":true})"_str).unwrap();
     EXPECT_TRUE(scene.ApplyUserPropertyBindings("camera"_str, property));
     EXPECT_TRUE(called);
     EXPECT_FALSE(scene.ApplyUserPropertyBindings("other"_str, property));
@@ -855,10 +898,10 @@ TEST(TextUniformSource, OwnsTextProjectionOutputs) {
     auto       node = Arc<owe::SceneNode>::make();
     auto       camera =
         Arc<owe::SceneCamera>::make(owe::SceneCamera::MakeOrthographic(1920, 1080, -1.0, 1.0));
-    auto state    = std::make_shared<owe::text::TextUniformState>(node.clone());
+    auto state    = Arc<owe::text::TextUniformState>::make(node.clone());
     state->camera = Some(camera.clone());
 
-    owe::text::TextUniformSource source(state);
+    owe::text::TextUniformSource source(state.clone());
     auto                         value = scene_test::Capture(
         scene.Runtime().Frame(), source, owe::text::TextUniformOutput::ModelViewProjection);
 
@@ -956,12 +999,12 @@ TEST(SceneCameraPath, UserBindingMutatesRegisteredArc) {
     scene.RegisterCameraPath(path.clone());
     scene.RegisterCameraPathUserBinding(String::make("camera-path"_str), path.clone());
 
-    auto disabled = owe::ParseJson(R"({"value":false})").unwrap();
-    EXPECT_TRUE(scene.ApplyUserCameraPathVisibilityBindings("camera-path", disabled));
+    auto disabled = owe::ParseJson(R"({"value":false})"_str).unwrap();
+    EXPECT_TRUE(scene.ApplyUserCameraPathVisibilityBindings("camera-path"_str, disabled));
     EXPECT_FALSE(path->enabled);
 
-    auto enabled = owe::ParseJson(R"({"value":true})").unwrap();
-    EXPECT_TRUE(scene.ApplyUserCameraPathVisibilityBindings("camera-path", enabled));
+    auto enabled = owe::ParseJson(R"({"value":true})"_str).unwrap();
+    EXPECT_TRUE(scene.ApplyUserCameraPathVisibilityBindings("camera-path"_str, enabled));
     EXPECT_TRUE(path->enabled);
 }
 
@@ -1052,24 +1095,33 @@ TEST(UniformSourceParallax, UserPropertiesDriveEveryParallaxField) {
     auto state = Arc<owe::UniformSceneState>::make(Arc<owe::AudioResponseDemand>::make());
     state->CameraParallax() = { true, 0.03f, 0.1f, 0.36f };
 
-    auto disable = owe::ParseJson(R"({"value":false})").unwrap();
-    state->ApplyUserProperty("cameraparallax", disable);
+    auto disable = owe::ParseJson(R"({"value":false})"_str).unwrap();
+    state->ApplyUserProperty("cameraparallax"_str, disable);
     EXPECT_FALSE(state->CameraParallax().enable);
 
-    auto enable = owe::ParseJson(R"({"value":true})").unwrap();
-    state->ApplyUserProperty("cameraparallax", enable);
+    auto enable = owe::ParseJson(R"({"value":true})"_str).unwrap();
+    state->ApplyUserProperty("cameraparallax"_str, enable);
     EXPECT_TRUE(state->CameraParallax().enable);
 
-    auto amount = owe::ParseJson(R"({"value":0.25})").unwrap();
-    state->ApplyUserProperty("cameraparallaxamount", amount);
+    auto amount = owe::ParseJson(R"({"value":0.25})"_str).unwrap();
+    state->ApplyUserProperty("cameraparallaxamount"_str, amount);
     EXPECT_FLOAT_EQ(state->CameraParallax().amount, 0.25f);
 
-    auto delay = owe::ParseJson(R"({"value":0.5})").unwrap();
-    state->ApplyUserProperty("cameraparallaxdelay", delay);
+    for (auto source : { R"({"value":"0.5tail"})"_str, R"({"value":"1e999"})"_str }) {
+        auto invalid = owe::ParseJson(source).unwrap();
+        state->ApplyUserProperty("cameraparallaxamount"_str, invalid);
+        EXPECT_FLOAT_EQ(state->CameraParallax().amount, 0.25f);
+    }
+    auto numeric_text = owe::ParseJson(R"({"value":"0.5"})"_str).unwrap();
+    state->ApplyUserProperty("cameraparallaxamount"_str, numeric_text);
+    EXPECT_FLOAT_EQ(state->CameraParallax().amount, 0.5f);
+
+    auto delay = owe::ParseJson(R"({"value":0.5})"_str).unwrap();
+    state->ApplyUserProperty("cameraparallaxdelay"_str, delay);
     EXPECT_FLOAT_EQ(state->CameraParallax().delay, 0.5f);
 
-    auto influence = owe::ParseJson(R"({"value":0.75})").unwrap();
-    state->ApplyUserProperty("cameraparallaxmouseinfluence", influence);
+    auto influence = owe::ParseJson(R"({"value":0.75})"_str).unwrap();
+    state->ApplyUserProperty("cameraparallaxmouseinfluence"_str, influence);
     EXPECT_FLOAT_EQ(state->CameraParallax().mouse_influence, 0.75f);
 }
 
@@ -1093,12 +1145,12 @@ TEST(UniformSourceParallax, ParentPropagationSelectsAncestorConfiguration) {
                                             Eigen::Vector3f { 1.0f, 1.0f, 1.0f },
                                             Eigen::Vector3f::Zero());
     auto effect = Arc<owe::SceneNode>::make();
-    auto mesh   = std::make_shared<owe::SceneMesh>();
+    auto mesh   = Arc<owe::SceneMesh>::make();
     mesh->AddMaterial(owe::SceneMaterial {});
     owe::SceneMesh::Submesh submesh;
     submesh.material_slot = u32();
-    mesh->Submeshes().push_back(std::move(submesh));
-    child->AddMesh(mesh);
+    mesh->Submeshes().push(std::move(submesh));
+    child->AddMesh(mesh.clone());
     parent->AppendChild(child.clone());
     scene.RootMut()->AppendChild(parent.clone());
     scene.RebuildResourceIndex();
@@ -1182,15 +1234,15 @@ TEST(UniformSourceParallax, ParentPropagationSelectsAncestorConfiguration) {
     auto layer_camera =
         Arc<owe::SceneCamera>::make(owe::SceneCamera::MakeOrthographic(3840, 2160, -1.0, 1.0));
     layer_camera->AttatchNode(effect.as_ptr());
-    effect->AttachLayer(std::make_shared<owe::SceneNodeLayer>(
-        child.as_ptr(), 3840.0f, 2160.0f, "_rt_effect_composite_test"));
+    effect->AttachLayer(Arc<owe::SceneNodeLayer>::make(
+        child.as_ptr(), 3840.0f, 2160.0f, "_rt_effect_composite_test"_str));
     scene.RegisterCamera(String::make("layer"_str), layer_camera.clone());
     camera_resolver->Add(String::make("layer"_str), layer_camera.clone());
-    effect->SetCamera("layer");
+    effect->SetCamera("layer"_str);
     mvp = capture_mvp();
     EXPECT_NEAR(mvp[rstd::usize(12)], 0.0f, 1e-5f);
     EXPECT_NEAR(mvp[rstd::usize(13)], 0.0f, 1e-5f);
-    child->SetCamera("layer");
+    child->SetCamera("layer"_str);
     owe::TransformUniformSource child_source(state.clone(), child_state.clone());
     for (bool authored : { false, true }) {
         child_state->parallax.authored = authored;
@@ -1226,12 +1278,12 @@ TEST(UniformSourceParallax, OrthographicOmittedDepthUsesImplicitParallax) {
     auto layer = Arc<owe::SceneNode>::make(Eigen::Vector3f { 1200.0f, 700.0f, 0.0f },
                                            Eigen::Vector3f { 1.0f, 1.0f, 1.0f },
                                            Eigen::Vector3f::Zero());
-    auto mesh  = std::make_shared<owe::SceneMesh>();
+    auto mesh  = Arc<owe::SceneMesh>::make();
     mesh->AddMaterial(owe::SceneMaterial {});
     owe::SceneMesh::Submesh submesh;
     submesh.material_slot = u32();
-    mesh->Submeshes().push_back(std::move(submesh));
-    layer->AddMesh(mesh);
+    mesh->Submeshes().push(std::move(submesh));
+    layer->AddMesh(mesh.clone());
     scene.RootMut()->AppendChild(layer.clone());
     scene.RebuildResourceIndex();
 
@@ -1285,12 +1337,12 @@ TEST(UniformSourceParallax, UnregisteredContainerRootDoesNotPoisonChildren) {
     auto child     = Arc<owe::SceneNode>::make(Eigen::Vector3f { -76.0f, -3.0f, 0.0f },
                                                Eigen::Vector3f { 1.0f, 1.0f, 1.0f },
                                                Eigen::Vector3f::Zero());
-    auto mesh      = std::make_shared<owe::SceneMesh>();
+    auto mesh      = Arc<owe::SceneMesh>::make();
     mesh->AddMaterial(owe::SceneMaterial {});
     owe::SceneMesh::Submesh submesh;
     submesh.material_slot = u32();
-    mesh->Submeshes().push_back(std::move(submesh));
-    child->AddMesh(mesh);
+    mesh->Submeshes().push(std::move(submesh));
+    child->AddMesh(mesh.clone());
     container->AppendChild(child.clone());
     scene.RootMut()->AppendChild(container.clone());
     scene.RebuildResourceIndex();
@@ -1350,12 +1402,12 @@ TEST(UniformSourceParallax, DisablePropagationBlocksInheritance) {
     auto child  = Arc<owe::SceneNode>::make(Eigen::Vector3f { -76.0f, -3.0f, 0.0f },
                                             Eigen::Vector3f { 1.0f, 1.0f, 1.0f },
                                             Eigen::Vector3f::Zero());
-    auto mesh   = std::make_shared<owe::SceneMesh>();
+    auto mesh   = Arc<owe::SceneMesh>::make();
     mesh->AddMaterial(owe::SceneMaterial {});
     owe::SceneMesh::Submesh submesh;
     submesh.material_slot = u32();
-    mesh->Submeshes().push_back(std::move(submesh));
-    child->AddMesh(mesh);
+    mesh->Submeshes().push(std::move(submesh));
+    child->AddMesh(mesh.clone());
     parent->AppendChild(child.clone());
     scene.RootMut()->AppendChild(parent.clone());
     scene.RebuildResourceIndex();
@@ -1416,12 +1468,12 @@ TEST(UniformSourceParallax, PerspectiveWithoutAuthoredParallaxDepthSkipsShift) {
     auto layer = Arc<owe::SceneNode>::make(Eigen::Vector3f { 0.0f, 0.0f, 3.0f },
                                            Eigen::Vector3f { 0.0025f, 0.0025f, 5.0f },
                                            Eigen::Vector3f::Zero());
-    auto mesh  = std::make_shared<owe::SceneMesh>();
+    auto mesh  = Arc<owe::SceneMesh>::make();
     mesh->AddMaterial(owe::SceneMaterial {});
     owe::SceneMesh::Submesh submesh;
     submesh.material_slot = u32();
-    mesh->Submeshes().push_back(std::move(submesh));
-    layer->AddMesh(mesh);
+    mesh->Submeshes().push(std::move(submesh));
+    layer->AddMesh(mesh.clone());
     scene.RootMut()->AppendChild(layer.clone());
     scene.RebuildResourceIndex();
 
@@ -1467,12 +1519,12 @@ TEST(UniformSourceParallax, PerspectiveWithAuthoredParallaxDepthAppliesShift) {
 
     auto layer = Arc<owe::SceneNode>::make(
         Eigen::Vector3f { 1.0f, 2.0f, -3.0f }, Eigen::Vector3f::Ones(), Eigen::Vector3f::Zero());
-    auto mesh = std::make_shared<owe::SceneMesh>();
+    auto mesh = Arc<owe::SceneMesh>::make();
     mesh->AddMaterial(owe::SceneMaterial {});
     owe::SceneMesh::Submesh submesh;
     submesh.material_slot = u32();
-    mesh->Submeshes().push_back(std::move(submesh));
-    layer->AddMesh(mesh);
+    mesh->Submeshes().push(std::move(submesh));
+    layer->AddMesh(mesh.clone());
     scene.RootMut()->AppendChild(layer.clone());
     scene.RebuildResourceIndex();
 

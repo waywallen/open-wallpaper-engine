@@ -188,6 +188,9 @@ pub = true
 workspace = true
 pub = true
 
+[dependencies.rstd-parse]
+workspace = true
+
 [dependencies.rstd-log]
 workspace = true
 pub = true

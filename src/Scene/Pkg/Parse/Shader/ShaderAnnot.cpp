@@ -4,7 +4,6 @@ module;
 
 module wescene.pkg.parse;
 import rstd;
-import rstd.cppstd;
 import rstd.log;
 import :shader_lex;
 
@@ -26,112 +25,109 @@ namespace
 using shader_lex::Cursor;
 using shader_lex::LineWalker;
 
-bool TryParseAnnotationJson(std::string_view source, Json& result) {
-    auto parsed = rstd::json::from_str(rstd::cppstd::as_str(source).unwrap());
+bool TryParseAnnotationJson(ref<str> source, Json& result) {
+    auto parsed = rstd::json::from_str(source);
     if (parsed.is_err()) return false;
     result = parsed.unwrap();
     return true;
 }
 
-bool CanStartNumberToken(std::string_view source, std::size_t pos) {
-    while (pos > 0) {
-        --pos;
-        char ch = source[pos];
+bool CanStartNumberToken(ref<str> source, usize pos) {
+    Cursor probe(source, pos);
+    while (pos > usize()) {
+        probe.SeekTo(--pos);
+        char ch = probe.Peek();
         if (ch == ' ' || ch == '\t' || ch == '\r' || ch == '\n') continue;
         return ch == '[' || ch == '{' || ch == ':' || ch == ',';
     }
     return true;
 }
 
-Option<std::string> NormalizeAnnotationNumbers(std::string_view source) {
-    std::string out;
-    out.reserve(source.size());
-
-    bool in_string = false;
-    bool escaped   = false;
-    bool changed   = false;
-    for (std::size_t i = 0; i < source.size();) {
-        char ch = source[i];
+Option<String> NormalizeAnnotationNumbers(ref<str> source) {
+    auto   out       = Vec<u8>::with_capacity(source.len());
+    bool   in_string = false;
+    bool   escaped   = false;
+    bool   changed   = false;
+    Cursor cursor(source);
+    auto   append = [&] {
+        out.push(u8(static_cast<rstd::uint8_t>(cursor.Peek())));
+        cursor.Advance();
+    };
+    while (! cursor.Eof()) {
+        const char ch = cursor.Peek();
         if (in_string) {
-            out.push_back(ch);
-            if (escaped) {
+            append();
+            if (escaped)
                 escaped = false;
-            } else if (ch == '\\') {
+            else if (ch == '\\')
                 escaped = true;
-            } else if (ch == '"') {
+            else if (ch == '"')
                 in_string = false;
-            }
-            ++i;
             continue;
         }
-
         if (ch == '"') {
             in_string = true;
-            out.push_back(ch);
-            ++i;
+            append();
             continue;
         }
-
-        if ((ch == '-' || (ch >= '0' && ch <= '9')) && CanStartNumberToken(source, i)) {
+        if ((ch == '-' || (ch >= '0' && ch <= '9')) && CanStartNumberToken(source, cursor.Pos())) {
             if (ch == '-') {
-                if (i + 1 >= source.size() || source[i + 1] < '0' || source[i + 1] > '9') {
-                    out.push_back(ch);
-                    ++i;
+                if (cursor.Peek(usize(1)) < '0' || cursor.Peek(usize(1)) > '9') {
+                    append();
                     continue;
                 }
-                out.push_back(ch);
-                ++i;
+                append();
             }
-            while (i + 1 < source.size() && source[i] == '0' && source[i + 1] >= '0' &&
-                   source[i + 1] <= '9') {
+            while (cursor.Peek() == '0' && cursor.Peek(usize(1)) >= '0' &&
+                   cursor.Peek(usize(1)) <= '9') {
                 changed = true;
-                ++i;
+                cursor.Advance();
             }
         }
-
-        out.push_back(source[i]);
-        ++i;
+        append();
     }
-
     if (! changed) return None();
-    return Some(rstd::move(out));
+    return Some(String::from_utf8(rstd::move(out)).unwrap());
 }
 
-bool ParseAnnotationJson(std::string_view source, Json& result) {
+bool ParseAnnotationJson(ref<str> source, Json& result) {
     if (TryParseAnnotationJson(source, result)) return true;
     auto normalized = NormalizeAnnotationNumbers(source);
-    return normalized && TryParseAnnotationJson(*normalized, result);
+    return normalized && TryParseAnnotationJson(normalized->as_str(), result);
 }
 
-void HandleComboLine(ShaderInfo* info, std::string_view line) {
-    auto brace = line.find('{');
-    if (brace == std::string_view::npos) return;
+void HandleComboLine(ShaderInfo* info, ref<str> line) {
+    auto brace = line.find("{"_str);
+    if (brace.is_none()) return;
     Json j;
-    if (! ParseAnnotationJson(line.substr(brace), j)) return;
+    if (! ParseAnnotationJson(*line.get(*brace, line.len()), j)) return;
     if (j.get("combo"_str).is_none()) return;
     wpscene::Combo combo;
     combo.FromJson(j);
     if (combo.combo.is_empty()) return;
-    info->combos[rstd::cppstd::to_string(combo.combo.as_str())] =
-        std::to_string(combo.default_.to_primitive());
+    (void)info->combos.insert(combo.combo.clone(), rstd::format("{}", combo.default_));
     info->combo_defs.push(rstd::move(combo));
 }
 
-void HandlePassLine(ShaderInfo* info, std::string_view line) {
-    constexpr std::string_view prefix { "// [PASS] shadow" };
-    auto                       offset = line.find(prefix);
-    if (offset == std::string_view::npos) return;
-    auto value = line.substr(offset + prefix.size());
-    while (! value.empty() && (value.front() == ' ' || value.front() == '\t'))
-        value.remove_prefix(1);
-    while (! value.empty() && (value.back() == ' ' || value.back() == '\t' || value.back() == '\r'))
-        value.remove_suffix(1);
-    if (! value.empty()) info->shadow_pass = String::make(rstd::cppstd::as_str(value).unwrap());
+void HandlePassLine(ShaderInfo* info, ref<str> line) {
+    constexpr auto prefix = "// [PASS] shadow"_str;
+    auto           offset = line.find(prefix);
+    if (offset.is_none()) return;
+    Cursor cursor(line, *offset + prefix.len());
+    cursor.SkipHSpace();
+    auto   end = line.len();
+    Cursor tail(line);
+    while (end > cursor.Pos()) {
+        tail.SeekTo(end - usize(1));
+        auto ch = tail.Peek();
+        if (ch != ' ' && ch != '\t' && ch != '\r') break;
+        --end;
+    }
+    if (end > cursor.Pos()) info->shadow_pass = rstd::into(*line.get(cursor.Pos(), end));
 }
 
-void HandleUniformLine(ShaderInfo* info, std::span<const ShaderTexInfo> texinfos,
-                       std::string_view line) {
-    Cursor c(rstd::cppstd::as_str(line).unwrap());
+void HandleUniformLine(ShaderInfo* info, slice<ShaderTexInfo> texinfos, ref<str> line) {
+    Cursor c(line);
     c.SkipHSpace();
     if (! c.MatchKeyword("uniform"_str)) return;
     c.SkipHSpace();
@@ -148,67 +144,67 @@ void HandleUniformLine(ShaderInfo* info, std::span<const ShaderTexInfo> texinfos
     while (! c.Eof() && c.Peek() != '{') c.Advance();
     if (c.Eof()) return;
     Json sv_json;
-    if (! ParseAnnotationJson(line.substr(c.Pos().to_primitive()), sv_json)) return;
+    if (! ParseAnnotationJson(*line.get(c.Pos(), line.len()), sv_json)) return;
 
-    auto name = rstd::cppstd::as_string_view(tn->name);
+    auto name = tn->name;
 
-    std::string material_key;
-    GetJsonValue(sv_json, "material", material_key, false);
-    if (! material_key.empty()) info->alias[material_key] = std::string(name);
+    String material_key;
+    GetJsonValue(sv_json, "material"_str, material_key, false);
+    if (! material_key.is_empty())
+        (void)info->alias.insert(rstd::move(material_key), rstd::into(tn->name));
 
-    const bool        is_tex   = name.compare(0, 9, "g_Texture") == 0;
-    const std::size_t texcount = texinfos.size();
+    const bool is_tex   = name.starts_with("g_Texture"_str);
+    const auto texcount = texinfos.len();
 
     if (is_tex) {
         wpscene::UniformTex wput;
         wput.FromJson(sv_json);
         i32  index {};
-        auto parsed = rstd::from_str<i32>(rstd::cppstd::as_str(name.substr(9)).unwrap());
+        auto parsed = rstd::from_str<i32>(*name.get(usize(9), name.len()));
         if (parsed.is_ok()) {
             index = rstd::move(parsed).unwrap();
         } else {
             rstd_error("invalid shader texture index: {}", name);
         }
         if (! wput.default_.is_empty()) {
-            info->defTexs.push_back({ index, rstd::cppstd::to_string(wput.default_.as_str()) });
+            info->defTexs.push({ .slot = index, .texture = wput.default_.clone() });
         }
-        const bool has_texture = index >= i32() && rstd::as_cast<usize>(index) < usize(texcount);
-        const std::size_t texture_index = rstd::as_cast<usize>(index).to_primitive();
+        const bool has_texture   = index >= i32() && rstd::as_cast<usize>(index) < texcount;
+        const auto texture_index = rstd::as_cast<usize>(index);
         if (! wput.combo.is_empty()) {
             const bool enabled = has_texture && texinfos[texture_index].enabled;
-            info->combos[rstd::cppstd::to_string(wput.combo.as_str())] = enabled ? "1" : "0";
+            (void)info->combos.insert(wput.combo.clone(), enabled ? "1"_Str : "0"_Str);
         }
         if (has_texture && texinfos[texture_index].enabled) {
-            auto&       compos = texinfos[texture_index].composEnabled;
-            std::size_t num =
-                std::min(compos.len().to_primitive(), wput.components.len().to_primitive());
-            for (std::size_t i = 0; i < num; i++) {
-                if (compos[usize(i)]) {
-                    auto& combo = wput.components[usize(i)].combo;
-                    info->combos[rstd::cppstd::to_string(combo.as_str())] = "1";
+            auto& compos = texinfos[texture_index].composEnabled;
+            auto  num    = rstd::cmp::min(compos.len(), wput.components.len());
+            for (usize i {}; i < num; ++i) {
+                if (compos[i]) {
+                    auto& combo = wput.components[i].combo;
+                    (void)info->combos.insert(combo.clone(), "1"_Str);
                 }
             }
         }
         info->texture_uniforms.push(rstd::move(wput));
     } else {
         wpscene::UniformVar var;
-        var.FromJson(sv_json, String::make(tn->name));
+        var.FromJson(sv_json, rstd::into(tn->name));
         if (auto value = sv_json.get("default"_str); value.is_some()) {
             ShaderValue sv;
             if ((*value)->is_string()) {
-                std::vector<float> values;
+                Vec<float> values;
                 GetJsonValue(**value, values);
-                sv = std::span<const float>(values);
+                sv = ShaderValue(values.as_slice());
             } else if ((*value)->is_number()) {
                 sv.setSize(usize(1));
                 GetJsonValue(**value, sv[usize()]);
             }
-            info->svs[std::string(name)] = sv;
+            (void)info->svs.insert(rstd::into(tn->name), sv);
         }
         if (auto combo = sv_json.get("combo"_str); combo.is_some()) {
-            std::string cname;
-            GetJsonValue(sv_json, "combo", cname);
-            if (! cname.empty()) info->combos[cname] = "1";
+            String cname;
+            GetJsonValue(sv_json, "combo"_str, cname);
+            if (! cname.is_empty()) (void)info->combos.insert(rstd::move(cname), "1"_Str);
         }
         info->scalar_uniforms.push(rstd::move(var));
     }
@@ -216,28 +212,26 @@ void HandleUniformLine(ShaderInfo* info, std::span<const ShaderTexInfo> texinfos
 
 } // namespace
 
-void ParseShader(const std::string& src, ShaderInfo* info,
-                 const std::vector<ShaderTexInfo>& texinfos_vec) {
-    std::span<const ShaderTexInfo> texinfos(texinfos_vec.data(), texinfos_vec.size());
-    LineWalker                     w(rstd::cppstd::as_str(src).unwrap());
+void ParseShader(ref<str> src, ShaderInfo* info, slice<ShaderTexInfo> texinfos) {
+    LineWalker w(src);
     for (; ! w.Done(); w.Step()) {
-        auto line = rstd::cppstd::as_string_view(w.Line());
-        if (line.empty()) continue;
+        auto line = w.Line();
+        if (line.is_empty()) continue;
         // Helpers / forward decls above `void main()` are the annotated
         // region; the function body never carries new annotations.
-        if (line.find("void main(") != std::string_view::npos) break;
+        if (line.contains("void main("_str)) break;
 
-        if (line.find("// [COMBO]") != std::string_view::npos) {
+        if (line.contains("// [COMBO]"_str)) {
             HandleComboLine(info, line);
             continue;
         }
-        if (line.find("// [PASS] shadow") != std::string_view::npos) {
+        if (line.contains("// [PASS] shadow"_str)) {
             HandlePassLine(info, line);
             continue;
         }
         // Cheap pre-check: only attempt the full keyword match if the trimmed
         // line could plausibly start with `uniform`.
-        Cursor probe(rstd::cppstd::as_str(line).unwrap());
+        Cursor probe(line);
         probe.SkipHSpace();
         if (probe.Eof() || probe.Peek() != 'u') continue;
         HandleUniformLine(info, texinfos, line);

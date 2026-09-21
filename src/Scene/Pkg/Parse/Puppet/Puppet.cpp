@@ -7,7 +7,6 @@ import eigen;
 import wescene.core;
 import wescene.scene;
 import rstd;
-import rstd.cppstd;
 
 using namespace owe;
 using namespace Eigen;
@@ -189,9 +188,9 @@ slice<Eigen::Affine3f> PuppetLayer::genFrame(double time) noexcept {
             if (i >= layer.anim->bone_tracks.len()) continue;
             const auto& track = layer.anim->bone_tracks[i];
             if (! track.HasTransformSamples() || ! HasAuthoredTrack(track)) continue;
-            const double blend = std::max(0.0, layer.anim_layer.blend);
+            const double blend = rstd::cmp::max(layer.anim_layer.blend, 0.0);
             if (blend <= 0.0) continue;
-            replace_base_frame = std::addressof(track.frames[usize()]);
+            replace_base_frame = rstd::addressof(track.frames[usize()]);
             break;
         }
 
@@ -234,7 +233,7 @@ slice<Eigen::Affine3f> PuppetLayer::genFrame(double time) noexcept {
             double t     = info.t;
             double one_t = 1.0 - info.t;
             // Per-bone scalar curves do not mask TRS, including zero-scale eyelid poses.
-            double blend = std::max(0.0, alayer.blend);
+            double blend = rstd::cmp::max(alayer.blend, 0.0);
             if (blend <= 0.0) continue;
 
             if (! additive_uses_first_frame && ! layer.IsAdditiveTransform()) {
@@ -294,7 +293,7 @@ slice<Eigen::Affine3f> PuppetLayer::genFrame(double time) noexcept {
 
 static constexpr void genInterpolationInfo(Puppet::Animation::InterpolationInfo& info, double& cur,
                                            usize length, double frame_time, double max_time) {
-    cur          = std::fmod(cur, max_time);
+    cur          = (f64(cur) % f64(max_time)).to_primitive();
     double _rate = cur / frame_time;
 
     // `length` is the number of intervals; the track stores `length + 1`
@@ -316,7 +315,7 @@ static constexpr void genSingleInterpolationInfo(Puppet::Animation::Interpolatio
         return;
     }
 
-    cur          = std::clamp(cur, 0.0, max_time);
+    cur          = rstd::cmp::min(max_time, rstd::cmp::max(0.0, cur));
     double rate  = cur / frame_time;
     auto   frame = usize(static_cast<size_t>(rate));
     if (frame >= length) {
@@ -413,7 +412,7 @@ void PuppetLayer::prepared(slice<AnimationLayer> alayers) {
         if (! layer.visible || ! exists(layer)) continue;
         if (layer.additive) {
             if (! has_replace && additive_base == nullptr && layer.blend > 0.0) {
-                additive_base = std::addressof(layer);
+                additive_base = rstd::addressof(layer);
             }
             continue;
         }
@@ -526,12 +525,12 @@ auto PuppetLayer::TextureChannelBlendMap(double time) noexcept -> slice<float> {
             if (channel >= m_texture_channel_blend_map.len()) return;
 
             const float sample = SampleTextureChannelTrack(track, layer.interp_info);
-            const float blend  = static_cast<float>(std::max(0.0, layer.anim_layer.blend));
+            const float blend  = static_cast<float>(rstd::cmp::max(layer.anim_layer.blend, 0.0));
             auto&       value  = m_texture_channel_blend_map[channel];
             if (layer.anim_layer.additive) {
                 value += sample * blend;
             } else {
-                const float weight = std::min(blend, 1.0f);
+                const float weight = rstd::cmp::min(1.0f, blend);
                 value              = value * (1.0f - weight) + sample * weight;
             }
             ++channel;
@@ -566,7 +565,7 @@ auto PuppetLayer::DrawOrder(slice<PartOrder> parts) const -> Vec<usize> {
     for (const auto& bone : m_puppet->bones) values.emplace_back(bone.draw_order);
     for (const auto& layer : m_layers) {
         if (! layer.anim || ! layer.anim_layer.visible) continue;
-        const double weight = std::clamp(layer.anim_layer.blend, 0.0, 1.0);
+        const double weight = rstd::cmp::min(1.0, rstd::cmp::max(0.0, layer.anim_layer.blend));
         if (weight == 0.0) continue;
         double     position = layer.playback.is_some() ? (*layer.playback)->PositionSeconds()
                                                        : layer.anim_layer.cur_time;
@@ -584,7 +583,8 @@ auto PuppetLayer::DrawOrder(slice<PartOrder> parts) const -> Vec<usize> {
             auto&        value  = values[bone];
             if (layer.anim_layer.additive) {
                 const double next = value + weight * (sample - m_puppet->bones[bone].draw_order);
-                value = std::clamp(next, std::min(value, sample), std::max(value, sample));
+                value = rstd::cmp::min(rstd::cmp::max(sample, value),
+                                       rstd::cmp::max(rstd::cmp::min(sample, value), next));
             } else {
                 value += weight * (sample - value);
             }
@@ -599,7 +599,9 @@ auto PuppetLayer::DrawOrder(slice<PartOrder> parts) const -> Vec<usize> {
         const usize  bone  = rstd::as_cast<usize>(part.bone);
         const double value = (bone < values.len() ? values[bone] : 0.0) +
                              static_cast<double>(part.offset.to_primitive());
-        const double key = std::isnan(value) ? 0.0 : std::clamp(value, -2147483648.0, 2147483647.0);
+        const double key = f64(value).is_nan()
+                               ? 0.0
+                               : rstd::cmp::min(2147483647.0, rstd::cmp::max(-2147483648.0, value));
         keys.push(i32(static_cast<rstd::int32_t>(key)));
         order.emplace_back(index);
     }

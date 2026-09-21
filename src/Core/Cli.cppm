@@ -1,14 +1,13 @@
-module;
-
-#include <cstdio>
-#include <cstring>
-
 export module wescene.cli;
 
 import rstd.argparse;
-import rstd.cppstd;
+import rstd;
 
 using namespace rstd::prelude;
+using namespace rstd::literals;
+using rstd::ffi::CStr;
+using rstd::ffi::OsStr;
+using rstd::ffi::OsString;
 
 export namespace owe::cli
 {
@@ -23,10 +22,11 @@ namespace
 {
 
 void WriteMessage(ref<str> text, rstd::argparse::OutputTarget::Tag target) {
-    FILE* stream = target == rstd::argparse::OutputTarget::Tag::Stdout ? stdout : stderr;
-    auto  size   = text.size().to_primitive();
-    std::fwrite(text.data(), 1, size, stream);
-    if (size == 0 || text[usize(size - 1)] != u8('\n')) std::fputc('\n', stream);
+    auto ending = text.ends_with("\n"_str) ? ""_str : "\n"_str;
+    if (target == rstd::argparse::OutputTarget::Tag::Stdout)
+        rstd::io::print { "{}{}", text, ending };
+    else
+        rstd::io::eprint { "{}{}", text, ending };
 }
 
 auto Build(rstd::argparse::Command&& command)
@@ -72,12 +72,11 @@ auto ParseEnv(rstd::argparse::Command&& command) -> Result<rstd::argparse::Match
 
 auto ParseArgs(rstd::argparse::Command&& command, int argc, char** argv)
     -> Result<rstd::argparse::Matches, ParseExit> {
-    auto arguments = Vec<rstd::ffi::OsString>::with_capacity(static_cast<usize>(argc));
+    auto arguments = Vec<OsString>::with_capacity(static_cast<usize>(argc));
     for (int i = 0; i < argc; ++i) {
-        auto bytes = slice<byte>::from_raw_parts(reinterpret_cast<const byte*>(argv[i]),
-                                                 usize(std::strlen(argv[i])));
-        auto os    = ref<rstd::ffi::OsStr>::from_encoded_bytes_unchecked(rstd::as_u8_slice(bytes));
-        arguments.push(rstd::ffi::OsString::from(os));
+        auto bytes = CStr::from_ptr(argv[i]).to_bytes();
+        auto os    = ref<OsStr>::from_encoded_bytes_unchecked(bytes);
+        arguments.push(OsString::from(os));
     }
 
     auto built = Build(rstd::move(command));

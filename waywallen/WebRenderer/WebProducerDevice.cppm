@@ -1,9 +1,10 @@
 export module waywallen.web_producer_device;
 
-import rstd.cppstd;
 import rstd;
 import vvk;
 import weweb;
+
+using namespace rstd::prelude;
 
 export namespace ww_wescene
 {
@@ -26,7 +27,7 @@ public:
 
     // Prefer the physical device whose VK_EXT_physical_device_drm render node
     // matches this path. Must be called before Init.
-    void SetRenderNode(const std::string& path);
+    void SetRenderNode(ref<str> path);
 
     // Vulkan handles (caller-owned by this class) — bridge consumes
     // these via `ww_pool_vulkan_init_t`.
@@ -109,9 +110,9 @@ private:
     uint32_t                         queue_family_ { 0 };
     VkQueue                          queue_ { VK_NULL_HANDLE };
 
-    uint8_t     device_uuid_[16] {};
-    uint8_t     driver_uuid_[16] {};
-    std::string render_node_;
+    uint8_t device_uuid_[16] {};
+    uint8_t driver_uuid_[16] {};
+    String  render_node_;
 
     VkCommandPool   cmd_pool_ { VK_NULL_HANDLE };
     VkCommandBuffer blit_cmd_ { VK_NULL_HANDLE };

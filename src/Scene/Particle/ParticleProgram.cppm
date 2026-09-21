@@ -118,9 +118,9 @@ struct ParticleSlotTransition {
 };
 
 struct ParticleSlotEvents {
-    rstd::vec::Vec<ParticleSlot>           spawned;
-    rstd::vec::Vec<ParticleSlot>           died;
-    rstd::vec::Vec<ParticleSlotTransition> transitions;
+    Vec<ParticleSlot>           spawned;
+    Vec<ParticleSlot>           died;
+    Vec<ParticleSlotTransition> transitions;
 
     void RecordSpawn(ParticleSlot slot) {
         EnsureTransition(slot).spawned = true;
@@ -224,13 +224,13 @@ private:
     friend class ParticleSystem;
     friend struct ParticleDefinition;
 
-    rstd::vec::Vec<Box<dyn<ParticleEmitterProgram>>>   m_emitters;
-    rstd::vec::Vec<Box<dyn<ParticleSpawnProgram>>>     m_spawn;
-    rstd::vec::Vec<Box<dyn<ParticleLifecycleProgram>>> m_lifecycle;
-    rstd::vec::Vec<Box<dyn<ParticleEventProgram>>>     m_events;
-    rstd::vec::Vec<Box<dyn<ParticleUpdateProgram>>>    m_updates;
-    rstd::vec::Vec<Box<dyn<ParticleUpdateProgram>>>    m_post_updates;
-    rstd::vec::Vec<Box<dyn<ParticleExtractProgram>>>   m_extractors;
+    Vec<Box<dyn<ParticleEmitterProgram>>>   m_emitters;
+    Vec<Box<dyn<ParticleSpawnProgram>>>     m_spawn;
+    Vec<Box<dyn<ParticleLifecycleProgram>>> m_lifecycle;
+    Vec<Box<dyn<ParticleEventProgram>>>     m_events;
+    Vec<Box<dyn<ParticleUpdateProgram>>>    m_updates;
+    Vec<Box<dyn<ParticleUpdateProgram>>>    m_post_updates;
+    Vec<Box<dyn<ParticleExtractProgram>>>   m_extractors;
 };
 
 struct ParticleDefinition {
@@ -299,11 +299,11 @@ public:
     }
 
 private:
-    ParticleStorage              m_storage;
-    ParticleViewBinding          m_binding;
-    ParticleSlotEvents           m_events;
-    rstd::vec::Vec<ParticleSlot> m_active_slots;
-    bool                         m_active { true };
+    ParticleStorage     m_storage;
+    ParticleViewBinding m_binding;
+    ParticleSlotEvents  m_events;
+    Vec<ParticleSlot>   m_active_slots;
+    bool                m_active { true };
 };
 
 struct ParticleExtractInstance {
@@ -353,8 +353,7 @@ private:
     friend class ParticleSystem;
 
     ParticleEmitterContext(ParticleStorage& storage, ParticleViewBinding& binding,
-                           ParticleSlotEvents&                             events,
-                           rstd::vec::Vec<Box<dyn<ParticleSpawnProgram>>>& spawn,
+                           ParticleSlotEvents& events, Vec<Box<dyn<ParticleSpawnProgram>>>& spawn,
                            ref<dyn<rstd::any::Any>> frame, usize max_slots, f64 delta, f64 elapsed)
         : m_storage(rstd::addressof(storage)),
           m_binding(rstd::addressof(binding)),
@@ -365,15 +364,15 @@ private:
           m_delta(delta),
           m_elapsed(elapsed) {}
 
-    ParticleStorage*                                m_storage;
-    ParticleViewBinding*                            m_binding;
-    ParticleSlotEvents*                             m_events;
-    rstd::vec::Vec<Box<dyn<ParticleSpawnProgram>>>* m_spawn;
-    ref<dyn<rstd::any::Any>>                        m_frame;
-    usize                                           m_max_slots;
-    f64                                             m_delta;
-    f64                                             m_elapsed;
-    rstd::vec::Vec<ParticleSpawnRequest>            m_requests;
+    ParticleStorage*                     m_storage;
+    ParticleViewBinding*                 m_binding;
+    ParticleSlotEvents*                  m_events;
+    Vec<Box<dyn<ParticleSpawnProgram>>>* m_spawn;
+    ref<dyn<rstd::any::Any>>             m_frame;
+    usize                                m_max_slots;
+    f64                                  m_delta;
+    f64                                  m_elapsed;
+    Vec<ParticleSpawnRequest>            m_requests;
 };
 
 class ParticleSystem {
@@ -461,7 +460,7 @@ public:
     }
 
     void Extract(ref<dyn<rstd::any::Any>> frame) {
-        auto instances = rstd::vec::Vec<ParticleExtractInstance>::with_capacity(m_instances.len());
+        auto instances = Vec<ParticleExtractInstance>::with_capacity(m_instances.len());
         for (usize index {}; index < m_instances.len(); ++index) {
             auto& instance = *m_instances[index];
             instance.RefreshActiveSlots();
@@ -494,8 +493,8 @@ private:
         for (auto& event : m_definition.program.m_events) event->Process(context);
     }
 
-    ParticleDefinition                    m_definition;
-    rstd::vec::Vec<Box<ParticleInstance>> m_instances;
+    ParticleDefinition         m_definition;
+    Vec<Box<ParticleInstance>> m_instances;
 };
 
 } // namespace owe::particle

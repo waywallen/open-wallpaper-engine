@@ -1,79 +1,64 @@
-module;
-
 module wescene.timer;
-import wescene.core;
-import rstd.cppstd;
+import rstd;
 
+using namespace rstd::prelude;
+using rstd::time::Duration;
+using rstd::time::Instant;
 using namespace owe;
-using micros = std::chrono::microseconds;
-using namespace std::chrono;
 
-FrameTimer::FrameTimer(std::function<void()> cb)
-    : m_callback(cb), m_frame_busy_count(0), m_timer([this]() {
-          microseconds wait_time = m_frametime.load();
-          auto         ideatime  = m_ideatime.load();
-          wait_time              = wait_time > ideatime ? wait_time / 2 : ideatime;
-          m_timer.SetInterval(wait_time);
-
-          if (m_callback && m_frame_busy_count <= 3) {
-              m_frame_busy_count++;
-              m_callback();
+FrameTimer::FrameTimer(Option<Callback> callback)
+    : m_callback(rstd::move(callback)), m_timer(ThreadTimer::Callback::make([this] {
+          const auto measured = m_frametime.load();
+          const auto ideal    = m_ideatime.load();
+          m_timer.SetInterval(Duration::from_micros(measured > ideal ? measured / u64(2) : ideal));
+          auto callback = m_callback.lock().unwrap();
+          if (callback->is_some() && m_frame_busy_count.load() <= u32(3)) {
+              m_frame_busy_count.fetch_add(u32(1));
+              (**callback)->operator()();
           }
-      }) {
+      })) {
     SetRequiredFps(u16(15));
 }
+FrameTimer::~FrameTimer() { Stop(); }
 
-FrameTimer::~FrameTimer() {};
-
-u16 FrameTimer::RequiredFps() const { return m_req_fps; }
-
+u16    FrameTimer::RequiredFps() const { return m_req_fps.load(); }
 double FrameTimer::FrameTime() const {
-    return duration_cast<duration<double>>(m_frametime.load()).count();
+    return static_cast<double>(m_frametime.load().to_primitive()) / 1'000'000.0;
 }
-
 double FrameTimer::TargetFrameTime() const {
-    return duration_cast<duration<double>>(m_ideatime.load()).count();
-}
-
-void FrameTimer::UpdateFrametime() {
-    m_frametime.store(
-        std::accumulate(m_frametime_queue.begin(), m_frametime_queue.end(), microseconds(0)) /
-        m_frametime_queue.size());
+    return static_cast<double>(m_ideatime.load().to_primitive()) / 1'000'000.0;
 }
 
 void FrameTimer::SetRequiredFps(u16 value) {
-    m_req_fps             = value;
-    microseconds ideatime = microseconds(1'000'000 / m_req_fps.to_primitive());
-    m_ideatime            = ideatime;
-    for (std::size_t i = 0; i < FrameTimer::FRAMETIME_QUEUE_SIZE; i++) {
-        AddFrametime(ideatime);
-    }
-    UpdateFrametime();
+    if (value == u16()) value = u16(1);
+    auto samples = m_samples.lock().unwrap();
+    m_req_fps.store(value);
+    auto ideal = u64(1'000'000) / u64(value.to_primitive());
+    m_ideatime.store(ideal);
+    for (auto& sample : samples->values) sample = ideal;
+    samples->next = usize();
+    m_frametime.store(ideal);
+    m_timer.SetInterval(Duration::from_micros(ideal));
 }
-
-void FrameTimer::AddFrametime(micros t) {
-    m_frametime_queue.push_back(t);
-    while (m_frametime_queue.size() > FrameTimer::FRAMETIME_QUEUE_SIZE) {
-        m_frametime_queue.pop_front();
-    }
-}
-
-void FrameTimer::FrameBegin() { m_clock = steady_clock::now(); }
+void FrameTimer::FrameBegin() { m_clock = Instant::now(); }
 void FrameTimer::FrameEnd() {
-    auto now = steady_clock::now();
-    AddFrametime(duration_cast<microseconds>(now - m_clock));
-    UpdateFrametime();
-
-    rstd::int32_t expected = m_frame_busy_count.load();
-    while (expected > 0) {
-        if (m_frame_busy_count.compare_exchange_weak(expected, expected - 1)) {
-            break;
-        }
+    {
+        auto samples                   = m_samples.lock().unwrap();
+        samples->values[samples->next] = rstd::as_cast<u64>(m_clock.elapsed().as_micros());
+        samples->next                  = (samples->next + usize(1)) % samples->values.len();
+        u64 total {};
+        for (auto sample : samples->values) total += sample;
+        m_frametime.store(total / u64(5));
+    }
+    auto expected = m_frame_busy_count.load();
+    while (expected > u32() &&
+           ! m_frame_busy_count.compare_exchange_weak(expected, expected - u32(1))) {
     }
 }
-
-void FrameTimer::SetCallback(const std::function<void()>& cb) {
-    if (! Running()) m_callback = cb;
+void FrameTimer::SetCallback(Option<Callback> callback) {
+    if (Running()) return;
+    auto current = m_callback.lock().unwrap();
+    rstd::mem::swap(*current, callback);
 }
 void FrameTimer::Run() { m_timer.Start(); }
 void FrameTimer::Stop() { m_timer.Stop(); }

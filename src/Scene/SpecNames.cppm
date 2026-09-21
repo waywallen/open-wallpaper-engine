@@ -4,7 +4,6 @@ module;
 
 export module wescene.spec_names;
 import rstd;
-import rstd.cppstd;
 import rstd.log;
 import wescene.types;
 
@@ -89,9 +88,7 @@ inline u32  ParseLinkTex(ref<str> name) {
     }
     return rstd::move(result).unwrap();
 }
-inline std::string GenLinkTex(std::ptrdiff_t id) {
-    return rstd::cppstd::to_string(SpecTex_Link) + std::to_string(id);
-}
+inline String GenLinkTex(isize id) { return rstd::format("{}{}", SpecTex_Link, id); }
 
 inline bool IsImageLayerComposite(ref<str> name) {
     return name.starts_with(WE_IMAGE_LAYER_COMPOSITE_PREFIX);

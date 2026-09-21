@@ -2,6 +2,7 @@ export module wescene.testing.json_builder;
 
 import rstd.cppstd;
 export import wescene.json;
+using namespace rstd::literals;
 
 export namespace owe
 {
@@ -10,9 +11,15 @@ auto MakeObject() -> Json { return Json::Object(rstd::json::Map::make()); }
 auto MakeArray() -> Json { return Json::Array(rstd::json::Array::make()); }
 
 inline auto IntoJson(Json value) -> Json { return value; }
-inline auto IntoJson(std::string_view value) -> Json { return JsonFromStd(value); }
-inline auto IntoJson(const std::string& value) -> Json { return JsonFromStd(value); }
-inline auto IntoJson(const char* value) -> Json { return JsonFromStd(value); }
+inline auto IntoJson(std::string_view value) -> Json {
+    return rstd::into<owe::Json>(rstd::string::String::make(rstd::cppstd::as_str(value).unwrap()));
+}
+inline auto IntoJson(const std::string& value) -> Json {
+    return rstd::into<owe::Json>(rstd::string::String::make(rstd::cppstd::as_str(value).unwrap()));
+}
+inline auto IntoJson(const char* value) -> Json {
+    return rstd::into<owe::Json>(rstd::string::String::make(rstd::cppstd::as_str(value).unwrap()));
+}
 
 template<typename T>
     requires std::is_arithmetic_v<std::remove_cvref_t<T>>

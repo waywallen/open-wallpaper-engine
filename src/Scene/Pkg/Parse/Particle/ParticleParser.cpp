@@ -6,12 +6,12 @@ module wescene.pkg.parse;
 import eigen;
 import wescene.core;
 import rstd.log;
-import rstd.cppstd;
 import wescene.utils;
 import wescene.scene;
 import wescene.particle;
 import wescene.particle.program;
 
+using namespace rstd::prelude;
 using namespace owe;
 using namespace Eigen;
 using namespace rstd::literals;
@@ -20,20 +20,20 @@ using rstd::mtp::same;
 namespace
 {
 
-constexpr float  kTau   = rstd::f32::consts::TAU.to_primitive();
-constexpr double kTau64 = rstd::f64::consts::TAU.to_primitive();
+constexpr float  kTau   = f32::consts::TAU.to_primitive();
+constexpr double kTau64 = f64::consts::TAU.to_primitive();
 
-inline Vector3d GenRandomVec3(const std::array<float, 3>& min, const std::array<float, 3>& max) {
+inline Vector3d GenRandomVec3(const array<float, 3>& min, const array<float, 3>& max) {
     Vector3d result(3);
     for (int32_t i = 0; i < 3; i++) {
-        result[i] = Random::get(min[i], max[i]);
+        result[i] = Random::get(min[usize(i)], max[usize(i)]);
     }
     return result;
 }
 
 inline float GenRandom(float min, float max, float exponent) {
     auto random = Random::get(0.0f, 1.0f);
-    if (exponent != 1.0f) random = std::pow(random, exponent);
+    if (exponent != 1.0f) random = f32(random).powf(f32(exponent)).to_primitive();
     return static_cast<float>(algorism::lerp(random, min, max));
 }
 
@@ -45,10 +45,10 @@ enum class SequenceLimitBehavior
 };
 
 auto ParseSequenceLimitBehavior(const Json& json) -> SequenceLimitBehavior {
-    std::string value { "repeat" };
-    owe::GetJsonValue(json, "limitbehavior", value, false);
-    if (value == "mirror") return SequenceLimitBehavior::Mirror;
-    if (value == "clamp") return SequenceLimitBehavior::Clamp;
+    String value { "repeat"_Str };
+    owe::GetJsonValue(json, "limitbehavior"_str, value, false);
+    if (value == "mirror"_str) return SequenceLimitBehavior::Mirror;
+    if (value == "clamp"_str) return SequenceLimitBehavior::Clamp;
     return SequenceLimitBehavior::Repeat;
 }
 
@@ -69,27 +69,27 @@ auto SpawnSequence(const States& states, particle::ParticleSlot slot) -> u64 {
 }
 
 auto SequenceBasis(const Eigen::Vector3d& axis) -> Eigen::Vector3d {
-    if (std::abs(axis.z()) > 0.5) return Eigen::Vector3d { 0.0, 1.0, 0.0 };
+    if (f64(axis.z()).abs().to_primitive() > 0.5) return Eigen::Vector3d { 0.0, 1.0, 0.0 };
     return Eigen::Vector3d { 1.0, 0.0, 0.0 };
 }
 
 struct MapSequenceAroundControlPoint {
     i32                   controlpoint {};
     float                 count { 1.0f };
-    std::array<float, 2>  bounds { 0.0f, 1.0f };
-    std::array<float, 3>  axis { 0.0f, 0.0f, 1.0f };
-    std::array<float, 3>  speed_min { 0.0f, 0.0f, 0.0f };
-    std::array<float, 3>  speed_max { 0.0f, 0.0f, 0.0f };
+    array<float, 2>       bounds { 0.0f, 1.0f };
+    array<float, 3>       axis { 0.0f, 0.0f, 1.0f };
+    array<float, 3>       speed_min { 0.0f, 0.0f, 0.0f };
+    array<float, 3>       speed_max { 0.0f, 0.0f, 0.0f };
     SequenceLimitBehavior limit_behavior { SequenceLimitBehavior::Repeat };
 
     static auto ReadFromJson(const Json& json) -> MapSequenceAroundControlPoint {
         MapSequenceAroundControlPoint value;
-        owe::GetJsonValue(json, "controlpoint", value.controlpoint, false);
-        owe::GetJsonValue(json, "count", value.count, false);
-        owe::GetJsonValue(json, "bounds", value.bounds, false);
-        owe::GetJsonValue(json, "axis", value.axis, false);
-        owe::GetJsonValue(json, "speedmin", value.speed_min, false);
-        owe::GetJsonValue(json, "speedmax", value.speed_max, false);
+        owe::GetJsonValue(json, "controlpoint"_str, value.controlpoint, false);
+        owe::GetJsonValue(json, "count"_str, value.count, false);
+        owe::GetJsonValue(json, "bounds"_str, value.bounds, false);
+        owe::GetJsonValue(json, "axis"_str, value.axis, false);
+        owe::GetJsonValue(json, "speedmin"_str, value.speed_min, false);
+        owe::GetJsonValue(json, "speedmax"_str, value.speed_max, false);
         value.limit_behavior = ParseSequenceLimitBehavior(json);
         return value;
     }
@@ -117,12 +117,13 @@ struct MapSequenceAroundControlPointProgram {
         auto parallel = axis * relative.dot(axis);
         auto radius   = (relative - parallel).norm();
         auto angle    = kTau64 * static_cast<double>(sequence.to_primitive()) /
-                        std::max(1e-6, static_cast<double>(config.count));
-        angle *= static_cast<double>(config.bounds[1] - config.bounds[0]);
-        angle += kTau64 * static_cast<double>(config.bounds[0]);
-        columns.positions[slot.index] =
-            (center + parallel + radius * (std::cos(angle) * basis + std::sin(angle) * tangent))
-                .cast<float>();
+                        rstd::cmp::max(static_cast<double>(config.count), 1e-6);
+        angle *= static_cast<double>(config.bounds[usize(1)] - config.bounds[usize(0)]);
+        angle += kTau64 * static_cast<double>(config.bounds[usize(0)]);
+        columns.positions[slot.index] = (center + parallel +
+                                         radius * (f64(angle).cos().to_primitive() * basis +
+                                                   f64(angle).sin().to_primitive() * tangent))
+                                            .cast<float>();
 
         auto velocity = GenRandomVec3(config.speed_min, config.speed_max);
         if (velocity.squaredNorm() > 1e-12) {
@@ -143,10 +144,10 @@ struct MapSequenceBetweenControlPoints {
         -> MapSequenceBetweenControlPoints {
         MapSequenceBetweenControlPoints value;
         value.count = rstd::cmp::max(implicit_count, u32(2));
-        owe::GetJsonValue(json, "controlpointstart", value.controlpoint_start, false);
-        owe::GetJsonValue(json, "controlpointend", value.controlpoint_end, false);
+        owe::GetJsonValue(json, "controlpointstart"_str, value.controlpoint_start, false);
+        owe::GetJsonValue(json, "controlpointend"_str, value.controlpoint_end, false);
         if (json.get("count"_str).is_some()) {
-            owe::GetJsonValue(json, "count", value.count, false);
+            owe::GetJsonValue(json, "count"_str, value.count, false);
             value.count = rstd::cmp::max(value.count, u32(2));
         }
         value.limit_behavior = ParseSequenceLimitBehavior(json);
@@ -192,20 +193,20 @@ struct SingleRandom {
     float       max { 0.0f };
     float       exponent { 1.0f };
     static void ReadFromJson(const Json& j, SingleRandom& r) {
-        owe::GetJsonValue(j, "min", r.min, false);
-        owe::GetJsonValue(j, "max", r.max, false);
-        owe::GetJsonValue(j, "exponent", r.exponent, false);
+        owe::GetJsonValue(j, "min"_str, r.min, false);
+        owe::GetJsonValue(j, "max"_str, r.max, false);
+        owe::GetJsonValue(j, "exponent"_str, r.exponent, false);
     };
 };
 struct VecRandom {
-    std::array<float, 3> min { 0.0f, 0.0f, 0.0f };
-    std::array<float, 3> max { 0.0f, 0.0f, 0.0f };
-    float                exponent { 1.0f };
+    array<float, 3> min { 0.0f, 0.0f, 0.0f };
+    array<float, 3> max { 0.0f, 0.0f, 0.0f };
+    float           exponent { 1.0f };
 
     static void ReadFromJson(const Json& j, VecRandom& r) {
-        owe::GetJsonValue(j, "min", r.min, false);
-        owe::GetJsonValue(j, "max", r.max, false);
-        owe::GetJsonValue(j, "exponent", r.exponent, false);
+        owe::GetJsonValue(j, "min"_str, r.min, false);
+        owe::GetJsonValue(j, "max"_str, r.max, false);
+        owe::GetJsonValue(j, "exponent"_str, r.exponent, false);
     };
 };
 struct TurbulentRandom {
@@ -217,37 +218,30 @@ struct TurbulentRandom {
     float  phasemin { 0.0f };
     float  phasemax { 0.1f };
 
-    std::array<float, 3> forward { 0.0f, 1.0f, 0.0f };
-    std::array<float, 3> normal { 0.0f, 0.0f, 1.0f };
+    array<float, 3> forward { 0.0f, 1.0f, 0.0f };
+    array<float, 3> normal { 0.0f, 0.0f, 1.0f };
 
     static void ReadFromJson(const Json& j, TurbulentRandom& r) {
-        owe::GetJsonValue(j, "scale", r.scale, false);
-        owe::GetJsonValue(j, "timescale", r.timescale, false);
-        owe::GetJsonValue(j, "offset", r.offset, false);
-        owe::GetJsonValue(j, "speedmin", r.speedmin, false);
-        owe::GetJsonValue(j, "speedmax", r.speedmax, false);
-        owe::GetJsonValue(j, "phasemin", r.phasemin, false);
-        owe::GetJsonValue(j, "phasemax", r.phasemax, false);
-        owe::GetJsonValue(j, "forward", r.forward, false);
-        owe::GetJsonValue(j, "right", r.normal, false);
-        owe::GetJsonValue(j, "normal", r.normal, false);
+        owe::GetJsonValue(j, "scale"_str, r.scale, false);
+        owe::GetJsonValue(j, "timescale"_str, r.timescale, false);
+        owe::GetJsonValue(j, "offset"_str, r.offset, false);
+        owe::GetJsonValue(j, "speedmin"_str, r.speedmin, false);
+        owe::GetJsonValue(j, "speedmax"_str, r.speedmax, false);
+        owe::GetJsonValue(j, "phasemin"_str, r.phasemin, false);
+        owe::GetJsonValue(j, "phasemax"_str, r.phasemax, false);
+        owe::GetJsonValue(j, "forward"_str, r.forward, false);
+        owe::GetJsonValue(j, "right"_str, r.normal, false);
+        owe::GetJsonValue(j, "normal"_str, r.normal, false);
     };
 };
-template<rstd::size_t N>
-std::array<float, N> mapVertex(const std::array<float, N>& v, float (*oper)(float)) {
-    std::array<float, N> result;
-    std::transform(v.begin(), v.end(), result.begin(), oper);
-    return result;
-};
-
 struct NoopSpawnProgram {
     void Initialize(ParticleSpawnColumns&, particle::ParticleSpawnRequest,
                     ref<dyn<rstd::any::Any>>) {}
 };
 
 struct ColorRandomProgram {
-    std::array<float, 3> min;
-    std::array<float, 3> max;
+    array<float, 3> min;
+    array<float, 3> max;
 
     void Initialize(ParticleSpawnColumns& columns, particle::ParticleSpawnRequest request,
                     ref<dyn<rstd::any::Any>>) {
@@ -255,7 +249,7 @@ struct ColorRandomProgram {
         Eigen::Vector3f value;
         for (usize component {}; component < usize(3); ++component) {
             auto raw   = component.to_primitive();
-            value[raw] = static_cast<float>(algorism::lerp(random, min[raw], max[raw]));
+            value[raw] = static_cast<float>(algorism::lerp(random, min[component], max[component]));
         }
         columns.colors[request.slot.index]         = value;
         columns.initial_colors[request.slot.index] = value;
@@ -311,7 +305,7 @@ struct VectorRandomProgram {
         Eigen::Vector3f value;
         for (usize component {}; component < usize(3); ++component) {
             auto raw   = component.to_primitive();
-            value[raw] = GenRandom(config.min[raw], config.max[raw], config.exponent);
+            value[raw] = GenRandom(config.min[component], config.max[component], config.exponent);
         }
         if (target == Target::Velocity) {
             columns.velocities[request.slot.index] += value;
@@ -348,10 +342,11 @@ struct TurbulentVelocityRandomProgram {
             duration -= f64(0.01);
         } while (duration > f64(0.01));
 
-        auto cosine = std::clamp(result.dot(forward), -1.0f, 1.0f);
-        auto angle  = static_cast<float>(std::atan2(normal.dot(forward.cross(result)), cosine));
-        auto scale  = std::max(0.0f, config.scale * 0.5f);
-        result      = Eigen::AngleAxisf(angle * scale + config.offset, normal) * forward;
+        auto cosine = rstd::cmp::min(1.0f, rstd::cmp::max(-1.0f, result.dot(forward)));
+        auto angle  = static_cast<float>(
+            f32(normal.dot(forward.cross(result))).atan2(f32(cosine)).to_primitive());
+        auto scale = rstd::cmp::max(config.scale * 0.5f, 0.0f);
+        result     = Eigen::AngleAxisf(angle * scale + config.offset, normal) * forward;
         columns.velocities[request.slot.index] += result * speed;
     }
 };
@@ -372,7 +367,7 @@ struct OverrideSpawnProgram {
         columns.angular_velocities[index] *= modifiers.Speed();
         if (modifiers.HasColorOverride()) {
             auto            color = modifiers.Color();
-            Eigen::Vector3f value { color[0], color[1], color[2] };
+            Eigen::Vector3f value { color[usize(0)], color[usize(1)], color[usize(2)] };
             if (modifiers.UsesLegacyColor()) value /= 255.0f;
             value                         = { UiColorToLinear(value[0]),
                                               UiColorToLinear(value[1]),
@@ -484,63 +479,61 @@ ParticleSpawnInstruction ParticleParser::GenInitializer(const Json& wpj,
                                                         u32         implicit_sequence_count) {
     do {
         if (wpj.get("name"_str).is_none()) break;
-        std::string name;
-        owe::GetJsonValue(wpj, "name", name);
+        String name;
+        owe::GetJsonValue(wpj, "name"_str, name);
 
-        if (name == "colorrandom") {
+        if (name == "colorrandom"_str) {
             VecRandom r;
             r.min = { 0.0f, 0.0f, 0.0f };
             r.max = { 255.0f, 255.0f, 255.0f };
             VecRandom::ReadFromJson(wpj, r);
             return ParticleSpawnInstruction::Make(ColorRandomProgram {
-                .min = mapVertex(r.min,
-                                 [](float value) {
-                                     return value / 255.0f;
-                                 }),
-                .max = mapVertex(r.max,
-                                 [](float value) {
-                                     return value / 255.0f;
-                                 }),
+                .min = rstd::move(r.min).map([](float value) {
+                    return value / 255.0f;
+                }),
+                .max = rstd::move(r.max).map([](float value) {
+                    return value / 255.0f;
+                }),
             });
-        } else if (name == "lifetimerandom") {
+        } else if (name == "lifetimerandom"_str) {
             SingleRandom r = { 0.0f, 1.0f };
             SingleRandom::ReadFromJson(wpj, r);
             return ParticleSpawnInstruction::Make(LifetimeRandomProgram { .config = r });
-        } else if (name == "sizerandom") {
+        } else if (name == "sizerandom"_str) {
             SingleRandom r = { 0.0f, 20.0f };
             SingleRandom::ReadFromJson(wpj, r);
             return ParticleSpawnInstruction::Make(SizeRandomProgram { .config = r });
-        } else if (name == "alpharandom") {
+        } else if (name == "alpharandom"_str) {
             SingleRandom r = { 0.05f, 1.0f };
             SingleRandom::ReadFromJson(wpj, r);
             return ParticleSpawnInstruction::Make(AlphaRandomProgram { .config = r });
-        } else if (name == "velocityrandom") {
+        } else if (name == "velocityrandom"_str) {
             VecRandom r;
-            r.min[0] = r.min[1] = -32.0f;
-            r.max[0] = r.max[1] = 32.0f;
+            r.min[usize(0)] = r.min[usize(1)] = -32.0f;
+            r.max[usize(0)] = r.max[usize(1)] = 32.0f;
             VecRandom::ReadFromJson(wpj, r);
             return ParticleSpawnInstruction::Make(VectorRandomProgram {
                 .config = r,
                 .target = VectorRandomProgram::Target::Velocity,
             });
-        } else if (name == "rotationrandom") {
+        } else if (name == "rotationrandom"_str) {
             VecRandom r;
-            r.max[2] = kTau;
+            r.max[usize(2)] = kTau;
             VecRandom::ReadFromJson(wpj, r);
             return ParticleSpawnInstruction::Make(VectorRandomProgram {
                 .config = r,
                 .target = VectorRandomProgram::Target::Rotation,
             });
-        } else if (name == "angularvelocityrandom") {
+        } else if (name == "angularvelocityrandom"_str) {
             VecRandom r;
-            r.min[2] = -5.0f;
-            r.max[2] = 5.0f;
+            r.min[usize(2)] = -5.0f;
+            r.max[usize(2)] = 5.0f;
             VecRandom::ReadFromJson(wpj, r);
             return ParticleSpawnInstruction::Make(VectorRandomProgram {
                 .config = r,
                 .target = VectorRandomProgram::Target::AngularVelocity,
             });
-        } else if (name == "turbulentvelocityrandom") {
+        } else if (name == "turbulentvelocityrandom"_str) {
             TurbulentRandom r;
             TurbulentRandom::ReadFromJson(wpj, r);
             Vector3f normal(r.normal.data());
@@ -553,16 +546,17 @@ ParticleSpawnInstruction ParticleParser::GenInitializer(const Json& wpj,
             forward.normalize();
 
             return ParticleSpawnInstruction::Make(TurbulentVelocityRandomProgram {
-                .config   = r,
-                .normal   = normal,
-                .forward  = forward,
-                .position = GenRandomVec3({ 0, 0, 0 }, { 10.0f, 10.0f, 10.0f }).cast<float>(),
+                .config  = r,
+                .normal  = normal,
+                .forward = forward,
+                .position =
+                    GenRandomVec3({ 0.0f, 0.0f, 0.0f }, { 10.0f, 10.0f, 10.0f }).cast<float>(),
             });
-        } else if (name == "mapsequencearoundcontrolpoint") {
+        } else if (name == "mapsequencearoundcontrolpoint"_str) {
             return ParticleSpawnInstruction::Make(MapSequenceAroundControlPointProgram {
                 .config = MapSequenceAroundControlPoint::ReadFromJson(wpj),
             });
-        } else if (name == "mapsequencebetweencontrolpoints") {
+        } else if (name == "mapsequencebetweencontrolpoints"_str) {
             return ParticleSpawnInstruction::Make(MapSequenceBetweenControlPointsProgram {
                 .config =
                     MapSequenceBetweenControlPoints::ReadFromJson(wpj, implicit_sequence_count),
@@ -596,10 +590,10 @@ struct ValueChange {
 
     static auto ReadFromJson(const Json& j) {
         ValueChange v;
-        owe::GetJsonValue(j, "starttime", v.starttime, false);
-        owe::GetJsonValue(j, "endtime", v.endtime, false);
-        owe::GetJsonValue(j, "startvalue", v.startvalue, false);
-        owe::GetJsonValue(j, "endvalue", v.endvalue, false);
+        owe::GetJsonValue(j, "starttime"_str, v.starttime, false);
+        owe::GetJsonValue(j, "endtime"_str, v.endtime, false);
+        owe::GetJsonValue(j, "startvalue"_str, v.startvalue, false);
+        owe::GetJsonValue(j, "endvalue"_str, v.endvalue, false);
         return v;
     }
 };
@@ -608,23 +602,23 @@ double FadeValueChange(float life, const ValueChange& v) noexcept {
 }
 
 struct VecChange {
-    float                starttime { 0 };
-    float                endtime { 1.0f };
-    std::array<float, 3> startvalue { 1.0f, 1.0f, 1.0f };
-    std::array<float, 3> endvalue { 0.0f, 0.0f, 0.0f };
+    float           starttime { 0 };
+    float           endtime { 1.0f };
+    array<float, 3> startvalue { 1.0f, 1.0f, 1.0f };
+    array<float, 3> endvalue { 0.0f, 0.0f, 0.0f };
 
     static auto ReadFromJson(const Json& j) {
         VecChange v;
-        owe::GetJsonValue(j, "starttime", v.starttime, false);
-        owe::GetJsonValue(j, "endtime", v.endtime, false);
-        owe::GetJsonValue(j, "startvalue", v.startvalue, false);
-        owe::GetJsonValue(j, "endvalue", v.endvalue, false);
+        owe::GetJsonValue(j, "starttime"_str, v.starttime, false);
+        owe::GetJsonValue(j, "endtime"_str, v.endtime, false);
+        owe::GetJsonValue(j, "startvalue"_str, v.startvalue, false);
+        owe::GetJsonValue(j, "endvalue"_str, v.endvalue, false);
         return v;
     }
 };
 
 struct FrequencyValue {
-    std::array<float, 3> mask { 1.0f, 1.0f, 0.0f };
+    array<float, 3> mask { 1.0f, 1.0f, 0.0f };
 
     float frequencymin { 0.0f };
     float frequencymax { 10.0f };
@@ -633,22 +627,22 @@ struct FrequencyValue {
     float phasemin { 0.0f };
     float phasemax { kTau };
 
-    static auto ReadFromJson(const Json& j, std::string_view name) {
+    static auto ReadFromJson(const Json& j, ref<str> name) {
         FrequencyValue v;
-        if (name == "oscillatesize") {
+        if (name == "oscillatesize"_str) {
             v.scalemin = 0.8f;
             v.scalemax = 1.2f;
-        } else if (name == "oscillateposition") {
+        } else if (name == "oscillateposition"_str) {
             v.frequencymax = 5.0f;
         }
-        owe::GetJsonValue(j, "frequencymin", v.frequencymin, false);
-        owe::GetJsonValue(j, "frequencymax", v.frequencymax, false);
+        owe::GetJsonValue(j, "frequencymin"_str, v.frequencymin, false);
+        owe::GetJsonValue(j, "frequencymax"_str, v.frequencymax, false);
         if (v.frequencymax == 0.0f) v.frequencymax = v.frequencymin;
-        owe::GetJsonValue(j, "scalemin", v.scalemin, false);
-        owe::GetJsonValue(j, "scalemax", v.scalemax, false);
-        owe::GetJsonValue(j, "phasemin", v.phasemin, false);
-        owe::GetJsonValue(j, "phasemax", v.phasemax, false);
-        owe::GetJsonValue(j, "mask", v.mask, false);
+        owe::GetJsonValue(j, "scalemin"_str, v.scalemin, false);
+        owe::GetJsonValue(j, "scalemax"_str, v.scalemax, false);
+        owe::GetJsonValue(j, "phasemin"_str, v.phasemin, false);
+        owe::GetJsonValue(j, "phasemax"_str, v.phasemax, false);
+        owe::GetJsonValue(j, "mask"_str, v.mask, false);
         return v;
     };
     inline void GenFrequency(bool lifetime_ok, OscillationStateRef st) {
@@ -664,12 +658,14 @@ struct FrequencyValue {
     inline double GetScale(OscillationStateRef st, double time) {
         double f = st.frequency / kTau;
         double w = kTau * f;
-        return algorism::lerp((std::cos(w * time + st.phase) + 1.0f) * 0.5f, scalemin, scalemax);
+        return algorism::lerp(
+            (f64(w * time + st.phase).cos().to_primitive() + 1.0f) * 0.5f, scalemin, scalemax);
     }
     inline double GetMove(OscillationStateRef st, double time, f64 time_pass) {
         double f = st.frequency / kTau;
         double w = kTau * f;
-        return -1.0f * st.scale * w * std::sin(w * time + st.phase) * time_pass.to_primitive();
+        return -1.0f * st.scale * w * f64(w * time + st.phase).sin().to_primitive() *
+               time_pass.to_primitive();
     }
 };
 
@@ -687,17 +683,17 @@ struct Turbulence {
 
     float scale { 0.01f };
 
-    std::array<int32_t, 3> mask { 1, 1, 0 };
+    array<int32_t, 3> mask { 1, 1, 0 };
 
     static auto ReadFromJson(const Json& j) {
         Turbulence v;
-        owe::GetJsonValue(j, "phasemin", v.phasemin, false);
-        owe::GetJsonValue(j, "phasemax", v.phasemax, false);
-        owe::GetJsonValue(j, "speedmin", v.speedmin, false);
-        owe::GetJsonValue(j, "speedmax", v.speedmax, false);
-        owe::GetJsonValue(j, "timescale", v.timescale, false);
-        owe::GetJsonValue(j, "mask", v.mask, false);
-        owe::GetJsonValue(j, "scale", v.scale, false);
+        owe::GetJsonValue(j, "phasemin"_str, v.phasemin, false);
+        owe::GetJsonValue(j, "phasemax"_str, v.phasemax, false);
+        owe::GetJsonValue(j, "speedmin"_str, v.speedmin, false);
+        owe::GetJsonValue(j, "speedmax"_str, v.speedmax, false);
+        owe::GetJsonValue(j, "timescale"_str, v.timescale, false);
+        owe::GetJsonValue(j, "mask"_str, v.mask, false);
+        owe::GetJsonValue(j, "scale"_str, v.scale, false);
         return v;
     };
 };
@@ -724,10 +720,10 @@ struct Vortex {
     EFlags flags { 0 };
 
     // positional offset from the center of the control point.
-    std::array<float, 3> offset { 0.0f, 0.0f, 0.0f };
+    array<float, 3> offset { 0.0f, 0.0f, 0.0f };
 
     // the axis to rotate around.
-    std::array<float, 3> axis { 0.0f, 0.0f, 1.0f };
+    array<float, 3> axis { 0.0f, 0.0f, 1.0f };
 
     float ringradius {};
     float ringwidth {};
@@ -735,24 +731,24 @@ struct Vortex {
 
     static auto ReadFromJson(const Json& j) {
         Vortex v;
-        owe::GetJsonValue(j, "controlpoint", v.controlpoint, false);
+        owe::GetJsonValue(j, "controlpoint"_str, v.controlpoint, false);
         if (v.controlpoint >= i32(8)) rstd_error("wrong contropoint index {}", v.controlpoint);
         v.controlpoint %= i32(8);
 
-        owe::GetJsonValue(j, "distanceinner", v.distanceinner, false);
-        owe::GetJsonValue(j, "distanceouter", v.distanceouter, false);
-        owe::GetJsonValue(j, "speedinner", v.speedinner, false);
-        owe::GetJsonValue(j, "speedouter", v.speedouter, false);
+        owe::GetJsonValue(j, "distanceinner"_str, v.distanceinner, false);
+        owe::GetJsonValue(j, "distanceouter"_str, v.distanceouter, false);
+        owe::GetJsonValue(j, "speedinner"_str, v.speedinner, false);
+        owe::GetJsonValue(j, "speedouter"_str, v.speedouter, false);
 
         i32 _flags { 0 };
-        owe::GetJsonValue(j, "flags", _flags, false);
+        owe::GetJsonValue(j, "flags"_str, _flags, false);
         v.flags = EFlags(static_cast<rstd::uint32_t>(_flags.to_primitive()));
 
-        owe::GetJsonValue(j, "offset", v.offset, false);
-        owe::GetJsonValue(j, "axis", v.axis, false);
-        owe::GetJsonValue(j, "ringradius", v.ringradius, false);
-        owe::GetJsonValue(j, "ringwidth", v.ringwidth, false);
-        owe::GetJsonValue(j, "ringpulldistance", v.ringpulldistance, false);
+        owe::GetJsonValue(j, "offset"_str, v.offset, false);
+        owe::GetJsonValue(j, "axis"_str, v.axis, false);
+        owe::GetJsonValue(j, "ringradius"_str, v.ringradius, false);
+        owe::GetJsonValue(j, "ringwidth"_str, v.ringwidth, false);
+        owe::GetJsonValue(j, "ringpulldistance"_str, v.ringpulldistance, false);
 
         return v;
     };
@@ -794,19 +790,19 @@ struct ControlPointForce {
     float threshold { 512.0f };
 
     // positional offset from the center of the control point.
-    std::array<float, 3> origin { 0.0f, 0.0f, 0.0f };
+    array<float, 3> origin { 0.0f, 0.0f, 0.0f };
 
     static auto ReadFromJson(const Json& j) {
         ControlPointForce v;
-        owe::GetJsonValue(j, "controlpoint", v.controlpoint, false);
+        owe::GetJsonValue(j, "controlpoint"_str, v.controlpoint, false);
         if (v.controlpoint >= i32(8)) rstd_error("wrong contropoint index {}", v.controlpoint);
         v.controlpoint %= i32(8);
 
-        owe::GetJsonValue(j, "scale", v.scale, false);
-        owe::GetJsonValue(j, "threshold", v.threshold, false);
-        owe::GetJsonValue(j, "flags", v.flags, false);
+        owe::GetJsonValue(j, "scale"_str, v.scale, false);
+        owe::GetJsonValue(j, "threshold"_str, v.threshold, false);
+        owe::GetJsonValue(j, "flags"_str, v.flags, false);
 
-        owe::GetJsonValue(j, "origin", v.origin, false);
+        owe::GetJsonValue(j, "origin"_str, v.origin, false);
         return v;
     };
 };
@@ -850,8 +846,8 @@ struct MaintainDistance {
 
     static auto ReadFromJson(const Json& json) -> MaintainDistance {
         MaintainDistance value;
-        owe::GetJsonValue(json, "controlpoint", value.controlpoint, false);
-        owe::GetJsonValue(json, "variablestrength", value.variable_strength, false);
+        owe::GetJsonValue(json, "controlpoint"_str, value.controlpoint, false);
+        owe::GetJsonValue(json, "variablestrength"_str, value.variable_strength, false);
         value.controlpoint %= i32(8);
         return value;
     }
@@ -859,20 +855,18 @@ struct MaintainDistance {
 
 auto RegisterMaintainDistanceAttribute(ParticleSubSystem& subsystem, usize operator_index)
     -> particle::ParticleAttributeKey<MaintainDistanceAttribute> {
-    auto name   = std::string("maintain_distance_") + std::to_string(operator_index.to_primitive());
+    auto name   = rstd::format("maintain_distance_{}", operator_index);
     auto result = subsystem.SchemaBuilder().Register<MaintainDistanceAttribute>(
-        rstd::cppstd::as_str(name).unwrap(),
-        "we.operator.maintain_distance"_str,
-        MaintainDistanceState {});
+        name.as_str(), "we.operator.maintain_distance"_str, MaintainDistanceState {});
     if (result.is_err()) rstd::panic { "failed to register maintain distance attribute" };
     return result.unwrap();
 }
 
 template<typename Attribute, typename Value>
-auto RegisterOscillationAttribute(particle::ParticleSchemaBuilder& builder, const std::string& name,
+auto RegisterOscillationAttribute(particle::ParticleSchemaBuilder& builder, ref<str> name,
                                   Value default_value)
     -> particle::ParticleAttributeKey<Attribute> {
-    auto result = builder.Register<Attribute>(rstd::cppstd::as_str(name).unwrap(),
+    auto result = builder.Register<Attribute>(name,
                                               "we.operator.oscillation"_str,
                                               particle::ParticleAttributeResetPolicy::Custom,
                                               default_value);
@@ -881,19 +875,18 @@ auto RegisterOscillationAttribute(particle::ParticleSchemaBuilder& builder, cons
 }
 
 auto RegisterOscillationAttributes(ParticleSubSystem& subsystem, usize operator_index,
-                                   std::string_view suffix) -> OscillationAttributes {
-    auto  prefix  = std::string("oscillation_") + std::to_string(operator_index.to_primitive()) +
-                    "_" + std::string(suffix);
-    auto& builder = subsystem.SchemaBuilder();
+                                   ref<str> suffix) -> OscillationAttributes {
+    auto                  prefix  = rstd::format("oscillation_{}_{}", operator_index, suffix);
+    auto&                 builder = subsystem.SchemaBuilder();
     OscillationAttributes attributes {
         .reset = RegisterOscillationAttribute<OscillationResetAttribute>(
-            builder, prefix + "_reset", true),
+            builder, rstd::format("{}_reset", prefix).as_str(), true),
         .frequency = RegisterOscillationAttribute<OscillationFrequencyAttribute>(
-            builder, prefix + "_frequency", 0.0f),
+            builder, rstd::format("{}_frequency", prefix).as_str(), 0.0f),
         .scale = RegisterOscillationAttribute<OscillationScaleAttribute>(
-            builder, prefix + "_scale", 1.0f),
+            builder, rstd::format("{}_scale", prefix).as_str(), 1.0f),
         .phase = RegisterOscillationAttribute<OscillationPhaseAttribute>(
-            builder, prefix + "_phase", 0.0f),
+            builder, rstd::format("{}_phase", prefix).as_str(), 0.0f),
     };
     return attributes;
 }
@@ -1070,8 +1063,8 @@ struct ColorChangeOperator {
                 factor[raw] = static_cast<float>(FadeValueChange(life,
                                                                  change.starttime,
                                                                  change.endtime,
-                                                                 change.startvalue[raw],
-                                                                 change.endvalue[raw]));
+                                                                 change.startvalue[component],
+                                                                 change.endvalue[component]));
             }
             colors[slot.index] = colors[slot.index].cwiseProduct(factor);
         }
@@ -1152,9 +1145,9 @@ struct OscillateScalarOperator {
 
 struct OscillatePositionOperator {
     ParticleAttributes                                              attributes;
-    rstd::array<FrequencyValue, 3>                                  frequencies;
-    rstd::array<OscillationAttributes, 3>                           state_attributes;
-    rstd::array<OscillationIndices, 3>                              states;
+    array<FrequencyValue, 3>                                        frequencies;
+    array<OscillationAttributes, 3>                                 state_attributes;
+    array<OscillationIndices, 3>                                    states;
     particle::ParticleReadIndex<particle::LifetimeAttribute>        lifetime;
     particle::ParticleReadIndex<particle::InitialLifetimeAttribute> initial_lifetime;
 
@@ -1168,10 +1161,10 @@ struct OscillatePositionOperator {
     }
 
     void Update(particle::ParticleUpdateContext& context) {
-        auto                              positions = context.view.PositionsMut();
-        auto                              lifetimes = context.view.Read(lifetime);
-        auto                              initial   = context.view.Read(initial_lifetime);
-        rstd::array<OscillationValues, 3> values {
+        auto                        positions = context.view.PositionsMut();
+        auto                        lifetimes = context.view.Read(lifetime);
+        auto                        initial   = context.view.Read(initial_lifetime);
+        array<OscillationValues, 3> values {
             states[usize()].Bind(context.view),
             states[usize(1)].Bind(context.view),
             states[usize(2)].Bind(context.view),
@@ -1181,7 +1174,7 @@ struct OscillatePositionOperator {
             auto            time = LifetimePassed(lifetimes[slot.index], initial[slot.index]);
             for (usize component {}; component < usize(3); ++component) {
                 auto raw = component.to_primitive();
-                if (frequencies[usize()].mask[raw] < 0.01f) continue;
+                if (frequencies[usize()].mask[component] < 0.01f) continue;
                 auto oscillator = values[component].At(slot.index);
                 frequencies[component].GenFrequency(lifetimes[slot.index] > 0.0f, oscillator);
                 offset[raw] = frequencies[component].GetMove(oscillator, time, context.delta);
@@ -1215,7 +1208,7 @@ struct TurbulenceOperator {
             Eigen::Vector3d result = speed * modifiers.Speed() *
                                      algorism::CurlNoise(position * config.scale * 2).normalized();
             for (usize component {}; component < usize(3); ++component) {
-                if (config.mask[component.to_primitive()] == 0) {
+                if (config.mask[component] == 0) {
                     result[component.to_primitive()] = 0.0;
                 }
             }
@@ -1270,7 +1263,7 @@ struct VortexOperator {
 
                 auto ring_width = static_cast<double>(config.ringwidth);
                 auto pull_range =
-                    std::max(static_cast<double>(config.ringpulldistance) - ring_width, 1e-9);
+                    rstd::cmp::max(1e-9, static_cast<double>(config.ringpulldistance) - ring_width);
                 double ring_influence {};
                 double pull_influence {};
                 double ring_speed {};
@@ -1281,7 +1274,7 @@ struct VortexOperator {
                     pull_influence = amount;
                 } else {
                     pull_influence = (ring_distance - ring_width) / pull_range;
-                    ring_influence = std::sqrt(1.0 - pull_influence);
+                    ring_influence = f64(1.0 - pull_influence).sqrt().to_primitive();
                     ring_speed     = config.speedouter;
                 }
 
@@ -1295,14 +1288,15 @@ struct VortexOperator {
                     auto tangent_speed = current.dot(tangent) + ring_strength * delta;
                     current            = axis_velocity + tangent * tangent_speed;
                 }
-                auto pull_strength = std::abs(VortexSpeedAtDistance(config, distance)) * 0.5;
+                auto pull_strength =
+                    f64(VortexSpeedAtDistance(config, distance)).abs().to_primitive() * 0.5;
                 current += ring_delta.normalized() * pull_strength * pull_influence * delta;
                 velocities[slot.index] = current.cast<float>();
                 continue;
             }
 
             auto strength = VortexSpeedAtDistance(config, distance) * 0.5;
-            if (std::abs(strength) <= 1e-9) continue;
+            if (f64(strength).abs().to_primitive() <= 1e-9) continue;
             Eigen::Vector3d tangent = -frame.axis.cross(radial).normalized();
             Eigen::Vector3d current = velocities[slot.index].cast<double>();
             if (! config.flags[Vortex::FlagEnum::maintain_distance_to_center]) {
@@ -1383,7 +1377,7 @@ struct ControlPointAttractOperator {
             if (distance <= 0.0 || distance >= config.threshold) continue;
             auto impulse = config.scale * delta * (1.0 - distance / config.threshold);
             // WE limits the velocity increment near the control point by default.
-            if ((config.flags & u32(2)) != u32()) impulse = std::min(impulse, distance);
+            if ((config.flags & u32(2)) != u32()) impulse = rstd::cmp::min(distance, impulse);
             velocities[slot.index] =
                 (velocities[slot.index].cast<double>() + difference * (impulse / distance))
                     .cast<float>();
@@ -1402,86 +1396,86 @@ ParticleParser::GenOperator(const Json& wpj, ParticleInstanceModifiers modifiers
     auto attributes = subsystem.Attributes();
     do {
         if (wpj.get("name"_str).is_none()) break;
-        std::string name;
-        owe::GetJsonValue(wpj, "name", name);
-        if (name == "movement") {
-            float                drag { 0.0f };
-            std::array<float, 3> gravity { 0, 0, 0 };
-            owe::GetJsonValue(wpj, "drag", drag, false);
-            owe::GetJsonValue(wpj, "gravity", gravity, false);
+        String name;
+        owe::GetJsonValue(wpj, "name"_str, name);
+        if (name == "movement"_str) {
+            float           drag { 0.0f };
+            array<float, 3> gravity { 0.0f, 0.0f, 0.0f };
+            owe::GetJsonValue(wpj, "drag"_str, drag, false);
+            owe::GetJsonValue(wpj, "gravity"_str, gravity, false);
             return Box<dyn<particle::ParticleUpdateProgram>>::make(MovementOperator {
                 .attributes = attributes,
                 .drag       = drag,
                 .gravity    = Vector3f(gravity.data()).cast<double>(),
                 .modifiers  = modifiers.Clone(),
             });
-        } else if (name == "angularmovement") {
-            float                drag { 0.0f };
-            std::array<float, 3> force { 0, 0, 0 };
-            owe::GetJsonValue(wpj, "drag", drag, false);
-            owe::GetJsonValue(wpj, "force", force, false);
+        } else if (name == "angularmovement"_str) {
+            float           drag { 0.0f };
+            array<float, 3> force { 0.0f, 0.0f, 0.0f };
+            owe::GetJsonValue(wpj, "drag"_str, drag, false);
+            owe::GetJsonValue(wpj, "force"_str, force, false);
             return Box<dyn<particle::ParticleUpdateProgram>>::make(AngularMovementOperator {
                 .attributes = attributes,
                 .drag       = drag,
                 .force      = Vector3f(force.data()).cast<double>(),
             });
-        } else if (name == "sizechange") {
+        } else if (name == "sizechange"_str) {
             return Box<dyn<particle::ParticleUpdateProgram>>::make(ScalarChangeOperator {
                 .attributes = attributes,
                 .change     = ValueChange::ReadFromJson(wpj),
                 .target     = ScalarChangeOperator::Target::Size,
                 .modifiers  = modifiers.Clone(),
             });
-        } else if (name == "alphafade") {
+        } else if (name == "alphafade"_str) {
             float fadeintime { 0.5f }, fadeouttime { 0.5f };
-            owe::GetJsonValue(wpj, "fadeintime", fadeintime, false);
-            owe::GetJsonValue(wpj, "fadeouttime", fadeouttime, false);
+            owe::GetJsonValue(wpj, "fadeintime"_str, fadeintime, false);
+            owe::GetJsonValue(wpj, "fadeouttime"_str, fadeouttime, false);
             return Box<dyn<particle::ParticleUpdateProgram>>::make(AlphaFadeOperator {
                 .attributes = attributes,
                 .fade_in    = fadeintime,
                 .fade_out   = fadeouttime,
             });
-        } else if (name == "alphachange") {
+        } else if (name == "alphachange"_str) {
             return Box<dyn<particle::ParticleUpdateProgram>>::make(ScalarChangeOperator {
                 .attributes = attributes,
                 .change     = ValueChange::ReadFromJson(wpj),
                 .target     = ScalarChangeOperator::Target::Alpha,
                 .modifiers  = modifiers.Clone(),
             });
-        } else if (name == "colorchange") {
+        } else if (name == "colorchange"_str) {
             return Box<dyn<particle::ParticleUpdateProgram>>::make(ColorChangeOperator {
                 .attributes = attributes,
                 .change     = VecChange::ReadFromJson(wpj),
             });
-        } else if (name == "oscillatealpha") {
+        } else if (name == "oscillatealpha"_str) {
             return Box<dyn<particle::ParticleUpdateProgram>>::make(OscillateScalarOperator {
                 .attributes = attributes,
                 .state_attributes =
-                    RegisterOscillationAttributes(subsystem, operator_index, "alpha"),
-                .frequency = FrequencyValue::ReadFromJson(wpj, name),
+                    RegisterOscillationAttributes(subsystem, operator_index, "alpha"_str),
+                .frequency = FrequencyValue::ReadFromJson(wpj, name.as_str()),
                 .target    = OscillateScalarOperator::Target::Alpha,
             });
-        } else if (name == "oscillatesize") {
+        } else if (name == "oscillatesize"_str) {
             return Box<dyn<particle::ParticleUpdateProgram>>::make(OscillateScalarOperator {
                 .attributes = attributes,
                 .state_attributes =
-                    RegisterOscillationAttributes(subsystem, operator_index, "size"),
-                .frequency = FrequencyValue::ReadFromJson(wpj, name),
+                    RegisterOscillationAttributes(subsystem, operator_index, "size"_str),
+                .frequency = FrequencyValue::ReadFromJson(wpj, name.as_str()),
                 .target    = OscillateScalarOperator::Target::Size,
             });
-        } else if (name == "oscillateposition") {
-            auto frequency = FrequencyValue::ReadFromJson(wpj, name);
+        } else if (name == "oscillateposition"_str) {
+            auto frequency = FrequencyValue::ReadFromJson(wpj, name.as_str());
             return Box<dyn<particle::ParticleUpdateProgram>>::make(
                 OscillatePositionOperator {
                     .attributes  = attributes,
                     .frequencies = { frequency, frequency, frequency },
                     .state_attributes = {
-                        RegisterOscillationAttributes(subsystem, operator_index, "position_x"),
-                        RegisterOscillationAttributes(subsystem, operator_index, "position_y"),
-                        RegisterOscillationAttributes(subsystem, operator_index, "position_z"),
+                        RegisterOscillationAttributes(subsystem, operator_index, "position_x"_str),
+                        RegisterOscillationAttributes(subsystem, operator_index, "position_y"_str),
+                        RegisterOscillationAttributes(subsystem, operator_index, "position_z"_str),
                     },
                 });
-        } else if (name == "turbulence") {
+        } else if (name == "turbulence"_str) {
             auto config = Turbulence::ReadFromJson(wpj);
             return Box<dyn<particle::ParticleUpdateProgram>>::make(TurbulenceOperator {
                 .attributes = attributes,
@@ -1490,24 +1484,24 @@ ParticleParser::GenOperator(const Json& wpj, ParticleInstanceModifiers modifiers
                 .phase      = Random::get(config.phasemin, config.phasemax),
                 .speed      = Random::get(config.speedmin, config.speedmax),
             });
-        } else if (name == "vortex") {
+        } else if (name == "vortex"_str) {
             return Box<dyn<particle::ParticleUpdateProgram>>::make(VortexOperator {
                 .attributes = attributes,
                 .config     = Vortex::ReadFromJson(wpj),
             });
-        } else if (name == "vortex_v2") {
+        } else if (name == "vortex_v2"_str) {
             return Box<dyn<particle::ParticleUpdateProgram>>::make(VortexOperator {
                 .attributes = attributes,
                 .config     = Vortex::ReadFromJson(wpj),
                 .extended   = true,
             });
-        } else if (name == "maintaindistancetocontrolpoint") {
+        } else if (name == "maintaindistancetocontrolpoint"_str) {
             return Box<dyn<particle::ParticleUpdateProgram>>::make(MaintainDistanceOperator {
                 .attributes = attributes,
                 .config     = MaintainDistance::ReadFromJson(wpj),
                 .state_key  = RegisterMaintainDistanceAttribute(subsystem, operator_index),
             });
-        } else if (name == "controlpointattract") {
+        } else if (name == "controlpointattract"_str) {
             return Box<dyn<particle::ParticleUpdateProgram>>::make(ControlPointAttractOperator {
                 .attributes = attributes,
                 .config     = ControlPointForce::ReadFromJson(wpj),
@@ -1524,16 +1518,16 @@ Box<dyn<particle::ParticleEmitterProgram>> ParticleParser::GenEmitter(const wpsc
         .enable    = wpe.audioprocessingmode != u32(),
         .amount    = wpe.audioamount,
         .exponent  = wpe.audioexponent,
-        .frequency = array_cast<float>(wpe.audiofrequency),
-        .bounds    = array_cast<float>(wpe.audiobounds),
+        .frequency = wpe.audiofrequency,
+        .bounds    = wpe.audiobounds,
     };
-    if (wpe.name == "boxrandom") {
+    if (wpe.name == "boxrandom"_str) {
         ParticleBoxEmitterArgs box;
         box.emit_speed     = wpe.rate;
-        box.min_distance   = array_cast<float>(wpe.distancemin);
-        box.max_distance   = array_cast<float>(wpe.distancemax);
-        box.directions     = array_cast<float>(wpe.directions);
-        box.origin         = array_cast<float>(wpe.origin);
+        box.min_distance   = wpe.distancemin;
+        box.max_distance   = wpe.distancemax;
+        box.directions     = wpe.directions;
+        box.origin         = wpe.origin;
         box.one_per_frame  = wpe.flags[wpscene::Emitter::FlagEnum::one_per_frame];
         box.instantaneous  = wpe.instantaneous;
         box.min_speed      = wpe.speedmin;
@@ -1543,14 +1537,14 @@ Box<dyn<particle::ParticleEmitterProgram>> ParticleParser::GenEmitter(const wpsc
         box.audio_response = audio_response;
         return Box<dyn<particle::ParticleEmitterProgram>>::make(
             BoxEmitterProgram(subsystem.SpawnPipeline(), rstd::move(box), emitter_index));
-    } else if (wpe.name == "sphererandom") {
+    } else if (wpe.name == "sphererandom"_str) {
         ParticleSphereEmitterArgs sphere;
         sphere.emit_speed     = wpe.rate;
-        sphere.min_distance   = wpe.distancemin[0];
-        sphere.max_distance   = wpe.distancemax[0];
-        sphere.directions     = array_cast<float>(wpe.directions);
-        sphere.origin         = array_cast<float>(wpe.origin);
-        sphere.sign           = array_cast<i32>(wpe.sign);
+        sphere.min_distance   = wpe.distancemin[usize(0)];
+        sphere.max_distance   = wpe.distancemax[usize(0)];
+        sphere.directions     = wpe.directions;
+        sphere.origin         = wpe.origin;
+        sphere.sign           = wpe.sign;
         sphere.one_per_frame  = wpe.flags[wpscene::Emitter::FlagEnum::one_per_frame];
         sphere.instantaneous  = wpe.instantaneous;
         sphere.min_speed      = wpe.speedmin;

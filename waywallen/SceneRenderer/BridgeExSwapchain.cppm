@@ -1,30 +1,40 @@
 export module waywallen.bridge_ex_swapchain;
 
-import rstd.cppstd;
+import rstd;
 import wescene.vulkan;
 import waywallen.bridge_producer_core;
+
+using rstd::sync::Arc;
+using rstd::sync::atomic::Atomic;
+using rstd::sync::atomic::Ordering;
 
 export namespace ww_wescene
 {
 
 class BridgeExSwapchain : public owe::ExSwapchain {
 public:
-    static constexpr uint32_t kMaxSlots = BridgeProducerCore::kMaxSlots;
+    static constexpr rstd::uint32_t kMaxSlots = BridgeProducerCore::kMaxSlots;
 
-    explicit BridgeExSwapchain(std::shared_ptr<BridgeSession> session);
+    explicit BridgeExSwapchain(Arc<BridgeSession> session);
     ~BridgeExSwapchain() override;
 
     void queueDirective(const ww_pool_directive_t& directive) { m_core.queueDirective(directive); }
     bool requestFrame() {
         const bool wake = m_core.requestFrame();
-        if (wake) m_frame_request_wake.store(true, std::memory_order_release);
+        if (wake) m_frame_request_wake.store(true, Ordering::Release);
         return wake;
     }
     void cancelFrameWait() { m_core.cancelFrameWait(); }
     bool hasPendingDirective() const { return m_core.hasPendingDirective(); }
 
-    void setOnFirstNegotiated(std::function<void()> cb) {
-        m_core.setOnFirstNegotiated(std::move(cb));
+    void setOnFirstNegotiated(FirstNegotiatedCallback cb) {
+        m_core.setOnFirstNegotiated(rstd::move(cb));
+    }
+
+    template<typename Callback>
+        requires requires(Callback cb) { cb(); }
+    void setOnFirstNegotiated(Callback cb) {
+        m_core.setOnFirstNegotiated(rstd::move(cb));
     }
 
     void poll() override;
@@ -37,13 +47,13 @@ public:
 
     bool ready() const override { return m_core.ready(); }
 
-    void setOnReadyChanged(std::function<void(const owe::ExSwapchainReadyEvent&)> cb) override {
+    void setOnReadyChanged(rstd::Option<owe::ExSwapchainReadyCallback> cb) override {
         if (! cb) {
-            m_core.setOnReadyChanged({});
+            m_core.setOnReadyChanged(rstd::None());
             return;
         }
-        m_core.setOnReadyChanged([cb = std::move(cb)](const BridgeReadyEvent& e) {
-            cb(owe::ExSwapchainReadyEvent {
+        m_core.setOnReadyChanged([cb = rstd::move(cb)](const BridgeReadyEvent& e) {
+            (*cb)->operator()(owe::ExSwapchainReadyEvent {
                 .ready  = e.ready,
                 .width  = e.width,
                 .height = e.height,
@@ -60,7 +70,7 @@ private:
 
     BridgeProducerCore               m_core;
     rstd::Option<BridgeSlotIdentity> m_pending_identity;
-    std::atomic<bool>                m_frame_request_wake { false };
+    Atomic<bool>                     m_frame_request_wake { false };
     bool                             m_skip_acquire_in_poll { false };
 };
 

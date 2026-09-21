@@ -15,56 +15,59 @@ export import wescene.pkg.parse;
 export import owe.audio_response;
 
 using namespace rstd::prelude;
+using rstd::path::PathBuf;
 using rstd::sync::Arc;
+using namespace rstd::literals;
 
 export namespace owe
 {
 
-using FirstFrameCallback             = std::function<void()>;
-using AudioResponseDemandCallback    = Arc<dyn<rstd::Fn<void(bool)>>>;
-using UserPropertyDiagnosticCallback = std::function<void(Vec<SceneUserPropertyDiagnostic>)>;
+using FirstFrameCallback          = Option<Box<dyn<FnMut<void()>>>>;
+using AudioResponseDemandCallback = Arc<dyn<rstd::Fn<void(bool)>>>;
+using UserPropertyDiagnosticCallback =
+    Option<Box<dyn<FnMut<void(Vec<SceneUserPropertyDiagnostic>)>>>>;
 using RenderPassDiagnosticCallback =
-    std::function<void(std::vector<vulkan::PreparedPassDiagnostic>)>;
+    Box<dyn<rstd::FnOnce<void(Vec<vulkan::PreparedPassDiagnostic>)>>>;
 
 // Publishes the effective wallpaper background color. The project scheme color
 // takes precedence over `general.clearcolor` and runtime changes are emitted.
 // Components are 0..=1 sRGB. Alpha is fixed at 1.0 by the host.
-using ClearColorCallback = std::function<void(float r, float g, float b)>;
+using ClearColorCallback = Option<Box<dyn<FnMut<void(float, float, float)>>>>;
 
 struct MediaStatus {
-    uint32_t    state { 0 };
-    std::string title;
-    std::string artist;
-    std::string album;
-    std::string album_artist;
-    std::string art_url;
-    std::string previous_art_url;
+    uint32_t state { 0 };
+    String   title;
+    String   artist;
+    String   album;
+    String   album_artist;
+    String   art_url;
+    String   previous_art_url;
 };
 
 struct SceneAudioClientIdentity {
-    std::string application_name;
-    std::string application_id;
-    std::string stream_prefix;
-    std::string component;
-    std::string media_name;
-    std::string media_role { "music" };
+    String application_name;
+    String application_id;
+    String stream_prefix;
+    String component;
+    String media_name;
+    String media_role { "music"_Str };
 };
 
 struct SceneWallpaperConfig {
-    std::string                             source_pkg_path;
-    std::string                             assets_dir;
-    std::string                             cache_dir;
-    std::shared_ptr<wpscene::SceneDocument> scene_document;
-    Option<SceneLoadBenchHandle>            load_bench;
-    rstd::json::Map                         user_properties;
-    uint32_t                                fps { 30 };
-    float                                   volume { 1.0f };
-    float                                   volume_scale { 1.0f };
-    bool                                    muted { false };
-    FillMode                                fill_mode { FillMode::ASPECTCROP };
-    float                                   speed { 1.0f };
-    bool                                    graphviz { false };
-    Option<u64>                             random_seed;
+    PathBuf                             source_pkg_path;
+    PathBuf                             assets_dir;
+    PathBuf                             cache_dir;
+    Option<Arc<wpscene::SceneDocument>> scene_document;
+    Option<SceneLoadBenchHandle>        load_bench;
+    rstd::json::Map                     user_properties;
+    uint32_t                            fps { 30 };
+    float                               volume { 1.0f };
+    float                               volume_scale { 1.0f };
+    bool                                muted { false };
+    FillMode                            fill_mode { FillMode::ASPECTCROP };
+    float                               speed { 1.0f };
+    bool                                graphviz { false };
+    Option<u64>                         random_seed;
 };
 
 class SceneRuntimeController;
@@ -107,15 +110,33 @@ public:
     void setAudioResponseEnabled(bool);
     void setAudioPcmWindow(audio::PcmWindow window);
     void endAudioResponse();
-    void setUserPropertyRaw(std::string_view, std::string);
-    void setUserPropertyJson(std::string_view, Json);
+    void setUserPropertyRaw(ref<str>, ref<str>);
+    void setUserPropertyJson(ref<str>, Json);
     void setOnFirstFrame(FirstFrameCallback);
+    template<typename Callback>
+        requires requires(Callback cb) { cb(); }
+    void setOnFirstFrame(Callback cb) {
+        setOnFirstFrame(Some(Box<dyn<FnMut<void()>>>::make(rstd::move(cb))));
+    }
     void setOnUserPropertyDiagnostics(UserPropertyDiagnosticCallback);
+    template<typename Callback>
+        requires requires(Callback cb, Vec<SceneUserPropertyDiagnostic> diagnostics) {
+            cb(rstd::move(diagnostics));
+        }
+    void setOnUserPropertyDiagnostics(Callback cb) {
+        setOnUserPropertyDiagnostics(
+            Some(Box<dyn<FnMut<void(Vec<SceneUserPropertyDiagnostic>)>>>::make(rstd::move(cb))));
+    }
     void requestPreparedPassDiagnostics(RenderPassDiagnosticCallback);
 
     // Install a callback for the effective wallpaper background color.
     // Set once before initVulkan.
     void setOnClearColor(ClearColorCallback);
+    template<typename Callback>
+        requires requires(Callback cb) { cb(0.0f, 0.0f, 0.0f); }
+    void setOnClearColor(Callback cb) {
+        setOnClearColor(Some(Box<dyn<FnMut<void(float, float, float)>>>::make(rstd::move(cb))));
+    }
 
     ExSwapchain* exSwapchain() const;
 
@@ -140,9 +161,9 @@ private:
 private:
     friend class SceneRuntimeController;
 
-    bool                                    m_offscreen { false };
-    Option<SceneLoadBenchHandle>            m_load_bench;
-    std::unique_ptr<SceneRuntimeController> m_runtime;
+    bool                         m_offscreen { false };
+    Option<SceneLoadBenchHandle> m_load_bench;
+    Box<SceneRuntimeController>  m_runtime;
 };
 
 } // namespace owe

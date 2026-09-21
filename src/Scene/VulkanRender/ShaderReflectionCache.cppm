@@ -4,10 +4,13 @@ export module wescene.vulkan_render:shader_reflection_cache;
 import wescene.core;
 import wescene.types;
 import rstd;
-import rstd.cppstd;
 import wescene.resource;
 import wescene.vulkan;
 import wescene.scene;
+
+using rstd::collections::HashMap;
+
+using namespace rstd::prelude;
 
 export namespace owe::vulkan
 {
@@ -41,14 +44,14 @@ export namespace owe::vulkan
 {
 
 struct CachedShaderStage {
-    std::string               entry_point;
-    ShaderType                stage;
-    std::vector<unsigned int> spirv;
+    String     entry_point;
+    ShaderType stage;
+    ShaderCode spirv;
 };
 
 struct CachedShaderReflection {
-    std::vector<CachedShaderStage> stages;
-    ShaderReflected                reflected;
+    Vec<CachedShaderStage> stages;
+    ShaderReflected        reflected;
 };
 
 class ShaderReflectionCache : NoCopy, NoMove {
@@ -60,8 +63,8 @@ public:
     void Clear();
 
 private:
-    rstd::ref<rstd::dyn<ShaderBackend>>                                     m_backend;
-    rstd::collections::HashMap<ShaderReflectionKey, CachedShaderReflection> m_entries;
+    rstd::ref<rstd::dyn<ShaderBackend>>                  m_backend;
+    HashMap<ShaderReflectionKey, CachedShaderReflection> m_entries;
 };
 
 auto MakeSceneShaderRequest(const SceneShader&) -> resource::ShaderRequest;
@@ -79,7 +82,7 @@ private:
     rstd::ref<SceneShader>               m_shader;
 };
 
-std::vector<Uni_ShaderSpv> ShaderSpvsFromArtifact(const resource::ShaderArtifact&);
-auto ShaderReflectionFromArtifact(const resource::ShaderArtifact&) -> ShaderReflected;
+Vec<Uni_ShaderSpv> ShaderSpvsFromArtifact(const resource::ShaderArtifact&);
+auto               ShaderReflectionFromArtifact(const resource::ShaderArtifact&) -> ShaderReflected;
 
 } // namespace owe::vulkan

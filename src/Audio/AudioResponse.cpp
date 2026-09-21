@@ -40,7 +40,7 @@ void analyze_channel(const PcmWindow& window, rstd::size_t channel,
     for (rstd::size_t frame = 0; frame < kAnalysisFrames; ++frame) {
         const auto  sample_frame  = first_frame + frame;
         const float sample        = window.samples[usize(sample_frame * kChannels + channel)];
-        const float finite_sample = std::isfinite(sample) ? sample : 0.0f;
+        const float finite_sample = f32(sample).is_finite() ? sample : 0.0f;
         has_signal                = has_signal || finite_sample != 0.0f;
         const float value         = finite_sample * kInputScale + kInputScale;
         const float reciprocal    = value == 0.0f ? baseline_reciprocal : 1.0f / value;
@@ -53,13 +53,18 @@ void analyze_channel(const PcmWindow& window, rstd::size_t channel,
     for (rstd::size_t bin = 1; bin < kSpectrumBins; ++bin) {
         const float coordinate =
             static_cast<float>(bin - 1) / static_cast<float>(kSpectrumBins - 1);
-        const auto candidate  = static_cast<rstd::size_t>(std::pow(coordinate, kBandExponent) *
-                                                          static_cast<float>(kResponseBins));
-        band                  = rstd::cmp::min(candidate, band + 1);
-        const float angle     = f32::consts::PI.to_primitive() * coordinate;
-        const float weight    = std::sqrt(kWeightBase - (1.0f - kWeightBase) * std::cos(angle));
-        const auto  value     = spectrum[usize(bin)];
-        const float magnitude = std::sqrt(value.real * value.real + value.imag * value.imag);
+        const auto candidate =
+            static_cast<rstd::size_t>(f32(coordinate).powf(f32(kBandExponent)).to_primitive() *
+                                      static_cast<float>(kResponseBins));
+        band              = rstd::cmp::min(candidate, band + 1);
+        const float angle = f32::consts::PI.to_primitive() * coordinate;
+        const float weight =
+            f32(kWeightBase - (1.0f - kWeightBase) * f32(angle).cos().to_primitive())
+                .sqrt()
+                .to_primitive();
+        const auto  value = spectrum[usize(bin)];
+        const float magnitude =
+            f32(value.real * value.real + value.imag * value.imag).sqrt().to_primitive();
         output[usize(band)] =
             rstd::cmp::max(output[usize(band)], magnitude * weight * kOutputScale);
     }

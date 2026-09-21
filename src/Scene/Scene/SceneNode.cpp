@@ -3,7 +3,6 @@ module;
 module wescene.scene;
 import eigen;
 import rstd;
-import rstd.cppstd;
 
 using namespace owe;
 using namespace Eigen;
@@ -45,8 +44,8 @@ auto SceneNode::ChildIndex(const SceneNode& child) const -> Option<usize> {
 
 bool SceneNode::MoveChild(SceneNode& child, usize index) { return m_node.MoveChild(child, index); }
 
-SceneNode* SceneNode::FindByName(std::string_view name) {
-    if (m_name == name) return this;
+SceneNode* SceneNode::FindByName(ref<str> name) {
+    if (m_name.as_str() == name) return this;
     for (auto& child : GetChildren()) {
         if (auto* hit = child->FindByName(name)) return hit;
     }

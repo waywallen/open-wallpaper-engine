@@ -156,7 +156,7 @@ std::string RootedPathString(owe::fs::Path path) {
         if ((*component).is_root_dir() || (*component).is_cur_dir()) continue;
         out.push(owe::fs::Path((*component).as_os_str()));
     }
-    return owe::fs::ToStdString(out.as_path());
+    return rstd::cppstd::to_string(out.as_path().as_os_str().to_str().unwrap());
 }
 
 // Resolve a user-provided pkg argument. Accepts either a direct path to
@@ -171,9 +171,9 @@ std::string ResolvePkgPath(std::string_view arg) {
 // Normalise an asset path to the in-pkg shape ("/scene.json"). Accepts
 // "/scene.json", "scene.json", "/assets/scene.json", "assets/scene.json".
 std::string NormalisePkgAssetPath(std::string_view arg) {
-    auto input = owe::fs::ToPath(arg);
-    auto path  = input.strip_prefix(owe::fs::ToPath("/assets"));
-    if (path.is_none()) path = input.strip_prefix(owe::fs::ToPath("assets"));
+    auto input = owe::fs::Path(rstd::cppstd::as_str(arg).unwrap());
+    auto path  = input.strip_prefix(owe::fs::Path("/assets"_str));
+    if (path.is_none()) path = input.strip_prefix(owe::fs::Path("assets"_str));
     return RootedPathString(path.unwrap_or(input));
 }
 
@@ -342,13 +342,13 @@ struct Counters {
 // Runs scene parse base (FromJson + ExpandObjects + AdjustAuto). Cheap;
 // never touches glslang or scene-graph allocation.
 bool RunSceneParseBase(owe::fs::VFS& vfs, owe::wpscene::SceneVersion pkg_v, std::string& err) {
-    auto stream = owe::fs::OpenBinary(vfs, "/assets/scene.json");
+    auto stream = owe::fs::OpenBinary(vfs, owe::fs::Path("/assets/scene.json"_str));
     if (stream.is_err()) {
         err = "scene.json not in pkg";
         return false;
     }
-    const std::string text     = stream->ReadAllStr();
-    auto              document = owe::wpscene::ParseSceneDocumentJson(text, pkg_v);
+    auto text     = stream->ReadAllStr();
+    auto document = owe::wpscene::ParseSceneDocumentJson(text.as_str(), pkg_v);
     if (! document) {
         err = "ParseSceneDocumentJson returned null";
         return false;
@@ -367,13 +367,13 @@ bool RunSceneParseBase(owe::fs::VFS& vfs, owe::wpscene::SceneVersion pkg_v, std:
 // objects parse without opening an audio device.
 bool RunSceneParseFull(owe::fs::VFS& vfs, owe::wpscene::SceneVersion pkg_v,
                        const std::string& pkg_id, std::string& err) {
-    auto stream = owe::fs::OpenBinary(vfs, "/assets/scene.json");
+    auto stream = owe::fs::OpenBinary(vfs, owe::fs::Path("/assets/scene.json"_str));
     if (stream.is_err()) {
         err = "scene.json not in pkg";
         return false;
     }
-    const std::string text     = stream->ReadAllStr();
-    auto              document = owe::wpscene::ParseSceneDocumentJson(text, pkg_v);
+    auto text     = stream->ReadAllStr();
+    auto document = owe::wpscene::ParseSceneDocumentJson(text.as_str(), pkg_v);
     if (! document) {
         err = "ParseSceneDocumentJson returned null";
         return false;
@@ -458,7 +458,8 @@ void ValidateShaders(const std::vector<owe::testing::PkgEntry>& entries, owe::fs
     for (const auto& e : entries) {
         if (! StartsWith(e.path, "/materials/") || ! EndsWith(e.path, ".json")) continue;
         const std::string vfs_path = "/assets" + e.path;
-        auto              stream   = owe::fs::OpenBinary(vfs, vfs_path);
+        auto              stream =
+            owe::fs::OpenBinary(vfs, owe::fs::Path(rstd::cppstd::as_str(vfs_path).unwrap()));
         if (stream.is_err()) {
             ++c.shader_fail;
             std::fprintf(
@@ -470,8 +471,8 @@ void ValidateShaders(const std::vector<owe::testing::PkgEntry>& entries, owe::fs
             }
             continue;
         }
-        const std::string text   = stream->ReadAllStr();
-        auto              parsed = owe::ParseJson(text);
+        auto text   = stream->ReadAllStr();
+        auto parsed = owe::ParseJson(text.as_str());
         if (parsed.is_err()) {
             ++c.shader_fail;
             std::fprintf(
@@ -486,13 +487,14 @@ void ValidateShaders(const std::vector<owe::testing::PkgEntry>& entries, owe::fs
         auto                             jmat = parsed.unwrap();
         owe::CompileMaterialShaderResult r;
         try {
-            r = owe::ShaderParser::CompileMaterialShader(jmat, vfs, pkg_id);
+            r = owe::ShaderParser::CompileMaterialShader(
+                jmat, vfs, rstd::cppstd::as_str(pkg_id).unwrap());
         } catch (const std::exception& ex) {
             r.ok    = false;
-            r.error = ex.what();
+            r.error = rstd::into(rstd::cppstd::as_str(ex.what()).unwrap());
         } catch (...) {
             r.ok    = false;
-            r.error = "unknown exception";
+            r.error = "unknown exception"_Str;
         }
         if (r.ok) {
             ++c.shader_ok;
@@ -501,20 +503,21 @@ void ValidateShaders(const std::vector<owe::testing::PkgEntry>& entries, owe::fs
                              "OK    %s shader %s [%s]\n",
                              pkg_id.c_str(),
                              e.path.c_str(),
-                             r.shader_name.c_str());
+                             rstd::cppstd::to_string(r.shader_name.as_str()).c_str());
         } else {
             ++c.shader_fail;
             std::fprintf(stdout,
                          "FAIL  %s shader %s [%s]  %s\n",
                          pkg_id.c_str(),
                          e.path.c_str(),
-                         r.shader_name.c_str(),
-                         r.error.c_str());
+                         rstd::cppstd::to_string(r.shader_name.as_str()).c_str(),
+                         rstd::cppstd::to_string(r.error.as_str()).c_str());
         }
         if (sink) {
-            auto entry = StatusJson(r.ok, r.ok ? std::string_view {} : std::string_view(r.error));
+            auto entry = StatusJson(
+                r.ok, r.ok ? std::string_view {} : rstd::cppstd::as_string_view(r.error.as_str()));
             SetJsonField(entry, "path", e.path);
-            SetJsonField(entry, "shader_name", r.shader_name);
+            SetJsonField(entry, "shader_name", Json::String(r.shader_name.clone()));
             AppendJson(sink, std::move(entry));
         }
     }
@@ -664,18 +667,20 @@ bool ProcessOnePkg(const fs::path& pkg_dir, const ScanOptions& opt, Counters& c,
         }
         return false;
     }
-    const auto pkg_v = owe::wpscene::ParsePkgVersionStamp(version_stamp);
+    const auto pkg_v =
+        owe::wpscene::ParsePkgVersionStamp(rstd::cppstd::as_str(version_stamp).unwrap());
 
     if (! MatchesPkgvFilters((unsigned)pkg_v, opt.pkgv_filters)) return true;
 
     owe::fs::VFS vfs;
     if (! opt.assets_dir.empty()) {
-        auto pfs = owe::fs::make_physical_fs(owe::fs::ToPath(opt.assets_dir));
+        auto pfs =
+            owe::fs::make_physical_fs(owe::fs::Path(rstd::cppstd::as_str(opt.assets_dir).unwrap()));
         if (pfs.is_ok()) {
             (void)vfs.mount("/assets"_str, std::move(pfs).unwrap_unchecked());
         }
     }
-    auto wfs = owe::fs::WPPkgFs::open(owe::fs::ToPath(pkg_path));
+    auto wfs = owe::fs::WPPkgFs::open(owe::fs::Path(rstd::cppstd::as_str(pkg_path).unwrap()));
     if (wfs.is_err()) {
         ++c.parsed_fail;
         std::fprintf(stdout, "FAIL  %s parse  WPPkgFs::open\n", pkg_id.c_str());
@@ -769,7 +774,9 @@ bool ProcessOnePkg(const fs::path& pkg_dir, const ScanOptions& opt, Counters& c,
         const auto    out_path = fs::path(opt.json_dir) / (pkg_id + ".json");
         std::ofstream ofs(out_path);
         if (ofs)
-            ofs << owe::Dump(snap, 2) << "\n";
+            ofs << rstd::cppstd::to_string(
+                       owe::DumpString(snap, rstd::Some(rstd::usize(2))).as_str())
+                << "\n";
         else
             std::fprintf(stderr, "wescene-test scan: cannot write %s\n", out_path.string().c_str());
     }
@@ -894,7 +901,8 @@ int CmdScan(const ScanOptions& opt) {
                 stderr, "wescene-test scan: cannot open --json file '%s'\n", opt.json_out.c_str());
             return 1;
         }
-        out << owe::Dump(doc, 2) << "\n";
+        out << rstd::cppstd::to_string(owe::DumpString(doc, rstd::Some(rstd::usize(2))).as_str())
+            << "\n";
     }
 
     const int total_fail = c.parsed_fail + c.tex_fail + c.shader_fail + c.mdl_fail;
@@ -972,7 +980,7 @@ int CmdExtract(const Matches& matches, const ExtractArgs& args) {
     const std::string vfs_path    = "/assets" + in_pkg_path;
 
     owe::fs::VFS vfs;
-    auto         wfs = owe::fs::WPPkgFs::open(owe::fs::ToPath(pkg_path));
+    auto wfs = owe::fs::WPPkgFs::open(owe::fs::Path(rstd::cppstd::as_str(pkg_path).unwrap()));
     if (wfs.is_err()) {
         std::fprintf(
             stderr, "wescene-test extract: WPPkgFs::open failed on %s\n", pkg_path.c_str());
@@ -980,13 +988,18 @@ int CmdExtract(const Matches& matches, const ExtractArgs& args) {
     }
     (void)vfs.mount("/assets"_str, wfs->mount_handle());
 
-    auto stream = owe::fs::OpenBinary(vfs, vfs_path);
+    auto stream = owe::fs::OpenBinary(vfs, owe::fs::Path(rstd::cppstd::as_str(vfs_path).unwrap()));
     if (stream.is_err()) {
         std::fprintf(stderr, "wescene-test extract: '%s' not found in pkg\n", in_pkg_path.c_str());
         return 1;
     }
 
-    const std::string body = stream->ReadAllStr();
+    auto read = stream->read_all_bytes();
+    if (read.is_err()) {
+        std::fprintf(stderr, "wescene-test extract: cannot read '%s'\n", in_pkg_path.c_str());
+        return 1;
+    }
+    const auto body = rstd::move(read).unwrap_unchecked();
 
     FILE* out       = nullptr;
     bool  close_out = false;
@@ -1002,17 +1015,21 @@ int CmdExtract(const Matches& matches, const ExtractArgs& args) {
         close_out = true;
     }
 
-    const size_t n = std::fwrite(body.data(), 1, body.size(), out);
+    const size_t n = std::fwrite(body.data(), 1, body.len().to_primitive(), out);
     if (close_out) std::fclose(out);
-    if (n != body.size()) {
-        std::fprintf(
-            stderr, "wescene-test extract: short write (%zu of %zu bytes)\n", n, body.size());
+    if (n != body.len().to_primitive()) {
+        std::fprintf(stderr,
+                     "wescene-test extract: short write (%zu of %zu bytes)\n",
+                     n,
+                     body.len().to_primitive());
         return 1;
     }
 
     if (! out_file.empty() && out_file != "-") {
-        std::fprintf(
-            stderr, "wescene-test extract: wrote %zu bytes to %s\n", body.size(), out_file.c_str());
+        std::fprintf(stderr,
+                     "wescene-test extract: wrote %zu bytes to %s\n",
+                     body.len().to_primitive(),
+                     out_file.c_str());
     }
     return 0;
 }
@@ -1303,6 +1320,160 @@ std::vector<fs::path> CollectGrepPkgs(const GrepOptions& opt) {
     return dirs;
 }
 
+void WriteNumberRow(const Json& row) {
+    const auto text = owe::DumpString(row);
+    std::fwrite(text.as_str().data(), 1, text.len().to_primitive(), stdout);
+    std::fputc('\n', stdout);
+}
+
+Json NumberToken(ref<str> text) {
+    auto out = owe::MakeObject();
+    owe::SetJson(out, "text", rstd::into<Json>(String::make(text)));
+    auto parse_float = [&](bool native) {
+        auto result = owe::MakeObject();
+        if (native) {
+            auto parsed = owe::ParseJsonFloat(text);
+            if (parsed.is_ok()) {
+                owe::SetMember(result, "status", "ok");
+                owe::SetMember(result, "bits", f32(*parsed).to_bits());
+            } else {
+                owe::SetMember(result,
+                               "status",
+                               parsed.unwrap_err() == owe::JsonValueError::NumberOutOfRange
+                                   ? "range"
+                                   : "invalid");
+            }
+            return result;
+        }
+        try {
+            std::size_t consumed {};
+            auto        value = std::stof(to_string(text), &consumed);
+            owe::SetMember(result, "status", "ok");
+            owe::SetMember(result, "bits", f32(value).to_bits());
+            owe::SetMember(result, "consumed", consumed);
+        } catch (const std::invalid_argument&) {
+            owe::SetMember(result, "status", "invalid");
+        } catch (const std::out_of_range&) {
+            owe::SetMember(result, "status", "range");
+        }
+        return result;
+    };
+    owe::SetJson(out, "f32", parse_float(true));
+    owe::SetJson(out, "stof", parse_float(false));
+    auto signed_value   = rstd::from_str<i32>(text);
+    auto unsigned_value = rstd::from_str<u32>(text);
+    owe::SetMember(out, "i32_ok", signed_value.is_ok());
+    owe::SetMember(out, "u32_ok", unsigned_value.is_ok());
+    return out;
+}
+
+void ExportNumberValues(const Json& value, ref<str> pointer, const Json& source) {
+    if (auto object = value.as_object(); object.is_some()) {
+        for (auto [key, child] : (*object)->iter()) {
+            Vec<u8> escaped_bytes;
+            for (auto part : key->as_str().as_bytes()) {
+                if (part == u8('~') || part == u8('/')) {
+                    escaped_bytes.push(u8('~'));
+                    escaped_bytes.push(part == u8('~') ? u8('0') : u8('1'));
+                } else
+                    escaped_bytes.push(rstd::move(part));
+            }
+            auto escaped = String::from_utf8(rstd::move(escaped_bytes)).unwrap();
+            auto path    = rstd::format("{}/{}", pointer, escaped);
+            ExportNumberValues(*child, path.as_str(), source);
+        }
+    } else if (auto array = value.as_array(); array.is_some()) {
+        for (usize index {}; index < (*array)->len(); ++index) {
+            auto path = rstd::format("{}/{}", pointer, index);
+            ExportNumberValues((**array)[index], path.as_str(), source);
+        }
+    } else if (value.is_number() || value.as_str().is_some()) {
+        auto row = source.clone();
+        owe::SetJson(row, "pointer", rstd::into<Json>(String::make(pointer)));
+        owe::SetJson(row, "value", value.clone());
+        owe::SetMember(row, "kind", value.is_number() ? "number" : "string");
+        if (auto string = value.as_str(); string.is_some()) {
+            owe::SetJson(row, "scalar", NumberToken(*string));
+            auto tokens = owe::MakeArray();
+            auto rest   = *string;
+            while (auto parts = rest.split_once(" "_str)) {
+                auto [head, tail] = *parts;
+                owe::AppendJson(tokens, NumberToken(head));
+                rest = tail;
+            }
+            owe::AppendJson(tokens, NumberToken(rest));
+            owe::SetJson(row, "components", rstd::move(tokens));
+        }
+        WriteNumberRow(row);
+    }
+}
+
+int CmdNumbers(ref<str> root) {
+    GrepOptions options;
+    options.workshop_dir = to_string(root);
+    if (! fs::is_directory(options.workshop_dir)) return 1;
+    int        errors = 0;
+    const auto dirs   = CollectGrepPkgs(options);
+    for (const auto& dir : dirs) {
+        auto source = owe::MakeObject();
+        owe::SetMember(source, "id", dir.filename().string());
+        auto report_error = [&](std::string_view message) {
+            auto row = source.clone();
+            owe::SetMember(row, "kind", "error");
+            owe::SetMember(row, "error", message);
+            WriteNumberRow(row);
+            ++errors;
+        };
+        std::string                         version;
+        std::vector<owe::testing::PkgEntry> entries;
+        auto                                pkg_path = (dir / "scene.pkg").string();
+        if (! owe::testing::ReadPkgHeader(pkg_path, version, entries)) {
+            report_error("pkg header");
+            continue;
+        }
+        auto pkg = owe::fs::WPPkgFs::open(owe::fs::Path(as_str(pkg_path).unwrap()));
+        if (pkg.is_err()) {
+            report_error("pkg open");
+            continue;
+        }
+        owe::fs::VFS vfs;
+        (void)vfs.mount("/assets"_str, pkg->mount_handle());
+        auto emit = [&](auto parsed) {
+            if (parsed.is_err()) {
+                auto error = rstd::move(parsed).unwrap_err();
+                if constexpr (requires { error.message; })
+                    report_error(to_string(error.message.as_str()));
+                else
+                    report_error(to_string(rstd::format("{}", error).as_str()));
+                return;
+            }
+            ExportNumberValues(*parsed, ""_str, source);
+        };
+        for (const auto& entry : entries) {
+            if (! GrepWantPath(entry.path, options)) continue;
+            owe::SetMember(source, "path", entry.path);
+            auto path = rstd::format("/assets{}", as_str(entry.path).unwrap());
+            emit(owe::ReadJsonFile(vfs, owe::fs::Path(path.as_str())));
+        }
+        auto project = (dir / "project.json").string();
+        if (fs::exists(project)) {
+            owe::SetMember(source, "path", "@project.json");
+            auto stream = owe::fs::OpenPhysicalBinary(owe::fs::Path(as_str(project).unwrap()));
+            if (stream.is_err()) {
+                report_error("project open");
+                continue;
+            }
+            auto content = stream->read_all_string();
+            if (content.is_err())
+                report_error("project read");
+            else
+                emit(owe::ParseJson(content->as_str()));
+        }
+    }
+    std::fprintf(stderr, "numbers: %zu packages, %d errors\n", dirs.size(), errors);
+    return errors == 0 && ! dirs.empty() && ! std::ferror(stdout) ? 0 : 1;
+}
+
 int CmdGrep(const GrepOptions& opt) {
     if (! fs::exists(opt.workshop_dir) || ! fs::is_directory(opt.workshop_dir)) {
         std::fprintf(
@@ -1343,7 +1514,7 @@ int CmdGrep(const GrepOptions& opt) {
         }
 
         owe::fs::VFS vfs;
-        auto         wfs = owe::fs::WPPkgFs::open(owe::fs::ToPath(pkg_path));
+        auto wfs = owe::fs::WPPkgFs::open(owe::fs::Path(rstd::cppstd::as_str(pkg_path).unwrap()));
         if (wfs.is_err()) {
             std::fprintf(stderr, "wescene-test grep: WPPkgFs::open failed on %s\n", pkg_id.c_str());
             continue;
@@ -1358,9 +1529,13 @@ int CmdGrep(const GrepOptions& opt) {
 
         int pkg_count = 0;
         for (const auto& p : paths) {
-            auto stream = owe::fs::OpenBinary(vfs, "/assets" + p);
+            auto stream = owe::fs::OpenBinary(
+                vfs, owe::fs::Path(rstd::cppstd::as_str("/assets" + p).unwrap()));
             if (stream.is_err()) continue;
-            const std::string text = stream->ReadAllStr();
+            auto bytes = stream->read_all_bytes();
+            if (bytes.is_err()) continue;
+            const std::string text(reinterpret_cast<const char*>(bytes->data()),
+                                   bytes->len().to_primitive());
 
             std::vector<std::pair<std::size_t, std::size_t>> matches; // (pos, len)
             for (auto it = std::sregex_iterator(text.begin(), text.end(), re);
@@ -1420,7 +1595,8 @@ int CmdGrep(const GrepOptions& opt) {
     }
 
     if (opt.json_out) {
-        const auto dump = owe::Dump(doc, 2);
+        const auto dump =
+            rstd::cppstd::to_string(owe::DumpString(doc, rstd::Some(rstd::usize(2))).as_str());
         std::fprintf(stdout, "%s\n", dump.c_str());
     }
     std::fprintf(stderr,
@@ -1475,8 +1651,8 @@ const char* BlendModeStr(owe::BlendMode m) {
 
 // Mirrors CustomShaderPass.cpp:294-297. Empty or "global*" cameras strip
 // the A_BIT - keep this in sync.
-const char* PredictColorMask(std::string_view camera) {
-    bool alpha = ! (camera.empty() || StartsWith(camera, "global"));
+const char* PredictColorMask(ref<str> camera) {
+    bool alpha = ! (camera.is_empty() || camera.starts_with("global"_str));
     return alpha ? "RGBA" : "RGB";
 }
 
@@ -1488,19 +1664,24 @@ void DumpPass(FILE* out, const std::string& tag, const owe::SceneNode& node,
         return;
     }
     auto* material = mesh->Material();
-    std::fprintf(out,
-                 "  %s shader=%-32s out=%-40s cam=%-12s mask=%s blend=%s\n",
-                 tag.c_str(),
-                 material->name.empty() ? "?" : material->name.c_str(),
-                 std::string(output_rt).c_str(),
-                 node.Camera().empty() ? "(empty)" : node.Camera().c_str(),
-                 PredictColorMask(node.Camera()),
-                 BlendModeStr(material->Pipeline().blend_mode));
-    if (! material->textures.empty()) {
+    std::fprintf(
+        out,
+        "  %s shader=%-32s out=%-40s cam=%-12s mask=%s blend=%s\n",
+        tag.c_str(),
+        material->name.is_empty() ? "?" : rstd::cppstd::to_string(material->name.as_str()).c_str(),
+        std::string(output_rt).c_str(),
+        node.Camera().is_empty() ? "(empty)" : rstd::cppstd::to_string(node.Camera()).c_str(),
+        PredictColorMask(node.Camera()),
+        BlendModeStr(material->Pipeline().blend_mode));
+    if (! material->textures.is_empty()) {
         std::fprintf(out, "      textures:");
-        for (std::size_t i = 0; i < material->textures.size(); ++i) {
-            const auto& t = material->textures[i];
-            std::fprintf(out, " [%zu]=%s", i, t.empty() ? "(none)" : t.c_str());
+        for (std::size_t i = 0; i < material->textures.len().to_primitive(); ++i) {
+            const auto t = rstd::cppstd::as_string_view(material->textures[usize(i)].as_str());
+            std::fprintf(out,
+                         " [%zu]=%.*s",
+                         i,
+                         t.empty() ? 6 : static_cast<int>(t.size()),
+                         t.empty() ? "(none)" : t.data());
         }
         std::fprintf(out, "\n");
     }
@@ -1526,7 +1707,9 @@ void DumpRenderTargets(FILE* out, const owe::Scene& scene) {
                      rt.height.to_primitive(),
                      rt.bind.enable ? "enable " : "",
                      rt.bind.screen ? "screen " : "",
-                     rt.bind.name.empty() ? "" : ("name=" + rt.bind.name + " ").c_str(),
+                     rt.bind.name.is_empty()
+                         ? ""
+                         : ("name=" + rstd::cppstd::to_string(rt.bind.name.as_str()) + " ").c_str(),
                      rt.bind.scale,
                      rt.has_mipmap ? " mipmap" : "",
                      rt.allowReuse ? " reuse" : "");
@@ -1553,28 +1736,28 @@ void DumpSceneGraphPasses(FILE* out, owe::Scene& scene) {
     std::fprintf(out, "\nScene-graph passes (TraverseNode pre-order):\n");
     auto target_name = [](const owe::SceneNodeLayer&    layer,
                           const owe::SceneEffectTarget& target) -> std::string {
-        if (target.kind == owe::SceneEffectTargetKind::Named && ! target.key.empty()) {
-            return target.key;
+        if (target.kind == owe::SceneEffectTargetKind::Named && ! target.key.is_empty()) {
+            return rstd::cppstd::to_string(target.key.as_str());
         }
-        return layer.CompositeTarget();
+        return rstd::cppstd::to_string(layer.CompositeTarget());
     };
     std::function<void(owe::SceneNode*, int)> walk = [&](owe::SceneNode* n, int depth) {
         if (n == nullptr) return;
         // Mirror SceneToRenderGraph::ToGraphPass: only nodes with mesh+material emit.
         auto* mesh = n->Mesh();
         if (mesh && mesh->Material()) {
-            std::string tag = "[node id=" + std::to_string(n->ID().to_primitive()) +
-                              " depth=" + std::to_string(depth) + "]";
-            std::string output { rstd::cppstd::to_string(owe::SpecTex_Default) };
-            std::shared_ptr<owe::SceneNodeLayer> eff_layer;
+            std::string          tag = "[node id=" + std::to_string(n->ID().to_primitive()) +
+                                       " depth=" + std::to_string(depth) + "]";
+            std::string          output { rstd::cppstd::to_string(owe::SpecTex_Default) };
+            owe::SceneNodeLayer* eff_layer = nullptr;
             if (n->HasLayer()) {
-                eff_layer = n->Layer();
+                eff_layer = n->Layer().as_ptr().as_raw_ptr();
                 if (eff_layer->EffectCount() == usize() || eff_layer->HasRuntimeVisibleEffect()) {
-                    output = eff_layer->CompositeTarget();
+                    output = rstd::cppstd::to_string(eff_layer->CompositeTarget());
                 }
             }
             if (eff_layer) {
-                eff_layer->ResolveEffect(*scene.DefaultEffectMesh(), "effect");
+                eff_layer->ResolveEffect(*scene.DefaultEffectMesh(), "effect"_str);
                 std::size_t ni = 0;
                 for (auto& enode : eff_layer->PrefillNodes()) {
                     std::string tag2 = "[prefill node " + std::to_string(ni++) + "]";
@@ -1588,25 +1771,25 @@ void DumpSceneGraphPasses(FILE* out, owe::Scene& scene) {
 
             if (eff_layer && eff_layer->HasRenderEffects()) {
                 const auto& resolved     = eff_layer->ResolvedEffects();
-                const auto  effect_count = usize(resolved.size());
+                const auto  effect_count = resolved.len();
                 std::fprintf(
                     out, "    image-effect chain (%zu effects):\n", effect_count.to_primitive());
                 for (usize ei {}; ei < effect_count; ++ei) {
-                    auto* eff = resolved[ei.to_primitive()];
+                    auto* eff = resolved[ei];
                     if (eff == nullptr) continue;
                     std::size_t ni = 0;
-                    for (auto cmd_it = eff->commands.begin(); cmd_it != eff->commands.end();
-                         ++cmd_it) {
+                    for (const auto& command : eff->commands) {
                         std::fprintf(out,
                                      "      [eff %zu cmd] copy %s -> %s (afterpos=%d)\n",
                                      ei.to_primitive(),
-                                     target_name(*eff_layer, cmd_it->src).c_str(),
-                                     target_name(*eff_layer, cmd_it->dst).c_str(),
-                                     cmd_it->afterpos.to_primitive());
+                                     target_name(*eff_layer, command.src).c_str(),
+                                     target_name(*eff_layer, command.dst).c_str(),
+                                     command.afterpos.to_primitive());
                     }
-                    for (auto& enode : eff->nodes) {
-                        std::string tag2 = "[eff " + std::to_string(ei.to_primitive()) + " node " +
-                                           std::to_string(ni++) + "]";
+                    for (auto& owned_node : eff->Nodes()) {
+                        auto&       enode = *owned_node;
+                        std::string tag2  = "[eff " + std::to_string(ei.to_primitive()) + " node " +
+                                            std::to_string(ni++) + "]";
                         auto        target = eff_layer->ResolvedTarget(enode);
                         DumpPass(out,
                                  "    " + tag2,
@@ -1636,7 +1819,7 @@ void DumpPostProcesses(FILE* out, const owe::Scene& scene) {
         std::fprintf(out,
                      "  chain[%zu] name=\"%s\" steps=%zu\n",
                      ci.to_primitive(),
-                     pp.name.c_str(),
+                     rstd::cppstd::to_string(pp.name.as_str()).c_str(),
                      pp.steps.len().to_primitive());
         for (usize si {}; si < pp.steps.len(); ++si) {
             const auto& step = pp.steps[si];
@@ -1647,16 +1830,16 @@ void DumpPostProcesses(FILE* out, const owe::Scene& scene) {
                 DumpPass(out,
                          tag,
                          *sp.node.as_ptr(),
-                         sp.output.empty() ? rstd::cppstd::to_string(owe::SpecTex_Default)
-                                           : sp.output);
+                         sp.output.is_empty() ? rstd::cppstd::to_string(owe::SpecTex_Default)
+                                              : rstd::cppstd::to_string(sp.output.as_str()));
             } else {
                 const auto& cp = step.as_Copy().value;
                 std::fprintf(out,
                              "    [pp %zu:%zu copy] %s -> %s\n",
                              ci.to_primitive(),
                              si.to_primitive(),
-                             cp.src.c_str(),
-                             cp.dst.c_str());
+                             rstd::cppstd::to_string(cp.src.as_str()).c_str(),
+                             rstd::cppstd::to_string(cp.dst.as_str()).c_str());
             }
         }
     }
@@ -1678,11 +1861,12 @@ int CmdRendergraph(const Matches& matches, const RendergraphArgs& args) {
     // Mount pkg over a physical-fs fallback (pkg shadows engine assets;
     // matches viewer/daemon).
     owe::fs::VFS vfs;
-    auto         pfs = owe::fs::make_physical_fs(owe::fs::ToPath(kDefaultAssetsDir));
+    auto         pfs =
+        owe::fs::make_physical_fs(owe::fs::Path(rstd::cppstd::as_str(kDefaultAssetsDir).unwrap()));
     if (pfs.is_ok()) {
         (void)vfs.mount("/assets"_str, std::move(pfs).unwrap_unchecked());
     }
-    auto wfs = owe::fs::WPPkgFs::open(owe::fs::ToPath(pkg_path));
+    auto wfs = owe::fs::WPPkgFs::open(owe::fs::Path(rstd::cppstd::as_str(pkg_path).unwrap()));
     if (wfs.is_err()) {
         std::fprintf(
             stderr, "wescene-test rendergraph: WPPkgFs::open failed on %s\n", pkg_path.c_str());
@@ -1690,12 +1874,12 @@ int CmdRendergraph(const Matches& matches, const RendergraphArgs& args) {
     }
     (void)vfs.mount("/assets"_str, wfs->mount_handle());
 
-    auto stream = owe::fs::OpenBinary(vfs, "/assets/scene.json");
+    auto stream = owe::fs::OpenBinary(vfs, owe::fs::Path("/assets/scene.json"_str));
     if (stream.is_err()) {
         std::fprintf(stderr, "wescene-test rendergraph: scene.json not in pkg\n");
         return 1;
     }
-    const std::string text = stream->ReadAllStr();
+    auto text = stream->ReadAllStr();
 
     // Detect pkg version from header so the parser dispatches correctly.
     std::string                         version_stamp;
@@ -1705,8 +1889,8 @@ int CmdRendergraph(const Matches& matches, const RendergraphArgs& args) {
             stderr, "wescene-test rendergraph: ReadPkgHeader failed on %s\n", pkg_path.c_str());
         return 1;
     }
-    auto pkg_v    = owe::wpscene::ParsePkgVersionStamp(version_stamp);
-    auto document = owe::wpscene::ParseSceneDocumentJson(text, pkg_v);
+    auto pkg_v = owe::wpscene::ParsePkgVersionStamp(rstd::cppstd::as_str(version_stamp).unwrap());
+    auto document = owe::wpscene::ParseSceneDocumentJson(text.as_str(), pkg_v);
     if (! document) {
         std::fprintf(stderr, "wescene-test rendergraph: ParseSceneDocumentJson failed\n");
         return 1;
@@ -1793,7 +1977,8 @@ int CmdValid(const Matches& matches, const ValidArgs& args) {
         return 1;
     }
 
-    const std::string dump = owe::Dump(snap, 2);
+    const std::string dump =
+        rstd::cppstd::to_string(owe::DumpString(snap, rstd::Some(rstd::usize(2))).as_str());
     if (! out_file.empty()) {
         std::ofstream out(out_file);
         if (! out) {
@@ -1822,13 +2007,18 @@ int main(int argc, char** argv) {
                   "device, no GLFW."_str);
     program.require_subcommand();
 
-    auto scan             = Command::make("scan"_str);
-    auto scan_args        = AddScanArgs(scan);
-    auto extract          = Command::make("extract"_str);
-    auto extract_args     = AddExtractArgs(extract);
-    auto grep             = Command::make("grep"_str);
-    auto grep_args        = AddGrepArgs(grep);
-    auto rendergraph      = Command::make("rendergraph"_str);
+    auto scan         = Command::make("scan"_str);
+    auto scan_args    = AddScanArgs(scan);
+    auto extract      = Command::make("extract"_str);
+    auto extract_args = AddExtractArgs(extract);
+    auto grep         = Command::make("grep"_str);
+    auto grep_args    = AddGrepArgs(grep);
+    auto numbers      = Command::make("numbers"_str);
+    numbers.about("Export raw JSON number/string leaves and numeric parsing results as JSONL."_str);
+    auto numbers_root = numbers.add_arg(Arg<String>::value("workshop-dir"_str, string_parser())
+                                            .long_name("workshop-dir"_str)
+                                            .default_value(as_str(kDefaultWorkshopDir).unwrap()));
+    auto rendergraph  = Command::make("rendergraph"_str);
     auto rendergraph_args = AddRendergraphArgs(rendergraph);
     auto valid            = Command::make("valid"_str);
     auto valid_args       = AddValidArgs(valid);
@@ -1836,6 +2026,7 @@ int main(int argc, char** argv) {
     program.add_subcommand(rstd::move(scan));
     program.add_subcommand(rstd::move(extract));
     program.add_subcommand(rstd::move(grep));
+    program.add_subcommand(rstd::move(numbers));
     program.add_subcommand(rstd::move(rendergraph));
     program.add_subcommand(rstd::move(valid));
 
@@ -1849,6 +2040,8 @@ int main(int argc, char** argv) {
         return CmdExtract(**child, extract_args);
     if (auto child = matches.subcommand_matches("grep"_str); child.is_some())
         return CmdGrep(ReadGrepOptions(**child, grep_args));
+    if (auto child = matches.subcommand_matches("numbers"_str); child.is_some())
+        return CmdNumbers(ArgValue(**child, numbers_root).as_str());
     if (auto child = matches.subcommand_matches("rendergraph"_str); child.is_some())
         return CmdRendergraph(**child, rendergraph_args);
     if (auto child = matches.subcommand_matches("valid"_str); child.is_some())

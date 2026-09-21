@@ -10,7 +10,6 @@ import wescene.core;
 import wescene.types;
 import rstd;
 import rstd.log;
-import rstd.cppstd;
 import wescene.utils;
 import wescene.scene;
 import wescene.text;
@@ -20,8 +19,6 @@ using namespace rstd::prelude;
 using namespace rstd::literals;
 using rstd::collections::HashMap;
 using rstd::collections::HashSet;
-using rstd::cppstd::as_str;
-using rstd::cppstd::as_string_view;
 using rstd::slice_::sort_unstable_by;
 using rstd::sync::Arc;
 using namespace owe;
@@ -93,8 +90,8 @@ void FinalizeUniformSources(SceneParseContext& context) {
     auto active_camera = scene.ActiveCameraHandle();
     if (active_camera.is_none()) return;
     auto camera_for = [&](const SceneNode& node) -> Option<Arc<SceneCamera>> {
-        if (! node.Camera().empty()) {
-            return scene.CameraHandle(rstd::cppstd::as_str(node.Camera()).unwrap());
+        if (! node.Camera().is_empty()) {
+            return scene.CameraHandle(node.Camera());
         }
         if (node.Perspective()) {
             return scene.CameraHandle("global_perspective"_str);
@@ -174,10 +171,10 @@ void FinalizeUniformSources(SceneParseContext& context) {
     for (auto& draft : context.text_uniform_configs) {
         auto node_id = scene.ResourceIndex().nodeId(*draft.node);
         if (node_id.is_none()) continue;
-        auto state               = std::make_shared<text::TextUniformState>(draft.node.clone());
+        auto state               = Arc<text::TextUniformState>::make(draft.node.clone());
         state->camera            = camera_for(*draft.node);
         state->active_camera     = Some((*active_camera).clone());
-        state->effect_projection = draft.effect_projection;
+        state->effect_projection = draft.effect_projection.clone();
         const auto source        = registrar->Register(
             Box<dyn<UniformSource>>::make(text::TextUniformSource { rstd::move(state) }));
         (void)writer->AttachNode(*node_id, source, i32());
@@ -239,7 +236,7 @@ void FinalizeUniformSources(SceneParseContext& context) {
                  shader_environment        = context.shader_environment,
                  geometry_limits           = context.geometry_shader_limits,
                  geometry_shader_supported = context.geometry_shader_supported,
-                 global_base_uniforms      = context.global_base_uniforms,
+                 global_base_uniforms      = context.global_base_uniforms.clone(),
                  ortho_w                   = context.ortho_w,
                  ortho_h                   = context.ortho_h,
                  next_object_id            = context.next_synthetic_object_id,
@@ -287,7 +284,7 @@ void FinalizeUniformSources(SceneParseContext& context) {
 
                         auto particle    = (**prototype).Clone();
                         particle.id      = allocate_object_id();
-                        particle.name    = rstd::cppstd::to_string(asset);
+                        particle.name    = rstd::into(asset);
                         particle.origin  = { 0.0f, 0.0f, 0.0f };
                         particle.scale   = { 1.0f, 1.0f, 1.0f };
                         particle.angles  = { 0.0f, 0.0f, 0.0f };
@@ -300,7 +297,7 @@ void FinalizeUniformSources(SceneParseContext& context) {
                             .shader_environment        = shader_environment,
                             .geometry_shader_limits    = geometry_limits,
                             .geometry_shader_supported = geometry_shader_supported,
-                            .global_base_uniforms      = global_base_uniforms,
+                            .global_base_uniforms      = global_base_uniforms.clone(),
                             .particle_runtime          = (*particle_runtime).clone(),
                             .ortho_w                   = ortho_w,
                             .ortho_h                   = ortho_h,

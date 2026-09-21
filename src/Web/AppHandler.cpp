@@ -2,10 +2,16 @@ module;
 
 module weweb;
 
+import rstd;
 import rstd.cppstd;
 
 import :cef;
 import :cef_internal;
+
+using namespace rstd::prelude;
+using namespace rstd::literals;
+using rstd::cppstd::as_str;
+using rstd::cppstd::to_string;
 
 namespace weweb
 {
@@ -27,7 +33,7 @@ void SendAudioDemand(CefRefPtr<CefFrame> frame, int generation, bool active) {
 class AudioDemandHandler final : public CefV8Handler {
 public:
     AudioDemandHandler(CefRefPtr<CefFrame> frame, int generation)
-        : m_frame(std::move(frame)), m_generation(generation) {}
+        : m_frame(rstd::move(frame)), m_generation(generation) {}
 
     bool Execute(const CefString&, CefRefPtr<CefV8Value>, const CefV8ValueList& arguments,
                  CefRefPtr<CefV8Value>&, CefString&) override {
@@ -143,8 +149,9 @@ void AppHandler::OnBeforeCommandLineProcessing(const CefString&          process
     // access to the user's login keychain.
     cmd->AppendSwitch("use-mock-keychain");
 #endif
-    if (! m_render_node_override.empty()) {
-        cmd->AppendSwitchWithValue("render-node-override", m_render_node_override);
+    if (! m_render_node_override.is_empty()) {
+        cmd->AppendSwitchWithValue("render-node-override",
+                                   to_string(m_render_node_override.as_str()));
     }
 
     cmd->AppendSwitch("enable-gpu");
@@ -212,8 +219,9 @@ void AppHandler::OnContextCreated(CefRefPtr<CefBrowser> /*browser*/, CefRefPtr<C
                                   CefRefPtr<CefV8Context> context) {
     if (! frame || ! frame->IsMain() || ! context) return;
 
-    const int generation                       = m_next_audio_context_generation++;
-    m_audio_context_generations[context.get()] = generation;
+    const int generation = m_next_audio_context_generation++;
+    (void)m_audio_context_generations.insert(reinterpret_cast<rstd::uintptr_t>(context.get()),
+                                             int(generation));
     auto handler = CefRefPtr<AudioDemandHandler>(new AudioDemandHandler(frame, generation));
     context->GetGlobal()->SetValue("__weweb_setAudioDemand",
                                    CefV8Value::CreateFunction("__weweb_setAudioDemand", handler),
@@ -252,10 +260,10 @@ void AppHandler::OnContextCreated(CefRefPtr<CefBrowser> /*browser*/, CefRefPtr<C
 void AppHandler::OnContextReleased(CefRefPtr<CefBrowser> /*browser*/, CefRefPtr<CefFrame> frame,
                                    CefRefPtr<CefV8Context> context) {
     if (! frame || ! frame->IsMain() || ! context) return;
-    auto found = m_audio_context_generations.find(context.get());
-    if (found == m_audio_context_generations.end()) return;
-    SendAudioDemand(frame, found->second, false);
-    m_audio_context_generations.erase(found);
+    auto found =
+        m_audio_context_generations.remove(reinterpret_cast<rstd::uintptr_t>(context.get()));
+    if (found.is_none()) return;
+    SendAudioDemand(frame, *found, false);
 }
 
 } // namespace weweb

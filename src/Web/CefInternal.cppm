@@ -1,10 +1,16 @@
 module weweb:cef_internal;
 
-import rstd.cppstd;
+import rstd;
+
 import wescene.json;
 
 import :cef;
 import :frame;
+
+using namespace rstd::prelude;
+using rstd::collections::HashMap;
+using rstd::sync::Mutex;
+using rstd::sync::atomic::Atomic;
 
 namespace weweb
 {
@@ -18,7 +24,7 @@ public:
 
     void SetMuteAudio(bool m) { m_mute_audio = m; }
     void SetSharedTextureEnabled(bool enabled) { m_shared_texture_enabled = enabled; }
-    void SetRenderNodeOverride(const std::string& path) { m_render_node_override = path; }
+    void SetRenderNodeOverride(ref<str> path) { m_render_node_override = String::make(path); }
 
     CefRefPtr<CefBrowserProcessHandler> GetBrowserProcessHandler() override { return this; }
     CefRefPtr<CefRenderProcessHandler>  GetRenderProcessHandler() override { return this; }
@@ -43,12 +49,12 @@ public:
     bool HasAtLeastOneRef() const override { return ref_count_.HasAtLeastOneRef(); }
 
 private:
-    bool                                 m_mute_audio { false };
-    bool                                 m_shared_texture_enabled { true };
-    std::string                          m_render_node_override;
-    int                                  m_next_audio_context_generation { 1 };
-    std::unordered_map<const void*, int> m_audio_context_generations;
-    CefRefCount                          ref_count_;
+    bool                          m_mute_audio { false };
+    bool                          m_shared_texture_enabled { true };
+    String                        m_render_node_override;
+    int                           m_next_audio_context_generation { 1 };
+    HashMap<rstd::uintptr_t, int> m_audio_context_generations;
+    CefRefCount                   ref_count_;
 };
 
 class OsrRenderHandler : public CefRenderHandler {
@@ -60,8 +66,8 @@ public:
 
     void SetViewSize(int width, int height);
     void SetDeviceScaleFactor(float scale);
-    void SetAcceleratedPaintCallback(AcceleratedPaintCallback cb) { accel_cb_ = std::move(cb); }
-    void SetCpuPaintCallback(CpuPaintCallback cb) { cpu_cb_ = std::move(cb); }
+    void SetAcceleratedPaintCallback(Option<AcceleratedPaintCallback> cb);
+    void SetCpuPaintCallback(Option<CpuPaintCallback> cb);
 
     void GetViewRect(CefRefPtr<CefBrowser> browser, CefRect& rect) override;
     void OnPaint(CefRefPtr<CefBrowser> browser, PaintElementType type, const RectList& dirtyRects,
@@ -83,13 +89,15 @@ public:
     bool HasAtLeastOneRef() const override { return ref_count_.HasAtLeastOneRef(); }
 
 private:
-    std::mutex               mu_;
-    int                      view_w_ { 1280 };
-    int                      view_h_ { 720 };
-    float                    device_scale_factor_ { 1.0f };
-    AcceleratedPaintCallback accel_cb_;
-    CpuPaintCallback         cpu_cb_;
-    CefRefCount              ref_count_;
+    struct State {
+        int                              view_w { 1280 };
+        int                              view_h { 720 };
+        float                            device_scale_factor { 1.0f };
+        Option<AcceleratedPaintCallback> accel_cb;
+        Option<CpuPaintCallback>         cpu_cb;
+    };
+    Mutex<State> state_;
+    CefRefCount  ref_count_;
 };
 
 class ClientHandler : public CefClient,
@@ -103,8 +111,8 @@ public:
     ClientHandler(const ClientHandler&)            = delete;
     ClientHandler& operator=(const ClientHandler&) = delete;
 
-    void                  SetCloseCallback(std::function<void()> cb);
-    void                  SetAudioDemandCallback(std::function<void(bool)> cb);
+    void                  SetCloseCallback(Box<dyn<Fn<void()>>> cb);
+    void                  SetAudioDemandCallback(Option<AudioDemandCallback> cb);
     void                  SetAudioMuted(bool muted);
     CefRefPtr<CefBrowser> GetBrowser() const { return browser_; }
 
@@ -138,19 +146,21 @@ public:
     bool HasAtLeastOneRef() const override { return ref_count_.HasAtLeastOneRef(); }
 
 private:
-    owe::Json                   user_props_;
-    CefRefPtr<OsrRenderHandler> render_handler_;
-    CefRefPtr<CefBrowser>       browser_;
-    std::function<void()>       close_cb_;
-    std::function<void(bool)>   audio_demand_cb_;
-    int                         audio_context_generation_ { 0 };
-    bool                        audio_demand_ { false };
-    bool                        audio_muted_ { false };
-    std::atomic<bool>           property_injected_ { false };
-    CefRefCount                 ref_count_;
+    owe::Json                    user_props_;
+    CefRefPtr<OsrRenderHandler>  render_handler_;
+    CefRefPtr<CefBrowser>        browser_;
+    Option<Box<dyn<Fn<void()>>>> close_cb_;
+    Option<AudioDemandCallback>  audio_demand_cb_;
+    int                          audio_context_generation_ { 0 };
+    bool                         audio_demand_ { false };
+    bool                         audio_muted_ { false };
+    Atomic<bool>                 property_injected_ { false };
+    CefRefCount                  ref_count_;
 };
 
-std::string BuildPropertyListenerSnippet(const owe::Json& props);
-void        InjectUserProperties(CefRefPtr<CefBrowser> browser, const owe::Json& props);
+String BuildPropertyListenerSnippet(const owe::Json& props);
+String BuildPropertyPatchSnippet(ref<str> key, const owe::Json& value);
+String BuildAudioResponseSnippet(slice<float> data);
+void   InjectUserProperties(CefRefPtr<CefBrowser> browser, const owe::Json& props);
 
 } // namespace weweb

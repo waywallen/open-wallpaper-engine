@@ -12,15 +12,22 @@ module;
 #    include <SPIRV/GlslangToSpv.h>
 #endif
 
-#include "Utils/Sha.hpp"
 module wescene.shader_compile;
 import wescene.core;
 import wescene.types;
+import wescene.utils;
 import rstd;
 import rstd.log;
 import rstd.cppstd;
 
 using namespace rstd::prelude;
+using namespace rstd::literals;
+using rstd::collections::BTreeMap;
+using rstd::cppstd::as_str;
+using rstd::ffi::CStr;
+using rstd::ffi::CString;
+using rstd::path::PathBuf;
+using rstd::sync::atomic::Atomic;
 using namespace owe;
 using namespace owe::vulkan;
 
@@ -34,17 +41,15 @@ namespace rstd
 template<>
 struct Impl<vrento::vulkan::ShaderBackend, owe::vulkan::GlslangBackend>
     : ImplBase<owe::vulkan::GlslangBackend> {
-    bool Preprocess(std::string_view source, ShaderType stage, SourceLang lang,
-                    std::string& output) const {
+    bool Preprocess(ref<str> source, ShaderType stage, SourceLang lang, String& output) const {
         return owe::vulkan::Preprocess(source, stage, lang, output);
     }
-    bool CompileAndLinkShaderUnits(std::span<const ShaderCompUnit> units,
-                                   const ShaderCompOpt&            options,
-                                   std::vector<Uni_ShaderSpv>&     output) const {
+    bool CompileAndLinkShaderUnits(slice<ShaderCompUnit> units, const ShaderCompOpt& options,
+                                   Vec<Uni_ShaderSpv>& output) const {
         return owe::vulkan::CompileAndLinkShaderUnits(units, options, output);
     }
-    bool GenReflect(std::span<const std::vector<unsigned int>> codes,
-                    std::vector<Uni_ShaderSpv>& stages, ShaderReflected& output) const {
+    bool GenReflect(slice<ShaderCode> codes, Vec<Uni_ShaderSpv>& stages,
+                    ShaderReflected& output) const {
         return owe::vulkan::GenReflect(codes, stages, output);
     }
 };
@@ -108,7 +113,7 @@ unsigned ReflectedMatrixStride(const SpvReflectBlockVariable& variable, ShaderMa
 
 usize ReflectedArrayCount(const SpvReflectArrayTraits& array) {
     usize count { 1 };
-    for (std::uint32_t index = 0; index < array.dims_count; ++index) {
+    for (rstd::uint32_t index = 0; index < array.dims_count; ++index) {
         count *= usize(array.dims[index]);
     }
     return count;
@@ -130,9 +135,9 @@ auto ReflectBlockedUniform(const SpvReflectBlockVariable& variable, int block_in
     uniform.matrix_major   = ReflectedMatrixMajor(variable);
     uniform.matrix_stride  = ReflectedMatrixStride(variable, uniform.matrix_major);
     uniform.array_stride   = variable.array.stride;
-    uniform.array_dimensions.reserve(variable.array.dims_count);
-    for (std::uint32_t dimension = 0; dimension < variable.array.dims_count; ++dimension) {
-        uniform.array_dimensions.push_back(variable.array.dims[dimension]);
+    uniform.array_dimensions.reserve(usize(variable.array.dims_count));
+    for (rstd::uint32_t dimension = 0; dimension < variable.array.dims_count; ++dimension) {
+        uniform.array_dimensions.push(u32(variable.array.dims[dimension]));
     }
     return uniform;
 }
@@ -149,13 +154,15 @@ bool SameBlockedUniformLayout(const ShaderReflected::BlockedUniform& lhs,
 
 bool SameUniformBlockLayout(const ShaderReflected::Block&  reflected,
                             const SpvReflectBlockVariable& block) {
-    if (reflected.size != block.size || reflected.member_map.size() != block.member_count)
+    if (reflected.size != block.size || reflected.member_map.len() != usize(block.member_count))
         return false;
-    for (std::uint32_t index = 0; index < block.member_count; ++index) {
+    for (rstd::uint32_t index = 0; index < block.member_count; ++index) {
         const auto& variable = block.members[index];
-        auto        existing = reflected.member_map.find(variable.name);
-        if (existing == reflected.member_map.end() ||
-            ! SameBlockedUniformLayout(existing->second,
+        auto        name     = as_str(variable.name);
+        if (name.is_err()) return false;
+        auto existing = reflected.member_map.get(name.unwrap());
+        if (existing.is_none() ||
+            ! SameBlockedUniformLayout(**existing,
                                        ReflectBlockedUniform(variable, reflected.index))) {
             return false;
         }
@@ -165,15 +172,12 @@ bool SameUniformBlockLayout(const ShaderReflected::Block&  reflected,
 
 // Spill a payload to /tmp/<sha1> for post-mortem inspection. Returns the
 // written path so callers can mention it in the error message.
-std::string logToTmpfileWithSha1(std::span<const char> in) {
-    std::string           name   = utils::genSha1(in);
-    std::filesystem::path fspath = std::filesystem::temp_directory_path() / name;
-    std::string           path   = fspath.native();
-    auto*                 file   = std::fopen(path.c_str(), "wb");
-    if (! file) return path;
-    std::fwrite(in.data(), 1, in.size(), file);
-    std::fputc('\n', file);
-    std::fclose(file);
+PathBuf logToTmpfileWithSha1(ref<str> source) {
+    auto digest   = utils::genSha1(slice<rstd::byte>::from_raw_parts(source.data(), source.len()));
+    auto path     = rstd::env::temp_dir().join(digest.as_str());
+    auto contents = String::make(source);
+    contents.push_str("\n"_str);
+    (void)rstd::fs::write(path.as_path(), contents.as_str().as_bytes());
     return path;
 }
 
@@ -207,13 +211,13 @@ inline owe::ShaderType FromSpvStage(SpvReflectShaderStageFlagBits s) {
     }
 }
 
-template<typename VEC, typename FUNC>
-bool EnumAllRef(VEC& vec, FUNC&& func) {
+template<typename T, typename FUNC>
+bool EnumAllRef(Vec<T>& vec, FUNC&& func) {
     unsigned count { 0 };
     auto     result = func(&count, nullptr);
     rstd_assert(result == SPV_REFLECT_RESULT_SUCCESS);
-    vec.resize(count);
-    result = func(&count, vec.data());
+    vec.resize(usize(count), T {});
+    result = func(&count, vec.as_mut_ptr().as_raw_ptr());
     rstd_assert(result == SPV_REFLECT_RESULT_SUCCESS);
     return result == SPV_REFLECT_RESULT_SUCCESS;
 }
@@ -262,24 +266,26 @@ inline const char* DefaultEntryName(SourceLang lang, owe::ShaderType s) {
 
 } // namespace
 
-bool owe::vulkan::GenReflect(std::span<const std::vector<unsigned>> codes,
-                             std::vector<Uni_ShaderSpv>& spvs, ShaderReflected& ref) {
+bool owe::vulkan::GenReflect(slice<ShaderCode> codes, Vec<Uni_ShaderSpv>& spvs,
+                             ShaderReflected& ref) {
     spvs.clear();
-    Map<std::string, usize> uniform_block_indices;
+    BTreeMap<String, usize> uniform_block_indices;
     for (const auto& code : codes) {
-        spv_reflect::ShaderModule spv_ref(code, SPV_REFLECT_MODULE_FLAG_NO_COPY);
+        spv_reflect::ShaderModule spv_ref(code.len().to_primitive() * sizeof(rstd::uint32_t),
+                                          code.data(),
+                                          SPV_REFLECT_MODULE_FLAG_NO_COPY);
         VkShaderStageFlagBits     stage = ::ToVkType(spv_ref.GetShaderStage());
         {
             auto spv   = Box<ShaderSpv>::make();
             spv->stage = ::FromSpvStage(spv_ref.GetShaderStage());
-            spv->spirv = code;
+            spv->spirv = code.clone();
             if (const char* ep = spv_ref.GetEntryPointName(); ep && ep[0] != '\0') {
-                spv->entry_point = ep;
+                spv->entry_point = rstd::into(as_str(ep).unwrap());
             }
-            spvs.emplace_back(std::move(spv));
+            spvs.push(rstd::move(spv));
         }
-        std::vector<SpvReflectInterfaceVariable*> inputs;
-        std::vector<SpvReflectDescriptorBinding*> bindings;
+        Vec<SpvReflectInterfaceVariable*> inputs;
+        Vec<SpvReflectDescriptorBinding*> bindings;
 
         bool ok = EnumAllRef(bindings, [&](auto&&... args) {
             return spv_ref.EnumerateDescriptorBindings(args...);
@@ -294,12 +300,14 @@ bool owe::vulkan::GenReflect(std::span<const std::vector<unsigned>> codes,
             if (! b.accessed && b.descriptor_type != SPV_REFLECT_DESCRIPTOR_TYPE_UNIFORM_BUFFER)
                 continue;
 
-            auto bind_name = std::string(b.name).empty() && b.type_description->type_name != nullptr
-                                 ? b.type_description->type_name
-                                 : b.name;
+            auto name = as_str(b.name[0] == '\0' && b.type_description->type_name != nullptr
+                                   ? b.type_description->type_name
+                                   : b.name);
+            if (name.is_err()) return false;
+            const auto bind_name = name.unwrap();
 
-            if (exists(ref.binding_map, bind_name)) {
-                auto&      bind = ref.binding_map[bind_name];
+            if (auto existing = ref.binding_map.get_mut(bind_name); existing.is_some()) {
+                auto&      bind = **existing;
                 const auto descriptor_type =
                     b.descriptor_type == SPV_REFLECT_DESCRIPTOR_TYPE_SAMPLED_IMAGE
                         ? VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER
@@ -310,10 +318,9 @@ bool owe::vulkan::GenReflect(std::span<const std::vector<unsigned>> codes,
                     return false;
                 }
                 if (b.descriptor_type == SPV_REFLECT_DESCRIPTOR_TYPE_UNIFORM_BUFFER) {
-                    auto block_index = uniform_block_indices.find(bind_name);
-                    if (block_index == uniform_block_indices.end() ||
-                        ! SameUniformBlockLayout(ref.blocks[block_index->second.to_primitive()],
-                                                 b.block)) {
+                    auto block_index = uniform_block_indices.get(bind_name);
+                    if (block_index.is_none() ||
+                        ! SameUniformBlockLayout(ref.blocks[**block_index], b.block)) {
                         rstd_error("uniform block {} layout differs across shader stages",
                                    bind_name);
                         return false;
@@ -324,24 +331,30 @@ bool owe::vulkan::GenReflect(std::span<const std::vector<unsigned>> codes,
             }
             if (b.descriptor_type == SPV_REFLECT_DESCRIPTOR_TYPE_UNIFORM_BUFFER) {
                 auto& block      = b.block;
-                auto  block_name = std::string(block.name).empty() ? bind_name : block.name;
-                ref.blocks.push_back(
-                    ShaderReflected::Block { .index      = static_cast<int>(ref.blocks.size()),
-                                             .size       = block.size,
-                                             .name       = std::move(block_name),
-                                             .set        = b.set,
-                                             .binding    = b.binding,
-                                             .member_map = {} });
-                auto& ref_block                  = ref.blocks.back();
-                uniform_block_indices[bind_name] = usize(ref.blocks.size() - 1);
+                auto  block_name = as_str(block.name);
+                if (block_name.is_err()) return false;
+                ref.blocks.push(ShaderReflected::Block {
+                    .index      = static_cast<int>(ref.blocks.len().to_primitive()),
+                    .size       = block.size,
+                    .name       = rstd::into(block_name.unwrap()->is_empty() ? bind_name
+                                                                             : block_name.unwrap()),
+                    .set        = b.set,
+                    .binding    = b.binding,
+                    .member_map = {} });
+                auto& ref_block = ref.blocks[ref.blocks.len() - usize(1)];
+                (void)uniform_block_indices.insert(rstd::into(bind_name),
+                                                   ref.blocks.len() - usize(1));
 
                 vkbinding.binding         = b.binding;
                 vkbinding.descriptorCount = 1;
                 vkbinding.descriptorType  = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
 
-                for (std::uint32_t i = 0; i < block.member_count; i++) {
-                    auto& unif                      = block.members[i];
-                    ref_block.member_map[unif.name] = ReflectBlockedUniform(unif, ref_block.index);
+                for (rstd::uint32_t i = 0; i < block.member_count; i++) {
+                    auto& unif        = block.members[i];
+                    auto  member_name = as_str(unif.name);
+                    if (member_name.is_err()) return false;
+                    (void)ref_block.member_map.insert(rstd::into(member_name.unwrap()),
+                                                      ReflectBlockedUniform(unif, ref_block.index));
                 }
             } else if (b.descriptor_type == SPV_REFLECT_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER ||
                        b.descriptor_type == SPV_REFLECT_DESCRIPTOR_TYPE_SAMPLED_IMAGE) {
@@ -366,10 +379,11 @@ bool owe::vulkan::GenReflect(std::span<const std::vector<unsigned>> codes,
                 return false;
             }
 
-            ref.binding_map[bind_name] = ShaderReflected::Binding {
-                .set    = b.set,
-                .layout = vkbinding,
-            };
+            (void)ref.binding_map.insert(rstd::into(bind_name),
+                                         ShaderReflected::Binding {
+                                             .set    = b.set,
+                                             .layout = vkbinding,
+                                         });
         }
 
         if (stage == VK_SHADER_STAGE_VERTEX_BIT) {
@@ -381,7 +395,7 @@ bool owe::vulkan::GenReflect(std::span<const std::vector<unsigned>> codes,
                 auto& input = *pinput;
                 if ((input.decoration_flags & SPV_REFLECT_DECORATION_BUILT_IN) != 0) continue;
 
-                if (input.location == std::numeric_limits<decltype(input.location)>::max()) {
+                if (input.location == u32::MAX.to_primitive()) {
                     rstd_error("shader input {} no location", input.name);
                     return false;
                 }
@@ -394,11 +408,12 @@ bool owe::vulkan::GenReflect(std::span<const std::vector<unsigned>> codes,
                 // `_ww_in.a_Position`). DXC used `in.var.<SEMANTIC>`. C++
                 // vertex-buffer layout matches by bare attribute name
                 // (`a_Position`), so strip everything up to the final `.`.
-                std::string_view name = input.name;
-                if (auto dot = name.rfind('.'); dot != std::string_view::npos) {
-                    name.remove_prefix(dot + 1);
-                }
-                ref.input_location_map[std::string(name)] = rinput;
+                if (! input.name) return false;
+                auto input_name = CStr::from_ptr(input.name).to_str();
+                if (input_name.is_err()) return false;
+                auto name = input_name.unwrap();
+                if (auto split = name.rsplit_once("."_str)) name = split->template get<1>();
+                (void)ref.input_location_map.insert(String::make(name), rstd::move(rinput));
             }
         }
     }
@@ -437,14 +452,14 @@ constexpr EShMessages kCompileMessages =
 
 } // namespace
 
-bool owe::vulkan::Preprocess(std::string_view src, ShaderType stage, SourceLang lang,
-                             std::string& out) {
+bool owe::vulkan::Preprocess(ref<str> src, ShaderType stage, SourceLang lang, String& out) {
     EnsureGlslangProcess();
     glslang::TShader shader(ToEShLanguage(stage));
-    std::string      src_copy(src);
-    const char*      data = src_copy.c_str();
-    const int        len  = (int)src_copy.size();
-    const char*      name = "ww";
+    const auto       source = src;
+    if (source.len() > usize(i32::MAX.to_primitive())) return false;
+    const char* data = reinterpret_cast<const char*>(source.data());
+    const int   len  = static_cast<int>(source.len().to_primitive());
+    const char* name = "ww";
     shader.setStringsWithLengthsAndNames(&data, &len, &name, 1);
     ConfigureShader(shader, lang, VulkanTarget::Vulkan_1_1, DefaultEntryName(lang, stage));
 
@@ -463,31 +478,39 @@ bool owe::vulkan::Preprocess(std::string_view src, ShaderType stage, SourceLang 
                                        &preprocessed,
                                        includer);
     if (! ok) {
-        std::string tmp = logToTmpfileWithSha1(src);
+        auto tmp = logToTmpfileWithSha1(source);
         rstd_error("glslang(preprocess): {}", shader.getInfoLog());
-        rstd_error("shader source is at {}", tmp);
+        rstd_error("shader source is at {}", tmp.as_path().to_string_lossy());
         return false;
     }
-    out = std::move(preprocessed);
+    auto text = as_str(preprocessed);
+    if (text.is_err()) return false;
+    out = rstd::into(text.unwrap());
     return true;
 }
 
-bool owe::vulkan::CompileAndLinkShaderUnits(std::span<const ShaderCompUnit> compUnits,
-                                            const ShaderCompOpt&            opt,
-                                            std::vector<Uni_ShaderSpv>&     spvs) {
+bool owe::vulkan::CompileAndLinkShaderUnits(slice<ShaderCompUnit> compUnits,
+                                            const ShaderCompOpt& opt, Vec<Uni_ShaderSpv>& spvs) {
     EnsureGlslangProcess();
     spvs.clear();
-    spvs.reserve(compUnits.size());
+    spvs.reserve(compUnits.len());
 
     for (const auto& unit : compUnits) {
-        const std::string entry_str =
-            unit.entry_point.empty() ? DefaultEntryName(unit.lang, unit.stage) : unit.entry_point;
-        const char* entry = entry_str.c_str();
+        auto entry_name =
+            unit.entry_point.is_empty()
+                ? CStr::from_ptr(DefaultEntryName(unit.lang, unit.stage)).to_str().unwrap()
+                : unit.entry_point.as_str();
+        auto encoded_entry = CString::make(String::make(entry_name));
+        if (encoded_entry.is_err()) return false;
+        auto        entry_c = rstd::move(encoded_entry).unwrap();
+        const char* entry   = entry_c.as_ptr();
 
         glslang::TShader shader(ToEShLanguage(unit.stage));
-        const char*      data = unit.src.c_str();
-        const int        len  = (int)unit.src.size();
-        const char*      name = "ww";
+        const auto       source = unit.src.as_str();
+        if (source.len() > usize(i32::MAX.to_primitive())) return false;
+        const char* data = reinterpret_cast<const char*>(source.data());
+        const int   len  = static_cast<int>(source.len().to_primitive());
+        const char* name = "ww";
         shader.setStringsWithLengthsAndNames(&data, &len, &name, 1);
         ConfigureShader(shader, unit.lang, opt.target, entry);
 
@@ -503,34 +526,37 @@ bool owe::vulkan::CompileAndLinkShaderUnits(std::span<const ShaderCompUnit> comp
                            forward_compat,
                            kCompileMessages,
                            includer)) {
-            std::string tmp = logToTmpfileWithSha1(unit.src);
+            auto tmp = logToTmpfileWithSha1(source);
             // Strip WARNING lines; EShMsgSuppressWarnings doesn't actually
             // omit them from the info log on this glslang build.
-            std::string log = shader.getInfoLog();
-            std::string filtered;
-            for (std::size_t i = 0, e = log.size(); i < e;) {
-                std::size_t nl = log.find('\n', i);
-                if (nl == std::string::npos) nl = e;
-                std::string_view line(log.data() + i, nl - i);
-                if (line.find("WARNING") == std::string_view::npos) {
-                    filtered.append(line);
-                    filtered.push_back('\n');
+            auto   log       = CStr::from_ptr(shader.getInfoLog()).to_str();
+            auto   remaining = log.unwrap_or(""_str);
+            String filtered;
+            while (! remaining.is_empty()) {
+                auto split = remaining.split_once("\n"_str);
+                auto line  = split ? split->template get<0>() : remaining;
+                if (! line.contains("WARNING"_str)) {
+                    filtered.push_str(line);
+                    filtered.push_str("\n"_str);
                 }
-                i = nl + 1;
+                remaining = split ? split->template get<1>() : ""_str;
             }
-            rstd_error("glslang(parse): {}", filtered);
+            if (log.is_ok())
+                rstd_error("glslang(parse): {}", filtered);
+            else
+                rstd_error("glslang(parse): {}", shader.getInfoLog());
             if (const char* d = shader.getInfoDebugLog(); d && d[0])
                 rstd_error("glslang(parse debug): {}", d);
-            rstd_error("shader source is at {}", tmp);
+            rstd_error("shader source is at {}", tmp.as_path().to_string_lossy());
             return false;
         }
 
         glslang::TProgram program;
         program.addShader(&shader);
         if (! program.link(kCompileMessages)) {
-            std::string tmp = logToTmpfileWithSha1(unit.src);
+            auto tmp = logToTmpfileWithSha1(source);
             rstd_error("glslang(link): {}", program.getInfoLog());
-            rstd_error("shader source is at {}", tmp);
+            rstd_error("shader source is at {}", tmp.as_path().to_string_lossy());
             return false;
         }
 
@@ -548,34 +574,34 @@ bool owe::vulkan::CompileAndLinkShaderUnits(std::span<const ShaderCompUnit> comp
 
         auto spv         = Box<ShaderSpv>::make();
         spv->stage       = unit.stage;
-        spv->entry_point = entry_str;
-        glslang::GlslangToSpv(*intermediate, spv->spirv, &logger, &spv_opts);
+        spv->entry_point = String::make(entry_name);
+        std::vector<unsigned int> words;
+        glslang::GlslangToSpv(*intermediate, words, &logger, &spv_opts);
+        spv->spirv = ShaderCode::from(
+            slice<rstd::uint32_t>::from_raw_parts(words.data(), usize(words.size())));
 
         if (auto msgs = logger.getAllMessages(); ! msgs.empty()) {
             rstd_warn("glslang(spv): {}", msgs);
         }
-        if (spv->spirv.empty()) {
+        if (spv->spirv.is_empty()) {
             rstd_error("glslang(spv): no SPIR-V output produced");
             return false;
         }
 
-        if (std::getenv("WP_DUMP_SPIRV")) {
-            static int  dump_idx = 0;
-            std::string base     = "/tmp/ww_dump_" + std::to_string(dump_idx++) + "_" + entry_str;
-            std::string spv_path = base + ".spv";
-            std::string src_path = base + ".glsl";
-            if (auto* f = std::fopen(spv_path.c_str(), "wb")) {
-                std::fwrite(spv->spirv.data(), sizeof(u32), spv->spirv.size(), f);
-                std::fclose(f);
-            }
-            if (auto* f = std::fopen(src_path.c_str(), "wb")) {
-                std::fwrite(unit.src.data(), 1, unit.src.size(), f);
-                std::fclose(f);
-            }
+        if (rstd::env::var_os("WP_DUMP_SPIRV"_str).is_some()) {
+            static Atomic<u64> dump_idx {};
+            auto base = rstd::format("/tmp/ww_dump_{}_{}", dump_idx.fetch_add(u64(1)), entry_name);
+            auto spv_path = PathBuf::from(rstd::format("{}.spv", base).as_str());
+            auto src_path = PathBuf::from(rstd::format("{}.glsl", base).as_str());
+            (void)rstd::fs::write(
+                spv_path.as_path(),
+                slice<u8>::from_raw_parts(reinterpret_cast<const rstd::byte*>(spv->spirv.data()),
+                                          spv->spirv.len() * usize(sizeof(rstd::uint32_t))));
+            (void)rstd::fs::write(src_path.as_path(), source.as_bytes());
             rstd_info("dumped SPIR-V + source: {}.{{spv,glsl}}", base);
         }
 
-        spvs.emplace_back(std::move(spv));
+        spvs.push(rstd::move(spv));
     }
 
     return true;

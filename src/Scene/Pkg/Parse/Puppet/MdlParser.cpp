@@ -6,9 +6,10 @@ import wescene.pkg.spec_names;
 import wescene.core;
 import wescene.types;
 import rstd.log;
-import rstd.cppstd;
 import wescene.scene;
 import wescene.pkg_asset_version;
+
+using rstd::mem::memcmp;
 
 using namespace owe;
 using namespace rstd::prelude;
@@ -26,11 +27,6 @@ Puppet::PlayMode ToPlayMode(ref<str> m) {
     rstd_error("unknown puppet animation play mode \"{}\"", m);
     rstd_assert(m == "loop"_str);
     return Puppet::PlayMode::Loop;
-}
-
-String ReadOwnedString(fs::BinaryReader& reader) {
-    auto value = reader.ReadStr();
-    return String::make(rstd::cppstd::as_str(value).unwrap());
 }
 
 Option<String> ReadOwnedStringBefore(fs::BinaryReader& reader, rstd::ptrdiff_t end_offset,
@@ -87,13 +83,13 @@ uint32_t compute_vertex_stride(uint32_t flag) {
 
 // Peek the next 4 bytes; restore cursor before returning. Used to detect
 // optional MDLS/MDAT/MDLA/MDMP/MDLE block headers without consuming them.
-bool peek_block_magic(fs::BinaryReader& f, std::string_view expect4) {
-    if (expect4.size() != 4) return false;
+bool peek_block_magic(fs::BinaryReader& f, ref<str> expect4) {
+    if (expect4.len() != usize(4)) return false;
     auto save = f.Tell();
     if (save + 4 > f.Size()) return false;
     char buf[4] = { 0 };
     f.Read(buf, 4);
-    bool ok = (std::memcmp(buf, expect4.data(), 4) == 0);
+    bool ok = (memcmp(buf, expect4.data(), rstd::usize(4)) == 0);
     f.SeekSet(save);
     return ok;
 }
@@ -278,17 +274,16 @@ bool is_mdls_v2_indexed_trailer(fs::BinaryReader& f, rstd::ptrdiff_t start, uint
 void ParseMasks(fs::BinaryReader& f, Mdl::Mesh& mesh);
 
 bool UsesUint32Indices(const MdlHeader& header, uint32_t vertex_num) {
-    return header.mdlv >= 23 && vertex_num > std::numeric_limits<uint16_t>::max();
+    return header.mdlv >= 23 && vertex_num > rstd::u16::MAX.to_primitive();
 }
 
 // hexpat Mesh<MdlV, TopFlag, SinglePuppet, SkinCount>:
 //   CStr mat_json[SkinCount] + u32 flag_a + (if flag_a==2: u32) + (if MdlV>=17: aabb)
 //   + (if MdlV>14: u32 mesh_flag) + u32 vertex_size + Vertex[]
 //   + u32 indices_size + Triangle[] + (if MdlV>=21: Parts) + (if MdlV>21: Masks)
-bool ParseMesh(fs::BinaryReader& f, const MdlHeader& header, Mdl::Mesh& mesh,
-               std::string_view path) {
+bool ParseMesh(fs::BinaryReader& f, const MdlHeader& header, Mdl::Mesh& mesh, ref<str> path) {
     ResetDefault(mesh.mat_json_files, usize(header.skin_count));
-    for (auto& material : mesh.mat_json_files) material = ReadOwnedString(f);
+    for (auto& material : mesh.mat_json_files) material = f.ReadStr();
     mesh.flag_a = f.ReadUint32();
     if (mesh.flag_a == 2) {
         mesh.has_flag_a2_one = (f.ReadUint32() == 1);
@@ -310,7 +305,7 @@ bool ParseMesh(fs::BinaryReader& f, const MdlHeader& header, Mdl::Mesh& mesh,
                    vertex_size,
                    mesh_flag,
                    stride,
-                   std::string(path));
+                   path);
         return false;
     }
 
@@ -356,10 +351,8 @@ bool ParseMesh(fs::BinaryReader& f, const MdlHeader& header, Mdl::Mesh& mesh,
     const bool     use_u32_indices = UsesUint32Indices(header, vertex_num);
     const uint32_t index_stride    = use_u32_indices ? singile_indices_u32 : singile_indices_u16;
     if (indices_size % index_stride != 0) {
-        rstd_error("unsupport mdl indices size {} (stride={}) in {}",
-                   indices_size,
-                   index_stride,
-                   std::string(path));
+        rstd_error(
+            "unsupport mdl indices size {} (stride={}) in {}", indices_size, index_stride, path);
         return false;
     }
     uint32_t indices_num = indices_size / index_stride;
@@ -482,7 +475,7 @@ bool ParseIkConfig(fs::BinaryReader& f, Puppet::IkConfig& ik) {
     return true;
 }
 
-bool ParseMDLS(fs::BinaryReader& f, Mdl& mdl, std::string_view path) {
+bool ParseMDLS(fs::BinaryReader& f, Mdl& mdl, ref<str> path) {
     mdl.mdls = ReadMdlVersion(f);
 
     uint32_t end_offset = f.ReadUint32();
@@ -496,15 +489,13 @@ bool ParseMDLS(fs::BinaryReader& f, Mdl& mdl, std::string_view path) {
     ResetDefault(bones, usize(bones_num));
     for (unsigned i = 0; i < bones_num; ++i) {
         auto& bone    = bones[usize(i)];
-        bone.name     = ReadOwnedString(f);
+        bone.name     = f.ReadStr();
         bone.sim_type = f.ReadInt32();
 
         uint32_t file_parent = f.ReadUint32();
         if (file_parent >= i && file_parent != Puppet::NO_PARENT) {
-            rstd_info("mdl bone[{}] forward parent {} in {}; treating as root",
-                      i,
-                      file_parent,
-                      std::string(path));
+            rstd_info(
+                "mdl bone[{}] forward parent {} in {}; treating as root", i, file_parent, path);
             file_parent = Puppet::NO_PARENT;
         }
         bone.bind_parent = file_parent;
@@ -519,7 +510,7 @@ bool ParseMDLS(fs::BinaryReader& f, Mdl& mdl, std::string_view path) {
         for (auto row : bone.local_bind.matrix().colwise()) {
             for (auto& x : row) x = f.ReadFloat();
         }
-        bone.simulation_json = ReadOwnedString(f);
+        bone.simulation_json = f.ReadStr();
     }
 
     if (mdl.mdls > 1) {
@@ -544,8 +535,7 @@ bool ParseMDLS(fs::BinaryReader& f, Mdl& mdl, std::string_view path) {
                     is_mdls_v2_indexed_trailer(f, trailer_start, end_offset, bones_num)) {
                     f.SeekSet(trailer_start);
                 } else {
-                    rstd_info("MDLSv2 extras_flag 5 did not match indexed trailer in {}",
-                              std::string(path));
+                    rstd_info("MDLSv2 extras_flag 5 did not match indexed trailer in {}", path);
                 }
             } else if (extras_flag != 0) {
                 rstd_info("MDLSv2 unexpected extras_flag {}", extras_flag);
@@ -613,7 +603,7 @@ bool ParseMDLS(fs::BinaryReader& f, Mdl& mdl, std::string_view path) {
         rstd_info("MDLS body ended at 0x{:X} but end_offset=0x{:X} ({})",
                   static_cast<uint32_t>(f.Tell()),
                   end_offset,
-                  std::string(path));
+                  path);
         f.SeekSet(end_offset);
     }
     return true;
@@ -626,7 +616,7 @@ void ParseMDAT(fs::BinaryReader& f, Mdl& mdl) {
     ResetDefault(attachments, usize(num_attachments));
     for (auto& att : attachments) {
         att.bone_index = f.ReadUint16();
-        att.name       = ReadOwnedString(f);
+        att.name       = f.ReadStr();
         // 64-byte payload = column-major 4x4 affine in the anchored bone's
         // local space (linear 3x3 in cols 0-2, translation in col 3).
         att.local_xform = Eigen::Affine3f::Identity();
@@ -662,14 +652,13 @@ bool ParseAnimBoneCurves(fs::BinaryReader& f, Vec<Puppet::BoneFrameCurve>& out,
     return true;
 }
 
-bool ParseAnimTransMainTrack(fs::BinaryReader& f, Vec<float>& out, int32_t length,
-                             std::string_view path) {
+bool ParseAnimTransMainTrack(fs::BinaryReader& f, Vec<float>& out, int32_t length, ref<str> path) {
     uint32_t byte_size = f.ReadUint32();
     if (! is_anim_trans_main_size(byte_size, length)) {
         rstd_error("AnimTransMain byte_size {} does not match animation length {} in {}",
                    byte_size,
                    length,
-                   std::string(path));
+                   path);
         return false;
     }
     ResetDefault(out, usize(byte_size / 4));
@@ -678,15 +667,15 @@ bool ParseAnimTransMainTrack(fs::BinaryReader& f, Vec<float>& out, int32_t lengt
 }
 
 bool ParseAnimation(fs::BinaryReader& f, Puppet::Animation& anim, int mdla_ver,
-                    uint32_t mdla_end_offset, bool has_next_animation, std::string_view path) {
+                    uint32_t mdla_end_offset, bool has_next_animation, ref<str> path) {
     anim.id           = f.ReadInt32();
     anim.unk_after_id = f.ReadUint32();
 
-    anim.name = ReadOwnedString(f);
-    if (anim.name.is_empty()) anim.name = ReadOwnedString(f);
+    anim.name = f.ReadStr();
+    if (anim.name.is_empty()) anim.name = f.ReadStr();
 
     auto play_mode = f.ReadStr();
-    anim.mode      = ToPlayMode(rstd::cppstd::as_str(play_mode).unwrap());
+    anim.mode      = ToPlayMode(play_mode.as_str());
     anim.fps       = f.ReadFloat();
     anim.length    = f.ReadInt32();
     anim.flags     = f.ReadUint32();
@@ -699,7 +688,7 @@ bool ParseAnimation(fs::BinaryReader& f, Puppet::Animation& anim, int mdla_ver,
         track.unk          = f.ReadInt32();
         uint32_t byte_size = f.ReadUint32();
         if (byte_size % singile_bone_frame != 0) {
-            rstd_error("wrong bone frame size {} in {}", byte_size, std::string(path));
+            rstd_error("wrong bone frame size {} in {}", byte_size, path);
             return false;
         }
         uint32_t num = byte_size / singile_bone_frame;
@@ -755,10 +744,8 @@ bool ParseAnimation(fs::BinaryReader& f, Puppet::Animation& anim, int mdla_ver,
                 }
             }
         } else {
-            rstd_error("Animation {} trans_flag expected 0/1, got {} in {}",
-                       anim.name,
-                       trans_flag,
-                       std::string(path));
+            rstd_error(
+                "Animation {} trans_flag expected 0/1, got {} in {}", anim.name, trans_flag, path);
             return false;
         }
         if (! ParseAnimBoneCurves(f, anim.blend_curves, b_num)) return false;
@@ -774,7 +761,7 @@ bool ParseAnimation(fs::BinaryReader& f, Puppet::Animation& anim, int mdla_ver,
                 uint16_t curve_count = f.ReadUint16();
                 ev.flags             = f.ReadUint16();
                 if (curve_count == 0) {
-                    rstd_error("AnimV4Event curve_count is zero in {}", std::string(path));
+                    rstd_error("AnimV4Event curve_count is zero in {}", path);
                     return false;
                 }
                 ResetDefault(ev.curves, usize(curve_count));
@@ -810,8 +797,7 @@ bool ParseAnimation(fs::BinaryReader& f, Puppet::Animation& anim, int mdla_ver,
     if ((anim.flags & MDLA_ANIM_FLAG_SOURCE_CLIP) != 0) {
         auto& clip = anim.source_clip.insert(Puppet::AnimSourceClip {});
         if (! ParseAnimSourceClip(f, clip, mdla_end_offset)) {
-            rstd_error(
-                "Animation {} has an invalid source clip in {}", anim.name, std::string(path));
+            rstd_error("Animation {} has an invalid source clip in {}", anim.name, path);
             return false;
         }
     }
@@ -823,7 +809,7 @@ bool ParseAnimation(fs::BinaryReader& f, Puppet::Animation& anim, int mdla_ver,
         rstd_error("Animation {} has an invalid event list at 0x{:X} in {}",
                    anim.name,
                    static_cast<uint32_t>(events_offset),
-                   std::string(path));
+                   path);
         return false;
     }
     if (next_is_anim_record_padding(f, mdla_end_offset)) {
@@ -837,8 +823,22 @@ bool ParseAnimation(fs::BinaryReader& f, Puppet::Animation& anim, int mdla_ver,
     return true;
 }
 
-bool ParseMDLA(fs::BinaryReader& f, Mdl& mdl, std::string_view tag, std::string_view path) {
-    mdl.mdla = std::stoi(std::string(tag.substr(4, 4)));
+Option<int> MdlBlockVersion(slice<char> tag) {
+    if (tag.len() < usize(8)) return None();
+    usize begin(4);
+    while (begin < usize(8) && rstd::ascii::is_space(u8(tag[begin]))) ++begin;
+    auto end = begin;
+    if (end < usize(8) && (tag[end] == '+' || tag[end] == '-')) ++end;
+    while (end < usize(8) && rstd::ascii::is_digit(u8(tag[end]))) ++end;
+    auto digits = slice<u8>::from_raw_parts(
+        reinterpret_cast<const rstd::byte*>(tag.as_raw_ptr()) + begin.to_primitive(), end - begin);
+    auto parsed = rstd::from_str<i32>(rstd::str_::from_utf8_unchecked(digits));
+    if (parsed.is_err()) return None();
+    return Some(parsed.unwrap().to_primitive());
+}
+
+bool ParseMDLA(fs::BinaryReader& f, Mdl& mdl, int version, ref<str> path) {
+    mdl.mdla = version;
     if (mdl.mdla == 0) return true;
 
     uint32_t end_offset = f.ReadUint32();
@@ -860,16 +860,14 @@ bool ParseMDLA(fs::BinaryReader& f, Mdl& mdl, std::string_view tag, std::string_
     if (end_offset > 0 && static_cast<uint32_t>(f.Tell()) + 4 == end_offset) {
         uint32_t final_padding_zero = f.ReadUint32();
         if (final_padding_zero != 0) {
-            rstd_info("MDLA final_padding_zero expected 0, got {} ({})",
-                      final_padding_zero,
-                      std::string(path));
+            rstd_info("MDLA final_padding_zero expected 0, got {} ({})", final_padding_zero, path);
         }
     }
     if (end_offset > 0 && static_cast<uint32_t>(f.Tell()) != end_offset) {
         rstd_info("MDLA body ended at 0x{:X} but end_offset=0x{:X} ({})",
                   static_cast<uint32_t>(f.Tell()),
                   end_offset,
-                  std::string(path));
+                  path);
         f.SeekSet(end_offset);
     }
     return ok;
@@ -882,7 +880,7 @@ void ParseMasks(fs::BinaryReader& f, Mdl::Mesh& mesh) {
         m.leading_a     = f.ReadUint32();
         uint32_t zero_a = f.ReadUint32();
         if (zero_a != 0) rstd_info("MaskBlock zero_a expected 0, got {}", zero_a);
-        m.mat_json        = ReadOwnedString(f);
+        m.mat_json        = f.ReadStr();
         uint32_t zero_pad = f.ReadUint32();
         if (zero_pad != 0) rstd_info("MaskBlock zero_pad expected 0, got {}", zero_pad);
         uint32_t a_count = f.ReadUint32();
@@ -894,8 +892,8 @@ void ParseMasks(fs::BinaryReader& f, Mdl::Mesh& mesh) {
     }
 }
 
-bool ParseMDMP(fs::BinaryReader& f, Mdl& mdl, std::string_view tag, std::string_view path) {
-    mdl.mdmp            = std::stoi(std::string(tag.substr(4, 4)));
+bool ParseMDMP(fs::BinaryReader& f, Mdl& mdl, int version, ref<str> path) {
+    mdl.mdmp            = version;
     uint32_t end_offset = f.ReadUint32();
     while (f.Tell() < end_offset) {
         auto&    sec    = mdl.morph_sections.emplace_back();
@@ -913,7 +911,7 @@ bool ParseMDMP(fs::BinaryReader& f, Mdl& mdl, std::string_view tag, std::string_
             if (sd_zero != 0) {
                 rstd_info("MDMPSectionData zero_a expected 0, got {}", sd_zero);
             }
-            sd.tag          = ReadOwnedString(f);
+            sd.tag          = f.ReadStr();
             uint32_t length = f.ReadUint32();
             sd.hash         = f.ReadUint32();
             if (length % 6 != 0) {
@@ -938,14 +936,14 @@ bool ParseMDMP(fs::BinaryReader& f, Mdl& mdl, std::string_view tag, std::string_
         rstd_info("MDMP body ended at 0x{:X} but end_offset=0x{:X} ({})",
                   static_cast<uint32_t>(f.Tell()),
                   end_offset,
-                  std::string(path));
+                  path);
         f.SeekSet(end_offset);
     }
     return true;
 }
 
-bool ParseMDLE(fs::BinaryReader& f, Mdl& mdl, std::string_view tag) {
-    mdl.mdle                   = std::stoi(std::string(tag.substr(4, 4)));
+bool ParseMDLE(fs::BinaryReader& f, Mdl& mdl, int version) {
+    mdl.mdle                   = version;
     uint32_t     end_offset    = f.ReadUint32();
     uint32_t     payload_bytes = f.ReadUint32();
     const size_t nbones        = (*mdl.puppet)->bones.len().to_primitive();
@@ -981,10 +979,12 @@ void ApplyMDLS3CentroidPivot(Mdl& mdl) {
             b.anim_parent = b.file_parent;
         }
     }
-    const size_t                 nbones = (*mdl.puppet)->bones.len().to_primitive();
-    std::vector<Eigen::Vector3d> sum_pos(nbones, Eigen::Vector3d::Zero());
-    std::vector<double>          sum_w(nbones, 0.0);
-    auto                         v_to_e = [](const array<float, 3>& p) {
+    const auto           nbones = (*mdl.puppet)->bones.len();
+    Vec<Eigen::Vector3d> sum_pos;
+    sum_pos.resize(nbones, Eigen::Vector3d::Zero().eval());
+    Vec<double> sum_w;
+    sum_w.resize(nbones, 0.0);
+    auto v_to_e = [](const array<float, 3>& p) {
         return Eigen::Vector3d { p[usize(0)], p[usize(1)], p[usize(2)] };
     };
 
@@ -1017,10 +1017,10 @@ void ApplyMDLS3CentroidPivot(Mdl& mdl) {
                     for (int slot = 0; slot < slots; ++slot) {
                         float    w  = weight(vi, slot);
                         uint32_t bi = m.blend_indices[usize(vi)][usize(static_cast<size_t>(slot))];
-                        if (w > 0.0f && bi < nbones) {
+                        if (w > 0.0f && usize(bi) < nbones) {
                             double tri_w = (area / 3.0) * static_cast<double>(w);
-                            sum_pos[bi] += centroid_tri * tri_w;
-                            sum_w[bi] += tri_w;
+                            sum_pos[usize(bi)] += centroid_tri * tri_w;
+                            sum_w[usize(bi)] += tri_w;
                         }
                     }
                 }
@@ -1032,9 +1032,9 @@ void ApplyMDLS3CentroidPivot(Mdl& mdl) {
                 for (int k = 0; k < slots; ++k) {
                     float    w  = weight(vi, k);
                     uint32_t bi = m.blend_indices[usize(vi)][usize(static_cast<size_t>(k))];
-                    if (w > 0.0f && bi < nbones) {
-                        sum_pos[bi] += p * (double)w;
-                        sum_w[bi] += (double)w;
+                    if (w > 0.0f && usize(bi) < nbones) {
+                        sum_pos[usize(bi)] += p * (double)w;
+                        sum_w[usize(bi)] += (double)w;
                     }
                 }
             }
@@ -1042,7 +1042,7 @@ void ApplyMDLS3CentroidPivot(Mdl& mdl) {
     };
     for (const auto& m : mdl.meshes) contribute(m);
 
-    for (size_t i = 0; i < nbones; ++i) {
+    for (usize i {}; i < nbones; ++i) {
         if (sum_w[i] > 0.0) {
             Eigen::Vector3f centroid = (sum_pos[i] / sum_w[i]).cast<float>();
             (*mdl.puppet)->bones[usize(i)].vertex_centroid_offset =
@@ -1052,82 +1052,95 @@ void ApplyMDLS3CentroidPivot(Mdl& mdl) {
 }
 
 // hexpat Header: VersionTag mdlv + u32 mdl_flag + u32 skin_count + u32 mesh_count.
-bool ReadHeaderFromStream(fs::BinaryReader& f, MdlHeader& h, std::string_view path_for_log) {
+bool ReadHeaderFromStream(fs::BinaryReader& f, MdlHeader& h, ref<str> path_for_log) {
     h.mdlv       = ReadMdlVersion(f);
     h.mdl_flag   = f.ReadUint32();
     h.skin_count = f.ReadUint32();
     h.mesh_count = f.ReadUint32();
     if (h.skin_count == 0) {
-        rstd_error("mdl '{}' header has no material skins", std::string(path_for_log));
+        rstd_error("mdl '{}' header has no material skins", path_for_log);
         return false;
     }
     return true;
 }
 
-std::string ResolveMdlMaterialPath(std::string_view ref) {
-    std::string path(ref);
-    if (! path.ends_with(".json")) path += ".json";
-    if (path.starts_with("materials/")) return "/assets/" + path;
-    return "/assets/materials/" + path;
+String ResolveMdlMaterialPath(ref<str> reference) {
+    auto path = rstd::into<String>(reference);
+    if (! path.as_str()->ends_with(".json"_str)) path.push_str(".json"_str);
+    if (path.as_str()->starts_with("materials/"_str)) return rstd::format("/assets/{}", path);
+    return rstd::format("/assets/materials/{}", path);
 }
 
 } // namespace
 
 bool MdlParser::ParseHeader(ref<str> path, fs::VFS& vfs, MdlHeader& h) {
-    auto path_view = rstd::cppstd::as_string_view(path);
-    auto pfile     = fs::OpenBinary(vfs, "/assets/" + std::string(path_view));
+    auto pfile = fs::OpenBinary(vfs, fs::Path(rstd::format("/assets/{}", path).as_str()));
     if (pfile.is_err()) return false;
     auto f = rstd::move(pfile).unwrap_unchecked();
-    return ReadHeaderFromStream(f, h, path_view);
+    return ReadHeaderFromStream(f, h, path);
 }
 
 bool MdlParser::Parse(ref<str> path, fs::VFS& vfs, Mdl& mdl) {
-    auto str_path = std::string(rstd::cppstd::as_string_view(path));
-    auto pfile    = fs::OpenBinary(vfs, "/assets/" + str_path);
+    auto pfile = fs::OpenBinary(vfs, fs::Path(rstd::format("/assets/{}", path).as_str()));
     if (pfile.is_err()) return false;
     auto f = rstd::move(pfile).unwrap_unchecked();
 
-    if (! ReadHeaderFromStream(f, mdl.header, str_path)) return false;
+    if (! ReadHeaderFromStream(f, mdl.header, path)) return false;
 
     ResetDefault(mdl.meshes, usize(mdl.header.mesh_count));
     for (auto& m : mdl.meshes) {
-        if (! ParseMesh(f, mdl.header, m, str_path)) return false;
+        if (! ParseMesh(f, mdl.header, m, path)) return false;
     }
 
     // Consume the 9-byte VersionTag for blocks whose body parser expects to
     // start at `end_offset`. MDLS reads its tag internally via ReadMdlVersion.
-    auto consume_tag = [&]() -> std::string {
-        char buf[9] { 0 };
-        f.Read(buf, 9);
-        return std::string(buf, 8);
+    auto consume_tag = [&]() -> array<char, 9> {
+        array<char, 9> buf {};
+        f.Read(buf.data(), 9);
+        return buf;
     };
 
-    if (peek_block_magic(f, "MDLS")) {
-        if (! ParseMDLS(f, mdl, str_path)) return false;
+    if (peek_block_magic(f, "MDLS"_str)) {
+        if (! ParseMDLS(f, mdl, path)) return false;
     }
-    if (peek_block_magic(f, "MDAT")) {
+    if (peek_block_magic(f, "MDAT"_str)) {
         (void)consume_tag();
         ParseMDAT(f, mdl);
     }
-    if (peek_block_magic(f, "MDLA")) {
-        std::string tag = consume_tag();
+    if (peek_block_magic(f, "MDLA"_str)) {
+        auto tag     = consume_tag();
+        auto version = MdlBlockVersion(tag.as_slice());
+        if (version.is_none()) {
+            rstd_error("Invalid MDLA version in {}", path);
+            return false;
+        }
         // MDLA body's verified schema doesn't cover every puppet (rw_puppet
         // in 3669680904 trips a garbage BoneFrameCurve byte_size). Treat a
         // failure as fatal-to-animation only: clear any partially populated
         // anims so the puppet stays at bind pose, then jump to MDLA end via
         // the rescue inside ParseMDLA. Bones + mesh are still usable.
-        if (! ParseMDLA(f, mdl, tag, str_path)) {
+        if (! ParseMDLA(f, mdl, *version, path)) {
             if (mdl.puppet.is_some()) (*mdl.puppet)->anims.clear();
-            rstd_info("MDLA parse aborted for {}; puppet keeps bind pose only", str_path);
+            rstd_info("MDLA parse aborted for {}; puppet keeps bind pose only", path);
         }
     }
-    if (peek_block_magic(f, "MDMP")) {
-        std::string tag = consume_tag();
-        if (! ParseMDMP(f, mdl, tag, str_path)) return false;
+    if (peek_block_magic(f, "MDMP"_str)) {
+        auto tag     = consume_tag();
+        auto version = MdlBlockVersion(tag.as_slice());
+        if (version.is_none()) {
+            rstd_error("Invalid MDMP version in {}", path);
+            return false;
+        }
+        if (! ParseMDMP(f, mdl, *version, path)) return false;
     }
-    if (peek_block_magic(f, "MDLE")) {
-        std::string tag = consume_tag();
-        if (! ParseMDLE(f, mdl, tag)) return false;
+    if (peek_block_magic(f, "MDLE"_str)) {
+        auto tag     = consume_tag();
+        auto version = MdlBlockVersion(tag.as_slice());
+        if (version.is_none()) {
+            rstd_error("Invalid MDLE version in {}", path);
+            return false;
+        }
+        if (! ParseMDLE(f, mdl, *version)) return false;
     }
 
     // hexpat Body: u8 trailing_nul (mdlv>=14). mdlv==13 file end is padded
@@ -1167,8 +1180,8 @@ bool MdlParser::Parse(ref<str> path, fs::VFS& vfs, Mdl& mdl) {
 }
 
 Option<wpscene::Material> MdlParser::ParseMaterial(ref<str> material_ref, fs::VFS& vfs) {
-    const auto path   = ResolveMdlMaterialPath(rstd::cppstd::as_string_view(material_ref));
-    auto       parsed = owe::ReadJsonFile(vfs, path, { .allow_comments = true });
+    const auto path   = ResolveMdlMaterialPath(material_ref);
+    auto       parsed = owe::ReadJsonFile(vfs, fs::Path(path.as_str()), { .allow_comments = true });
     if (parsed.is_err()) {
         auto error = rstd::move(parsed).unwrap_err_unchecked();
         rstd_error("load mdl material '{}' failed: {}", path, error.message.as_str());
@@ -1177,10 +1190,10 @@ Option<wpscene::Material> MdlParser::ParseMaterial(ref<str> material_ref, fs::VF
     auto json = rstd::move(parsed).unwrap_unchecked();
 
     wpscene::Material material;
-    material.blending   = "disabled";
-    material.depthtest  = "enabled";
-    material.depthwrite = "enabled";
-    material.cullmode   = "back";
+    material.blending   = "disabled"_Str;
+    material.depthtest  = "enabled"_Str;
+    material.depthwrite = "enabled"_Str;
+    material.cullmode   = "back"_Str;
     if (! material.FromJson(json)) {
         rstd_error("parse mdl material '{}' failed", path);
         return None();
@@ -1189,11 +1202,10 @@ Option<wpscene::Material> MdlParser::ParseMaterial(ref<str> material_ref, fs::VF
 }
 
 Option<usize> MdlParser::FindMeshByMaterial(const Mdl& mdl, ref<str> material_ref) {
-    const auto wanted = ResolveMdlMaterialPath(rstd::cppstd::as_string_view(material_ref));
+    const auto wanted = ResolveMdlMaterialPath(material_ref);
     for (usize mesh_index {}; mesh_index < mdl.meshes.len(); ++mesh_index) {
         for (const auto& candidate : mdl.meshes[mesh_index].mat_json_files) {
-            if (ResolveMdlMaterialPath(rstd::cppstd::as_string_view(candidate.as_str())) == wanted)
-                return Some(mesh_index);
+            if (ResolveMdlMaterialPath(candidate.as_str()) == wanted) return Some(mesh_index);
         }
     }
     return None();
@@ -1210,116 +1222,118 @@ void MdlParser::GenMeshFromMdl(SceneMesh::Submesh& submesh, const Mdl::Mesh& src
 
     // Build the attribute list in a stable order. Skinning attrs come early so
     // a puppet vertex layout matches what WE shaders historically expect.
-    std::vector<VertexAttrSpec>                      specs;
-    std::vector<std::function<void(size_t, float*)>> packers;
+    Vec<VertexAttrSpec> specs;
+    using VertexPacker = Box<dyn<Fn<void(size_t, float*)>>>;
+    Vec<VertexPacker> packers;
 
     // Position is always present (the parser would have failed otherwise).
-    specs.push_back(VAttr::Position);
-    packers.push_back([&src, position_offset](size_t i, float* dst) {
+    specs.push(VertexAttrSpec(VAttr::Position));
+    packers.push(VertexPacker::make([&src, position_offset](size_t i, float* dst) {
         dst[0] = src.positions[usize(i)][usize(0)] + position_offset[usize(0)];
         dst[1] = src.positions[usize(i)][usize(1)] + position_offset[usize(1)];
         dst[2] = src.positions[usize(i)][usize(2)] + position_offset[usize(2)];
-    });
+    }));
     if (! src.normals.is_empty()) {
-        specs.push_back(VAttr::Normal);
-        packers.push_back([&src](size_t i, float* dst) {
-            std::memcpy(dst, src.normals[usize(i)].data(), sizeof(src.normals[usize(i)]));
-        });
+        specs.push(VertexAttrSpec(VAttr::Normal));
+        packers.push(VertexPacker::make([&src](size_t i, float* dst) {
+            for (usize component {}; component < usize(3); ++component)
+                dst[component.to_primitive()] = src.normals[usize(i)][component];
+        }));
     }
     if (! src.tangents.is_empty()) {
-        specs.push_back(VAttr::Tangent4);
-        packers.push_back([&src](size_t i, float* dst) {
-            std::memcpy(dst, src.tangents[usize(i)].data(), sizeof(src.tangents[usize(i)]));
-        });
+        specs.push(VertexAttrSpec(VAttr::Tangent4));
+        packers.push(VertexPacker::make([&src](size_t i, float* dst) {
+            for (usize component {}; component < usize(4); ++component)
+                dst[component.to_primitive()] = src.tangents[usize(i)][component];
+        }));
     }
     if (! src.blend_indices.is_empty()) {
-        specs.push_back(VAttr::BlendIndices);
-        packers.push_back([&src](size_t i, float* dst) {
-            std::memcpy(
-                dst, src.blend_indices[usize(i)].data(), sizeof(src.blend_indices[usize(i)]));
-        });
+        specs.push(VertexAttrSpec(VAttr::BlendIndices));
+        packers.push(VertexPacker::make([&src](size_t i, float* dst) {
+            for (usize component {}; component < usize(4); ++component)
+                dst[component.to_primitive()] =
+                    rstd::bit_cast<float>(src.blend_indices[usize(i)][component]);
+        }));
         // SKIN_BLEND without SKIN_WEIGHT is the WE 1-bone rigid convention;
         // emit synthetic [1,0,0,0] so the SKINNING shader path always has
         // valid weights to read.
-        specs.push_back(VAttr::BlendWeights);
+        specs.push(VertexAttrSpec(VAttr::BlendWeights));
         const bool has_w = ! src.blend_weights.is_empty();
-        packers.push_back([&src, has_w](size_t i, float* dst) {
+        packers.push(VertexPacker::make([&src, has_w](size_t i, float* dst) {
             if (has_w) {
-                std::memcpy(
-                    dst, src.blend_weights[usize(i)].data(), sizeof(src.blend_weights[usize(i)]));
+                for (usize component {}; component < usize(4); ++component)
+                    dst[component.to_primitive()] = src.blend_weights[usize(i)][component];
             } else {
                 dst[0] = 1.0f;
                 dst[1] = 0.0f;
                 dst[2] = 0.0f;
                 dst[3] = 0.0f;
             }
-        });
+        }));
     }
     if (! src.texcoords.is_empty()) {
-        specs.push_back(VAttr::TexCoord);
-        packers.push_back([&src, texcoord_scale](size_t i, float* dst) {
+        specs.push(VertexAttrSpec(VAttr::TexCoord));
+        packers.push(VertexPacker::make([&src, texcoord_scale](size_t i, float* dst) {
             dst[0] = src.texcoords[usize(i)][usize(0)] * texcoord_scale[usize(0)];
             dst[1] = src.texcoords[usize(i)][usize(1)] * texcoord_scale[usize(1)];
-        });
+        }));
     }
     const auto* uv2 = ! src.part_uv2.is_empty()    ? &src.part_uv2
                       : ! src.texcoord2.is_empty() ? &src.texcoord2
                                                    : nullptr;
     if (! src.texcoords.is_empty() && uv2 != nullptr && uv2->len() == usize(vert_num)) {
-        specs.push_back(VAttr::TexCoordVec4);
-        packers.push_back([&src, uv2, texcoord_scale](size_t i, float* dst) {
+        specs.push(VertexAttrSpec(VAttr::TexCoordVec4));
+        packers.push(VertexPacker::make([&src, uv2, texcoord_scale](size_t i, float* dst) {
             dst[0] = src.texcoords[usize(i)][usize(0)] * texcoord_scale[usize(0)];
             dst[1] = src.texcoords[usize(i)][usize(1)] * texcoord_scale[usize(1)];
             dst[2] = (*uv2)[usize(i)][usize(0)];
             dst[3] = (*uv2)[usize(i)][usize(1)];
-        });
+        }));
     }
 
-    auto             attrs = MakeAttrSet(specs);
-    SceneVertexArray vertex(attrs, usize(vert_num));
+    SceneVertexArray vertex(MakeAttrSet(specs.as_slice()), usize(vert_num));
+    const auto       attrs = vertex.Attributes();
 
     size_t stride_floats = 0;
-    for (auto& a : attrs) stride_floats += SceneVertexArray::RealAttributeSize(a);
-    std::vector<float> one_vert(stride_floats);
+    for (auto& a : attrs) stride_floats += SceneVertexArray::RealAttributeSize(a).to_primitive();
+    auto one_vert = Vec<float>::with_capacity(usize(stride_floats));
+    for (size_t component = 0; component < stride_floats; ++component) one_vert.push(0.0f);
 
     for (size_t i = 0; i < vert_num; ++i) {
         size_t offset = 0;
-        for (size_t k = 0; k < packers.size(); ++k) {
-            packers[k](i, one_vert.data() + offset);
-            offset += SceneVertexArray::RealAttributeSize(attrs[k]);
+        for (usize k {}; k < packers.len(); ++k) {
+            (*packers[k])(i, one_vert.begin() + offset);
+            offset += SceneVertexArray::RealAttributeSize(attrs[k]).to_primitive();
         }
-        vertex.SetVertexs(
-            usize(i), rstd::slice<float>::from_raw_parts(one_vert.data(), usize(one_vert.size())));
+        vertex.SetVertexs(usize(i), one_vert.as_slice());
     }
 
-    std::vector<uint32_t> indices;
-    indices.reserve(src.indices.len().to_primitive() * 3);
+    auto indices = Vec<uint32_t>::with_capacity(src.indices.len() * usize(3));
     for (const auto& tri : src.indices) {
-        for (uint32_t v : tri) indices.push_back(v);
+        for (uint32_t v : tri) indices.push(rstd::move(v));
     }
 
-    submesh.vertex_arrays.emplace_back(std::move(vertex));
-    submesh.index_arrays.emplace_back(
-        SceneIndexArray(slice<uint32_t>::from_raw_parts(indices.data(), usize(indices.size()))));
+    submesh.vertex_arrays.emplace_back(rstd::move(vertex));
+    submesh.index_arrays.emplace_back(SceneIndexArray(indices.as_slice()));
 
     // V21 parts[] enumerates index sub-ranges in artist-chosen z-order. We
     // issue one DrawIndexed per range so each "part" is drawn as a separate
     // primitive batch, which lets later parts overdraw earlier ones (eyelid
     // covering pupil at peak blink) and leaves headroom for per-part state.
     if (! src.parts.is_empty()) {
-        submesh.draw_ranges.reserve(src.parts.len().to_primitive());
+        submesh.draw_ranges.reserve(src.parts.len());
         for (const auto& p : src.parts) {
             if (p.size == 0) continue;
-            submesh.draw_ranges.push_back({ u32(p.start), u32(p.size) });
+            submesh.draw_ranges.push({ u32(p.start), u32(p.size) });
         }
     }
 }
 
 void MdlParser::BindDrawOrder(SceneMesh::Submesh& submesh, const Mdl::Mesh& src,
                               Arc<PuppetLayer> layer) {
-    if (submesh.draw_ranges.empty() || ! layer->HasDrawOrderAnimation()) return;
+    if (submesh.draw_ranges.is_empty() || ! layer->HasDrawOrderAnimation()) return;
     Vec<PuppetLayer::PartOrder> parts;
-    parts.reserve(usize(submesh.draw_ranges.size()));
+    parts.reserve(usize(submesh.draw_ranges.len().to_primitive()));
     for (const auto& range : submesh.draw_ranges) {
         const Mdl::Mesh::Part* found = nullptr;
         for (const auto& part : src.parts) {
@@ -1342,26 +1356,26 @@ void MdlParser::GenMaskSubmeshFromMdl(SceneMesh::Submesh& submesh, const Mdl::Me
                                       array<float, 2> texcoord_scale) {
     GenMeshFromMdl(submesh, src, texcoord_scale);
     // `clip_part_indices` are positions in src.parts[] (0-based), not `part.id`.
-    std::vector<SceneMesh::DrawRange> ranges;
+    Vec<SceneMesh::DrawRange> ranges;
     for (usize i {}; i < clip_part_indices.len(); ++i) {
         const uint32_t idx = clip_part_indices[i];
         if (idx >= src.parts.len().to_primitive()) continue;
         const auto& p = src.parts[usize(idx)];
         if (p.size == 0) continue;
-        ranges.push_back({ u32(p.start), u32(p.size) });
+        ranges.push({ u32(p.start), u32(p.size) });
     }
-    submesh.draw_ranges = std::move(ranges);
+    submesh.draw_ranges = rstd::move(ranges);
 }
 
 void MdlParser::AddPuppetShaderInfo(ShaderInfo& info, const Mdl& mdl) {
-    info.combos[rstd::cppstd::to_string(WE_CB_SKINNING)] = "1";
-    info.combos[rstd::cppstd::to_string(WE_CB_BONECOUNT)] =
-        std::to_string((*mdl.puppet)->bones.len().to_primitive());
+    (void)info.combos.insert(rstd::into(WE_CB_SKINNING), "1"_Str);
+    (void)info.combos.insert(rstd::into(WE_CB_BONECOUNT),
+                             rstd::format("{}", (*mdl.puppet)->bones.len()));
 }
 
 void MdlParser::AddPuppetMatInfo(wpscene::Material& mat, const Mdl& mdl) {
-    mat.combos[rstd::cppstd::to_string(WE_CB_SKINNING)] = i32(1);
-    mat.combos[rstd::cppstd::to_string(WE_CB_BONECOUNT)] =
-        rstd::as_cast<i32>((*mdl.puppet)->bones.len());
+    (void)mat.combos.insert(rstd::into(WE_CB_SKINNING), i32(1));
+    (void)mat.combos.insert(rstd::into(WE_CB_BONECOUNT),
+                            rstd::as_cast<i32>((*mdl.puppet)->bones.len()));
     mat.use_puppet = true;
 }

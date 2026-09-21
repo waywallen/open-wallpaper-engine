@@ -7,10 +7,11 @@ import :scene_context;
 import eigen;
 import rstd;
 import rstd.log;
-import rstd.cppstd;
 
 using namespace rstd::prelude;
 using namespace rstd::literals;
+using rstd::iter::from_slice;
+using rstd::slice_::sort_by_key;
 using rstd::slice_::sort_unstable_by;
 using rstd::sync::Arc;
 using namespace owe;
@@ -33,10 +34,12 @@ SceneAnimationKey ToSceneAnimationKey(const owe::wpscene::AnimKeyframe& key) {
     };
 }
 
-Vec<SceneAnimationKey> ToSceneAnimationAxis(const std::vector<owe::wpscene::AnimKeyframe>& keys) {
-    Vec<SceneAnimationKey> result;
-    result.reserve(usize(keys.size()));
-    for (const auto& key : keys) result.push(ToSceneAnimationKey(key));
+Vec<SceneAnimationKey> ToSceneAnimationAxis(slice<owe::wpscene::AnimKeyframe> keys) {
+    auto result = from_slice(keys)
+                      .map([](ref<wpscene::AnimKeyframe> key) {
+                          return ToSceneAnimationKey(*key);
+                      })
+                      .collect<Vec<SceneAnimationKey>>();
     sort_unstable_by(result.as_mut_slice().as_mut_ref(),
                      [](const SceneAnimationKey& left, const SceneAnimationKey& right) {
                          return left.frame < right.frame;
@@ -44,31 +47,27 @@ Vec<SceneAnimationKey> ToSceneAnimationAxis(const std::vector<owe::wpscene::Anim
     return result;
 }
 
-Vec<SceneAnimationEvent>
-ToSceneAnimationEvents(const std::vector<owe::wpscene::AnimEvent>& events) {
-    Vec<SceneAnimationEvent> result;
-    result.reserve(usize(events.size()));
-    for (usize index {}; index < usize(events.size()); ++index) {
-        const auto& event = events[index.to_primitive()];
-        result.push(SceneAnimationEvent {
-            .frame = event.frame,
-            .order = index,
-            .name  = String::make(rstd::cppstd::as_str(event.name).unwrap()),
-        });
-    }
-    sort_unstable_by(result.as_mut_slice().as_mut_ref(),
-                     [](const SceneAnimationEvent& left, const SceneAnimationEvent& right) {
-                         if (left.frame != right.frame) return left.frame < right.frame;
-                         return left.order < right.order;
-                     });
+Vec<SceneAnimationEvent> ToSceneAnimationEvents(slice<wpscene::AnimEvent> events) {
+    auto result = from_slice(events)
+                      .enumerate()
+                      .map([](auto item) {
+                          auto [index, event] = item;
+                          return SceneAnimationEvent { .frame = event->frame,
+                                                       .order = index,
+                                                       .name  = event->name.clone() };
+                      })
+                      .collect<Vec<SceneAnimationEvent>>();
+    sort_by_key(result.deref_mut(), [](const SceneAnimationEvent& event) {
+        return event.frame;
+    });
     return result;
 }
 
 SceneAnimationCurve BuildSceneAnimationCurve(const owe::wpscene::AnimCurve& curve) {
     return SceneAnimationCurve {
-        .c0       = ToSceneAnimationAxis(curve.c0),
-        .c1       = ToSceneAnimationAxis(curve.c1),
-        .c2       = ToSceneAnimationAxis(curve.c2),
+        .c0       = ToSceneAnimationAxis(curve.c0.as_slice()),
+        .c1       = ToSceneAnimationAxis(curve.c1.as_slice()),
+        .c2       = ToSceneAnimationAxis(curve.c2.as_slice()),
         .relative = curve.relative,
     };
 }
@@ -76,11 +75,11 @@ SceneAnimationCurve BuildSceneAnimationCurve(const owe::wpscene::AnimCurve& curv
 auto BuildSceneAnimationClip(const owe::wpscene::AnimCurve& curve, i32 end)
     -> Arc<SceneAnimationClip> {
     return Arc<SceneAnimationClip>::make(SceneAnimationClipSpec {
-        .events   = ToSceneAnimationEvents(curve.options.events),
-        .name     = String::make(rstd::cppstd::as_str(curve.options.name).unwrap()),
-        .mode     = String::make(rstd::cppstd::as_str(curve.options.mode).unwrap()),
+        .events   = ToSceneAnimationEvents(curve.options.events.as_slice()),
+        .name     = curve.options.name.clone(),
+        .mode     = curve.options.mode.clone(),
         .fps      = curve.options.fps > 0.0f ? curve.options.fps : 30.0f,
-        .end      = std::max(curve.options.length, end),
+        .end      = rstd::cmp::max(end, curve.options.length),
         .wraploop = curve.options.wraploop,
     });
 }
@@ -88,14 +87,14 @@ auto BuildSceneAnimationClip(const owe::wpscene::AnimCurve& curve, i32 end)
 Option<SceneCameraLookAtKey> ParseLookAtKey(const owe::Json& json) {
     if (! json.is_object()) return None();
     SceneCameraLookAtKey key;
-    std::array<float, 3> eye {};
-    std::array<float, 3> center {};
-    std::array<float, 3> up {};
-    if (! owe::GetJsonValue(json, "eye", eye, false) ||
-        ! owe::GetJsonValue(json, "center", center, false) ||
-        ! owe::GetJsonValue(json, "up", up, false))
+    array<float, 3>      eye {};
+    array<float, 3>      center {};
+    array<float, 3>      up {};
+    if (! owe::GetJsonValue(json, "eye"_str, eye, false) ||
+        ! owe::GetJsonValue(json, "center"_str, center, false) ||
+        ! owe::GetJsonValue(json, "up"_str, up, false))
         return None();
-    owe::GetJsonValue(json, "timestamp", key.frame, false);
+    owe::GetJsonValue(json, "timestamp"_str, key.frame, false);
     key.eye    = Vector3f(eye.data());
     key.center = Vector3f(center.data());
     key.up     = Vector3f(up.data());
@@ -109,7 +108,7 @@ Option<SceneCameraLookAtTrack> ParseLookAtTrack(const owe::Json& json) {
     if (values.is_none()) return None();
 
     SceneCameraLookAtTrack track;
-    owe::GetJsonValue(json, "duration", track.duration, false);
+    owe::GetJsonValue(json, "duration"_str, track.duration, false);
     for (const auto& raw_key : **values) {
         auto key = ParseLookAtKey(raw_key);
         if (key.is_some()) track.keys.push(rstd::move(*key));
@@ -174,10 +173,9 @@ bool CompatibleTimeline(const wpscene::AnimCurve& left, const wpscene::AnimCurve
 }
 
 bool HasChild(const wpscene::AnimCurve& curve, ref<str> field) {
-    for (const auto& child : curve.options.children) {
-        if (child == field) return true;
-    }
-    return false;
+    return curve.options.children.iter().any([field](ref<String> child) {
+        return *child == field;
+    });
 }
 
 void ResolveAnimationScope(SceneAnimationBindingScope&             scope,
@@ -365,11 +363,12 @@ void ResolveAnimationScope(SceneAnimationBindingScope&             scope,
         for (usize candidate {}; candidate < authored.len(); ++candidate) {
             if (root(candidate) != component) continue;
             const auto& curve = *authored[candidate].binding->animation;
-            end = std::max(end,
-                           std::max(curve.options.length, authored[candidate].curve->EndFrame()));
+            end               = rstd::cmp::max(
+                rstd::cmp::max(authored[candidate].curve->EndFrame(), curve.options.length), end);
             i32 score {};
             if (curve.options.parent.is_none()) score += i32(4);
-            if (! curve.options.name.empty() || ! curve.options.events.empty()) score += i32(2);
+            if (! curve.options.name.is_empty() || ! curve.options.events.is_empty())
+                score += i32(2);
             if (! curve.options.children.is_empty()) score += i32(1);
             if (score > timeline_score) {
                 timeline       = candidate;
@@ -466,8 +465,8 @@ void owe::PrepareAnimationBindings(SceneParseContext&             context,
     Vec<const wpscene::FieldBindingSpec*> authored;
     CollectBindings(object.field_bindings, authored);
     CollectParticleBindings(object.particleObj, authored);
-    if (object.instanceoverride.field_bindings)
-        CollectBindings(*object.instanceoverride.field_bindings, authored);
+    if (auto* bindings = object.instanceoverride.FieldBindingsView())
+        CollectBindings(*bindings, authored);
     ResolveAnimationScope(context.animation_bindings, authored.as_slice());
 }
 
@@ -541,15 +540,15 @@ void owe::AssignCameraFieldAnimations(SceneParseContext& context, SceneNode& nod
 
 void owe::LoadCameraObjectPath(SceneParseContext& context, const wpscene::CameraObject& object,
                                SceneCameraPath& path) {
-    if (object.path.empty() || context.vfs == nullptr) return;
+    if (object.path.is_empty() || context.vfs == nullptr) return;
 
-    auto relative_path = "/assets/" + object.path;
-    auto file          = fs::OpenBinary(*context.vfs, relative_path);
+    auto relative_path = rstd::format("/assets/{}", object.path);
+    auto file          = fs::OpenBinary(*context.vfs, fs::Path(relative_path.as_str()));
     if (file.is_err()) {
         rstd_warn("Can't open camera path {}", object.path);
         return;
     }
-    auto parsed = ParseJson(file->ReadAllStr());
+    auto parsed = ParseJson(file->ReadAllStr().as_str());
     if (parsed.is_err()) {
         rstd_warn("Can't parse camera path json {}: {}", object.path, parsed.unwrap_err());
         return;
@@ -561,8 +560,8 @@ void owe::LoadCameraObjectPath(SceneParseContext& context, const wpscene::Camera
         return;
     }
 
-    path.queue_mode = object.queuemode == "random" ? SceneCameraPathQueueMode::Random
-                                                   : SceneCameraPathQueueMode::Sequential;
+    path.queue_mode = object.queuemode == "random"_str ? SceneCameraPathQueueMode::Random
+                                                       : SceneCameraPathQueueMode::Sequential;
     for (const auto& authored : document.paths) {
         if (! authored.visible) continue;
         SceneCameraPathClip clip {
@@ -574,7 +573,7 @@ void owe::LoadCameraObjectPath(SceneParseContext& context, const wpscene::Camera
                           const Option<wpscene::AnimCurve>& source) {
             if (source.is_none()) return;
             auto curve  = Arc<SceneAnimationCurve>::make(ToSceneAnimationCurve(*source));
-            clip.length = std::max(clip.length, curve->EndFrame());
+            clip.length = rstd::cmp::max(curve->EndFrame(), clip.length);
             destination = Some(rstd::move(curve));
         };
         assign(clip.eye, authored.eye);
@@ -592,20 +591,21 @@ auto owe::ToSceneAnimationCurve(const wpscene::AnimCurve& curve) -> SceneAnimati
 
 auto owe::ToSceneAnimationTrack(const wpscene::AnimCurve& authored) -> SceneAnimationTrack {
     auto curve = Arc<SceneAnimationCurve>::make(BuildSceneAnimationCurve(authored));
-    auto clip =
-        BuildSceneAnimationClip(authored, std::max(authored.options.length, curve->EndFrame()));
+    auto clip = BuildSceneAnimationClip(authored,
+                                        rstd::cmp::max(curve->EndFrame(), authored.options.length));
     auto playback =
         Arc<SceneAnimationPlayback>::make(rstd::move(clip), authored.options.startpaused);
     return SceneAnimationTrack { .curve = rstd::move(curve), .playback = rstd::move(playback) };
 }
 
 void owe::LoadRootCameraPaths(SceneParseContext& context, const wpscene::SceneMetadata& metadata) {
-    if (metadata.general.isOrtho || metadata.camera.paths.empty() || context.vfs == nullptr) return;
+    if (metadata.general.isOrtho || metadata.camera.paths.is_empty() || context.vfs == nullptr)
+        return;
 
     auto camera = context.scene->CameraHandle("global_perspective"_str);
     if (camera.is_none()) return;
     auto path               = Arc<SceneCameraPath>::make();
-    path->camera_name       = String::make("global_perspective"_str);
+    path->camera_name       = "global_perspective"_Str;
     path->camera            = Some(rstd::move(*camera));
     path->node              = context.global_perspective_camera_node.is_some()
                                   ? (*context.global_perspective_camera_node).as_ptr()
@@ -624,9 +624,10 @@ void owe::LoadRootCameraPaths(SceneParseContext& context, const wpscene::SceneMe
     path->default_up        = Vector3f(metadata.camera.up.data());
 
     for (const auto& relative_path : metadata.camera.paths) {
-        auto file = fs::OpenBinary(*context.vfs, "/assets/" + relative_path);
+        auto file = fs::OpenBinary(*context.vfs,
+                                   fs::Path(rstd::format("/assets/{}", relative_path).as_str()));
         if (file.is_err()) continue;
-        auto parsed = ParseJson(file->ReadAllStr());
+        auto parsed = ParseJson(file->ReadAllStr().as_str());
         if (parsed.is_err()) {
             rstd_warn("Can't parse camera path json {}: {}", relative_path, parsed.unwrap_err());
             continue;

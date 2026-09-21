@@ -23,7 +23,7 @@ public:
         Mirror,
         Single
     };
-    static constexpr uint32_t NO_PARENT = 0xFFFFFFFFu;
+    static constexpr rstd::uint32_t NO_PARENT = 0xFFFFFFFFu;
 
     // Bind hierarchy and animation hierarchy are tracked independently.
     //
@@ -37,15 +37,15 @@ public:
     struct Bone {
         String name;
         // hexpat MDLS Bone.sim_type: 0=static, 1=physics target, 3=IK chain.
-        int32_t                 sim_type { 0 };
-        int32_t                 draw_order { 0 };
+        rstd::int32_t           sim_type { 0 };
+        rstd::int32_t           draw_order { 0 };
         Eigen::Affine3f         local_bind { Eigen::Affine3f::Identity() };
         Option<Eigen::Affine3f> animation_reference;
-        uint32_t                bind_parent { NO_PARENT };
-        uint32_t                anim_parent { NO_PARENT };
+        rstd::uint32_t          bind_parent { NO_PARENT };
+        rstd::uint32_t          anim_parent { NO_PARENT };
         // Original on-file parent index. MDLV21 flattens bind_parent for
         // skinning while keeping anim_parent on this chain.
-        uint32_t file_parent { NO_PARENT };
+        rstd::uint32_t file_parent { NO_PARENT };
 
         // Per-bone WE bone_simulation JSON (spring/damping/gravity for
         // hair/cloth). Captured raw; evaluation hook is TBD.
@@ -89,7 +89,7 @@ public:
     // Consumed by ImageObject `attachment = "<name>"` to position child
     // images at named bone offsets (e.g. bangs under a head bone).
     struct Attachment {
-        uint16_t        bone_index { 0 }; // hexpat MDAT Attachment.unk
+        rstd::uint16_t  bone_index { 0 }; // hexpat MDAT Attachment.unk
         String          name;
         Eigen::Affine3f local_xform { Eigen::Affine3f::Identity() };
 
@@ -108,8 +108,8 @@ public:
     // are deliberately not declared yet — drop them in as sibling vectors
     // on Animation when V22+ shows up, not as variants over this one.
     struct BoneTrack {
-        uint32_t       bone_index { 0 };
-        int32_t        unk { 0 }; // hexpat BoneTrack.unk
+        rstd::uint32_t bone_index { 0 };
+        rstd::int32_t  unk { 0 }; // hexpat BoneTrack.unk
         Vec<BoneFrame> frames;
 
         bool HasTransformSamples() const { return (unk & 1) == 0 && ! frames.is_empty(); }
@@ -132,14 +132,14 @@ public:
     };
 
     struct AnimV4Curve {
-        uint16_t   id;
-        Vec<float> values;
+        rstd::uint16_t id;
+        Vec<float>     values;
     };
 
     // mdla>=4 timed morph event. Curves correspond to the MDMP entries at the same time.
     struct AnimV4Event {
         float            time;
-        uint16_t         flags;
+        rstd::uint16_t   flags;
         Vec<AnimV4Curve> curves;
     };
 
@@ -153,8 +153,8 @@ public:
 
     // Trailing event list. `event_json` is the WE editor's keyframe payload.
     struct AnimEvent {
-        uint32_t time_value;
-        String   event_json;
+        rstd::uint32_t time_value;
+        String         event_json;
     };
 
     struct Animation {
@@ -199,35 +199,35 @@ public:
     // MDLS v3 IK chain configuration. Schema derived from a single corpus
     // sample (hexpat MDLSBlock extras_flag==2 path); fields kept raw.
     struct BoneDir {
-        uint32_t        bone_id;
+        rstd::uint32_t  bone_id;
         array<float, 3> dir;
     };
     struct ChainBoneDir {
-        uint16_t        chain_id;
-        uint32_t        bone_id;
+        rstd::uint16_t  chain_id;
+        rstd::uint32_t  bone_id;
         array<float, 3> dir;
     };
     struct BoneCond {
-        uint16_t cnt;
-        uint32_t id;
-        uint32_t child;
-        uint32_t val;
+        rstd::uint16_t cnt;
+        rstd::uint32_t id;
+        rstd::uint32_t child;
+        rstd::uint32_t val;
     };
     struct IkConfig {
-        Eigen::Matrix4f           chain_a_target { Eigen::Matrix4f::Identity() };
-        uint8_t                   ik_version { 0 };
-        array<uint32_t, 2>        ik_header {};
-        Eigen::Matrix4f           chain_b_target { Eigen::Matrix4f::Identity() };
-        array<uint8_t, 7>         ik_flags {};
-        array<Eigen::Vector3f, 6> pole_targets {};
-        Vec<BoneDir>              rest_rotations;
-        Vec<ChainBoneDir>         ik_targets;
-        Option<BoneDir>           ik_target_root;
-        BoneCond                  ik_constraint {};
-        array<Vec<uint32_t>, 2>   ik_bone_lists;
-        uint32_t                  ik_chain_count { 0 };
-        array<float, 2>           ik_chain_length {};
-        Vec<uint32_t>             ik_chain_bones;
+        Eigen::Matrix4f               chain_a_target { Eigen::Matrix4f::Identity() };
+        uint8_t                       ik_version { 0 };
+        array<rstd::uint32_t, 2>      ik_header {};
+        Eigen::Matrix4f               chain_b_target { Eigen::Matrix4f::Identity() };
+        array<uint8_t, 7>             ik_flags {};
+        array<Eigen::Vector3f, 6>     pole_targets {};
+        Vec<BoneDir>                  rest_rotations;
+        Vec<ChainBoneDir>             ik_targets;
+        Option<BoneDir>               ik_target_root;
+        BoneCond                      ik_constraint {};
+        array<Vec<rstd::uint32_t>, 2> ik_bone_lists;
+        rstd::uint32_t                ik_chain_count { 0 };
+        array<float, 2>               ik_chain_length {};
+        Vec<rstd::uint32_t>           ik_chain_bones;
     };
 
 public:
@@ -276,8 +276,8 @@ public:
 
     // Borrowed until this instance is evaluated, prepared, or destroyed again.
     slice<Eigen::Affine3f>  genFrame(double time) noexcept;
-    uint32_t                boneIndex(ref<str> name) const noexcept;
-    Option<Eigen::Affine3f> boneTransform(uint32_t index, double time) noexcept;
+    rstd::uint32_t          boneIndex(ref<str> name) const noexcept;
+    Option<Eigen::Affine3f> boneTransform(rstd::uint32_t index, double time) noexcept;
     Option<Eigen::Affine3f> attachmentTransform(usize index, double time) noexcept;
     auto AnimationPlaybacks() const noexcept -> slice<Arc<SceneAnimationPlayback>>;
     auto AnimationPlayback(i32 layer_id) const -> Option<Arc<SceneAnimationPlayback>>;

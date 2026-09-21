@@ -246,8 +246,8 @@ TexMeta ReadTexMeta(owe::fs::VFS& vfs, const std::string& pkg_path) {
     }
 
     auto extra_val = [&](const std::string& k) -> int32_t {
-        auto it = h.extraHeader.find(k);
-        return it == h.extraHeader.end() ? 0 : it->second.val;
+        auto value = h.extraHeader.get(rstd::cppstd::as_str(k).unwrap());
+        return value.is_none() ? 0 : (*value)->val;
     };
     meta.texv          = extra_val("texv");
     meta.texi          = extra_val("texi");
@@ -312,7 +312,7 @@ void sort_by_path(Json& value) {
 template<typename Map>
 Json map_to_json(const Map& m) {
     auto o = owe::MakeObject();
-    for (const auto& [k, v] : m) SetSnapshot(o, k, v);
+    for (auto [k, v] : m.iter()) SetSnapshot(o, rstd::cppstd::as_string_view(k->as_str()), *v);
     return o;
 }
 
@@ -428,15 +428,19 @@ Json dump_particle_object(const Json& obj, owe::fs::VFS& vfs) {
     SetSnapshot(out, "scale_parsed", po.scale);
     SetSnapshot(out, "angles_parsed", po.angles);
     SetSnapshot(out, "visible_parsed", po.visible);
-    SetSnapshot(out, "emitter_count", static_cast<int>(po.particleObj.emitters.size()));
+    SetSnapshot(
+        out, "emitter_count", static_cast<int>(po.particleObj.emitters.len().to_primitive()));
     SetSnapshot(out,
                 "initializer_count",
                 static_cast<int>(po.particleObj.initializers.len().to_primitive()));
     SetSnapshot(
         out, "operator_count", static_cast<int>(po.particleObj.operators.len().to_primitive()));
-    SetSnapshot(out, "renderer_count", static_cast<int>(po.particleObj.renderers.size()));
-    SetSnapshot(out, "controlpoint_count", static_cast<int>(po.particleObj.controlpoints.size()));
-    SetSnapshot(out, "child_count", static_cast<int>(po.particleObj.children.size()));
+    SetSnapshot(
+        out, "renderer_count", static_cast<int>(po.particleObj.renderers.len().to_primitive()));
+    SetSnapshot(out,
+                "controlpoint_count",
+                static_cast<int>(po.particleObj.controlpoints.len().to_primitive()));
+    SetSnapshot(out, "child_count", static_cast<int>(po.particleObj.children.len().to_primitive()));
     SetSnapshot(out, "maxcount", po.particleObj.maxcount);
     SetSnapshot(out, "starttime", static_cast<int>(po.particleObj.starttime));
     SetSnapshot(out, "animationmode", po.particleObj.animationmode);
@@ -491,7 +495,7 @@ Json dump_image_object(const Json& obj, owe::fs::VFS& vfs) {
     SetSnapshot(out, "alignment_parsed", img.alignment);
     SetSnapshot(out, "puppet", img.puppet);
     owe::SetJson(out, "material", dump_material(img.material));
-    SetSnapshot(out, "effect_count", static_cast<int>(img.effects.size()));
+    SetSnapshot(out, "effect_count", static_cast<int>(img.effects.len().to_primitive()));
     // ImageEffect::id and ::version are left uninitialised by the
     // parser when the source json omits them, so dumping their raw value
     // produces stack garbage. Skip them.
@@ -509,9 +513,9 @@ Json dump_image_object(const Json& obj, owe::fs::VFS& vfs) {
         auto fbos = owe::MakeArray();
         for (const auto& f : e.fbos) owe::AppendJson(fbos, dump_effect_fbo(f));
         owe::SetJson(je, "fbos", std::move(fbos));
-        SetSnapshot(je, "material_count", static_cast<int>(e.materials.size()));
-        SetSnapshot(je, "pass_count", static_cast<int>(e.passes.size()));
-        SetSnapshot(je, "fbo_count", static_cast<int>(e.fbos.size()));
+        SetSnapshot(je, "material_count", static_cast<int>(e.materials.len().to_primitive()));
+        SetSnapshot(je, "pass_count", static_cast<int>(e.passes.len().to_primitive()));
+        SetSnapshot(je, "fbo_count", static_cast<int>(e.fbos.len().to_primitive()));
         owe::AppendJson(effs, std::move(je));
     }
     owe::SetJson(out, "effects", std::move(effs));
@@ -587,12 +591,14 @@ Json DumpWorkshop(const std::string& workshop_dir, std::string& err, DumpFlags f
     owe::SetJson(out, "pkg", std::move(jpkg));
 
     owe::fs::VFS vfs;
-    auto         afs = owe::fs::make_physical_fs(owe::fs::ToPath(kAssetsDirMacro));
+    auto         afs =
+        owe::fs::make_physical_fs(owe::fs::Path(rstd::cppstd::as_str(kAssetsDirMacro).unwrap()));
     if (afs.is_ok()) {
         (void)vfs.mount("/assets"_str, std::move(afs).unwrap_unchecked());
     }
-    auto pfs = owe::fs::make_physical_fs(owe::fs::ToPath(workshop_dir));
-    auto wfs = owe::fs::WPPkgFs::open(owe::fs::ToPath(pkg_path));
+    auto pfs =
+        owe::fs::make_physical_fs(owe::fs::Path(rstd::cppstd::as_str(workshop_dir).unwrap()));
+    auto wfs = owe::fs::WPPkgFs::open(owe::fs::Path(rstd::cppstd::as_str(pkg_path).unwrap()));
     if (wfs.is_err()) {
         err = "WPPkgFs::open failed";
         SetSnapshot(out, "error", err);
@@ -604,10 +610,10 @@ Json DumpWorkshop(const std::string& workshop_dir, std::string& err, DumpFlags f
     }
 
     if (has_scene_json) {
-        auto stream = owe::fs::OpenBinary(vfs, "/assets/scene.json");
+        auto stream = owe::fs::OpenBinary(vfs, owe::fs::Path("/assets/scene.json"_str));
         if (stream.is_ok()) {
-            std::string text        = stream->ReadAllStr();
-            auto        parsed_json = owe::ParseJson(text);
+            auto text        = stream->ReadAllStr();
+            auto parsed_json = owe::ParseJson(text.as_str());
             if (parsed_json.is_ok()) {
                 auto                        j = parsed_json.unwrap();
                 owe::wpscene::SceneMetadata scene;
@@ -739,15 +745,16 @@ Json DumpWorkshop(const std::string& workshop_dir, std::string& err, DumpFlags f
             if (! ends_with(e.path, ".json")) continue;
             auto jm = owe::MakeObject();
             SetSnapshot(jm, "path", e.path);
-            auto stream = owe::fs::OpenBinary(vfs, "/assets" + e.path);
+            auto stream = owe::fs::OpenBinary(
+                vfs, owe::fs::Path(rstd::cppstd::as_str("/assets" + e.path).unwrap()));
             if (stream.is_err()) {
                 SetSnapshot(jm, "ok", false);
                 SetSnapshot(jm, "error", "cannot open");
                 owe::AppendJson(jsh, std::move(jm));
                 continue;
             }
-            const std::string text            = stream->ReadAllStr();
-            auto              parsed_material = owe::ParseJson(text);
+            auto text            = stream->ReadAllStr();
+            auto parsed_material = owe::ParseJson(text.as_str());
             if (parsed_material.is_err()) {
                 SetSnapshot(jm, "ok", false);
                 SetSnapshot(jm, "error", "invalid JSON");
@@ -757,13 +764,14 @@ Json DumpWorkshop(const std::string& workshop_dir, std::string& err, DumpFlags f
             auto                             jmat = parsed_material.unwrap();
             owe::CompileMaterialShaderResult r;
             try {
-                r = owe::ShaderParser::CompileMaterialShader(jmat, vfs, pkg_id);
+                r = owe::ShaderParser::CompileMaterialShader(
+                    jmat, vfs, rstd::cppstd::as_str(pkg_id).unwrap());
             } catch (const std::exception& ex) {
                 r.ok    = false;
-                r.error = ex.what();
+                r.error = rstd::into(rstd::cppstd::as_str(ex.what()).unwrap());
             } catch (...) {
                 r.ok    = false;
-                r.error = "unknown exception";
+                r.error = "unknown exception"_Str;
             }
             SetSnapshot(jm, "ok", r.ok);
             SetSnapshot(jm, "shader_name", r.shader_name);

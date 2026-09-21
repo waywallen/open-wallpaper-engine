@@ -9,6 +9,8 @@ import wescene.vulkan;
 import wescene.scene;
 
 using namespace rstd::prelude;
+using rstd::cppstd::as_str;
+using rstd::slice_::sort_unstable_by;
 
 namespace owe::vulkan
 {
@@ -23,34 +25,33 @@ ShaderReflectionKey MakeShaderReflectionKey(const SceneShader& shader) {
     };
 }
 
-CachedShaderReflection MakeCachedReflection(std::vector<Uni_ShaderSpv> spvs,
-                                            ShaderReflected            reflected) {
+CachedShaderReflection MakeCachedReflection(Vec<Uni_ShaderSpv> spvs, ShaderReflected reflected) {
     CachedShaderReflection out;
-    out.stages.reserve(spvs.size());
+    out.stages.reserve(spvs.len());
     for (auto& spv : spvs) {
-        out.stages.push_back(CachedShaderStage {
-            .entry_point = spv->entry_point,
+        out.stages.push(CachedShaderStage {
+            .entry_point = rstd::move(spv->entry_point),
             .stage       = spv->stage,
-            .spirv       = std::move(spv->spirv),
+            .spirv       = rstd::move(spv->spirv),
         });
     }
-    out.reflected = std::move(reflected);
+    out.reflected = rstd::move(reflected);
     return out;
 }
 
 } // namespace
 
 auto ShaderReflectionCache::Query(const SceneShader& shader)
-    -> rstd::Option<rstd::ref<CachedShaderReflection>> {
+    -> Option<ref<CachedShaderReflection>> {
     auto key    = MakeShaderReflectionKey(shader);
     auto cached = m_entries.get(key);
     if (cached.is_some()) return cached;
 
-    std::vector<Uni_ShaderSpv> spvs;
-    ShaderReflected            reflected;
-    if (! m_backend->GenReflect(shader.codes, spvs, reflected)) return rstd::None();
+    Vec<Uni_ShaderSpv> spvs;
+    ShaderReflected    reflected;
+    if (! m_backend->GenReflect(shader.codes.as_slice(), spvs, reflected)) return rstd::None();
 
-    (void)m_entries.insert(key, MakeCachedReflection(std::move(spvs), std::move(reflected)));
+    (void)m_entries.insert(key, MakeCachedReflection(rstd::move(spvs), rstd::move(reflected)));
     return m_entries.get(key);
 }
 
@@ -58,18 +59,18 @@ void ShaderReflectionCache::Clear() { m_entries.clear(); }
 
 SceneShaderArtifactProvider::SceneShaderArtifactProvider(ShaderReflectionCache& cache,
                                                          const SceneShader&     shader)
-    : m_cache(rstd::mut_ref<ShaderReflectionCache>::from_raw_parts(rstd::addressof(cache))),
-      m_shader(rstd::ref<SceneShader>::from_raw_parts(rstd::addressof(shader))) {}
+    : m_cache(mut_ref<ShaderReflectionCache>::from_raw_parts(rstd::addressof(cache))),
+      m_shader(ref<SceneShader>::from_raw_parts(rstd::addressof(shader))) {}
 
 auto MakeSceneShaderRequest(const SceneShader& shader) -> resource::ShaderRequest {
     return resource::ShaderRequest {
-        .name = rstd::string::String::make(rstd::cppstd::as_str(shader.name).unwrap()),
+        .name = shader.name.clone(),
         .source =
             resource::ShaderDefinitionId {
                 .index      = shader.id,
                 .generation = u64(1),
             },
-        .content_version = rstd::as_cast<rstd::u64>(SceneShaderCodeHash(shader)),
+        .content_version = rstd::as_cast<u64>(SceneShaderCodeHash(shader)),
     };
 }
 
@@ -78,7 +79,7 @@ auto SceneShaderArtifactProvider::Request() const -> resource::ShaderRequest {
 }
 
 auto SceneShaderArtifactProvider::LoadShader(const resource::ShaderRequest& request)
-    -> rstd::Result<resource::ShaderArtifact, resource::ResourceError> {
+    -> Result<resource::ShaderArtifact, resource::ResourceError> {
     if (request.source.index != m_shader->id ||
         request.content_version != rstd::as_cast<u64>(SceneShaderCodeHash(*m_shader))) {
         return rstd::Err(resource::ResourceError {
@@ -100,18 +101,15 @@ auto SceneShaderArtifactProvider::LoadShader(const resource::ShaderRequest& requ
         .matrix_convention = m_shader->matrix_convention,
         .matrix_abi        = m_shader->matrix_abi,
     };
-    artifact.stages.reserve(usize((**reflection).stages.size()));
+    artifact.stages.reserve((**reflection).stages.len());
     for (const auto& stage : (**reflection).stages) {
-        auto code = rstd::vec::Vec<rstd::u32>::with_capacity(usize(stage.spirv.size()));
-        for (auto word : stage.spirv) code.push(rstd::u32(word));
         artifact.stages.push(resource::ShaderArtifactStage {
-            .stage = stage.stage,
-            .entry_point =
-                rstd::string::String::make(rstd::cppstd::as_str(stage.entry_point).unwrap()),
-            .code = rstd::move(code),
+            .stage       = stage.stage,
+            .entry_point = stage.entry_point.clone(),
+            .code        = stage.spirv.clone(),
         });
     }
-    artifact.uniform_blocks.reserve(usize((**reflection).reflected.blocks.size()));
+    artifact.uniform_blocks.reserve((**reflection).reflected.blocks.len());
     for (const auto& block : (**reflection).reflected.blocks) {
         auto scope = resource::ShaderArtifactUniformBlock::Scope::Local;
         u64  identity {};
@@ -126,30 +124,28 @@ auto SceneShaderArtifactProvider::LoadShader(const resource::ShaderRequest& requ
             identity = declared.identity;
             break;
         }
-        auto members = rstd::vec::Vec<resource::ShaderArtifactUniformMember>::with_capacity(
-            usize(block.member_map.size()));
-        for (const auto& [name, member] : block.member_map) {
-            auto dimensions =
-                rstd::vec::Vec<u32>::with_capacity(usize(member.array_dimensions.size()));
-            for (auto dimension : member.array_dimensions) dimensions.push(u32(dimension));
+        auto members =
+            Vec<resource::ShaderArtifactUniformMember>::with_capacity(block.member_map.len());
+        for (const auto& [name, member_ref] : block.member_map.iter()) {
+            const auto& member = *member_ref;
             members.push(resource::ShaderArtifactUniformMember {
-                .name         = rstd::string::String::make(rstd::cppstd::as_str(name).unwrap()),
-                .offset       = u32(member.offset),
-                .size         = member.size,
-                .count        = member.num,
-                .scalar_kind  = member.scalar_kind,
-                .scalar_width = u32(member.scalar_width),
+                .name              = name->clone(),
+                .offset            = u32(member.offset),
+                .size              = member.size,
+                .count             = member.num,
+                .scalar_kind       = member.scalar_kind,
+                .scalar_width      = u32(member.scalar_width),
                 .vector_components = u32(member.vector_components),
                 .matrix_rows       = u32(member.matrix_rows),
                 .matrix_columns    = u32(member.matrix_columns),
                 .matrix_stride     = u32(member.matrix_stride),
                 .matrix_major      = member.matrix_major,
                 .array_stride      = u32(member.array_stride),
-                .array_dimensions  = rstd::move(dimensions),
+                .array_dimensions  = member.array_dimensions.clone(),
             });
         }
         artifact.uniform_blocks.push(resource::ShaderArtifactUniformBlock {
-            .name     = rstd::string::String::make(rstd::cppstd::as_str(block.name).unwrap()),
+            .name     = block.name.clone(),
             .size     = usize(block.size),
             .set      = u32(block.set),
             .binding  = u32(block.binding),
@@ -158,26 +154,26 @@ auto SceneShaderArtifactProvider::LoadShader(const resource::ShaderRequest& requ
             .members  = rstd::move(members),
         });
     }
-    artifact.descriptor_bindings.reserve(usize((**reflection).reflected.binding_map.size()));
-    for (const auto& [name, binding] : (**reflection).reflected.binding_map) {
+    artifact.descriptor_bindings.reserve((**reflection).reflected.binding_map.len());
+    for (const auto& [name, binding_ref] : (**reflection).reflected.binding_map.iter()) {
+        const auto& binding = *binding_ref;
         artifact.descriptor_bindings.push(resource::ShaderArtifactDescriptorBinding {
-            .name             = rstd::string::String::make(rstd::cppstd::as_str(name).unwrap()),
+            .name             = name->clone(),
             .set              = u32(binding.set),
             .binding          = u32(binding.layout.binding),
-            .descriptor_type  = u32(static_cast<rstd::uint32_t>(binding.layout.descriptorType)),
+            .descriptor_type  = u32(static_cast<uint32_t>(binding.layout.descriptorType)),
             .descriptor_count = u32(binding.layout.descriptorCount),
             .stage_flags      = u32(binding.layout.stageFlags),
         });
     }
-    if (! m_shader->descriptor_sets.empty()) {
-        artifact.descriptor_sets.reserve(usize(m_shader->descriptor_sets.size()));
+    if (! m_shader->descriptor_sets.is_empty()) {
+        artifact.descriptor_sets.reserve(m_shader->descriptor_sets.len());
         for (const auto& declared : m_shader->descriptor_sets) {
-            auto bindings =
-                rstd::vec::Vec<resource::ShaderArtifactDescriptorBinding>::with_capacity(
-                    usize(declared.bindings.size()));
+            auto bindings = Vec<resource::ShaderArtifactDescriptorBinding>::with_capacity(
+                declared.bindings.len());
             for (const auto& binding : declared.bindings) {
                 bindings.push(resource::ShaderArtifactDescriptorBinding {
-                    .name             = String::make(rstd::cppstd::as_str(binding.name).unwrap()),
+                    .name             = binding.name.clone(),
                     .set              = declared.set,
                     .binding          = binding.binding,
                     .descriptor_type  = binding.descriptor_type,
@@ -217,10 +213,10 @@ auto SceneShaderArtifactProvider::LoadShader(const resource::ShaderRequest& requ
             }
         }
     }
-    rstd::slice_::sort_unstable_by(artifact.descriptor_sets.as_mut_slice().as_mut_ref(),
-                                   [](const auto& lhs, const auto& rhs) {
-                                       return lhs.set < rhs.set;
-                                   });
+    sort_unstable_by(artifact.descriptor_sets.as_mut_slice().as_mut_ref(),
+                     [](const auto& lhs, const auto& rhs) {
+                         return lhs.set < rhs.set;
+                     });
     for (const auto& active : artifact.descriptor_bindings) {
         bool compatible = false;
         for (const auto& set : artifact.descriptor_sets) {
@@ -242,40 +238,40 @@ auto SceneShaderArtifactProvider::LoadShader(const resource::ShaderRequest& requ
             });
         }
     }
-    artifact.vertex_inputs.reserve(usize((**reflection).reflected.input_location_map.size()));
-    for (const auto& [name, input] : (**reflection).reflected.input_location_map) {
+    artifact.vertex_inputs.reserve((**reflection).reflected.input_location_map.len());
+    for (const auto& [name, input_ref] : (**reflection).reflected.input_location_map.iter()) {
+        const auto& input = *input_ref;
         artifact.vertex_inputs.push(resource::ShaderArtifactVertexInput {
-            .name     = rstd::string::String::make(rstd::cppstd::as_str(name).unwrap()),
+            .name     = name->clone(),
             .location = u32(input.location),
-            .format   = u32(static_cast<rstd::uint32_t>(input.format)),
+            .format   = u32(static_cast<uint32_t>(input.format)),
         });
     }
     return rstd::Ok(rstd::move(artifact));
 }
 
-std::vector<Uni_ShaderSpv> ShaderSpvsFromArtifact(const resource::ShaderArtifact& artifact) {
-    std::vector<Uni_ShaderSpv> out;
-    out.reserve(artifact.stages.len().to_primitive());
+Vec<Uni_ShaderSpv> ShaderSpvsFromArtifact(const resource::ShaderArtifact& artifact) {
+    Vec<Uni_ShaderSpv> out;
+    out.reserve(artifact.stages.len());
     for (const auto& stage : artifact.stages) {
         auto spv         = Box<ShaderSpv>::make();
-        spv->entry_point = rstd::cppstd::to_string(stage.entry_point.as_str());
+        spv->entry_point = stage.entry_point.clone();
         spv->stage       = stage.stage;
-        spv->spirv.reserve(stage.code.len().to_primitive());
-        for (auto word : stage.code) spv->spirv.push_back(word.to_primitive());
-        out.push_back(std::move(spv));
+        spv->spirv       = stage.code.clone();
+        out.push(rstd::move(spv));
     }
     return out;
 }
 
 auto ShaderReflectionFromArtifact(const resource::ShaderArtifact& artifact) -> ShaderReflected {
     ShaderReflected reflected;
-    reflected.blocks.reserve(artifact.uniform_blocks.len().to_primitive());
-    for (rstd::usize index {}; index < artifact.uniform_blocks.len(); ++index) {
+    reflected.blocks.reserve(artifact.uniform_blocks.len());
+    for (usize index {}; index < artifact.uniform_blocks.len(); ++index) {
         const auto&            block = artifact.uniform_blocks[index];
         ShaderReflected::Block prepared {
             .index   = static_cast<int>(index.to_primitive()),
             .size    = static_cast<unsigned>(block.size.to_primitive()),
-            .name    = rstd::cppstd::to_string(block.name.as_str()),
+            .name    = block.name.clone(),
             .set     = block.set.to_primitive(),
             .binding = block.binding.to_primitive(),
         };
@@ -293,19 +289,15 @@ auto ShaderReflectionFromArtifact(const resource::ShaderArtifact& artifact) -> S
                 .matrix_stride     = member.matrix_stride.to_primitive(),
                 .matrix_major      = member.matrix_major,
                 .array_stride      = member.array_stride.to_primitive(),
+                .array_dimensions  = member.array_dimensions.clone(),
             };
-            reflected_member.array_dimensions.reserve(member.array_dimensions.len().to_primitive());
-            for (auto dimension : member.array_dimensions) {
-                reflected_member.array_dimensions.push_back(dimension.to_primitive());
-            }
-            prepared.member_map.emplace(rstd::cppstd::to_string(member.name.as_str()),
-                                        std::move(reflected_member));
+            (void)prepared.member_map.insert(member.name.clone(), rstd::move(reflected_member));
         }
-        reflected.blocks.push_back(std::move(prepared));
+        reflected.blocks.push(rstd::move(prepared));
     }
     for (const auto& binding : artifact.descriptor_bindings) {
-        reflected.binding_map.emplace(
-            rstd::cppstd::to_string(binding.name.as_str()),
+        (void)reflected.binding_map.insert(
+            binding.name.clone(),
             ShaderReflected::Binding {
                 .set = binding.set.to_primitive(),
                 .layout =
@@ -320,8 +312,8 @@ auto ShaderReflectionFromArtifact(const resource::ShaderArtifact& artifact) -> S
             });
     }
     for (const auto& input : artifact.vertex_inputs) {
-        reflected.input_location_map.emplace(
-            rstd::cppstd::to_string(input.name.as_str()),
+        (void)reflected.input_location_map.insert(
+            input.name.clone(),
             ShaderReflected::Input {
                 .location = input.location.to_primitive(),
                 .format   = static_cast<VkFormat>(input.format.to_primitive()),

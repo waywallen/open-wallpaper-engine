@@ -16,13 +16,13 @@ namespace
 
 auto EmitCount(f64 timer, float speed) -> u32 {
     if (speed <= 0.0f) return u32();
-    if (! std::isfinite(speed)) return u32::MAX;
+    if (! f32(speed).is_finite()) return u32::MAX;
 
     const double elapsed  = timer.to_primitive();
     const double duration = static_cast<double>(1.0f / speed);
     if (elapsed < duration) return u32();
 
-    const double count = std::floor(elapsed / duration);
+    const double count = f64(elapsed / duration).floor().to_primitive();
     if (count >= static_cast<double>(u32::MAX.to_primitive())) return u32::MAX;
     return u32(static_cast<rstd::uint32_t>(count));
 }
@@ -37,18 +37,18 @@ auto ResolveEmitCount(f64 timer, float speed, u32 instantaneous, bool one_per_fr
 
 void CommitEmitCount(f64& timer, float speed, u32 requested, u32 emitted, bool one_per_frame) {
     if (requested == u32() || speed <= 0.0f) return;
-    if (! std::isfinite(speed)) {
+    if (! f32(speed).is_finite()) {
         timer = f64();
         return;
     }
 
     const double duration  = static_cast<double>(1.0f / speed);
-    double       remaining = std::max(
-        0.0, timer.to_primitive() - duration * static_cast<double>(emitted.to_primitive()));
+    double       remaining = rstd::cmp::max(
+        timer.to_primitive() - duration * static_cast<double>(emitted.to_primitive()), 0.0);
     if (emitted < requested) {
-        remaining = std::min(remaining, duration);
+        remaining = rstd::cmp::min(duration, remaining);
     } else if (one_per_frame) {
-        remaining = std::fmod(remaining, duration);
+        remaining = (f64(remaining) % f64(duration)).to_primitive();
     }
     timer = f64(remaining);
 }
@@ -61,9 +61,9 @@ auto AudioResponseScale(slice<float> audio, const ParticleAudioResponse& respons
     if (! response.enable || audio.is_empty()) return 1.0f;
 
     auto clamp_index = [audio](float value) {
-        auto index = static_cast<rstd::int32_t>(std::round(value));
-        index      = std::max<rstd::int32_t>(
-            0, std::min(index, static_cast<rstd::int32_t>(audio.len().to_primitive()) - 1));
+        auto index = static_cast<rstd::int32_t>(f32(value).round().to_primitive());
+        index      = rstd::cmp::max<rstd::int32_t>(
+            rstd::cmp::min(static_cast<rstd::int32_t>(audio.len().to_primitive()) - 1, index), 0);
         return usize(static_cast<rstd::size_t>(index));
     };
     auto first = clamp_index(response.frequency[usize()]);
@@ -71,14 +71,14 @@ auto AudioResponseScale(slice<float> audio, const ParticleAudioResponse& respons
     if (last < first) rstd::swap(first, last);
 
     float sum = 0.0f;
-    for (auto index = first; index <= last; ++index) sum += std::max(0.0f, audio[index]);
+    for (auto index = first; index <= last; ++index) sum += rstd::cmp::max(audio[index], 0.0f);
     float level = sum / static_cast<float>((last - first + usize(1)).to_primitive());
-    float low   = std::min(response.bounds[usize()], response.bounds[usize(1)]);
-    float high  = std::max(response.bounds[usize()], response.bounds[usize(1)]);
+    float low   = rstd::cmp::min(response.bounds[usize(1)], response.bounds[usize()]);
+    float high  = rstd::cmp::max(response.bounds[usize(1)], response.bounds[usize()]);
     if (high > low) level = (level - low) / (high - low);
-    level = std::clamp(level, 0.0f, 1.0f);
-    level = std::pow(level, std::max(0.001f, response.exponent));
-    return std::max(0.0f, 1.0f + level * response.amount);
+    level = rstd::cmp::min(1.0f, rstd::cmp::max(0.0f, level));
+    level = f32(level).powf(f32(rstd::cmp::max(response.exponent, 0.001f))).to_primitive();
+    return rstd::cmp::max(1.0f + level * response.amount, 0.0f);
 }
 
 auto ResolveEmitterOrigin(slice<ParticleControlpoint> controlpoints, i32 controlpoint,
@@ -95,30 +95,35 @@ auto ResolveEmitterOrigin(slice<ParticleControlpoint> controlpoints, i32 control
 }
 
 void ApplySign(Eigen::Vector3d& value, i32 x, i32 y, i32 z) noexcept {
-    if (x != i32()) value.x() = std::abs(value.x()) * static_cast<double>(x.to_primitive());
-    if (y != i32()) value.y() = std::abs(value.y()) * static_cast<double>(y.to_primitive());
-    if (z != i32()) value.z() = std::abs(value.z()) * static_cast<double>(z.to_primitive());
+    if (x != i32())
+        value.x() = f64(value.x()).abs().to_primitive() * static_cast<double>(x.to_primitive());
+    if (y != i32())
+        value.y() = f64(value.y()).abs().to_primitive() * static_cast<double>(y.to_primitive());
+    if (z != i32())
+        value.z() = f64(value.z()).abs().to_primitive() * static_cast<double>(z.to_primitive());
 }
 
 auto ActiveAxisCount(const Eigen::Vector3d& directions) noexcept -> u32 {
     u32 count {};
     for (usize index {}; index < usize(3); ++index) {
-        if (std::abs(directions[index.to_primitive()]) > 1e-6) ++count;
+        if (f64(directions[index.to_primitive()]).abs().to_primitive() > 1e-6) ++count;
     }
     return rstd::cmp::max(u32(1), count);
 }
 
 auto RandomRadius(double min_distance, double max_distance, u32 dimensions) -> double {
-    min_distance = std::max(0.0, min_distance);
-    max_distance = std::max(min_distance, max_distance);
+    min_distance = rstd::cmp::max(min_distance, 0.0);
+    max_distance = rstd::cmp::max(max_distance, min_distance);
     if (dimensions <= u32(1)) {
         return algorism::lerp(Random::get(0.0, 1.0), min_distance, max_distance);
     }
 
     double dimension = static_cast<double>(dimensions.to_primitive());
-    double low       = std::pow(min_distance, dimension);
-    double high      = std::pow(max_distance, dimension);
-    return std::pow(algorism::lerp(Random::get(0.0, 1.0), low, high), 1.0 / dimension);
+    double low       = f64(min_distance).powf(f64(dimension)).to_primitive();
+    double high      = f64(max_distance).powf(f64(dimension)).to_primitive();
+    return f64(algorism::lerp(Random::get(0.0, 1.0), low, high))
+        .powf(f64(1.0 / dimension))
+        .to_primitive();
 }
 
 auto RandomDirectedUnit(const Eigen::Vector3d& directions) -> Eigen::Vector3d {
@@ -126,7 +131,7 @@ auto RandomDirectedUnit(const Eigen::Vector3d& directions) -> Eigen::Vector3d {
     for (usize retry {}; retry < usize(8); ++retry) {
         for (usize index {}; index < usize(3); ++index) {
             auto component  = index.to_primitive();
-            unit[component] = std::abs(directions[component]) > 1e-6
+            unit[component] = f64(directions[component]).abs().to_primitive() > 1e-6
                                   ? Random::get<std::normal_distribution<>>(0.0, 1.0)
                                   : 0.0;
         }

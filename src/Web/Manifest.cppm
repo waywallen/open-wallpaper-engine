@@ -1,18 +1,21 @@
 export module weweb:manifest;
 
-import rstd.cppstd;
+import rstd;
 import wescene.json;
+
+using namespace rstd::prelude;
+using rstd::path::Path;
 
 export namespace weweb
 {
 
 struct WebManifest {
-    std::string               title;
-    std::string               entry_html;
-    owe::Json                 user_props;
-    rstd::Option<std::string> preview;
+    String         title;
+    String         entry_html;
+    owe::Json      user_props;
+    Option<String> preview;
 };
 
-rstd::Option<WebManifest> LoadWebManifest(const std::filesystem::path& workshop_dir);
+Option<WebManifest> LoadWebManifest(ref<Path> workshop_dir);
 
 } // namespace weweb

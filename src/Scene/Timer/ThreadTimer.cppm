@@ -1,35 +1,33 @@
-module;
-
 export module wescene.timer:thread_timer;
-import wescene.core;
-import rstd.cppstd;
+import rstd;
+
+using namespace rstd::prelude;
+using rstd::sync::Condvar;
+using rstd::sync::Mutex;
+using rstd::thread::JoinHandle;
+using rstd::time::Duration;
 
 export namespace owe
 {
-
-class ThreadTimer : NoCopy, NoMove {
+class ThreadTimer {
 public:
-    ThreadTimer(std::function<void()> callback);
+    using Callback = Box<dyn<FnMut<void()>>>;
+    explicit ThreadTimer(Callback callback);
     ~ThreadTimer();
-
     void Start();
     void Stop();
-
     bool Running() const;
-
-    void SetInterval(std::chrono::microseconds);
+    void SetInterval(Duration);
 
 private:
-    std::function<void()> m_callback;
-
-    std::mutex m_op_mutex;
-
-    std::thread             m_timer_thread;
-    std::mutex              m_cond_mutex;
-    std::condition_variable m_condition;
-
-    std::atomic<std::chrono::microseconds> m_interval;
-    std::atomic<bool>                      m_running;
+    struct State {
+        bool     running {};
+        Duration interval { Duration::from_millis(u64(1)) };
+    };
+    Callback                 m_callback;
+    Mutex<empty>             m_op_mutex { empty {} };
+    Option<JoinHandle<void>> m_timer_thread;
+    Mutex<State>             m_state { State {} };
+    Condvar                  m_condition;
 };
-
 } // namespace owe

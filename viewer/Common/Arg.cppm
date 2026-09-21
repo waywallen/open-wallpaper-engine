@@ -1,12 +1,13 @@
 export module viewer.common:arg;
 
-export import rstd.cppstd;
+export import rstd;
 import rstd.argparse;
 import wescene.cli;
 
 using namespace rstd::prelude;
 using namespace rstd::argparse;
 using namespace rstd::literals;
+using rstd::path::PathBuf;
 
 export namespace viewer
 {
@@ -17,11 +18,11 @@ struct Resolution {
 };
 
 struct SceneViewerArgs {
-    std::string assets_dir;
-    std::string scene_path;
-    std::string cache_path;
-    std::string user_properties_path;
-    std::string mouse_position;
+    PathBuf     assets_dir;
+    PathBuf     scene_path;
+    PathBuf     cache_path;
+    PathBuf     user_properties_path;
+    String      mouse_position;
     String      load_bench_output;
     Option<u64> random_seed;
     Resolution  resolution;
@@ -33,13 +34,12 @@ struct SceneViewerArgs {
 };
 
 SceneViewerArgs ParseSceneViewerArgs(int argc, char** argv);
+auto            ParseMousePosition(ref<str>) -> Option<array<double, 2>>;
 
 } // namespace viewer
 
 namespace viewer
 {
-
-std::string ToStdString(const String& value) { return rstd::cppstd::to_string(value.as_str()); }
 
 template<typename T>
 const T& Value(const Matches& matches, const ArgKey<T>& key) {
@@ -66,26 +66,26 @@ auto ResolutionParser(ref<rstd::ffi::OsStr> raw) -> Result<Resolution, ValueErro
     auto text = raw.to_str();
     if (text.is_none()) return Err(ValueError::InvalidUtf8());
 
-    std::string_view value { reinterpret_cast<const char*>((*text).data()),
-                             (*text).size().to_primitive() };
-    const auto       separator = value.find('x');
-    unsigned         width     = 1280;
-    unsigned         height    = 720;
-    if (separator == std::string_view::npos) return Ok(Resolution { width, height });
-
-    auto width_text  = value.substr(0, separator);
-    auto height_text = value.substr(separator + 1);
-    auto width_result =
-        std::from_chars(width_text.data(), width_text.data() + width_text.size(), width);
-    auto height_result =
-        std::from_chars(height_text.data(), height_text.data() + height_text.size(), height);
-    if (width_result.ec != std::errc {} ||
-        width_result.ptr != width_text.data() + width_text.size() ||
-        height_result.ec != std::errc {} ||
-        height_result.ptr != height_text.data() + height_text.size()) {
+    auto parts = text->split_once("x"_str);
+    if (! parts) return Ok(Resolution { 1280, 720 });
+    auto [width_text, height_text] = *parts;
+    if (width_text.starts_with("+"_str) || height_text.starts_with("+"_str))
         return Ok(Resolution { 1280, 720 });
-    }
-    return Ok(Resolution { width, height });
+    auto width  = rstd::from_str<u32>(width_text);
+    auto height = rstd::from_str<u32>(height_text);
+    if (width.is_err() || height.is_err()) return Ok(Resolution { 1280, 720 });
+    return Ok(Resolution { width->to_primitive(), height->to_primitive() });
+}
+
+auto ParseMousePosition(ref<str> input) -> Option<array<double, 2>> {
+    auto parts = input.split_once(","_str);
+    if (! parts) return None();
+    auto [xs, ys] = *parts;
+    auto x        = rstd::from_str<f64>(xs);
+    auto y        = rstd::from_str<f64>(ys);
+    if (x.is_err() || y.is_err() || ! x->is_finite() || ! y->is_finite()) return None();
+    return Some(array<double, 2> { x->clamp(f64(0.0), f64(1.0)).to_primitive(),
+                                   y->clamp(f64(0.0), f64(1.0)).to_primitive() });
 }
 
 SceneViewerArgs ParseSceneViewerArgs(int argc, char** argv) {
@@ -156,15 +156,15 @@ SceneViewerArgs ParseSceneViewerArgs(int argc, char** argv) {
             .default_value("1280x720"_str));
 
     auto parsed = owe::cli::ParseArgs(rstd::move(command), argc, argv);
-    if (parsed.is_err()) std::exit(parsed.unwrap_err().code);
+    if (parsed.is_err()) rstd::process::exit(i32(parsed.unwrap_err().code));
     auto matches = rstd::move(parsed).unwrap();
 
     return SceneViewerArgs {
-        .assets_dir           = ToStdString(Value(matches, assets)),
-        .scene_path           = ToStdString(Value(matches, scene)),
-        .cache_path           = ToStdString(Value(matches, cache_path)),
-        .user_properties_path = ToStdString(Value(matches, user_properties)),
-        .mouse_position       = ToStdString(Value(matches, mouse_position)),
+        .assets_dir           = PathBuf::from(Value(matches, assets).as_str()),
+        .scene_path           = PathBuf::from(Value(matches, scene).as_str()),
+        .cache_path           = PathBuf::from(Value(matches, cache_path).as_str()),
+        .user_properties_path = PathBuf::from(Value(matches, user_properties).as_str()),
+        .mouse_position       = Value(matches, mouse_position).clone(),
         .load_bench_output    = Value(matches, load_bench_output).clone(),
         .random_seed          = OptionalValue(matches, random_seed),
         .resolution           = Value(matches, resolution),

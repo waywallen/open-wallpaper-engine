@@ -38,6 +38,7 @@ owe-waywallen-web-renderer = { path = "waywallen/WebRenderer" }
 rstd-std = { version = "0.1.0" }
 rstd-cppstd = { version = "0.1.0" }
 rstd-json = { version = "0.1.0" }
+rstd-parse = { version = "0.1.0" }
 rstd-log = { version = "0.1.0" }
 rstd-argparse = { version = "0.1.0" }
 rstd-bench = { version = "0.1.0" }

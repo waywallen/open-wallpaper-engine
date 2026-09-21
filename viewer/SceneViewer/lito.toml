@@ -4,7 +4,7 @@ version.workspace = true
 
 [[bin]]
 name = "SceneViewer"
-sources = ["SceneViewer.cpp", "GlfwCocoaLayer.cpp"]
+sources = ["SceneViewer.cpp", "GlfwCocoaLayer.cpp", "StdinJsonControl.cppm"]
 
 [usage]
 options = [

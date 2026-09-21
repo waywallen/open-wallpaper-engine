@@ -6,7 +6,6 @@ import wescene.core;
 import wescene.types;
 import rstd;
 import rstd.log;
-import rstd.cppstd;
 import wescene.utils;
 import wescene.scene;
 import wescene.text;
@@ -16,8 +15,6 @@ using namespace rstd::prelude;
 using namespace rstd::literals;
 using rstd::collections::HashMap;
 using rstd::collections::HashSet;
-using rstd::cppstd::as_str;
-using rstd::cppstd::as_string_view;
 using rstd::slice_::sort_unstable_by;
 using rstd::sync::Arc;
 using namespace owe;
@@ -30,13 +27,11 @@ bool AssetEndsWith(ref<str> asset, ref<str> suffix) { return asset.ends_with(suf
 
 Option<String> WorkshopAssetPath(const script::LayerAssetReference& reference) {
     if (reference.workshop_id.is_none() || reference.path.starts_with("/"_str)) return None();
-    auto path  = as_string_view(reference.path);
-    auto slash = path.find('/');
-    if (slash == std::string_view::npos || slash + 1 >= path.size()) return None();
-    auto relative = path.substr(slash + 1);
-    if (relative.starts_with("workshop/")) return None();
-    return Some(rstd::format(
-        "{}/workshop/{}/{}", path.substr(0, slash), **reference.workshop_id, relative));
+    auto parts = reference.path->split_once("/"_str);
+    if (parts.is_none()) return None();
+    auto [kind, relative] = *parts;
+    if (relative->is_empty() || relative->starts_with("workshop/"_str)) return None();
+    return Some(rstd::format("{}/workshop/{}/{}", kind, **reference.workshop_id, relative));
 }
 
 bool HasDynamicAsset(const SceneParseContext& context, ref<str> asset) {
@@ -46,14 +41,14 @@ bool HasDynamicAsset(const SceneParseContext& context, ref<str> asset) {
 }
 
 bool AssetPathExists(const SceneParseContext& context, ref<str> asset) {
-    auto resolved = fs::ResolveAssetPath(as_string_view(asset));
+    auto resolved = fs::ResolveAssetPath(asset);
     return resolved.is_ok() && context.vfs->metadata(resolved->as_path()).is_ok();
 }
 
 Option<String> ResolveLayerAssetPath(const SceneParseContext&           context,
                                      const script::LayerAssetReference& reference) {
     if (HasDynamicAsset(context, reference.path) || AssetPathExists(context, reference.path))
-        return Some(String::make(reference.path));
+        return Some(rstd::into<String>(reference.path));
     auto workshop_path = WorkshopAssetPath(reference);
     if (workshop_path.is_none()) return None();
     if (HasDynamicAsset(context, workshop_path->as_str()) ||
@@ -63,13 +58,12 @@ Option<String> ResolveLayerAssetPath(const SceneParseContext&           context,
 }
 
 Option<array<float, 2>> ResolveImageAssetSize(SceneParseContext& context, ref<str> asset) {
-    auto info = wpscene::LoadImageAssetInfo(*context.vfs, rstd::cppstd::as_string_view(asset));
+    auto info = wpscene::LoadImageAssetInfo(*context.vfs, asset);
     if (! info) return None();
-    if (info->size) return Some(array<float, 2> { (*info->size)[0], (*info->size)[1] });
-    if (info->first_texture.empty()) return None();
+    if (info->size) return Some(*info->size);
+    if (info->first_texture.is_empty()) return None();
 
-    auto parsed =
-        context.scene->ParseImageHeader(rstd::cppstd::as_str(info->first_texture).unwrap());
+    auto parsed = context.scene->ParseImageHeader(info->first_texture.as_str());
     if (parsed.is_err()) return None();
     auto  header = rstd::move(parsed).unwrap_unchecked();
     float width {};
@@ -87,19 +81,17 @@ Option<array<float, 2>> ResolveImageAssetSize(SceneParseContext& context, ref<st
 }
 
 Arc<SceneNode> CloneRegisteredNode(Scene& scene, ref<SceneNode> source, ref<str> asset) {
-    auto node = Arc<SceneNode>::make(Eigen::Vector3f::Zero(),
-                                     Eigen::Vector3f::Ones(),
-                                     Eigen::Vector3f::Zero(),
-                                     rstd::cppstd::to_string(asset));
+    auto node = Arc<SceneNode>::make(
+        Eigen::Vector3f::Zero(), Eigen::Vector3f::Ones(), Eigen::Vector3f::Zero(), asset);
     node->SetSize(source->Size());
     node->SetGeometryTransform(source->GeometryTransform());
     node->SetPerspective(source->Perspective());
     node->SetReflected(source->Reflected());
     node->SetBaseColor(source->BaseColor(), source->BaseAlpha());
     node->TexAnim() = source->TexAnim();
-    if (! source->Camera().empty()) node->SetCamera(source->Camera());
-    if (source->MeshShared()) {
-        auto mesh = source->MeshShared()->CloneInstance();
+    if (! source->Camera().is_empty()) node->SetCamera(source->Camera());
+    if (source->Mesh()) {
+        auto mesh = source->Mesh()->CloneInstance();
         mesh->RegisterAnimations(*node);
         node->AddMesh(rstd::move(mesh));
     }
@@ -110,12 +102,12 @@ Arc<SceneNode> CloneRegisteredNode(Scene& scene, ref<SceneNode> source, ref<str>
 Vec<SceneParseContext::MaterialFieldScriptTemplate>
 TakeMaterialScriptTemplates(SceneParseContext& context, const Arc<SceneNode>& node) {
     Vec<SceneParseContext::MaterialFieldScriptTemplate> result;
-    if (! node->MeshShared()) return result;
-    const auto& materials = node->MeshShared()->MaterialSlots();
-    for (usize index {}; index < usize(materials.size()); ++index) {
-        const auto& material = materials[index.to_primitive()];
+    if (! node->Mesh()) return result;
+    const auto& materials = node->Mesh()->MaterialSlots();
+    for (usize index {}; index < materials.len(); ++index) {
+        const auto& material = materials[index];
         if (! material) continue;
-        auto templates = context.material_script_templates.remove(material.get());
+        auto templates = context.material_script_templates.remove(material.as_ptr().as_raw_ptr());
         if (templates.is_none()) continue;
         for (auto& script_template : *templates) {
             script_template.material_slot = rstd::as_cast<u32>(index);
@@ -128,36 +120,35 @@ TakeMaterialScriptTemplates(SceneParseContext& context, const Arc<SceneNode>& no
 void InstantiateDynamicMaterialScripts(script::ScriptScene& scripts, Scene& scene,
                                        const SceneParseContext::DynamicImagePrototype& prototype,
                                        const Arc<SceneNode>&                           node) {
-    if (! node->MeshShared()) return;
-    const auto& materials = node->MeshShared()->MaterialSlots();
+    if (! node->Mesh()) return;
+    const auto& materials = node->Mesh()->MaterialSlots();
     for (const auto& script_template : prototype.material_scripts) {
         auto index = rstd::as_cast<usize>(script_template.material_slot);
-        if (index >= usize(materials.size())) continue;
-        const auto& material = materials[index.to_primitive()];
+        if (index >= materials.len()) continue;
+        const auto& material = materials[index];
         if (! material) continue;
 
         auto  animation    = material->ShaderValueAnimation(script_template.uniform_name.as_str());
         auto* field_script = scripts.runtime().MakeFieldScript(
-            as_string_view(script_template.source),
-            as_string_view(script_template.sha),
+            script_template.source.as_str(),
+            script_template.sha.as_str(),
             script_template.kind,
             script_template.properties,
             script_template.initial_value,
             script::ScriptBindingContext::ForMaterial(node.as_ptr(),
-                                                      material.get(),
+                                                      material.as_ptr().as_raw_ptr(),
                                                       script_template.property.as_str(),
                                                       rstd::move(animation)));
         if (! field_script) continue;
         scripts.AddActuator({
             field_script,
             [&scene,
-             material,
-             uniform_name = rstd::cppstd::to_string(script_template.uniform_name.as_str())](
-                const script::ScriptValue& script_value) {
+             material = material.clone(),
+             uniform_name =
+                 script_template.uniform_name.clone()](const script::ScriptValue& script_value) {
                 auto value = ScriptValueAsShaderValue(script_value);
                 if (value.is_none()) return;
-                (void)scene.SetMaterialShaderValue(
-                    *material, rstd::cppstd::as_str(uniform_name).unwrap(), *value);
+                (void)scene.SetMaterialShaderValue(*material, uniform_name.as_str(), *value);
             },
         });
     }
@@ -193,8 +184,8 @@ void ResolveRegisteredAsset(SceneParseContext& context, ref<str> asset) {
         if (context.dynamic_model_prototypes.contains_key(asset)) return;
         wpscene::ModelObject model;
         model.id    = context.NextSyntheticObjectId();
-        model.name  = rstd::cppstd::to_string(asset);
-        model.model = model.name;
+        model.name  = rstd::into(asset);
+        model.model = rstd::into(asset);
         ParseModelObj(context, model);
         auto parsed = context.node_id_map.get(model.id);
         if (parsed.is_none() || (**parsed).node.is_none()) return;
@@ -264,7 +255,7 @@ Option<Arc<SceneNode>> InstantiateResolvedAsset(SceneParseContext& context, Scen
         if (prototype.is_none()) return None();
         auto particle    = (**prototype).Clone();
         particle.id      = context.NextSyntheticObjectId();
-        particle.name    = rstd::cppstd::to_string(asset);
+        particle.name    = rstd::into(asset);
         particle.origin  = { 0.0f, 0.0f, 0.0f };
         particle.scale   = { 1.0f, 1.0f, 1.0f };
         particle.angles  = { 0.0f, 0.0f, 0.0f };
@@ -281,9 +272,9 @@ Option<Arc<SceneNode>> InstantiateResolvedAsset(SceneParseContext& context, Scen
         if (! context.sound_manager) return None();
         wpscene::SoundObject sound;
         sound.id          = context.NextSyntheticObjectId();
-        sound.name        = rstd::cppstd::to_string(asset);
+        sound.name        = rstd::into(asset);
         sound.startsilent = false;
-        sound.sound.push_back(sound.name);
+        sound.sound.push(sound.name.clone());
         ParseSoundObj(context, sound, *context.sound_manager);
         auto parsed = context.node_id_map.get(sound.id);
         if (parsed.is_none() || (**parsed).node.is_none()) return None();
@@ -342,7 +333,7 @@ Option<Arc<SceneNode>> InstantiateLayerConfiguration(SceneParseContext& context,
     }
 
     Vec<float> requested_size;
-    owe::GetJsonValue(config, "size", requested_size, false);
+    owe::GetJsonValue(config, "size"_str, requested_size, false);
     array<float, 2> size { 2.0f, 2.0f };
     if (requested_size.len() >= usize(2)) {
         size[usize()]  = requested_size[usize()];
@@ -355,19 +346,19 @@ Option<Arc<SceneNode>> InstantiateLayerConfiguration(SceneParseContext& context,
         return None();
     }
     image.id      = id;
-    image.name    = "__createLayer";
+    image.name    = "__createLayer"_Str;
     image.size    = { size[usize()], size[usize(1)] };
     image.solid   = true;
     image.parent  = u32();
     image.visible = true;
-    owe::GetJsonValue(config, "origin", image.origin, false);
-    owe::GetJsonValue(config, "angles", image.angles, false);
-    owe::GetJsonValue(config, "scale", image.scale, false);
-    owe::GetJsonValue(config, "color", image.color, false);
-    owe::GetJsonValue(config, "alpha", image.alpha, false);
-    owe::GetJsonValue(config, "brightness", image.brightness, false);
-    owe::GetJsonValue(config, "alignment", image.alignment, false);
-    owe::GetJsonValue(config, "perspective", image.perspective, false);
+    owe::GetJsonValue(config, "origin"_str, image.origin, false);
+    owe::GetJsonValue(config, "angles"_str, image.angles, false);
+    owe::GetJsonValue(config, "scale"_str, image.scale, false);
+    owe::GetJsonValue(config, "color"_str, image.color, false);
+    owe::GetJsonValue(config, "alpha"_str, image.alpha, false);
+    owe::GetJsonValue(config, "brightness"_str, image.brightness, false);
+    owe::GetJsonValue(config, "alignment"_str, image.alignment, false);
+    owe::GetJsonValue(config, "perspective"_str, image.perspective, false);
     image.alpha = wpscene::NormalizeLayerAlpha(image.alpha);
     context.solid_layer_ids.insert(i32(id));
     ParseImageObj(context, image);

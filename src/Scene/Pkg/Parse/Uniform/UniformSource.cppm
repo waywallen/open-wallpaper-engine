@@ -1,7 +1,6 @@
 export module wescene.pkg.parse:uniform_source;
 export import owe.scene_audio_response;
 import rstd;
-import rstd.cppstd;
 import wescene.json;
 import wescene.pkg.puppet;
 import wescene.scene;
@@ -107,31 +106,31 @@ inline auto ToUniformOutput(Output output) -> UniformOutputId {
     return { .value = u32(static_cast<rstd::uint32_t>(output)) };
 }
 
-inline auto TextureResolutionOutput(std::size_t index) -> UniformOutputId {
+inline auto TextureResolutionOutput(rstd::size_t index) -> UniformOutputId {
     const auto value = static_cast<rstd::uint32_t>(TextureUniformOutput::Resolution0) +
                        static_cast<rstd::uint32_t>(index);
     return { .value = u32(value) };
 }
 
-inline auto TextureMipmapOutput(std::size_t index) -> UniformOutputId {
+inline auto TextureMipmapOutput(rstd::size_t index) -> UniformOutputId {
     const auto value = static_cast<rstd::uint32_t>(TextureUniformOutput::Mipmap0) +
                        static_cast<rstd::uint32_t>(index);
     return { .value = u32(value) };
 }
 
-inline auto TextureRotationOutput(std::size_t index) -> UniformOutputId {
+inline auto TextureRotationOutput(rstd::size_t index) -> UniformOutputId {
     const auto value = static_cast<rstd::uint32_t>(TextureUniformOutput::Rotation0) +
                        static_cast<rstd::uint32_t>(index);
     return { .value = u32(value) };
 }
 
-inline auto TextureTranslationOutput(std::size_t index) -> UniformOutputId {
+inline auto TextureTranslationOutput(rstd::size_t index) -> UniformOutputId {
     const auto value = static_cast<rstd::uint32_t>(TextureUniformOutput::Translation0) +
                        static_cast<rstd::uint32_t>(index);
     return { .value = u32(value) };
 }
 
-inline auto TextureTexelOutput(std::size_t index) -> UniformOutputId {
+inline auto TextureTexelOutput(rstd::size_t index) -> UniformOutputId {
     const auto value = static_cast<rstd::uint32_t>(TextureUniformOutput::Texel0) +
                        static_cast<rstd::uint32_t>(index);
     return { .value = u32(value) };
@@ -238,7 +237,7 @@ public:
     void SetPointerInput(double, double);
     void SetAudioSpectrum(const scene_audio::Buffers&);
     void Advance(const SceneFrame&);
-    void ApplyUserProperty(std::string_view, const Json&);
+    void ApplyUserProperty(ref<str>, const Json&);
     auto AcquireAudioResponse() const -> Box<dyn<UniformBindingLease>> {
         return m_audio_demand->Acquire();
     }

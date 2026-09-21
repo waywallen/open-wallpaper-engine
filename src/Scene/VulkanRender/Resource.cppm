@@ -6,7 +6,6 @@ export module wescene.vulkan_render:resource;
 import wescene.core;
 import rstd;
 import rstd.log;
-import rstd.cppstd;
 import wescene.types;
 export import wescene.resource;
 export import wescene.resource_registry;
@@ -15,6 +14,7 @@ import wescene.scene;
 import wescene.load_bench;
 
 using namespace rstd::prelude;
+using namespace rstd::literals;
 using rstd::collections::HashMap;
 using rstd::sync::Arc;
 
@@ -67,8 +67,8 @@ inline void WriteTextureSampleIdentity(PipelineKeyWriter& writer, const TextureS
 }
 
 inline void WriteTextureKeyIdentity(PipelineKeyWriter& writer, const TextureKey& key) {
-    writer.writeU32(static_cast<std::uint32_t>(key.width.to_primitive()));
-    writer.writeU32(static_cast<std::uint32_t>(key.height.to_primitive()));
+    writer.writeU32(static_cast<rstd::uint32_t>(key.width.to_primitive()));
+    writer.writeU32(static_cast<rstd::uint32_t>(key.height.to_primitive()));
     WritePipelineScalar(writer, key.usage);
     WritePipelineScalar(writer, key.format);
     WriteTextureSampleIdentity(writer, key.sample);
@@ -84,8 +84,8 @@ inline void WriteTextureDefinitionIdIdentity(PipelineKeyWriter&         writer,
 
 inline void WriteTextureDefinitionIdentity(PipelineKeyWriter&       writer,
                                            const TextureDefinition& definition) {
-    writer.writeU32(static_cast<std::uint32_t>(definition.width.to_primitive()));
-    writer.writeU32(static_cast<std::uint32_t>(definition.height.to_primitive()));
+    writer.writeU32(static_cast<rstd::uint32_t>(definition.width.to_primitive()));
+    writer.writeU32(static_cast<rstd::uint32_t>(definition.height.to_primitive()));
     WritePipelineScalar(writer, definition.usage);
     WritePipelineScalar(writer, definition.format);
     WriteTextureSampleIdentity(writer, definition.sample);
@@ -95,7 +95,7 @@ inline void WriteTextureDefinitionIdentity(PipelineKeyWriter&       writer,
 
 inline void WriteTextureRequestIdentity(PipelineKeyWriter& writer, const TextureRequest& request) {
     WritePipelineScalar(writer, request.kind);
-    writer.writeString(rstd::cppstd::as_string_view(request.name.as_str()));
+    writer.writeString(request.name.as_str());
     writer.writeBool(request.source.is_some());
     if (request.source.is_some()) {
         WriteTextureDefinitionIdIdentity(writer, *request.source);
@@ -107,8 +107,8 @@ inline void WriteTextureRequestIdentity(PipelineKeyWriter& writer, const Texture
 }
 
 inline void WriteImageParametersIdentity(PipelineKeyWriter& writer, const ImageParameters& image) {
-    writer.writeU64(static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(image.handle)));
-    writer.writeU64(static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(image.view)));
+    writer.writeU64(static_cast<rstd::uint64_t>(reinterpret_cast<rstd::uintptr_t>(image.handle)));
+    writer.writeU64(static_cast<rstd::uint64_t>(reinterpret_cast<rstd::uintptr_t>(image.view)));
     writer.writeU32(image.extent.width);
     writer.writeU32(image.extent.height);
     writer.writeU32(image.extent.depth);
@@ -119,18 +119,18 @@ inline void WriteImageParametersIdentity(PipelineKeyWriter& writer, const ImageP
 inline FramebufferAttachmentIdentity
 MakeFramebufferAttachmentIdentity(const TextureRequest& request, const ImageParameters& image) {
     PipelineKeyWriter writer;
-    writer.writeString("framebuffer-attachment-v1");
+    writer.writeString("framebuffer-attachment-v1"_str);
     WriteTextureRequestIdentity(writer, request);
     WriteImageParametersIdentity(writer, image);
-    return ToFramebufferAttachmentIdentity(std::move(writer).finish());
+    return ToFramebufferAttachmentIdentity(rstd::move(writer).finish());
 }
 
 inline FramebufferAttachmentIdentity
 MakeFramebufferAttachmentIdentity(const ImageParameters& image) {
     PipelineKeyWriter writer;
-    writer.writeString("framebuffer-attachment-image-v1");
+    writer.writeString("framebuffer-attachment-image-v1"_str);
     WriteImageParametersIdentity(writer, image);
-    return ToFramebufferAttachmentIdentity(std::move(writer).finish());
+    return ToFramebufferAttachmentIdentity(rstd::move(writer).finish());
 }
 
 inline FramebufferAttachmentDesc MakeFramebufferAttachment(const TextureRequest&  request,
@@ -164,7 +164,7 @@ inline unsigned TextureSampleCountValue(VkSampleCountFlagBits sample_count) {
     return static_cast<unsigned>(sample_count);
 }
 
-inline TextureDefinition RenderTargetTextureDefinition(owe::SceneRenderTarget rt) {
+inline TextureDefinition RenderTargetTextureDefinition(const owe::SceneRenderTarget& rt) {
     const bool depth_sampled = rt.kind == owe::SceneRenderTargetKind::DepthSampled;
     return TextureDefinition {
         .width      = rt.PhysicalWidth(),
@@ -177,7 +177,7 @@ inline TextureDefinition RenderTargetTextureDefinition(owe::SceneRenderTarget rt
     };
 }
 
-inline TextureDefinition RenderTargetTextureDefinitionNoMip(owe::SceneRenderTarget rt) {
+inline TextureDefinition RenderTargetTextureDefinitionNoMip(const owe::SceneRenderTarget& rt) {
     const bool depth_sampled = rt.kind == owe::SceneRenderTargetKind::DepthSampled;
     return TextureDefinition {
         .width  = rt.PhysicalWidth(),
@@ -189,14 +189,14 @@ inline TextureDefinition RenderTargetTextureDefinitionNoMip(owe::SceneRenderTarg
     };
 }
 
-inline TextureDefinition MsaaTextureDefinition(owe::SceneRenderTarget rt,
-                                               VkSampleCountFlagBits  samples) {
+inline TextureDefinition MsaaTextureDefinition(const owe::SceneRenderTarget& rt,
+                                               VkSampleCountFlagBits         samples) {
     auto definition    = RenderTargetTextureDefinition(rt);
     definition.samples = u32(TextureSampleCountValue(samples));
     return definition;
 }
 
-inline TextureDefinition DepthTextureDefinition(owe::SceneRenderTarget rt) {
+inline TextureDefinition DepthTextureDefinition(const owe::SceneRenderTarget& rt) {
     return TextureDefinition {
         .width      = rt.PhysicalWidth(),
         .height     = rt.PhysicalHeight(),
@@ -208,7 +208,7 @@ inline TextureDefinition DepthTextureDefinition(owe::SceneRenderTarget rt) {
     };
 }
 
-inline TextureRequest MakeImportedTextureRequest(std::string_view            name,
+inline TextureRequest MakeImportedTextureRequest(ref<str>                    name,
                                                  Option<RenderTextureDescId> texture = None()) {
     auto source = texture.is_some()
                       ? rstd::Some(TextureDefinitionId { .index      = texture->index,
@@ -216,20 +216,19 @@ inline TextureRequest MakeImportedTextureRequest(std::string_view            nam
                       : rstd::None<TextureDefinitionId>();
     return TextureRequest {
         .kind   = TextureRequestKind::Imported,
-        .name   = rstd::string::String::make(rstd::cppstd::as_str(name).unwrap()),
+        .name   = String::make(name),
         .source = rstd::move(source),
     };
 }
 
-inline TextureRequest MakeRenderTargetTextureRequest(std::string_view         name,
-                                                     const SceneRenderTarget& rt) {
+inline TextureRequest MakeRenderTargetTextureRequest(ref<str> name, const SceneRenderTarget& rt) {
     auto content = TextureContentFlag(TextureContent::SourceDefined);
     if (rt.initialize_transparent) {
         content |= TextureContentFlag(TextureContent::InitializeTransparent);
     }
     return TextureRequest {
         .kind       = TextureRequestKind::RenderTarget,
-        .name       = rstd::string::String::make(rstd::cppstd::as_str(name).unwrap()),
+        .name       = String::make(name),
         .definition = rstd::Some(RenderTargetTextureDefinition(rt)),
         .lifetime =
             rt.allowReuse ? TextureLifetimeClass::FrameLocal : TextureLifetimeClass::Retained,
@@ -237,7 +236,7 @@ inline TextureRequest MakeRenderTargetTextureRequest(std::string_view         na
     };
 }
 
-inline TextureRequest MakeRenderTargetNoMipTextureRequest(std::string_view         name,
+inline TextureRequest MakeRenderTargetNoMipTextureRequest(ref<str>                 name,
                                                           const SceneRenderTarget& rt) {
     auto content = TextureContentFlag(TextureContent::SourceDefined);
     if (rt.initialize_transparent) {
@@ -245,7 +244,7 @@ inline TextureRequest MakeRenderTargetNoMipTextureRequest(std::string_view      
     }
     return TextureRequest {
         .kind       = TextureRequestKind::RenderTarget,
-        .name       = rstd::string::String::make(rstd::cppstd::as_str(name).unwrap()),
+        .name       = String::make(name),
         .definition = rstd::Some(RenderTargetTextureDefinitionNoMip(rt)),
         .lifetime =
             rt.allowReuse ? TextureLifetimeClass::FrameLocal : TextureLifetimeClass::Retained,
@@ -253,20 +252,20 @@ inline TextureRequest MakeRenderTargetNoMipTextureRequest(std::string_view      
     };
 }
 
-inline TextureRequest MakeMsaaTextureRequest(std::string_view name, const SceneRenderTarget& rt,
+inline TextureRequest MakeMsaaTextureRequest(ref<str> name, const SceneRenderTarget& rt,
                                              VkSampleCountFlagBits samples) {
     return TextureRequest {
         .kind       = TextureRequestKind::RenderTargetMsaa,
-        .name       = rstd::string::String::make(rstd::cppstd::as_str(name).unwrap()),
+        .name       = String::make(name),
         .definition = rstd::Some(MsaaTextureDefinition(rt, samples)),
         .lifetime   = TextureLifetimeClass::Dedicated,
     };
 }
 
-inline TextureRequest MakeDepthTextureRequest(std::string_view name, const SceneRenderTarget& rt) {
+inline TextureRequest MakeDepthTextureRequest(ref<str> name, const SceneRenderTarget& rt) {
     return TextureRequest {
         .kind       = TextureRequestKind::DepthAttachment,
-        .name       = rstd::string::String::make(rstd::cppstd::as_str(name).unwrap()),
+        .name       = String::make(name),
         .definition = rstd::Some(DepthTextureDefinition(rt)),
         .lifetime =
             rt.allowReuse ? TextureLifetimeClass::FrameLocal : TextureLifetimeClass::Retained,
@@ -289,36 +288,36 @@ inline Option<String> ResolveImportedTextureName(const RenderSceneSnapshot& rend
 }
 
 inline Arc<vrento::Image> MakeMissingTexturePlaceholder(ref<str> key) {
-    constexpr std::int32_t size = 2;
-    auto                   img  = Arc<Image>::make();
-    img->content->key           = std::string(rstd::cppstd::as_string_view(key));
-    auto& header                = img->header;
-    header.width                = size;
-    header.height               = size;
-    header.mapWidth             = size;
-    header.mapHeight            = size;
-    header.format               = TextureFormat::RGBA8;
-    header.type                 = ImageType::PNG;
-    header.count                = 1;
-    header.sample               = TextureSample { TextureWrap::CLAMP_TO_EDGE,
-                                                  TextureWrap::CLAMP_TO_EDGE,
-                                                  TextureFilter::LINEAR,
-                                                  TextureFilter::LINEAR };
+    constexpr rstd::int32_t size = 2;
+    auto                    img  = Arc<Image>::make();
+    img->content->key            = rstd::into(key);
+    auto& header                 = img->header;
+    header.width                 = size;
+    header.height                = size;
+    header.mapWidth              = size;
+    header.mapHeight             = size;
+    header.format                = TextureFormat::RGBA8;
+    header.type                  = ImageType::PNG;
+    header.count                 = 1;
+    header.sample                = TextureSample { TextureWrap::CLAMP_TO_EDGE,
+                                                   TextureWrap::CLAMP_TO_EDGE,
+                                                   TextureFilter::LINEAR,
+                                                   TextureFilter::LINEAR };
     // 2x2 is pow2, so no mipmap downsampling constraints apply.
     header.mipmap_pow2   = true;
     header.mipmap_larger = false;
-    img->content->slots.resize(1);
-    auto& slot  = img->content->slots[0];
+    img->content->slots.push(vrento::Image::Slot {});
+    auto& slot  = img->content->slots[usize(0)];
     slot.width  = size;
     slot.height = size;
-    slot.mipmaps.resize(1);
-    auto& mipmap  = slot.mipmaps[0];
+    slot.mipmaps.push(ImageData {});
+    auto& mipmap  = slot.mipmaps[usize(0)];
     mipmap.width  = size;
     mipmap.height = size;
-    mipmap.size   = isize(static_cast<std::ptrdiff_t>(size * size * 4));
+    mipmap.size   = isize(static_cast<rstd::ptrdiff_t>(size * size * 4));
     // Opaque magenta (#FF00FF), WE-style missing-texture marker.
-    auto* pixels = new uint8_t[static_cast<std::size_t>(size * size * 4)];
-    for (std::int32_t i = 0; i < size * size; ++i) {
+    auto* pixels = new uint8_t[static_cast<rstd::size_t>(size * size * 4)];
+    for (rstd::int32_t i = 0; i < size * size; ++i) {
         pixels[i * 4 + 0] = 0xFF;
         pixels[i * 4 + 1] = 0x00;
         pixels[i * 4 + 2] = 0xFF;
@@ -367,9 +366,8 @@ public:
                 .key = request.name.clone(),
             });
         }
-        auto key = record->desc.url.empty()
-                       ? record->key.clone()
-                       : String::make(rstd::cppstd::as_str(record->desc.url).unwrap());
+        auto key = record->desc.url.is_empty() ? record->key.clone()
+                                               : String::make(record->desc.url.as_str());
         return Ok(resource::ImportedTextureContentIdentity {
             .key      = rstd::move(key),
             .revision = record->content_revision,
@@ -459,8 +457,7 @@ struct Impl<owe::resource::TextureCatalog, owe::RenderSceneSnapshot>
         auto record = this->self().textureDesc(
             owe::RenderTextureDescId { .index = id.index, .generation = id.generation });
         if (record == nullptr) return None();
-        auto name = record->desc.url.empty() ? rstd::cppstd::as_string_view(record->key.as_str())
-                                             : std::string_view(record->desc.url);
+        auto name = record->desc.url.is_empty() ? record->key.as_str() : record->desc.url.as_str();
         return Some(owe::vulkan::MakeImportedTextureRequest(
             name,
             Some(owe::RenderTextureDescId { .index = id.index, .generation = id.generation })));

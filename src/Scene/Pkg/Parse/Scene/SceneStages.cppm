@@ -1,10 +1,11 @@
 export module wescene.pkg.parse:scene_stages;
 import rstd;
-import rstd.cppstd;
 import wescene.json;
 import wescene.fs;
 import wescene.pkg.scene_obj;
 import wescene.scene;
+
+using rstd::collections::HashMap;
 
 using namespace rstd::prelude;
 
@@ -49,8 +50,8 @@ public:
     }
 
 private:
-    rstd::collections::HashMap<u64, SceneAnimationTrack> m_tracks;
-    Vec<SceneAnimationBindingDiagnostic>                 m_diagnostics;
+    HashMap<u64, SceneAnimationTrack>    m_tracks;
+    Vec<SceneAnimationBindingDiagnostic> m_diagnostics;
 };
 
 auto BuildAnimationBindingScope(const wpscene::FieldBindings&) -> SceneAnimationBindingScope;

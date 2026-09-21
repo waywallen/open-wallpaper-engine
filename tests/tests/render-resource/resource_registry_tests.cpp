@@ -92,7 +92,7 @@ struct TextureLoader {
         -> rstd::Result<rstd::sync::Arc<vrento::Image>, owe::resource::ResourceError> {
         loads->fetch_add(1, std::memory_order_relaxed);
         auto image = rstd::sync::Arc<vrento::Image>::make();
-        image->key = rstd::cppstd::to_string(key);
+        image->key = rstd::into(key);
         return rstd::Ok(rstd::move(image));
     }
 };
@@ -182,8 +182,8 @@ auto ShaderRequest(rstd::uint64_t version) -> owe::resource::ShaderRequest {
 auto TextureAllocation(rstd::uint64_t generation)
     -> rstd::sync::Arc<owe::vulkan::TextureAllocation> {
     owe::vulkan::ImageSlots slots;
-    slots.slots.resize(1);
-    slots.slots[0].generation = rstd::u64(generation);
+    slots.slots.push(owe::vulkan::AllocatedImageParameters {});
+    slots.slots[rstd::usize(0)].generation = rstd::u64(generation);
     return rstd::sync::Arc<owe::vulkan::TextureAllocation>::make(rstd::move(slots));
 }
 
@@ -389,7 +389,7 @@ TEST(TextureAllocation, SubmissionLeaseDelaysRuntimeReleaseAfterActivePlanRemova
             TextureRuntimeProbe {});
         weak = runtime.downgrade();
         owe::vulkan::ImageSlots slots;
-        slots.slots.resize(1);
+        slots.slots.push(owe::vulkan::AllocatedImageParameters {});
         auto allocation = rstd::sync::Arc<owe::vulkan::TextureAllocation>::make(
             rstd::move(slots), rstd::Some(runtime.clone()));
 
@@ -486,7 +486,7 @@ TEST(TextureRegistry, PublishesUploadedPhysicalOnlyAfterSubmission) {
     EXPECT_TRUE(registry.ResolveCurrent(handle).is_none());
 
     registry.MarkUploadsSubmitted(
-        std::span<const owe::vulkan::ImageUploadTicket>(&ticket, std::size_t(1)),
+        rstd::slice<owe::vulkan::ImageUploadTicket>::from_raw_parts(&ticket, rstd::usize(1)),
         rstd::Some(owe::resource::ReadyToken { .value = rstd::u64(11) }));
     auto physical = registry.ResolveCurrent(handle);
     ASSERT_TRUE(physical.is_some());

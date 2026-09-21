@@ -2,7 +2,6 @@ export module wescene.pkg.parse:particle_runtime;
 
 import eigen;
 import rstd;
-import rstd.cppstd;
 import wescene.core;
 import wescene.particle;
 import wescene.particle.program;
@@ -37,11 +36,11 @@ struct ParticleSimulationControlpoint {
 };
 
 struct ParticleAudioResponse {
-    bool                  enable { false };
-    float                 amount { 1.0f };
-    float                 exponent { 1.0f };
-    rstd::array<float, 2> frequency { 0.0f, 15.0f };
-    rstd::array<float, 2> bounds { 0.0f, 1.0f };
+    bool            enable { false };
+    float           amount { 1.0f };
+    float           exponent { 1.0f };
+    array<float, 2> frequency { 0.0f, 15.0f };
+    array<float, 2> bounds { 0.0f, 1.0f };
 };
 
 struct ParticleFollowAnchor {
@@ -52,7 +51,7 @@ struct ParticleFollowAnchor {
 };
 
 struct ParticleTrailUniformState {
-    rstd::array<float, 4> render_var {};
+    array<float, 4> render_var {};
 };
 
 class ParticleInstanceModifiers {
@@ -88,19 +87,18 @@ public:
                (m_state->overColor || m_state->overColorn);
     }
     bool UsesLegacyColor() const noexcept { return m_state->overColor; }
-    auto Color() const noexcept -> const std::array<float, 3>& {
+    auto Color() const noexcept -> const array<float, 3>& {
         return m_state->overColor ? m_state->color : m_state->colorn;
     }
     bool ControlpointsEnabled() const noexcept { return m_controlpoints; }
-    auto Controlpoint(usize index) const noexcept -> const Option<std::array<float, 3>>& {
-        return m_state->controlpoint[index.to_primitive()];
+    auto Controlpoint(usize index) const noexcept -> const Option<array<float, 3>>& {
+        return m_state->controlpoint[index];
     }
-    auto ControlpointAngle(usize index) const noexcept -> const std::array<float, 3>& {
-        return m_state->controlpointangle[index.to_primitive()];
+    auto ControlpointAngle(usize index) const noexcept -> const array<float, 3>& {
+        return m_state->controlpointangle[index];
     }
-    auto ControlpointFieldBindings() const noexcept
-        -> const std::shared_ptr<const wpscene::FieldBindings>& {
-        return m_state->field_bindings;
+    auto ControlpointFieldBindings() const noexcept -> const wpscene::FieldBindings* {
+        return m_state->FieldBindingsView();
     }
 
 private:
@@ -229,14 +227,14 @@ struct TrailHistoryAttribute {
 private:
     particle::ParticleAttributeDescriptor m_descriptor;
     usize                                 m_sample_capacity {};
-    rstd::vec::Vec<TrailSlotState>        m_states;
-    rstd::vec::Vec<Eigen::Vector3f>       m_positions;
+    Vec<TrailSlotState>                   m_states;
+    Vec<Eigen::Vector3f>                  m_positions;
 };
 
 struct ParticleFrame {
     class ParticleSubSystem* subsystem { nullptr };
     usize                    instance_index {};
-    rstd::array<float, 16>   audio_average {};
+    array<float, 16>         audio_average {};
     Eigen::Vector3d          mouse_local { Eigen::Vector3d::Zero() };
     Eigen::Matrix3d          world_from_local_dir { Eigen::Matrix3d::Identity() };
     Eigen::Matrix3d          local_from_world_dir { Eigen::Matrix3d::Identity() };
@@ -306,7 +304,7 @@ public:
 
 private:
     ParticleAttributes                                               m_attributes;
-    rstd::vec::Vec<ParticleSpawnInstruction>                         m_instructions;
+    Vec<ParticleSpawnInstruction>                                    m_instructions;
     particle::ParticleWriteIndex<particle::VelocityAttribute>        m_velocity;
     particle::ParticleWriteIndex<particle::RotationAttribute>        m_rotation;
     particle::ParticleWriteIndex<particle::AngularVelocityAttribute> m_angular_velocity;
@@ -324,11 +322,11 @@ private:
 };
 
 struct ParticleBoxEmitterArgs {
-    rstd::array<float, 3> directions;
-    rstd::array<float, 3> min_distance;
-    rstd::array<float, 3> max_distance;
+    array<float, 3>       directions;
+    array<float, 3>       min_distance;
+    array<float, 3>       max_distance;
     float                 emit_speed {};
-    rstd::array<float, 3> origin;
+    array<float, 3>       origin;
     bool                  one_per_frame { false };
     u32                   instantaneous {};
     float                 min_speed {};
@@ -339,12 +337,12 @@ struct ParticleBoxEmitterArgs {
 };
 
 struct ParticleSphereEmitterArgs {
-    rstd::array<float, 3> directions;
+    array<float, 3>       directions;
     float                 min_distance {};
     float                 max_distance {};
     float                 emit_speed {};
-    rstd::array<float, 3> origin;
-    rstd::array<i32, 3>   sign;
+    array<float, 3>       origin;
+    array<i32, 3>         sign;
     bool                  one_per_frame { false };
     u32                   instantaneous {};
     float                 min_speed {};
@@ -411,10 +409,10 @@ struct ParticleInstanceState {
         Eigen::Vector3f             position { 0.0f, 0.0f, 0.0f };
     } bounded;
 
-    bool                         death { false };
-    bool                         no_live_particle { false };
-    bool                         warmup_pending { true };
-    rstd::vec::Vec<EmitterState> emitters;
+    bool              death { false };
+    bool              no_live_particle { false };
+    bool              warmup_pending { true };
+    Vec<EmitterState> emitters;
 
     auto Emitter(usize index) -> EmitterState& {
         while (emitters.len() <= index) emitters.emplace_back();
@@ -458,10 +456,10 @@ public:
         return max_count.checked_mul(EffectiveInstanceCapacity(max_instance_count, spawn_type));
     }
 
-    ParticleSubSystem(Scene&, std::shared_ptr<SceneMesh>, u32 max_count, f64 rate,
-                      u32 max_instance_count, f64    probability, SpawnType, ParticleAnimationSpec,
-                      ParticleFollowAnchor = {}, u32 trail_length = {}, f64 trail_duration = {},
-                      f64 start_time = {}, bool world_space = false,
+    ParticleSubSystem(Scene&, Arc<SceneMesh>, u32 max_count, f64 rate, u32 max_instance_count,
+                      f64 probability, SpawnType, ParticleAnimationSpec, ParticleFollowAnchor = {},
+                      u32 trail_length = {}, f64 trail_duration = {}, f64 start_time = {},
+                      bool                                   world_space         = false,
                       Option<Arc<ParticleTrailUniformState>> trail_uniform_state = None());
     ~ParticleSubSystem();
 
@@ -489,9 +487,8 @@ public:
     }
     void SetControlpointAngleTrack(usize index, SceneAnimationTrack track) {
         if (m_owner_node != nullptr) {
-            auto property = std::string("controlpointangle") + std::to_string(index.to_primitive());
-            m_owner_node->BindFieldAnimation(String::make(rstd::cppstd::as_str(property).unwrap()),
-                                             track.playback.clone());
+            auto property = rstd::format("controlpointangle{}", index);
+            m_owner_node->BindFieldAnimation(rstd::move(property), track.playback.clone());
         }
         m_controlpoints[index].angle_track = Some(rstd::move(track));
     }
@@ -549,7 +546,7 @@ private:
                     Eigen::Vector3f position = Eigen::Vector3f::Zero(), bool fixed = false);
 
     Scene&                                                        m_scene;
-    std::shared_ptr<SceneMesh>                                    m_mesh;
+    Arc<SceneMesh>                                                m_mesh;
     SceneNode*                                                    m_owner_node { nullptr };
     particle::ParticleSchemaBuilder                               m_schema_builder;
     ParticleAttributes                                            m_attributes;
@@ -558,9 +555,9 @@ private:
     Option<u32>                                                   m_rope_sequence_count;
     particle::ParticleProgram                                     m_program;
     Option<Box<particle::ParticleSystem>>                         m_system;
-    rstd::vec::Vec<ParticleInstanceState>                         m_instance_states;
-    rstd::vec::Vec<Box<ParticleSubSystem>>                        m_children;
-    rstd::array<ParticleControlpoint, 8>                          m_controlpoints;
+    Vec<ParticleInstanceState>                                    m_instance_states;
+    Vec<Box<ParticleSubSystem>>                                   m_children;
+    array<ParticleControlpoint, 8>                                m_controlpoints;
     Option<i32>                                                   m_parent_controlpoint_start_index;
     Option<ParticleInstanceModifiers>                             m_instance_modifiers;
     ParticleFrame                                                 m_frame;
@@ -580,7 +577,7 @@ private:
     Option<Arc<ParticleTrailUniformState>>                   m_trail_uniform_state;
     Option<Arc<ParticlePlaybackState>>                       m_playback_state;
     u32                                                      m_seen_reset_sequence {};
-    rstd::vec::Vec<particle::ParticleSlot>                   m_pending_child_deaths;
+    Vec<particle::ParticleSlot>                              m_pending_child_deaths;
     particle::ParticleReadIndex<particle::VelocityAttribute> m_follow_velocity;
     particle::ParticleReadIndex<particle::SizeAttribute>     m_follow_size;
     particle::ParticleReadIndex<particle::LifetimeAttribute> m_follow_lifetime;
@@ -600,7 +597,7 @@ public:
 private:
     void Tick(f64 delta);
 
-    rstd::vec::Vec<Box<ParticleSubSystem>> m_subsystems;
+    Vec<Box<ParticleSubSystem>> m_subsystems;
 };
 
 struct ParticleRuntimeSystem {

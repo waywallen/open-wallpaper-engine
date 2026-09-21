@@ -7,6 +7,7 @@ export module wescene.testing.scene_parse_probe;
 import rstd.cppstd;
 import wescene.pkg.parse;
 import wescene.fs;
+using namespace rstd::literals;
 
 export namespace owe::testing
 {
@@ -50,7 +51,8 @@ namespace fs = std::filesystem;
 // Mirrors WPPkgFs::open's first read: just the length-prefixed
 // version stamp. Avoids paying for the full pkg+vfs construction.
 bool ReadPkgVersionStamp(const std::string& pkg_path, std::string& out) {
-    auto stream = owe::fs::OpenPhysicalBinary(pkg_path);
+    auto stream =
+        owe::fs::OpenPhysicalBinary(owe::fs::Path(rstd::cppstd::as_str(pkg_path).unwrap()));
     if (stream.is_err()) return false;
     std::int32_t len = stream->ReadInt32();
     if (len < 0) return false;
@@ -70,7 +72,8 @@ SceneParseResult ProbeSceneParse(const std::string& workshop_dir) {
         return out;
     }
 
-    auto doc = wpscene::LoadSceneDocumentFromPkg(pkg_path);
+    auto doc =
+        wpscene::LoadSceneDocumentFromPkg(owe::fs::Path(rstd::cppstd::as_str(pkg_path).unwrap()));
     if (! doc) {
         out.error = "LoadSceneDocumentFromPkg returned nullopt";
         return out;
@@ -103,7 +106,7 @@ std::vector<WorkshopProbe> EnumerateWorkshopProbes(const std::string& workshop_r
         if (! ReadPkgVersionStamp((d / "scene.pkg").string(), p.pkg_stamp)) {
             continue;
         }
-        p.pkg_version = wpscene::ParsePkgVersionStamp(p.pkg_stamp);
+        p.pkg_version = wpscene::ParsePkgVersionStamp(rstd::cppstd::as_str(p.pkg_stamp).unwrap());
         out.push_back(std::move(p));
     }
     return out;

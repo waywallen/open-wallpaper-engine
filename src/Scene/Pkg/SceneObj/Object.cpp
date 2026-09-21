@@ -13,18 +13,18 @@ using namespace owe::wpscene;
 
 bool ContainerObject::FromJson(const owe::Json& json) {
     if (! json.is_object()) return false;
-    owe::GetJsonValue(json, "id", id, false);
-    owe::GetJsonValue(json, "name", name, false);
-    owe::GetJsonValue(json, "origin", origin, false);
-    owe::GetJsonValue(json, "scale", scale, false);
-    owe::GetJsonValue(json, "angles", angles, false);
+    owe::GetJsonValue(json, "id"_str, id, false);
+    owe::GetJsonValue(json, "name"_str, name, false);
+    owe::GetJsonValue(json, "origin"_str, origin, false);
+    owe::GetJsonValue(json, "scale"_str, scale, false);
+    owe::GetJsonValue(json, "angles"_str, angles, false);
     ReadParallaxDepth(json, parallax);
     ReadVisibleProperty(json, visible, visible_user);
-    owe::GetJsonValue(json, "solid", solid, false);
-    owe::GetJsonValue(json, "disablepropagation", disable_propagation, false);
-    owe::GetJsonValue(json, "parent", parent, false);
-    owe::GetJsonValue(json, "attachment", attachment, false);
-    owe::GetJsonValue(json, "dependencies", dependencies, false);
+    owe::GetJsonValue(json, "solid"_str, solid, false);
+    owe::GetJsonValue(json, "disablepropagation"_str, disable_propagation, false);
+    owe::GetJsonValue(json, "parent"_str, parent, false);
+    owe::GetJsonValue(json, "attachment"_str, attachment, false);
+    owe::GetJsonValue(json, "dependencies"_str, dependencies, false);
     if (auto value = json.get("instance"_str); value.is_some()) instance = (*value)->clone();
     AbsorbAllFieldBindings(json, field_bindings);
     return true;
