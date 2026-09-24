@@ -23,6 +23,7 @@ default-members = ["viewer/SceneViewer", "viewer/WebViewer"]
 version = "0.2.10"
 
 [workspace.dependencies]
+licrypto = { git = "https://github.com/litocpp/licrypto.git" }
 vrento = { git = "https://github.com/vecren/vrento.git" }
 owe-core = { path = "src/Core" }
 owe-audio = { path = "src/Audio" }
@@ -44,7 +45,7 @@ rstd-argparse = { version = "0.1.0" }
 rstd-bench = { version = "0.1.0" }
 rstd-test = { version = "0.1.0" }
 wavsen = { git = "https://github.com/hypengw/wavsen.git" }
-vvk = { git = "https://github.com/litocpp/vvk.git" }
+vvk = { version = "0.1.0" }
 spirv-reflect = { git = "https://github.com/hypengw/SPIRV-Reflect.git", branch = "toml" }
 
 [workspace.external-dependencies.pkg-config.glfw]

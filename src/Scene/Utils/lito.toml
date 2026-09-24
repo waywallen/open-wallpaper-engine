@@ -26,6 +26,9 @@ options = [
 workspace = true
 pub = true
 
+[dependencies.licrypto]
+workspace = true
+
 [dependencies.owe-types]
 workspace = true
 pub = true
