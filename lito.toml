@@ -23,8 +23,6 @@ default-members = ["viewer/SceneViewer", "viewer/WebViewer"]
 version = "0.2.10"
 
 [workspace.dependencies]
-licrypto = { git = "https://github.com/litocpp/licrypto.git" }
-vrento = { git = "https://github.com/vecren/vrento.git" }
 owe-core = { path = "src/Core" }
 owe-audio = { path = "src/Audio" }
 owe-types = { path = "src/Scene/types" }
@@ -36,17 +34,19 @@ owe-viewer-common = { path = "viewer/Common" }
 owe-waywallen-producer = { path = "waywallen/Producer" }
 owe-waywallen-scene-renderer = { path = "waywallen/SceneRenderer" }
 owe-waywallen-web-renderer = { path = "waywallen/WebRenderer" }
-rstd-std = { version = "0.1.0" }
-rstd-cppstd = { version = "0.1.0" }
-rstd-json = { version = "0.1.0" }
-rstd-parse = { version = "0.1.0" }
-rstd-log = { version = "0.1.0" }
-rstd-argparse = { version = "0.1.0" }
-rstd-bench = { version = "0.1.0" }
-rstd-test = { version = "0.1.0" }
-wavsen = { git = "https://github.com/hypengw/wavsen.git" }
+rstd-std = { version = "0.1.5" }
+rstd-cppstd = { version = "0.1.5" }
+rstd-json = { version = "0.1.5" }
+rstd-parse = { version = "0.1.5" }
+rstd-log = { version = "0.1.5" }
+rstd-argparse = { version = "0.1.5" }
+rstd-bench = { version = "0.1.5" }
+rstd-test = { version = "0.1.5" }
+licrypto = { version = "0.1.1" }
 vvk = { version = "0.1.0" }
+wavsen = { git = "https://github.com/hypengw/wavsen.git" }
 spirv-reflect = { git = "https://github.com/hypengw/SPIRV-Reflect.git", branch = "toml" }
+vrento = { git = "https://github.com/vecren/vrento.git" }
 
 [workspace.external-dependencies.pkg-config.glfw]
 module = "glfw3"

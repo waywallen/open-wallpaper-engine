@@ -1,6 +1,16 @@
 version = 1
 
 [[packages]]
+name = "licrypto"
+version = "0.1.1"
+source = "registry+https://registry.litocpp.org/"
+checksum = "9794ef28b45534d2bac075113f9e75cd3a4c55ff9bca85c06eb20f44f870d505"
+dependencies = [
+  "rstd-std",
+  "rstd-test",
+]
+
+[[packages]]
 name = "owe-audio"
 version = "0.2.10"
 dependencies = [
@@ -37,7 +47,9 @@ dependencies = [
   "rstd-cppstd",
   "rstd-json",
   "rstd-log",
+  "rstd-parse",
   "rstd-std",
+  "vrento",
   "wavsen",
 ]
 
@@ -53,6 +65,7 @@ dependencies = [
   "owe-scene",
   "owe-viewer-common",
   "rstd-log",
+  "vvk",
 ]
 
 [[packages]]
@@ -63,6 +76,7 @@ dependencies = [
   "owe-core",
   "owe-scene",
   "owe-vulkan",
+  "owe-web",
   "rstd-argparse",
   "rstd-bench",
   "rstd-cppstd",
@@ -80,14 +94,15 @@ name = "owe-types"
 version = "0.2.10"
 dependencies = [
   "owe-core",
-  "rstd-cppstd",
   "rstd-std",
+  "vrento",
 ]
 
 [[packages]]
 name = "owe-utils"
 version = "0.2.10"
 dependencies = [
+  "licrypto",
   "owe-core",
   "owe-types",
   "rstd-cppstd",
@@ -104,6 +119,7 @@ dependencies = [
   "rstd-argparse",
   "rstd-cppstd",
   "rstd-std",
+  "vvk",
   "wavsen",
 ]
 
@@ -118,6 +134,7 @@ dependencies = [
   "rstd-log",
   "rstd-std",
   "spirv-reflect",
+  "vrento",
   "vvk",
   "wavsen",
 ]
@@ -157,6 +174,7 @@ dependencies = [
   "rstd-cppstd",
   "rstd-log",
   "rstd-std",
+  "vvk",
 ]
 
 [[packages]]
@@ -231,9 +249,9 @@ dependencies = [
 
 [[packages]]
 name = "rstd-alloc"
-version = "0.1.2"
+version = "0.1.5"
 source = "registry+https://registry.litocpp.org/"
-checksum = "26cddf6065dbb8bc80ca6ace8d7cff0d2924c469e5d1b567b25f4460a6310ae9"
+checksum = "8e3634daa9ed08b2be3acd3e19cb9674474157f0a4a3f64f678ddf3d46fd53a4"
 dependencies = [
   "rstd-core",
   "rstd-runtime",
@@ -241,33 +259,33 @@ dependencies = [
 
 [[packages]]
 name = "rstd-argparse"
-version = "0.1.2"
+version = "0.1.5"
 source = "registry+https://registry.litocpp.org/"
-checksum = "fbafb4a588ca321829c261fd350f20ee5153bddf61082c6fb31da99ace1607b2"
+checksum = "05a8a28f0486829cdb7f5959cb447b09e2af0587a777b2944c06affd0be37215"
 dependencies = [
   "rstd-std",
 ]
 
 [[packages]]
 name = "rstd-basic"
-version = "0.1.2"
+version = "0.1.5"
 source = "registry+https://registry.litocpp.org/"
-checksum = "54cc2af1d35e65eca533b8ddfa68f27025ab88d08b5fa0db2900c3d374cc7e00"
+checksum = "01370f952d2a9003c858f644f6e3287e5bf6ac291ab53932f96d59838e481a21"
 
 [[packages]]
 name = "rstd-bench"
-version = "0.1.2"
+version = "0.1.5"
 source = "registry+https://registry.litocpp.org/"
-checksum = "7f5d007634286c7053098c910774719ac38c3a4ac9f92024cf030b8fb2815b26"
+checksum = "776c0e21a4a05dfe92eb9da19c7468686646b3cdc6fef920452ec412337a1b91"
 dependencies = [
   "rstd-std",
 ]
 
 [[packages]]
 name = "rstd-core"
-version = "0.1.2"
+version = "0.1.5"
 source = "registry+https://registry.litocpp.org/"
-checksum = "494f89d0acd03c3e85bbe7678a43dcca21c2e23bdaaf7a0b3e4c469336e263cb"
+checksum = "b50fb94012c1c396ba7dbd8913f64017d2638182a7f0e7ff54a5ac4b1dac91a7"
 dependencies = [
   "rstd-basic",
   "rstd-runtime",
@@ -275,27 +293,27 @@ dependencies = [
 
 [[packages]]
 name = "rstd-cppstd"
-version = "0.1.2"
+version = "0.1.5"
 source = "registry+https://registry.litocpp.org/"
-checksum = "df588996980f834a56114114244a95e8641236dd98e98488bae383cc1c0fcfbc"
+checksum = "ab24c7ca004f558865f08d5941a264e039a16360374381a36072ae6fb5f644fa"
 dependencies = [
   "rstd-std",
 ]
 
 [[packages]]
 name = "rstd-dlopn"
-version = "0.1.2"
+version = "0.1.5"
 source = "registry+https://registry.litocpp.org/"
-checksum = "5fafa0729c9cfab8fcccc6daa2ea57cd39abaaa1eb70869a4af2d2f717788ec5"
+checksum = "487b4f73f45e3657487999f957e8109e56feaee40e1be59419fe6d9c778c2c2f"
 dependencies = [
   "rstd-std",
 ]
 
 [[packages]]
 name = "rstd-json"
-version = "0.1.2"
+version = "0.1.5"
 source = "registry+https://registry.litocpp.org/"
-checksum = "8bac5dffff7626cd73331b9b04a84c77ff6d216441c309581af3dd8c18817ce5"
+checksum = "0ec51f0b70af31f4f654d4ab5fe2e829ac15957509b880cb3c30472c58a0574d"
 dependencies = [
   "rstd-core",
   "rstd-parse",
@@ -305,9 +323,9 @@ dependencies = [
 
 [[packages]]
 name = "rstd-log"
-version = "0.1.2"
+version = "0.1.5"
 source = "registry+https://registry.litocpp.org/"
-checksum = "76e89ecfa407e79bd428159822cf8d4a6584d60ae21d4b238c38ac451a637ae2"
+checksum = "16888a06489fbae20852946ba95125a2f493e80f9b4e1ed7982afca9aae83672"
 dependencies = [
   "rstd-core",
   "rstd-std",
@@ -315,9 +333,9 @@ dependencies = [
 
 [[packages]]
 name = "rstd-parse"
-version = "0.1.2"
+version = "0.1.5"
 source = "registry+https://registry.litocpp.org/"
-checksum = "55c0612c0ef5b66c2c0c3b4d1665f1997c304614d98838fcfc69f47a09d899b7"
+checksum = "d827faa72b08c90c20ef1d27d69e34af70319cacd6b45926730dfa94afaaf891"
 dependencies = [
   "rstd-alloc",
   "rstd-core",
@@ -325,27 +343,27 @@ dependencies = [
 
 [[packages]]
 name = "rstd-runtime"
-version = "0.1.2"
+version = "0.1.5"
 source = "registry+https://registry.litocpp.org/"
-checksum = "47afe605a8a2514eb553965ce476a74abb69d2a2380c5a7c02b9671c8cb06322"
+checksum = "a5656da29c7df76f999859628e46cb304b3bfeaa221cf70c973063462b29da60"
 dependencies = [
   "rstd-basic",
 ]
 
 [[packages]]
 name = "rstd-serde"
-version = "0.1.2"
+version = "0.1.5"
 source = "registry+https://registry.litocpp.org/"
-checksum = "5b1b1c062f1e2df9abe21124b5e6c86e97338b4b773909d173fad697a36ee0f8"
+checksum = "0cb1bb19547b959f05b4a07cc8a0cc8dcff9500cf2534ecb3478f5e1363d6840"
 dependencies = [
   "rstd-alloc",
 ]
 
 [[packages]]
 name = "rstd-std"
-version = "0.1.2"
+version = "0.1.5"
 source = "registry+https://registry.litocpp.org/"
-checksum = "7e3996e4a4072d0af24ff4c40aa4f4794ac206cbb5858c91f5e29c38d95aa110"
+checksum = "077589ceadc2bdc3e0833fcf45767d25949b8763326ac42ce6026ce3c3c50a2d"
 dependencies = [
   "rstd-alloc",
   "rstd-core",
@@ -353,9 +371,9 @@ dependencies = [
 
 [[packages]]
 name = "rstd-test"
-version = "0.1.2"
+version = "0.1.5"
 source = "registry+https://registry.litocpp.org/"
-checksum = "7447dc3df42e70f4b2b6aaa1990095cd4cfef2a72f7b76a3aed797238efe5426"
+checksum = "6b0b7b73b17fce23c379ea837956a0e3e0143ca647e59e94ce16a82f8f7f06d9"
 dependencies = [
   "rstd-std",
 ]
@@ -366,26 +384,35 @@ version = "1.4.321"
 source = "git+https://github.com/hypengw/SPIRV-Reflect.git#355785128c1b6ba808e3a7d0e344814fe6cff502"
 
 [[packages]]
-name = "vvk"
+name = "vrento"
 version = "0.1.0"
-source = "git+https://github.com/litocpp/vvk.git#117626d9bfc6c1de0f2957f7fa42b47935bb6af8"
+source = "git+https://github.com/vecren/vrento.git#8620c037f5cb072c1a6ea11ee07426f7ffb19118"
 dependencies = [
   "rstd-cppstd",
   "rstd-log",
   "rstd-std",
+  "vvk",
+  "wavsen",
 ]
 
-[[packages.externals]]
-name = "vma"
-source = "git+https://github.com/GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator.git#3aa921224c154a0d2c43912bc88e1c42ce1f7607"
+[[packages]]
+name = "vvk"
+version = "0.1.0"
+source = "registry+https://registry.litocpp.org/"
+checksum = "9feeb7d057f3fa4da7ac2f05f5160fb51c9981aad58afda37da1644bef01b9b4"
+dependencies = [
+  "rstd-dlopn",
+  "rstd-log",
+  "rstd-std",
+  "rstd-test",
+]
 
 [[packages]]
 name = "wavsen"
 version = "0.1.0"
-source = "git+https://github.com/hypengw/wavsen.git#294cf8156e5130122bdfca65e0401aee7a29e6d8"
+source = "git+https://github.com/hypengw/wavsen.git#73be92f4f9db0179e93e3f28d62077a2aed77a8e"
 dependencies = [
   "rstd-core",
-  "rstd-cppstd",
   "rstd-dlopn",
   "rstd-log",
   "rstd-std",
