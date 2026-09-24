@@ -15,7 +15,7 @@ sources = [
 ]
 
 [usage]
-public-include-directories = ["third_party", "src/Scene/Utils/include", "src/Scene/Utils/include/Utils"]
+public-include-directories = ["third_party"]
 options = [
   "-Wextra",
   "-Wno-missing-field-initializers",
