@@ -647,6 +647,61 @@ TEST(ParticleSubSystem, AppliesVortexAroundWorldSpaceOwner) {
     EXPECT_GT(std::abs(positions[usize()].z()), 0.01f);
 }
 
+TEST(ParticleSubSystem, AppliesTurbulenceMaskAsAxisWeights) {
+    auto simulate = [](ref<str> config) -> Eigen::Vector3f {
+        owe::Scene             scene;
+        auto                   mesh = Arc<owe::SceneMesh>::make();
+        owe::ParticleSubSystem subsystem(scene,
+                                         mesh.clone(),
+                                         u32(1),
+                                         f64(1.0),
+                                         u32(1),
+                                         f64(1.0),
+                                         owe::ParticleSubSystem::SpawnType::STATIC,
+                                         owe::ParticleAnimationSpec {});
+        subsystem.AddInitializer(owe::ParticleParser::GenInitializer(
+            owe::ParseJson(R"({"name":"lifetimerandom","min":10,"max":10})"_str).unwrap(), u32(1)));
+        subsystem.AddEmitter(Box<dyn<particle::ParticleEmitterProgram>>::make(
+            owe::BoxEmitterProgram(subsystem.SpawnPipeline(),
+                                   owe::ParticleBoxEmitterArgs {
+                                       .origin        = { 31.0f, 73.0f, 17.0f },
+                                       .instantaneous = u32(1),
+                                   },
+                                   usize())));
+        subsystem.AddOperator(owe::ParticleParser::GenOperator(
+            owe::ParseJson(config).unwrap(),
+            owe::ParticleInstanceModifiers(Arc<owe::wpscene::ParticleInstanceoverride>::make(),
+                                           owe::wpscene::Particle::EFlags { 0 },
+                                           false),
+            subsystem,
+            usize()));
+        subsystem.Finalize();
+        subsystem.Tick(f64(1.0 / 60.0), false);
+        subsystem.Tick(f64(1.0 / 60.0), false);
+        auto&                        storage = subsystem.System().Instance(usize()).Storage();
+        particle::ParticleSlotReader value(storage, particle::ParticleSlot {});
+        return value.Read(subsystem.Attributes().velocity);
+    };
+    auto full =
+        simulate(R"({"name":"turbulence","mask":"1 1 1","speedmin":100,"speedmax":100})"_str);
+    ASSERT_GT(full.norm(), 0.01f);
+    ASSERT_GT(f32(full.y()).abs().to_primitive(), 0.001f);
+    auto fractional =
+        simulate(R"({"name":"turbulence","mask":"0 0.01 0","speedmin":100,"speedmax":100})"_str);
+    EXPECT_FLOAT_EQ(fractional.x(), 0.0f);
+    EXPECT_NEAR(fractional.y(), full.y() * 0.01f, 1e-6f);
+    EXPECT_FLOAT_EQ(fractional.z(), 0.0f);
+    auto scaled =
+        simulate(R"({"name":"turbulence","mask":"0.5 2 -1","speedmin":100,"speedmax":100})"_str);
+    EXPECT_NEAR(scaled.x(), full.x() * 0.5f, 1e-6f);
+    EXPECT_NEAR(scaled.y(), full.y() * 2.0f, 1e-6f);
+    EXPECT_NEAR(scaled.z(), -full.z(), 1e-6f);
+    auto defaults = simulate(R"({"name":"turbulence","speedmin":100,"speedmax":100})"_str);
+    EXPECT_FLOAT_EQ(defaults.x(), full.x());
+    EXPECT_FLOAT_EQ(defaults.y(), full.y());
+    EXPECT_FLOAT_EQ(defaults.z(), 0.0f);
+}
+
 TEST(ParticleSubSystem, UsesEmitterPeriodLimitForImplicitControlpointSequenceCount) {
     owe::Scene             scene;
     auto                   mesh = Arc<owe::SceneMesh>::make();

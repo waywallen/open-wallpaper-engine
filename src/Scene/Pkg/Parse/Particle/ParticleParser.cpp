@@ -683,7 +683,7 @@ struct Turbulence {
 
     float scale { 0.01f };
 
-    array<int32_t, 3> mask { 1, 1, 0 };
+    array<float, 3> mask { 1.0f, 1.0f, 0.0f };
 
     static auto ReadFromJson(const Json& j) {
         Turbulence v;
@@ -1208,9 +1208,7 @@ struct TurbulenceOperator {
             Eigen::Vector3d result = speed * modifiers.Speed() *
                                      algorism::CurlNoise(position * config.scale * 2).normalized();
             for (usize component {}; component < usize(3); ++component) {
-                if (config.mask[component] == 0) {
-                    result[component.to_primitive()] = 0.0;
-                }
+                result[component.to_primitive()] *= config.mask[component];
             }
             velocities[slot.index] =
                 (velocities[slot.index].cast<double>() + result * delta).cast<float>();
