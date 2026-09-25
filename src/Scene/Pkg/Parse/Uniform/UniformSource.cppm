@@ -31,6 +31,12 @@ enum class TransformUniformOutput : rstd::uint32_t
     EffectTextureViewProjection,
     EffectTextureViewProjectionInverse,
     ViewProjection,
+    ViewRight,
+    ViewUp,
+    ViewForward,
+    OrientationRight,
+    OrientationUp,
+    OrientationForward,
 };
 
 enum class FrameUniformOutput : rstd::uint32_t

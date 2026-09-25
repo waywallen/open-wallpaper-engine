@@ -462,7 +462,7 @@ auto TransformUniformSource::Describe(mut_ref<dyn<UniformBindingSink>> sink) con
     auto model   = Bind(sink, Output::Model, G_M, UniformValueShape::Matrix(u32(4), u32(4)));
     if (model.is_err()) return model;
 
-    const array<BindingEntry<Output>, 13> entries {
+    const array<BindingEntry<Output>, 19> entries {
         BindingEntry<Output> {
             Output::ModelInverse, G_MI, UniformValueShape::Matrix(u32(4), u32(4)) },
         BindingEntry<Output> {
@@ -492,6 +492,16 @@ auto TransformUniformSource::Describe(mut_ref<dyn<UniformBindingSink>> sink) con
                                UniformValueShape::Matrix(u32(4), u32(4)) },
         BindingEntry<Output> {
             Output::ViewProjection, G_VP, UniformValueShape::Matrix(u32(4), u32(4)) },
+        BindingEntry<Output> { Output::ViewRight, G_VIEWRIGHT, UniformValueShape::Float(u32(3)) },
+        BindingEntry<Output> { Output::ViewUp, G_VIEWUP, UniformValueShape::Float(u32(3)) },
+        BindingEntry<Output> {
+            Output::ViewForward, G_VIEWFORWARD, UniformValueShape::Float(u32(3)) },
+        BindingEntry<Output> {
+            Output::OrientationRight, G_ORIENTATIONRIGHT, UniformValueShape::Float(u32(3)) },
+        BindingEntry<Output> {
+            Output::OrientationUp, G_ORIENTATIONUP, UniformValueShape::Float(u32(3)) },
+        BindingEntry<Output> {
+            Output::OrientationForward, G_ORIENTATIONFORWARD, UniformValueShape::Float(u32(3)) },
     };
     return BindEntries(sink, entries);
 }
@@ -523,6 +533,11 @@ auto TransformUniformSource::Evaluate(ref<dyn<UniformUpdateContext>> context,
     const bool req_emvpi        = writer.Wants(Output::EffectModelViewProjectionInverse);
     const bool req_effect_model = writer.Wants(Output::EffectModel) || req_emvp || req_emvpi ||
                                   writer.Wants(Output::LayerModel);
+    const bool req_orientation  = writer.Wants(Output::OrientationRight) ||
+                                  writer.Wants(Output::OrientationUp) ||
+                                  writer.Wants(Output::OrientationForward);
+    const bool req_view_axes    = writer.Wants(Output::ViewRight) || writer.Wants(Output::ViewUp) ||
+                                  writer.Wants(Output::ViewForward);
 
     const Matrix4d view_projection   = camera.GetViewProjectionMatrix(render_view);
     auto           active_camera_ref = m_node->camera_resolver->Active();
@@ -536,7 +551,8 @@ auto TransformUniformSource::Evaluate(ref<dyn<UniformUpdateContext>> context,
                      array<float, 3> { position.x(), position.y(), position.z() });
     }
 
-    if (req_m || req_normal_model || req_am || req_mvp || req_mi || req_mvpi || req_effect_model) {
+    if (req_m || req_normal_model || req_am || req_mvp || req_mi || req_mvpi || req_effect_model ||
+        req_orientation || req_view_axes) {
         Matrix4d model = m_node->vertices_in_world_space ? Matrix4d::Identity() : node.ModelTrans();
         const auto& parallax = m_state->CameraParallax();
         auto        attached = camera.GetAttachedNode();
@@ -556,6 +572,43 @@ auto TransformUniformSource::Evaluate(ref<dyn<UniformUpdateContext>> context,
 
         model *= node.GeometryTransform();
         if (auto* mesh = node.Mesh(); mesh != nullptr) model *= mesh->GeometryTransform();
+
+        if (req_orientation || req_view_axes) {
+            const Matrix3d view       = camera.CameraSnapshot(render_view).view.block<3, 3>(0, 0);
+            const Matrix3d model_axes = model.block<3, 3>(0, 0);
+            const auto     write_axis = [&](Output output, const Vector3d& axis) {
+                writer.Write(output,
+                             array<float, 3> { static_cast<float>(axis.x()),
+                                               static_cast<float>(axis.y()),
+                                               static_cast<float>(axis.z()) });
+            };
+            write_axis(Output::ViewRight, view.row(0).normalized());
+            write_axis(Output::ViewUp, view.row(1).normalized());
+            write_axis(Output::ViewForward, -view.row(2).normalized());
+            if (req_orientation) {
+                // Sprite tangents are local; world-space particles must not inherit emitter
+                // rotation.
+                const Vector3d backward = view.row(2).normalized();
+                Vector3d       up       = model_axes.col(1);
+                up -= backward * backward.dot(up);
+                if (up.squaredNorm() <= 1e-20) up = view.row(1).normalized();
+                Vector3d forward = model_axes.transpose() * backward;
+                up               = model_axes.transpose() * up;
+                Vector3d right   = up.cross(forward);
+                if (forward.squaredNorm() > 1e-20 && right.squaredNorm() > 1e-20) {
+                    forward.normalize();
+                    right.normalize();
+                    up = forward.cross(right).normalized();
+                } else {
+                    right   = Vector3d::UnitX();
+                    up      = Vector3d::UnitY();
+                    forward = Vector3d::UnitZ();
+                }
+                write_axis(Output::OrientationRight, right);
+                write_axis(Output::OrientationUp, up);
+                write_axis(Output::OrientationForward, forward);
+            }
+        }
 
         if (req_m) writer.Write(Output::Model, ShaderValue::fromMatrix(model));
         if (req_normal_model) {

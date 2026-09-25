@@ -638,10 +638,11 @@ SceneParseContext BuildContext(fs::VFS& vfs, ref<str> scene_id, const wpscene::S
     context.scene->RegisterRenderTarget(
         String::make(WE_MIP_MAPPED_FRAME_BUFFER),
         SceneRenderTarget {
-            .width      = context.ortho_w,
-            .height     = context.ortho_h,
-            .has_mipmap = true,
-            .bind       = { .enable = true, .name = rstd::into(SpecTex_Default) },
+            .width                  = context.ortho_w,
+            .height                 = context.ortho_h,
+            .has_mipmap             = true,
+            .bind                   = { .enable = true, .name = rstd::into(SpecTex_Default) },
+            .initialize_transparent = true,
         });
 
     if (context.shader_environment.directional_shadow) {

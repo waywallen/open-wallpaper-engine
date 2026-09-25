@@ -534,7 +534,22 @@ TEST(RenderGraphResources, PreservesFrameBoundaryTextureVersions) {
     EXPECT_EQ(rstd::cppstd::as_string_view(graph.passState(order[rstd::usize(1)])->name.as_str()),
               "motion/store");
     ASSERT_EQ(plan.textures.len(), rstd::usize(2));
+    EXPECT_EQ(plan.textures[rstd::usize()].allocation_key,
+              plan.textures[rstd::usize(1)].allocation_key.as_str());
     for (const auto& entry : plan.textures) {
+        EXPECT_EQ(entry.request.lifetime, owe::resource::TextureLifetimeClass::Retained);
+        EXPECT_NE(entry.request.content & owe::resource::TextureContentFlag(
+                                              owe::resource::TextureContent::PreserveAcrossFrames),
+                  rstd::u32());
+    }
+    for (auto& entry : plan.textures) {
+        auto refreshed              = entry.request.clone();
+        refreshed.definition->width = rstd::i32(1280);
+        refreshed.lifetime          = owe::resource::TextureLifetimeClass::FrameLocal;
+        refreshed.content =
+            owe::resource::TextureContentFlag(owe::resource::TextureContent::SourceDefined);
+        ASSERT_TRUE(plan.UpdateTextureRequest(entry.handle, rstd::move(refreshed)));
+        EXPECT_EQ(entry.request.definition->width, rstd::i32(1280));
         EXPECT_EQ(entry.request.lifetime, owe::resource::TextureLifetimeClass::Retained);
         EXPECT_NE(entry.request.content & owe::resource::TextureContentFlag(
                                               owe::resource::TextureContent::PreserveAcrossFrames),

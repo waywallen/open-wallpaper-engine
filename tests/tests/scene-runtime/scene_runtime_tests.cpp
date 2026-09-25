@@ -105,26 +105,28 @@ public:
 class UpdateContext {
 public:
     template<typename Resources>
-    UpdateContext(const owe::SceneFrame& frame, const Resources& resources)
+    UpdateContext(const owe::SceneFrame& frame, const Resources& resources,
+                  owe::SceneRenderViewKind view = owe::SceneRenderViewKind::Primary)
         : m_frame(rstd::ref<owe::SceneFrame>::from_raw_parts(rstd::addressof(frame))),
-          m_resources(rstd::dyn<owe::UniformResourceView>::from_ref(resources)) {}
+          m_resources(rstd::dyn<owe::UniformResourceView>::from_ref(resources)),
+          m_view(view) {}
 
     auto Frame() const -> rstd::ref<owe::SceneFrame> { return m_frame; }
     auto Resources() const -> rstd::ref<rstd::dyn<owe::UniformResourceView>> { return m_resources; }
-    auto RenderView() const -> owe::SceneRenderViewKind {
-        return owe::SceneRenderViewKind::Primary;
-    }
+    auto RenderView() const -> owe::SceneRenderViewKind { return m_view; }
 
 private:
     rstd::ref<owe::SceneFrame>                     m_frame;
     rstd::ref<rstd::dyn<owe::UniformResourceView>> m_resources;
+    owe::SceneRenderViewKind                       m_view;
 };
 
 template<typename Source, typename Output>
-auto Capture(const owe::SceneFrame& frame, const Source& source, Output output)
+auto Capture(const owe::SceneFrame& frame, const Source& source, Output output,
+             owe::SceneRenderViewKind view = owe::SceneRenderViewKind::Primary)
     -> owe::UniformValue {
     EmptyResources resources;
-    UpdateContext  context_impl(frame, resources);
+    UpdateContext  context_impl(frame, resources, view);
     UniformSink    sink_impl(owe::ToUniformOutput(output));
     auto           context = rstd::dyn<owe::UniformUpdateContext>::from_ref(context_impl);
     auto           sink    = rstd::dyn<owe::UniformValueSink>::from_ref(sink_impl);
@@ -237,6 +239,78 @@ TEST(TransformUniformSource, UsesConfiguredEyePositionBeforePerspectiveCamera) {
     EXPECT_FLOAT_EQ(eye[usize()], 4.0f);
     EXPECT_FLOAT_EQ(eye[usize(1)], 5.0f);
     EXPECT_FLOAT_EQ(eye[usize(2)], 6.0f);
+}
+
+TEST(TransformUniformSource, WorldSpaceSpriteOrientationFollowsCameraAndReflection) {
+    using Output = owe::TransformUniformOutput;
+    auto state   = Arc<owe::UniformSceneState>::make(Arc<owe::AudioResponseDemand>::make());
+    auto camera =
+        Arc<owe::SceneCamera>::make(owe::SceneCamera::MakePerspective(1.0, 0.1, 100.0, 60.0));
+    auto resolver = Arc<owe::UniformCameraResolver>::make(camera.clone());
+    auto node     = Arc<owe::SceneNode>::make();
+    node->SetScale({ 2.0f, 3.0f, 4.0f });
+    node->SetRotation({ 0.3f, 0.7f, 0.2f });
+    auto config = Arc<owe::UniformNodeState>::make(node.clone(), resolver.clone());
+    config->vertices_in_world_space = true;
+    owe::TransformUniformSource source(state.clone(), config.clone());
+    for (const auto& eye : { Eigen::Vector3d(0.0, 0.0, 3.0), Eigen::Vector3d(3.0, 2.0, 1.0) }) {
+        camera->SetLookAt(eye, Eigen::Vector3d::Zero(), Eigen::Vector3d::UnitY());
+        for (auto view :
+             { owe::SceneRenderViewKind::Primary, owe::SceneRenderViewKind::Reflection }) {
+            const auto capture_axis = [&](Output output) -> Eigen::Vector3d {
+                auto value = scene_test::Capture(owe::SceneFrame {}, source, output, view);
+                return { value[usize()], value[usize(1)], value[usize(2)] };
+            };
+            const Eigen::Vector3d backward = camera->RenderTransforms(view).eye.normalized();
+            const auto            right    = capture_axis(Output::OrientationRight);
+            const auto            up       = capture_axis(Output::OrientationUp);
+            EXPECT_TRUE(capture_axis(Output::OrientationForward).isApprox(backward, 1e-6));
+            EXPECT_TRUE(right.cross(up).isApprox(backward, 1e-6));
+            EXPECT_NEAR(right.norm(), 1.0, 1e-6);
+            EXPECT_NEAR(up.norm(), 1.0, 1e-6);
+            EXPECT_TRUE(capture_axis(Output::ViewForward).isApprox(-backward, 1e-6));
+        }
+    }
+}
+
+TEST(TransformUniformSource, LocalSpriteOrientationCancelsParentRotation) {
+    using Output = owe::TransformUniformOutput;
+    auto state   = Arc<owe::UniformSceneState>::make(Arc<owe::AudioResponseDemand>::make());
+    auto camera =
+        Arc<owe::SceneCamera>::make(owe::SceneCamera::MakePerspective(1.0, 0.1, 100.0, 60.0));
+    camera->SetLookAt({ 3.0, 2.0, 1.0 }, Eigen::Vector3d::Zero(), Eigen::Vector3d::UnitY());
+    auto resolver = Arc<owe::UniformCameraResolver>::make(camera.clone());
+    auto node     = Arc<owe::SceneNode>::make();
+    auto parent   = Arc<owe::SceneNode>::make();
+    parent->SetRotation({ -0.2f, 0.4f, 0.1f });
+    ASSERT_TRUE(parent->AppendChild(node.clone()));
+    node->SetRotation({ 0.3f, 0.7f, 0.2f });
+    node->SetScale({ 0.00636f, 0.00636f, 0.00636f });
+    auto config = Arc<owe::UniformNodeState>::make(node.clone(), resolver.clone());
+    owe::TransformUniformSource source(state.clone(), config.clone());
+    const auto                  capture_axis = [&](Output output) -> Eigen::Vector3d {
+        auto value = scene_test::Capture(owe::SceneFrame {}, source, output);
+        return { value[usize()], value[usize(1)], value[usize(2)] };
+    };
+    const auto            right  = capture_axis(Output::OrientationRight);
+    const auto            up     = capture_axis(Output::OrientationUp);
+    const Eigen::Matrix3d model  = node->ModelTrans().block<3, 3>(0, 0);
+    const Eigen::Vector3d normal = (model * right).cross(model * up).normalized();
+    EXPECT_TRUE(normal.isApprox(-camera->GetDirection(), 1e-6));
+    EXPECT_NEAR(right.norm(), 1.0, 1e-6);
+    EXPECT_NEAR(up.norm(), 1.0, 1e-6);
+
+    node->SetScale({ 0.00636f, 0.01272f, 0.01908f });
+    const auto            scaled_right = capture_axis(Output::OrientationRight);
+    const auto            scaled_up    = capture_axis(Output::OrientationUp);
+    const Eigen::Matrix3d scaled_model = node->ModelTrans().block<3, 3>(0, 0);
+    const Eigen::Vector3d scaled_normal =
+        (scaled_model * scaled_right).cross(scaled_model * scaled_up).normalized();
+    EXPECT_TRUE(scaled_normal.isApprox(-camera->GetDirection(), 1e-6));
+
+    node->SetScale(Eigen::Vector3f::Zero());
+    EXPECT_TRUE(capture_axis(Output::OrientationRight).allFinite());
+    EXPECT_TRUE(capture_axis(Output::OrientationUp).allFinite());
 }
 
 TEST(AudioUniformSource, ExposesLogicalSpectrumValues) {

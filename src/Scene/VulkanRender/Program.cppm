@@ -532,7 +532,7 @@ struct RenderProgram {
                         entry.request.name.as_str() != request_name) {
                         continue;
                     }
-                    entry.request = diagnostic.request->clone();
+                    entry.UpdateRequest(diagnostic.request->clone());
                 }
             }
         }
