@@ -482,16 +482,14 @@ void ParseTextObjImpl(SceneParseContext& context, wpscene::TextObject& obj) {
     sp_node->AddMesh(sp_mesh.clone());
 
     struct TextAnchorState {
-        String   horizontal;
-        String   vertical;
-        Vector3f origin;
-        float    width { 1.0f };
-        float    height { 1.0f };
+        String horizontal;
+        String vertical;
+        float  width { 1.0f };
+        float  height { 1.0f };
     };
     auto anchor_state = Arc<TextAnchorState>::make(TextAnchorState {
         .horizontal = rstd::into(initial_halign),
         .vertical   = rstd::into(initial_valign),
-        .origin     = Vector3f(obj.origin.data()),
         .width      = text_w,
         .height     = text_h,
     });
@@ -929,18 +927,18 @@ void ParseTextObjImpl(SceneParseContext& context, wpscene::TextObject& obj) {
     auto layer_hold        = layer_node.clone();
     auto apply_text_anchor = Arc<dyn<Fn<void()>>>::make(
         [layer_hold = layer_hold.clone(), anchor_state = anchor_state.clone()]() {
-            auto*       layer_ptr = layer_hold.as_ptr().as_raw_ptr();
-            const auto& scale     = layer_ptr->Scale();
-            Vector3f    pos       = anchor_state->origin;
+            auto*    layer_ptr = layer_hold.as_ptr().as_raw_ptr();
+            Vector3d offset    = Vector3d::Zero();
             if (anchor_state->horizontal.as_str().contains("left"_str))
-                pos.x() += anchor_state->width * scale.x() * 0.5f;
+                offset.x() += anchor_state->width * 0.5;
             if (anchor_state->horizontal.as_str().contains("right"_str))
-                pos.x() -= anchor_state->width * scale.x() * 0.5f;
+                offset.x() -= anchor_state->width * 0.5;
             if (anchor_state->vertical.as_str().contains("top"_str))
-                pos.y() -= anchor_state->height * scale.y() * 0.5f;
+                offset.y() -= anchor_state->height * 0.5;
             if (anchor_state->vertical.as_str().contains("bottom"_str))
-                pos.y() += anchor_state->height * scale.y() * 0.5f;
-            layer_ptr->SetTranslate(pos);
+                offset.y() += anchor_state->height * 0.5;
+            // Alignment moves the text geometry, not the frame inherited by children.
+            layer_ptr->SetGeometryTransform(Eigen::Affine3d(Eigen::Translation3d(offset)).matrix());
         });
 
     auto update_text_layout = Arc<dyn<Fn<void(text::TextLayoutMetrics)>>>::make(
@@ -996,31 +994,6 @@ void ParseTextObjImpl(SceneParseContext& context, wpscene::TextObject& obj) {
             mesh->SetDirty();
         });
     update_text_layout->operator()(initial_metrics);
-
-    auto set_text_origin = Arc<dyn<Fn<void(Vector3f)>>>::make(
-        [anchor_state      = anchor_state.clone(),
-         apply_text_anchor = apply_text_anchor.clone()](Vector3f next) {
-            anchor_state->origin = next;
-            apply_text_anchor->operator()();
-        });
-    auto apply_text_origin = Arc<dyn<FnMut<void(const script::ScriptValue&)>>>::make(
-        [anchor_state    = anchor_state.clone(),
-         set_text_origin = set_text_origin.clone()](const script::ScriptValue& value) {
-            Vector3f current = anchor_state->origin;
-            auto     next    = ScriptValueAsVec3(value, current);
-            if (! next) return;
-            set_text_origin->operator()(*next);
-        });
-    auto apply_text_scale = Arc<dyn<FnMut<void(const script::ScriptValue&)>>>::make(
-        [layer_hold        = layer_hold.clone(),
-         apply_text_anchor = apply_text_anchor.clone()](const script::ScriptValue& value) {
-            auto*    layer_ptr = layer_hold.as_ptr().as_raw_ptr();
-            Vector3f current   = layer_ptr->Scale();
-            auto     next      = ScriptValueAsVec3(value, current);
-            if (! next) return;
-            layer_ptr->SetScale(*next);
-            apply_text_anchor->operator()();
-        });
 
     auto set_halign =
         Arc<dyn<Fn<void(ref<str>)>>>::make([layouter           = layouter.clone(),
@@ -1078,25 +1051,8 @@ void ParseTextObjImpl(SceneParseContext& context, wpscene::TextObject& obj) {
                 return *current_point_size;
             })),
         Some(set_pointsize.clone()));
-    script_runtime.RegisterNodeOriginAccessors(
-        layer_node.as_ptr(),
-        script::JsRuntime::NodeOriginGetter::make([anchor_state = anchor_state.clone()]() {
-            const auto& origin = anchor_state->origin;
-            return script::Vec3Value { .x = origin.x(), .y = origin.y(), .z = origin.z() };
-        }),
-        script::JsRuntime::NodeOriginSetter::make(
-            [set_text_origin = set_text_origin.clone()](script::Vec3Value origin) mutable {
-                set_text_origin->operator()(Vector3f { static_cast<float>(origin.x),
-                                                       static_cast<float>(origin.y),
-                                                       static_cast<float>(origin.z) });
-            }));
-
     AssignNodeFieldAnimations(context, *layer_node.as_ptr(), obj.field_bindings);
-    WireFieldScripts(context,
-                     layer_node,
-                     obj.field_bindings,
-                     Some(apply_text_origin.clone()),
-                     Some(apply_text_scale.clone()));
+    WireFieldScripts(context, layer_node, obj.field_bindings);
     if (! obj.visible) layer_node->SetVisible(false);
     if (! obj.visible_user.empty())
         layer_node->SetVisibleUserBinding(ToSceneUserVisibilityBinding(obj.visible_user));
@@ -1188,12 +1144,7 @@ void ParseTextObjImpl(SceneParseContext& context, wpscene::TextObject& obj) {
                         None(),
                         obj.attachment.clone(),
                         None(),
-                        Some(Box<dyn<FnMut<void(Vector3f)>>>::make(
-                            [anchor_state      = anchor_state.clone(),
-                             apply_text_anchor = apply_text_anchor.clone()](Vector3f offset) {
-                                anchor_state->origin += offset;
-                                apply_text_anchor->operator()();
-                            })),
+                        None(),
                         rstd::move(text_before_nodes),
                     });
 

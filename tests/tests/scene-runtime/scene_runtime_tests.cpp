@@ -855,6 +855,87 @@ TEST(SceneParserText, ScriptSceneExposesTextWritesWithoutSourceInspection) {
     EXPECT_NE(value->Mesh()->DirtyFlags(), owe::SceneMeshDirtyNone);
 }
 
+TEST(SceneParserText, AlignmentDoesNotMoveChildFrames) {
+    for (auto blend_mode : { "0"_str, "11"_str }) {
+        auto document = owe::wpscene::ParseSceneDocumentJson(
+            R"JSON({
+                "camera": {},
+                "general": {"orthogonalprojection": {"width": 1920, "height": 1080}},
+                "objects": [
+                    {"id": 1, "name": "Parent",
+                     "text": {"value": "12:34", "user": "caption"},
+                     "font": "systemfont_DejaVu Sans", "pointsize": 12,
+                     "horizontalalign": "right", "verticalalign": "top",
+                     "origin": {"value": "1000 600 0", "script": "export function update() { return new Vec3(1200, 700, 0); }"},
+                     "scale": {"value": "2 3 1", "script": "export function update() { return new Vec3(4, 5, 1); }"},
+                     "visible": {"value": true, "script": "export function update(value) { thisLayer.pointsize = 24; thisLayer.horizontalalign = 'left'; thisLayer.verticalalign = 'bottom'; return value; }"}},
+                    {"id": 2, "name": "Child", "parent": 1, "text": "12:34",
+                     "font": "systemfont_DejaVu Sans", "pointsize": 12,
+                     "horizontalalign": "right", "verticalalign": "top",
+                     "origin": "-3 4 0"}
+                ]
+            })JSON"_str,
+            owe::wpscene::kSceneVersionUnknown);
+        ASSERT_TRUE(document.is_some());
+        for (auto& object : document->objects) {
+            object.authored.as_object_mut().unwrap()->insert("colorBlendMode"_Str,
+                                                             owe::ParseJson(blend_mode).unwrap());
+        }
+        auto assets = owe::fs::make_physical_fs(
+            owe::fs::Path(rstd::cppstd::as_str(WAYWALLEN_ASSETS_DIR).unwrap()));
+        ASSERT_TRUE(assets.is_ok());
+        owe::fs::VFS vfs;
+        ASSERT_TRUE(vfs.mount("/assets"_str, rstd::move(assets).unwrap()).is_ok());
+        wavsen::audio::SoundManager sound_manager;
+        owe::SceneParser            parser;
+        auto                        parsed = parser.Parse(
+            "text-parent-alignment"_str,
+            ref<owe::wpscene::SceneDocument>::from_raw_parts(rstd::addressof(*document)),
+            mut_ref<owe::fs::VFS>::from_raw_parts(rstd::addressof(vfs)),
+            mut_ref<wavsen::audio::SoundManager>::from_raw_parts(rstd::addressof(sound_manager)));
+        ASSERT_TRUE(parsed.is_ok());
+        auto  scene  = rstd::move(parsed).unwrap();
+        auto* parent = scene.scene->RootMut()->FindByName("Parent"_str);
+        auto* child  = scene.scene->RootMut()->FindByName("Child"_str);
+        ASSERT_NE(parent, nullptr);
+        ASSERT_NE(child, nullptr);
+        EXPECT_EQ(child->Parent(), parent);
+        EXPECT_TRUE(parent->Translate().isApprox(Eigen::Vector3f(1000, 600, 0)));
+        child->UpdateTrans();
+        EXPECT_NEAR(child->ModelTrans()(0, 3), 994.0, 1e-5);
+        EXPECT_NEAR(child->ModelTrans()(1, 3), 612.0, 1e-5);
+        const Eigen::Matrix4d initial_anchor = parent->GeometryTransform();
+        EXPECT_LT(initial_anchor(0, 3), 0.0);
+        EXPECT_LT(initial_anchor(1, 3), 0.0);
+        EXPECT_TRUE(child->GeometryTransform().isApprox(initial_anchor));
+
+        auto caption = owe::ParseJson(R"({"value":"12:3456789"})"_str).unwrap();
+        ASSERT_TRUE(scene.scene->ApplyUserTextBindings("caption"_str, caption));
+        EXPECT_LT(parent->GeometryTransform()(0, 3), initial_anchor(0, 3));
+        EXPECT_TRUE(child->GeometryTransform().isApprox(initial_anchor));
+        child->UpdateTrans();
+        EXPECT_NEAR(child->ModelTrans()(0, 3), 994.0, 1e-5);
+        EXPECT_NEAR(child->ModelTrans()(1, 3), 612.0, 1e-5);
+
+        owe::script::TickSceneScripts(*scene.scene, owe::script::FrameInputs {});
+        EXPECT_TRUE(parent->Translate().isApprox(Eigen::Vector3f(1200, 700, 0)));
+        EXPECT_TRUE(parent->Scale().isApprox(Eigen::Vector3f(4, 5, 1)));
+        EXPECT_GT(parent->GeometryTransform()(0, 3), -initial_anchor(0, 3));
+        EXPECT_GT(parent->GeometryTransform()(1, 3), -initial_anchor(1, 3));
+        child->UpdateTrans();
+        EXPECT_NEAR(child->ModelTrans()(0, 3), 1188.0, 1e-5);
+        EXPECT_NEAR(child->ModelTrans()(1, 3), 720.0, 1e-5);
+
+        parent->SetRotation({ 0.0f, 0.0f, f32::consts::FRAC_PI_2.to_primitive() });
+        child->UpdateTrans();
+        EXPECT_NEAR(child->ModelTrans()(0, 3), 1180.0, 1e-4);
+        EXPECT_NEAR(child->ModelTrans()(1, 3), 688.0, 1e-4);
+        const Eigen::Matrix4d draw = parent->ModelTrans() * parent->GeometryTransform();
+        EXPECT_NEAR(draw(0, 3), 1200.0 - 5.0 * parent->GeometryTransform()(1, 3), 1e-3);
+        EXPECT_NEAR(draw(1, 3), 700.0 + 4.0 * parent->GeometryTransform()(0, 3), 1e-3);
+    }
+}
+
 TEST(SceneUserTextBinding, AppliesDescriptorPayloadToMatchingBindings) {
     owe::Scene  scene;
     std::string first;
@@ -928,6 +1009,45 @@ TEST(TextUniformSource, OwnsTextProjectionOutputs) {
         scene.Runtime().Frame(), source, owe::text::TextUniformOutput::ModelViewProjection);
 
     EXPECT_EQ(value.size().to_primitive(), 16u);
+}
+
+TEST(TextUniformSource, EffectProjectionIncludesGeometryAlignment) {
+    auto camera =
+        Arc<owe::SceneCamera>::make(owe::SceneCamera::MakeOrthographic(200, 100, -1.0, 1.0));
+    auto node  = Arc<owe::SceneNode>::make();
+    auto layer = Arc<owe::SceneNode>::make();
+    layer->SetTranslate({ 100, 50, 0 });
+    layer->SetScale({ 2, 3, 1 });
+    layer->SetGeometryTransform(Eigen::Affine3d(Eigen::Translation3d(-20, -10, 0)).matrix());
+    auto state               = Arc<owe::text::TextUniformState>::make(node.clone());
+    state->camera            = Some(camera.clone());
+    state->effect_projection = Some(Arc<owe::text::TextEffectProjectionState>::make(
+        owe::text::TextEffectProjectionState { .node = layer.clone(), .size = { 40.0f, 20.0f } }));
+    owe::text::TextUniformSource source(state.clone());
+    auto                         projected = scene_test::Capture(
+        owe::SceneFrame {}, source, owe::text::TextUniformOutput::EffectModelViewProjection);
+    ASSERT_EQ(projected.size(), usize(16));
+    EXPECT_FLOAT_EQ(projected[usize()], 0.4f);
+    EXPECT_FLOAT_EQ(projected[usize(5)], 0.6f);
+    EXPECT_FLOAT_EQ(projected[usize(12)], 0.6f);
+    EXPECT_FLOAT_EQ(projected[usize(13)], 0.4f);
+
+    auto uniform_state = Arc<owe::UniformSceneState>::make(Arc<owe::AudioResponseDemand>::make());
+    auto resolver      = Arc<owe::UniformCameraResolver>::make(camera.clone());
+    auto node_state    = Arc<owe::UniformNodeState>::make(node.clone(), resolver.clone());
+    node_state->effect_projection_node = Some(layer.clone());
+    node_state->effect_projection_size = { 40.0f, 20.0f };
+    owe::TransformUniformSource transform_source(uniform_state.clone(), node_state.clone());
+    auto effect = scene_test::Capture(owe::SceneFrame {},
+                                      transform_source,
+                                      owe::TransformUniformOutput::EffectModelViewProjection);
+    ASSERT_EQ(effect.size(), projected.size());
+    for (usize i {}; i < effect.size(); ++i) EXPECT_FLOAT_EQ(effect[i], projected[i]);
+    auto model = scene_test::Capture(
+        owe::SceneFrame {}, transform_source, owe::TransformUniformOutput::LayerModel);
+    ASSERT_EQ(model.size(), usize(16));
+    EXPECT_FLOAT_EQ(model[usize(12)], 60.0f);
+    EXPECT_FLOAT_EQ(model[usize(13)], 20.0f);
 }
 
 TEST(SceneCameraProjection, UsesExplicitProjectionFactories) {

@@ -621,7 +621,7 @@ auto TransformUniformSource::Evaluate(ref<dyn<UniformUpdateContext>> context,
             if (m_node->effect_projection_node.is_some()) {
                 auto& source = **m_node->effect_projection_node;
                 source.UpdateTrans();
-                layer_model  = source.ModelTrans();
+                layer_model  = source.ModelTrans() * source.GeometryTransform();
                 effect_model = layer_model;
                 if (m_node->effect_projection_size[usize(0)] > 0.0f &&
                     m_node->effect_projection_size[usize(1)] > 0.0f) {

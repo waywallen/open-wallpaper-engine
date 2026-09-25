@@ -757,16 +757,17 @@ auto TextUniformSource::Evaluate(rstd::ref<rstd::dyn<UniformUpdateContext>>,
     };
 
     m_state->node->UpdateTrans();
-    const Eigen::Matrix4d model =
-        (**m_state->camera).GetViewProjectionMatrix() * m_state->node->ModelTrans();
-    auto result = write(TextUniformOutput::ModelViewProjection, model);
+    const Eigen::Matrix4d model  = (**m_state->camera).GetViewProjectionMatrix() *
+                                   m_state->node->ModelTrans() * m_state->node->GeometryTransform();
+    auto                  result = write(TextUniformOutput::ModelViewProjection, model);
     if (result.is_err()) return result;
 
     if (! m_state->effect_projection) return rstd::Ok(rstd::empty {});
     auto& projection_node = *(*m_state->effect_projection)->node;
     projection_node.UpdateTrans();
-    Eigen::Matrix4d effect_model = projection_node.ModelTrans();
-    const auto&     size         = (*m_state->effect_projection)->size;
+    Eigen::Matrix4d effect_model =
+        projection_node.ModelTrans() * projection_node.GeometryTransform();
+    const auto& size = (*m_state->effect_projection)->size;
     if (size[rstd::usize(0)] > 0.0f && size[rstd::usize(1)] > 0.0f) {
         effect_model =
             effect_model *
