@@ -1378,6 +1378,46 @@ TEST(UniformSourceParallax, ParentPropagationSelectsAncestorConfiguration) {
     }
 }
 
+TEST(UniformSourceParallax, InactiveEffectDoesNotReplaceLayerOrigin) {
+    auto camera_node = Arc<owe::SceneNode>::make(Eigen::Vector3f { 1920.0f, 1080.0f, 0.0f },
+                                                 Eigen::Vector3f::Ones(),
+                                                 Eigen::Vector3f::Zero());
+    auto camera =
+        Arc<owe::SceneCamera>::make(owe::SceneCamera::MakeOrthographic(3840, 2160, -1.0, 1.0));
+    camera->AttatchNode(camera_node.as_ptr());
+    auto resolver = Arc<owe::UniformCameraResolver>::make(camera.clone());
+    auto state    = Arc<owe::UniformSceneState>::make(Arc<owe::AudioResponseDemand>::make());
+    state->SetOrtho(3840.0f, 2160.0f);
+    state->CameraParallax() = { true, 0.13f, 0.0f, 0.5f };
+    state->SetPointerInput(0.5, 0.5);
+    state->Advance(owe::SceneFrame {});
+
+    auto layer       = Arc<owe::SceneNode>::make(Eigen::Vector3f { 2667.97363f, 1349.58765f, 0.0f },
+                                                 Eigen::Vector3f::Ones(),
+                                                 Eigen::Vector3f::Zero());
+    auto effect      = Arc<owe::SceneNode>::make();
+    auto layer_state = Arc<owe::UniformNodeState>::make(layer.clone(), resolver.clone());
+    auto effect_state      = Arc<owe::UniformNodeState>::make(effect.clone(), resolver.clone());
+    layer_state->object_id = effect_state->object_id = i32(887);
+    layer_state->parallax = effect_state->parallax = { { 0.6f, 0.6f }, true };
+    effect_state->effect_projection_node           = Some(layer.clone());
+    state->SetNodeState({ .index = u32(1), .generation = u32(1) }, effect_state.clone());
+    state->SetNodeState({ .index = u32(2), .generation = u32(1) }, layer_state.clone());
+
+    for (auto effect_camera : { ""_str, "effect"_str }) {
+        effect->SetCamera(effect_camera);
+        for (auto layer_camera : { ""_str, "global_perspective"_str }) {
+            layer->SetCamera(layer_camera);
+            for (const auto source : { layer_state.as_ptr(), effect_state.as_ptr() }) {
+                const auto offset = state->ComputeParallaxOffset(
+                    *source, *camera, owe::SceneRenderViewKind::Primary);
+                EXPECT_NEAR(offset[usize()], (2667.97363f - 1920.0f) * 0.6f * 0.13f, 1e-4f);
+                EXPECT_NEAR(offset[usize(1)], (1349.58765f - 1080.0f) * 0.6f * 0.13f, 1e-4f);
+            }
+        }
+    }
+}
+
 TEST(UniformSourceParallax, OrthographicOmittedDepthUsesImplicitParallax) {
     owe::Scene scene;
     scene.SetOrtho({ i32(1920), i32(1080) });

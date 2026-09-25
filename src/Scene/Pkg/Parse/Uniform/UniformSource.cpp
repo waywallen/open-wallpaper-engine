@@ -361,7 +361,9 @@ auto UniformSceneState::LogicalParallaxState(const UniformNodeState& state) cons
         if (group.is_some()) {
             for (usize index {}; index < (*group)->len(); ++index) {
                 const auto& candidate = (**group)[index];
-                if (candidate->node->Camera().is_empty()) {
+                // Inactive effects can have no camera yet, but their origin is not the layer's.
+                if (candidate->effect_projection_node.is_none() &&
+                    candidate->node->Camera().is_empty()) {
                     current = rstd::addressof(*candidate);
                     break;
                 }
