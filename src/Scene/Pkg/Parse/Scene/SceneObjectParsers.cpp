@@ -20,6 +20,7 @@ using namespace rstd::prelude;
 using namespace rstd::literals;
 using rstd::collections::HashMap;
 using rstd::collections::HashSet;
+using rstd::slice_::sort_by_key;
 using rstd::slice_::sort_unstable_by;
 using rstd::sync::Arc;
 using namespace owe;
@@ -542,6 +543,14 @@ void ParseModelObjImpl(SceneParseContext& context, wpscene::ModelObject& model_o
         return;
     }
 
+    // Blended model surfaces must follow opaque depth-writing geometry.
+    sort_by_key(
+        mesh->Submeshes().as_mut_slice().as_mut_ref(), [&](const SceneMesh::Submesh& submesh) {
+            const auto blend = mesh->MaterialSlots()[rstd::as_cast<usize>(submesh.material_slot)]
+                                   ->Pipeline()
+                                   .blend_mode;
+            return u8(blend == BlendMode::Translucent || blend == BlendMode::Additive);
+        });
     node->AddMesh(mesh.clone());
     SetUniformConfig(context, node, rstd::move(svData));
     AssignNodeFieldAnimations(context, *node.as_ptr(), model_obj.field_bindings);

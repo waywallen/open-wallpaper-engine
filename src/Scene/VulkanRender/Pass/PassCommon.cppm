@@ -56,7 +56,7 @@ inline void SetAttachmentLoadOp(BlendMode bm, VkAttachmentLoadOp& load_op) {
 }
 
 inline bool EffectiveDepthWrite(const vrento::MaterialPipelineDesc& material) {
-    // Transparent materials can intentionally write depth to mask later geometry.
+    // Consume the material owner's resolved depth policy independently of blending.
     return material.depth_write;
 }
 

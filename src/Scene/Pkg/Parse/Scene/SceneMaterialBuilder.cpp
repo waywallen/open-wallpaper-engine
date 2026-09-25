@@ -509,7 +509,10 @@ auto BuildMaterial(fs::VFS& vfs, ShaderCache& shader_cache,
     pipeline.blend_mode  = blend_mode;
     pipeline.alpha_write = ParseAlphaWrite(wpmat.alphawriting.as_str());
     pipeline.depth_test  = ParseEnabled(wpmat.depthtest.as_str());
-    pipeline.depth_write = ParseEnabled(wpmat.depthwrite.as_str());
+    // WE disables depth writes for blended materials, including fully transparent texels.
+    pipeline.depth_write = ParseEnabled(wpmat.depthwrite.as_str()) &&
+                           blend_mode != BlendMode::Translucent &&
+                           blend_mode != BlendMode::Additive;
     pipeline.cull_mode   = ParseCullMode(wpmat.cullmode.as_str());
     material.SetPipeline(rstd::move(pipeline));
 
@@ -554,17 +557,11 @@ String ResolveShaderMaterialKey(const ShaderInfo& info, const wpscene::Material&
                                 ref<str> material_key) {
     if (auto value = info.alias.get(material_key); value.is_some()) return (**value).clone();
 
-    auto folded_key = String::make(material_key);
-    folded_key->make_ascii_lowercase();
     Option<ref<str>> resolved;
-    for (const auto& [key, value] : info.alias.iter()) {
-        auto alias = key->clone();
-        alias->make_ascii_lowercase();
-        auto uniform = value->len() > usize(2)
-                           ? String::make(value->as_str().get(usize(2), value->len()).unwrap())
-                           : String {};
-        uniform->make_ascii_lowercase();
-        if (alias.as_str() != folded_key.as_str() && uniform.as_str() != folded_key.as_str())
+    for (const auto& [_, value] : info.alias.iter()) {
+        // Material keys are case-sensitive; obsolete Alpha must not replace alpha.
+        if (value->len() <= usize(2) ||
+            value->as_str().get(usize(2), value->len()).unwrap() != material_key)
             continue;
         if (resolved.is_some() && *resolved != value->as_str()) return {};
         resolved = Some(value->as_str());

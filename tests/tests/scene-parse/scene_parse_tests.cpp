@@ -921,6 +921,91 @@ TEST(ImageColorBlendParsing, EffectLayerPreservesLinearDodgeAttachmentOwner) {
     EXPECT_EQ(final_material->Pipeline().blend_mode, owe::BlendMode::Additive);
 }
 
+TEST(ModelMaterialParsing, OpaqueSubmeshesPrecedeBlendedSubmeshes) {
+    const auto path =
+        rstd::path::PathBuf::from(rstd::cppstd::as_str(WAYWALLEN_WORKSHOP_DIR).unwrap())
+            .join("3047596375/scene.pkg"_str);
+    if (! rstd::fs::exists(path.as_path()).unwrap())
+        GTEST_SKIP() << "workshop 3047596375 is not available";
+    auto pkg = owe::fs::WPPkgFs::open(path.as_path());
+    ASSERT_TRUE(pkg.is_ok());
+    auto assets = owe::fs::make_physical_fs(
+        owe::fs::Path(rstd::cppstd::as_str(WAYWALLEN_ASSETS_DIR).unwrap()));
+    ASSERT_TRUE(assets.is_ok());
+    owe::fs::VFS vfs;
+    ASSERT_TRUE(vfs.mount("/assets"_str, rstd::move(assets).unwrap()).is_ok());
+    ASSERT_TRUE(vfs.mount("/assets"_str, pkg->mount_handle()).is_ok());
+    auto document = owe::wpscene::ParseSceneDocumentJson(R"({
+        "camera": {}, "general": {"orthogonalprojection": {"width":128,"height":128}},
+        "objects": [{"id":1,"name":"Model","model":"models/space boi/space boi.mdl"}]
+    })"_str,
+                                                         owe::wpscene::kSceneVersionUnknown);
+    ASSERT_TRUE(document.is_some());
+    wavsen::audio::SoundManager sound;
+    owe::SceneParser            parser;
+    auto                        parsed = parser.Parse(
+        "model-material-order"_str,
+        rstd::ref<owe::wpscene::SceneDocument>::from_raw_parts(rstd::addressof(*document)),
+        rstd::mut_ref<owe::fs::VFS>::from_raw_parts(rstd::addressof(vfs)),
+        rstd::mut_ref<wavsen::audio::SoundManager>::from_raw_parts(rstd::addressof(sound)));
+    ASSERT_TRUE(parsed.is_ok());
+    auto  scene = rstd::move(parsed).unwrap();
+    auto* node  = scene.scene->RootMut()->FindByName("Model"_str);
+    ASSERT_NE(node, nullptr);
+    auto* mesh = node->Mesh();
+    ASSERT_NE(mesh, nullptr);
+    ASSERT_EQ(mesh->Submeshes().len(), rstd::usize(2));
+    EXPECT_EQ(mesh->Submeshes()[rstd::usize()].material_slot, rstd::u32(1));
+    EXPECT_EQ(mesh->Submeshes()[rstd::usize(1)].material_slot, rstd::u32());
+    EXPECT_EQ(mesh->MaterialSlots()[rstd::usize(1)]->Pipeline().blend_mode, owe::BlendMode::Normal);
+    EXPECT_EQ(mesh->MaterialSlots()[rstd::usize()]->Pipeline().blend_mode,
+              owe::BlendMode::Translucent);
+}
+
+TEST(SceneLinkedSources, PublishedImagesRespectClampUvs) {
+    auto document = owe::wpscene::ParseSceneDocumentJson(
+        R"JSON({
+            "camera": {},
+            "general": {"orthogonalprojection": {"width": 1920, "height": 1080}},
+            "objects": [
+                {"id": 1, "name": "Repeated", "image": "models/util/fullscreenlayer.json",
+                 "visible": false, "clampuvs": false},
+                {"id": 2, "name": "Clamped", "image": "models/util/fullscreenlayer.json",
+                 "visible": false, "clampuvs": true},
+                {"id": 3, "name": "Consumer", "image": "models/util/fullscreenlayer.json",
+                 "dependencies": [1, 2]}
+            ]
+        })JSON"_str,
+        owe::wpscene::kSceneVersionUnknown);
+    ASSERT_TRUE(document.is_some());
+    auto assets = owe::fs::make_physical_fs(
+        owe::fs::Path(rstd::cppstd::as_str(WAYWALLEN_ASSETS_DIR).unwrap()));
+    ASSERT_TRUE(assets.is_ok());
+    owe::fs::VFS vfs;
+    ASSERT_TRUE(vfs.mount("/assets"_str, rstd::move(assets).unwrap()).is_ok());
+    wavsen::audio::SoundManager sound;
+    owe::SceneParser            parser;
+    auto                        parsed = parser.Parse(
+        "linked-image-sampling"_str,
+        rstd::ref<owe::wpscene::SceneDocument>::from_raw_parts(rstd::addressof(*document)),
+        rstd::mut_ref<owe::fs::VFS>::from_raw_parts(rstd::addressof(vfs)),
+        rstd::mut_ref<wavsen::audio::SoundManager>::from_raw_parts(rstd::addressof(sound)));
+    ASSERT_TRUE(parsed.is_ok());
+    auto scene    = rstd::move(parsed).unwrap();
+    auto repeated = scene.scene->RenderTarget("_rt_link_1"_str);
+    auto clamped  = scene.scene->RenderTarget("_rt_link_2"_str);
+    ASSERT_TRUE(repeated.is_some());
+    ASSERT_TRUE(clamped.is_some());
+    EXPECT_EQ((**repeated).sample.wrapS, owe::TextureWrap::REPEAT);
+    EXPECT_EQ((**repeated).sample.wrapT, owe::TextureWrap::REPEAT);
+    EXPECT_EQ((**clamped).sample.wrapS, owe::TextureWrap::CLAMP_TO_EDGE);
+    EXPECT_EQ((**clamped).sample.wrapT, owe::TextureWrap::CLAMP_TO_EDGE);
+    auto screen = scene.scene->RenderTarget(owe::SpecTex_Default);
+    ASSERT_TRUE(screen.is_some());
+    EXPECT_EQ((**screen).sample.wrapS, owe::TextureWrap::CLAMP_TO_EDGE);
+    EXPECT_EQ((**screen).sample.wrapT, owe::TextureWrap::CLAMP_TO_EDGE);
+}
+
 TEST(SceneLinkedSources, EffectSelfCompositeStaysInOwningLayer) {
     auto document = owe::wpscene::ParseSceneDocumentJson(
         R"JSON({

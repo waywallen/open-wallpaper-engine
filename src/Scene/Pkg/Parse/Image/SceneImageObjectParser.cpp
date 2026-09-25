@@ -1057,6 +1057,11 @@ void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj
         if (is_linked_source) {
             const auto link_output = scene.EnsureLinkRenderTarget(
                 WallpaperLayerId { .value = i32(wpimgobj.id) }, *spImgNode);
+            if (auto target = scene.RenderTargetMut(link_output.as_str()); target.is_some()) {
+                // Model UVs may repeat outside [0, 1] when sampling a linked image.
+                auto wrap = wpimgobj.clampuvs ? TextureWrap::CLAMP_TO_EDGE : TextureWrap::REPEAT;
+                (**target).sample.wrapS = (**target).sample.wrapT = wrap;
+            }
             scene.RegisterLayerLinkSource(WallpaperLayerId { .value = i32(wpimgobj.id) },
                                           *spImgNode);
             auto publish = make_internal_passthrough(effect_composite,

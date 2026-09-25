@@ -53,7 +53,7 @@ TEST(MaterialParser, ParsesLegacyUserShaderValues) {
     EXPECT_EQ(*material.user_shader_values.get("schemecolor"_str).unwrap(), "color1"_str);
 }
 
-TEST(MaterialParser, ExactShaderKeyWinsOverLegacySpelling) {
+TEST(MaterialParser, ShaderKeysAreCaseSensitiveAndPrecedeUniformShorthand) {
     auto document = owe::wpscene::ParseSceneDocumentJson(R"({
         "camera": {},
         "general": {"orthogonalprojection": {"width": 128, "height": 128}},
@@ -91,8 +91,11 @@ TEST(MaterialParser, ExactShaderKeyWinsOverLegacySpelling) {
         mut_ref<owe::fs::VFS>::from_raw_parts(rstd::addressof(vfs)),
         mut_ref<wavsen::audio::SoundManager>::from_raw_parts(rstd::addressof(sound_manager)));
     ASSERT_TRUE(parsed.is_ok());
-    auto  scene    = rstd::move(parsed).unwrap();
-    float expected = 0.0f;
+    auto                            scene = rstd::move(parsed).unwrap();
+    const array<array<float, 3>, 3> expected { array<float, 3> { 0.0f, 0.0f, 0.0f },
+                                               array<float, 3> { 1.0f, 0.0f, 0.0f },
+                                               array<float, 3> { 0.5f, 0.5f, 0.5f } };
+    usize                           index {};
     for (const auto* name : { "exact", "legacy", "uniform" }) {
         auto node = scene.scene->RootMut()->FindByName(rstd::cppstd::as_str(name).unwrap());
         ASSERT_NE(node, nullptr);
@@ -104,11 +107,86 @@ TEST(MaterialParser, ExactShaderKeyWinsOverLegacySpelling) {
         ASSERT_FALSE(effect->Nodes().is_empty());
         auto* material = effect->Nodes()[rstd::usize()]->sceneNode->Mesh()->Material();
         ASSERT_NE(material, nullptr);
-        const auto& color = (**material->customShader.constValues.get("g_TintColor"_str));
+        auto value = material->customShader.constValues.get("g_TintColor"_str);
+        if (value.is_none()) {
+            ASSERT_TRUE(material->customShader.shader.is_some());
+            value = (*material->customShader.shader)->default_uniforms.get("g_TintColor"_str);
+        }
+        ASSERT_TRUE(value.is_some());
+        const auto& color = **value;
         ASSERT_EQ(color.size(), usize(3));
         for (usize i {}; i < color.size(); ++i)
-            EXPECT_FLOAT_EQ(color.data()[i.to_primitive()], expected);
-        expected += 0.25f;
+            EXPECT_FLOAT_EQ(color.data()[i.to_primitive()], expected[index][i]);
+        ++index;
+    }
+}
+
+TEST(MaterialParser, ModelMaterialsIgnoreObsoleteAlphaAndDisableBlendedDepthWrites) {
+    auto temporary = rstd::fs::TempDir::make("owe-material-state"_str).unwrap();
+    auto root      = rstd::path::PathBuf::from(temporary.path().as_os_str().to_os_string());
+    const array<ref<str>, 5> modes {
+        "normal"_str, "disabled"_str, "alphatocoverage"_str, "translucent"_str, "additive"_str
+    };
+    for (auto mode : modes) {
+        auto model =
+            rstd::format(R"({{"material":"{}-material.json","width":64,"height":64}})", mode);
+        auto material = rstd::format(R"({{"passes":[{{
+            "shader":"generic3","blending":"{}","depthtest":"enabled","depthwrite":"enabled",
+            "combos":{{"LIGHTING":0}},"constantshadervalues":{{"Alpha":0,"color":"0 0 0"}}
+        }}]}})",
+                                     mode);
+        ASSERT_TRUE(rstd::fs::write(root.join(rstd::format("{}.json", mode).as_str()).as_path(),
+                                    model->as_bytes())
+                        .is_ok());
+        ASSERT_TRUE(
+            rstd::fs::write(root.join(rstd::format("{}-material.json", mode).as_str()).as_path(),
+                            material->as_bytes())
+                .is_ok());
+    }
+    auto document = owe::wpscene::ParseSceneDocumentJson(R"({
+        "camera": {}, "general": {"orthogonalprojection": {"width":128,"height":128}},
+        "objects": [
+            {"id":1,"name":"normal","image":"normal.json"},
+            {"id":2,"name":"disabled","image":"disabled.json"},
+            {"id":3,"name":"alphatocoverage","image":"alphatocoverage.json"},
+            {"id":4,"name":"translucent","image":"translucent.json"},
+            {"id":5,"name":"additive","image":"additive.json"}
+        ]
+    })"_str,
+                                                         owe::wpscene::kSceneVersionUnknown);
+    ASSERT_TRUE(document.is_some());
+    auto assets = owe::fs::make_physical_fs(
+        owe::fs::Path(rstd::cppstd::as_str(WAYWALLEN_ASSETS_DIR).unwrap()));
+    auto generated = owe::fs::make_physical_fs(temporary.path());
+    ASSERT_TRUE(assets.is_ok());
+    ASSERT_TRUE(generated.is_ok());
+    owe::fs::VFS vfs;
+    ASSERT_TRUE(vfs.mount("/assets"_str, rstd::move(assets).unwrap()).is_ok());
+    ASSERT_TRUE(vfs.mount("/assets"_str, rstd::move(generated).unwrap()).is_ok());
+    wavsen::audio::SoundManager sound;
+    owe::SceneParser            parser;
+    auto                        parsed =
+        parser.Parse("model-material-state"_str,
+                     ref<owe::wpscene::SceneDocument>::from_raw_parts(rstd::addressof(*document)),
+                     mut_ref<owe::fs::VFS>::from_raw_parts(rstd::addressof(vfs)),
+                     mut_ref<wavsen::audio::SoundManager>::from_raw_parts(rstd::addressof(sound)));
+    ASSERT_TRUE(parsed.is_ok());
+    auto scene = rstd::move(parsed).unwrap();
+    for (auto mode : modes) {
+        auto* node = scene.scene->RootMut()->FindByName(mode);
+        ASSERT_NE(node, nullptr);
+        ASSERT_NE(node->Mesh(), nullptr);
+        auto* material = node->Mesh()->Material();
+        ASSERT_NE(material, nullptr);
+        EXPECT_TRUE(material->Pipeline().depth_test);
+        EXPECT_EQ(material->Pipeline().depth_write,
+                  mode != "translucent"_str && mode != "additive"_str);
+        EXPECT_TRUE(material->customShader.constValues.get("g_TintAlpha"_str).is_none());
+        ASSERT_TRUE(material->customShader.shader.is_some());
+        auto alpha = (*material->customShader.shader)->default_uniforms.get("g_TintAlpha"_str);
+        ASSERT_TRUE(alpha.is_some());
+        ASSERT_EQ((**alpha).size(), usize(1));
+        EXPECT_FLOAT_EQ((**alpha).data()[0], 1.0f);
     }
 }
 
