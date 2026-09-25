@@ -7,7 +7,6 @@ source = "registry+https://registry.litocpp.org/"
 checksum = "9794ef28b45534d2bac075113f9e75cd3a4c55ff9bca85c06eb20f44f870d505"
 dependencies = [
   "rstd-std",
-  "rstd-test",
 ]
 
 [[packages]]
@@ -404,7 +403,6 @@ dependencies = [
   "rstd-dlopn",
   "rstd-log",
   "rstd-std",
-  "rstd-test",
 ]
 
 [[packages]]
