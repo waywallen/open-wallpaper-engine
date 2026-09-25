@@ -188,6 +188,29 @@ TEST(PassCommon, ConfiguresAlphaToCoverageWithoutColorBlending) {
     EXPECT_TRUE(owe::vulkan::EffectiveDepthWrite(material.Pipeline()));
 }
 
+TEST(PassCommon, PreservesExplicitDepthWriteForEveryBlendMode) {
+    for (auto mode : { owe::BlendMode::Disable,
+                       owe::BlendMode::Normal,
+                       owe::BlendMode::AlphaToCoverage,
+                       owe::BlendMode::Translucent,
+                       owe::BlendMode::Additive }) {
+        owe::SceneMaterial material;
+        material.SetBlendMode(mode);
+        for (bool write : { false, true }) {
+            material.SetDepthWrite(write);
+            for (bool test : { false, true }) {
+                material.SetDepthTest(test);
+                VkPipelineDepthStencilStateCreateInfo state {};
+                owe::vulkan::SetDepthState(material.Pipeline(), state);
+                EXPECT_EQ(state.depthTestEnable != 0, test);
+                EXPECT_EQ(state.depthWriteEnable != 0, write);
+                EXPECT_EQ(owe::vulkan::EffectiveDepthWrite(material.Pipeline()), write);
+                EXPECT_EQ(owe::vulkan::UsesDepthAttachment(material.Pipeline()), test || write);
+            }
+        }
+    }
+}
+
 TEST(UniformBufferLayout, PreservesReflectedSlots) {
     auto members = rstd::vec::Vec<owe::resource::ShaderArtifactUniformMember>::make();
     members.push(owe::resource::ShaderArtifactUniformMember {

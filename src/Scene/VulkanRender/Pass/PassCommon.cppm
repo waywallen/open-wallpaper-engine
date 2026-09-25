@@ -55,19 +55,9 @@ inline void SetAttachmentLoadOp(BlendMode bm, VkAttachmentLoadOp& load_op) {
     }
 }
 
-inline bool IsDepthWritingBlendMode(BlendMode bm) {
-    switch (bm) {
-    case BlendMode::Disable:
-    case BlendMode::AlphaToCoverage:
-    case BlendMode::Normal: return true;
-    case BlendMode::Additive:
-    case BlendMode::Translucent: return false;
-    }
-    return false;
-}
-
 inline bool EffectiveDepthWrite(const vrento::MaterialPipelineDesc& material) {
-    return material.depth_write && IsDepthWritingBlendMode(material.blend_mode);
+    // Transparent materials can intentionally write depth to mask later geometry.
+    return material.depth_write;
 }
 
 inline bool UsesDepthAttachment(const vrento::MaterialPipelineDesc& material) {
