@@ -234,7 +234,17 @@ bool PrepareSceneObject(T& object, Option<ref<rstd::json::Map>> user_properties,
         for (auto& effect : object.effects)
             ResolveVisibleUserBinding(effect.visible, effect.visible_user, user_properties);
     }
-    if (force_invisible) object.visible = false;
+    // Drawables inherit ancestor visibility at runtime; keep their authored local state.
+    if constexpr (! any<T,
+                        wpscene::ImageObject,
+                        wpscene::ShapeObject,
+                        wpscene::TextObject,
+                        wpscene::ParticleObject,
+                        wpscene::ModelObject>) {
+        // TODO: Handle ancestor visibility in sound, light, and camera runtime owners
+        // without overwriting local visibility or discarding temporarily hidden objects.
+        if (force_invisible) object.visible = false;
+    }
     const bool linked         = ! object.visible && linked_source_ids->contains(object.id);
     const bool user_bound     = ! object.visible && ! object.visible_user.empty();
     const bool visible_script = ! object.visible && object.field_bindings.HasScript("visible"_str);
@@ -264,7 +274,6 @@ Vec<SceneObjectVar> FilterSceneObjects(Vec<SceneObjectVar>          decoded,
             auto& value = payload.value;
             if constexpr (Tag == SceneObjectVar::Tag::Container) {
                 ResolveVisibleUserBinding(value.visible, value.visible_user, user_properties);
-                if (force_invisible(value.id)) value.visible = false;
                 return true;
             } else {
                 return PrepareSceneObject(

@@ -310,6 +310,72 @@ TEST(SceneObjectExpansion, PreservesHiddenTextLayers) {
     EXPECT_FALSE(objects[rstd::usize()].as_Text().value.visible);
 }
 
+TEST(SceneObjectExpansion, PreservesLocalVisibilityBelowHiddenUserAncestor) {
+    auto         parsed = owe::ParseJson(R"({
+        "objects": [
+            {"id": 1, "name": "Variant", "visible": {"value": false, "user": "enabled"}},
+            {"id": 2, "name": "Nested", "parent": 1},
+            {"id": 3, "name": "Label", "text": "child", "parent": 2},
+            {"id": 4, "name": "Shape", "shape": "quad", "parent": 2},
+            {"id": 5, "name": "Hidden Label", "text": "hidden", "parent": 2, "visible": false}
+        ]
+    })"_str)
+                              .unwrap();
+    owe::fs::VFS vfs;
+    auto         objects = owe::ExpandObjects(parsed, vfs, owe::wpscene::kSceneVersionUnknown);
+    ASSERT_EQ(objects.len(), rstd::usize(5));
+    ASSERT_TRUE(objects[rstd::usize(0)].is_Container());
+    EXPECT_FALSE(objects[rstd::usize(0)].as_Container().value.visible);
+    ASSERT_TRUE(objects[rstd::usize(1)].is_Container());
+    EXPECT_TRUE(objects[rstd::usize(1)].as_Container().value.visible);
+    ASSERT_TRUE(objects[rstd::usize(2)].is_Text());
+    EXPECT_TRUE(objects[rstd::usize(2)].as_Text().value.visible);
+    ASSERT_TRUE(objects[rstd::usize(3)].is_Shape());
+    EXPECT_TRUE(objects[rstd::usize(3)].as_Shape().value.visible);
+    ASSERT_TRUE(objects[rstd::usize(4)].is_Text());
+    EXPECT_FALSE(objects[rstd::usize(4)].as_Text().value.visible);
+}
+
+TEST(SceneObjectExpansion, UserVisibilityRestoresImageDescendants) {
+    auto document = owe::wpscene::ParseSceneDocumentJson(R"({
+        "camera": {},
+        "general": {"orthogonalprojection": {"width": 1920, "height": 1080}},
+        "objects": [
+            {"id": 1, "name": "Variant", "image": "models/util/solidlayer.json",
+             "size": "256 256", "visible": {"value": false, "user": {"name": "type", "condition": "2"}}},
+            {"id": 2, "name": "Child", "image": "models/util/solidlayer.json", "size": "256 256", "parent": 1},
+            {"id": 3, "name": "Hidden Child", "image": "models/util/solidlayer.json", "size": "256 256", "parent": 1, "visible": false}
+        ]
+    })"_str,
+                                                         owe::wpscene::kSceneVersionUnknown);
+    ASSERT_TRUE(document.is_some());
+    auto assets = owe::fs::make_physical_fs(
+        owe::fs::Path(rstd::cppstd::as_str(WAYWALLEN_ASSETS_DIR).unwrap()));
+    ASSERT_TRUE(assets.is_ok());
+    owe::fs::VFS vfs;
+    ASSERT_TRUE(vfs.mount("/assets"_str, rstd::move(assets).unwrap_unchecked()).is_ok());
+    wavsen::audio::SoundManager sound_manager;
+    owe::SceneParser            parser;
+    auto                        parsed = parser.Parse(
+        "variant-visibility"_str,
+        rstd::ref<owe::wpscene::SceneDocument>::from_raw_parts(rstd::addressof(*document)),
+        rstd::mut_ref<owe::fs::VFS>::from_raw_parts(rstd::addressof(vfs)),
+        rstd::mut_ref<wavsen::audio::SoundManager>::from_raw_parts(rstd::addressof(sound_manager)));
+    ASSERT_TRUE(parsed.is_ok());
+    auto  result = rstd::move(parsed).unwrap();
+    auto& scene  = *result.scene;
+    ASSERT_NE(scene.RootMut()->FindByName("Child"_str), nullptr);
+    EXPECT_TRUE(scene.IsLayerVisibilityElidable({ .value = rstd::i32(1) }));
+    EXPECT_FALSE(scene.IsLayerVisibilityElidable({ .value = rstd::i32(2) }));
+    EXPECT_TRUE(scene.IsLayerVisibilityElidable({ .value = rstd::i32(3) }));
+    for (auto mode : { "2"_str, "1"_str, "2"_str }) {
+        EXPECT_TRUE(scene.ApplyUserNodeVisibilityBindings("type"_str, rstd::into<owe::Json>(mode)));
+        EXPECT_EQ(scene.IsLayerVisibilityElidable({ .value = rstd::i32(1) }), mode != "2"_str);
+        EXPECT_FALSE(scene.IsLayerVisibilityElidable({ .value = rstd::i32(2) }));
+        EXPECT_TRUE(scene.IsLayerVisibilityElidable({ .value = rstd::i32(3) }));
+    }
+}
+
 TEST(SceneDocumentObjects, PreservesDeclarationOrderAndObjectKinds) {
     auto document = owe::wpscene::ParseSceneDocumentJson(
         R"JSON({
