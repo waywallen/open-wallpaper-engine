@@ -679,9 +679,20 @@ TEST(SceneRenderGraph, SharesOneLinkTargetForMultipleConsumers) {
         if (state->type == owe::rg::PassNode::Type::Copy) ++copy_count;
     }
     EXPECT_EQ(copy_count, rstd::usize());
+    auto        plan = graph->resourcePlan();
+    rstd::usize link_versions {};
+    for (const auto& entry : plan.textures) {
+        if (entry.request.name != "_rt_link_7"_str) continue;
+        ++link_versions;
+        EXPECT_EQ(entry.version, rstd::u32());
+        EXPECT_EQ(entry.request.content & owe::resource::TextureContentFlag(
+                                              owe::resource::TextureContent::PreserveAcrossFrames),
+                  rstd::u32());
+    }
+    EXPECT_EQ(link_versions, rstd::usize(1));
 }
 
-TEST(SceneRenderGraph, ResolvesLinkedSurfaceFromProducerRegardlessOfSceneOrder) {
+TEST(SceneRenderGraph, LinkedSurfaceReadsFollowSceneOrder) {
     owe::Scene scene;
     scene.SetOrtho({ rstd::i32(1920), rstd::i32(1080) });
     scene.RegisterRenderTarget(String::make("_rt_default"_str),
@@ -725,22 +736,25 @@ TEST(SceneRenderGraph, ResolvesLinkedSurfaceFromProducerRegardlessOfSceneOrder) 
 
     auto        plan = graph->resourcePlan();
     rstd::usize link_versions {};
+    String      link_allocation;
     for (const auto& entry : plan.textures) {
         if (entry.request.name != "_rt_link_7"_str) continue;
         ++link_versions;
-        EXPECT_EQ(entry.version, rstd::u32());
+        if (link_allocation.is_empty()) link_allocation = entry.allocation_key.clone();
+        EXPECT_EQ(entry.allocation_key, link_allocation);
+        EXPECT_LE(entry.version, rstd::u32(1));
         EXPECT_EQ(entry.request.lifetime, owe::resource::TextureLifetimeClass::Retained);
-        EXPECT_EQ(entry.request.content & owe::resource::TextureContentFlag(
+        EXPECT_NE(entry.request.content & owe::resource::TextureContentFlag(
                                               owe::resource::TextureContent::PreserveAcrossFrames),
                   rstd::u32());
         EXPECT_NE(entry.request.content & owe::resource::TextureContentFlag(
                                               owe::resource::TextureContent::InitializeTransparent),
                   rstd::u32());
     }
-    EXPECT_EQ(link_versions, rstd::usize(1));
+    EXPECT_EQ(link_versions, rstd::usize(2));
 
     bool source_emitted {};
-    bool before_reads_current {};
+    bool before_reads_history {};
     bool after_reads_current {};
     auto ordered_passes = rstd::move(ordered).unwrap_unchecked();
     for (auto handle : ordered_passes) {
@@ -751,20 +765,45 @@ TEST(SceneRenderGraph, ResolvesLinkedSurfaceFromProducerRegardlessOfSceneOrder) 
             continue;
         }
         if (state->name != "before"_str && state->name != "after"_str) continue;
-        EXPECT_TRUE(source_emitted);
+        EXPECT_EQ(source_emitted, state->name == "after"_str);
         auto pass = graph->getPass(state->pass);
         ASSERT_TRUE(pass.is_some());
         auto uses = static_cast<owe::vulkan::VulkanPass&>(*pass).resourceUses();
         for (auto use : uses.textures) {
             for (const auto& entry : plan.textures) {
                 if (entry.handle != use || entry.request.name != "_rt_link_7"_str) continue;
-                before_reads_current |= state->name == "before"_str && entry.version == rstd::u32();
-                after_reads_current |= state->name == "after"_str && entry.version == rstd::u32();
+                before_reads_history |= state->name == "before"_str && entry.version == rstd::u32();
+                after_reads_current |= state->name == "after"_str && entry.version == rstd::u32(1);
             }
         }
     }
-    EXPECT_TRUE(before_reads_current);
+    EXPECT_TRUE(before_reads_history);
     EXPECT_TRUE(after_reads_current);
+
+    // A later composite source copies the framebuffer after the first consumer.
+    source->Mesh()->Material()->textures.push("_rt_default"_Str);
+    auto feedback_snapshot = owe::ExtractRenderSceneSnapshot(scene);
+    auto feedback_graph    = owe::sceneToRenderGraph(scene, feedback_snapshot);
+    auto feedback_order    = feedback_graph->topologicalOrder();
+    ASSERT_TRUE(feedback_order.is_ok());
+    rstd::usize before_count {}, source_count {}, after_count {};
+    for (auto handle : *feedback_order) {
+        auto state = feedback_graph->passState(handle);
+        ASSERT_TRUE(state.is_some());
+        if (state->name == "before"_str) {
+            EXPECT_EQ(source_count, rstd::usize());
+            ++before_count;
+        } else if (state->name == "source"_str) {
+            EXPECT_EQ(before_count, rstd::usize(1));
+            ++source_count;
+        } else if (state->name == "after"_str) {
+            EXPECT_EQ(source_count, rstd::usize(1));
+            ++after_count;
+        }
+    }
+    EXPECT_EQ(before_count, rstd::usize(1));
+    EXPECT_EQ(source_count, rstd::usize(1));
+    EXPECT_EQ(after_count, rstd::usize(1));
 }
 
 TEST(SceneRenderGraph, ElidesSceneOwnedVisibilityHiddenSubtreeAndRestoresIt) {
