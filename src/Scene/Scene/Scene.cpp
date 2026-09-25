@@ -1299,7 +1299,7 @@ void SceneCameraPath::SetEnabled(bool value) {
 void SceneCameraPath::CaptureQueueBase() {
     if (camera.is_none()) return;
     const auto& value = **camera;
-    queue_base        = value.Transforms();
+    queue_base        = value.AuthoredTransforms();
     queue_base_fov    = static_cast<float>(value.Fov());
     queue_base_zoom   = zoom_base;
     if (! perspective && default_width > 0.0 && value.Width() > 0.0)
@@ -1341,7 +1341,7 @@ bool SceneCameraPath::ApplyQueueClip(float frame) {
         .center = evaluate_vec3(clip.center, queue_base.center),
         .up     = evaluate_vec3(clip.up, queue_base.up),
     };
-    if (! (**camera).SetTransforms(transforms)) return false;
+    if (! (**camera).SetAuthoredTransforms(transforms)) return false;
 
     if (perspective) {
         float fov = evaluate_scalar(clip.fov, queue_base_fov);
@@ -1367,9 +1367,13 @@ bool SceneCameraPath::TickQueue(double runtime) {
     queue_last_runtime  = Some(runtime);
     usize zero_duration = usize();
     while (delta > 0.0) {
-        const auto& clip      = queue[queue_index];
-        double      duration  = clip.Duration();
-        double      remaining = rstd::cmp::max(0.0, duration - queue_elapsed);
+        const auto& clip     = queue[queue_index];
+        double      duration = clip.Duration();
+        if (clip.loop && duration > 0.0) {
+            queue_elapsed = f64(queue_elapsed + delta).rem_euclid(f64(duration)).to_primitive();
+            break;
+        }
+        double remaining = rstd::cmp::max(0.0, duration - queue_elapsed);
         if (remaining > 0.0 && delta < remaining) {
             queue_elapsed += delta;
             break;

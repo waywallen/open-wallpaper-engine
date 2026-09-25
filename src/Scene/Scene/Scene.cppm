@@ -1335,6 +1335,7 @@ struct SceneCameraPathClip {
     i32                              id {};
     float                            fps { 30.0f };
     i32                              length {};
+    bool                             loop { false };
     Option<Arc<SceneAnimationCurve>> eye;
     Option<Arc<SceneAnimationCurve>> center;
     Option<Arc<SceneAnimationCurve>> up;

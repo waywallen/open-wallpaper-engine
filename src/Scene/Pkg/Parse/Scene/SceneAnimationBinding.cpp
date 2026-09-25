@@ -568,6 +568,7 @@ void owe::LoadCameraObjectPath(SceneParseContext& context, const wpscene::Camera
             .id     = authored.id,
             .fps    = authored.options.fps > 0.0f ? authored.options.fps : 30.0f,
             .length = authored.options.length,
+            .loop   = authored.options.mode == "loop"_str,
         };
         auto assign = [&](Option<Arc<SceneAnimationCurve>>& destination,
                           const Option<wpscene::AnimCurve>& source) {

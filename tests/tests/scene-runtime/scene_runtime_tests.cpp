@@ -1072,6 +1072,100 @@ TEST(SceneCameraPath, SequentialQueueSamplesClipAndHoldsEmptyClip) {
     EXPECT_DOUBLE_EQ(camera->Fov(), 60.0);
 }
 
+TEST(SceneCameraPath, OrthographicQueueUsesAuthoredFrameAndLoopsHoldClip) {
+    auto camera = Arc<owe::SceneCamera>::make(
+        owe::SceneCamera::MakeOrthographic(1920.0, 1080.0, -5000.0, 5000.0));
+    auto node = Arc<owe::SceneNode>::make();
+    node->SetTranslate({ 960.0f, 540.0f, 500.0f });
+    camera->AttatchNode(node.as_ptr());
+    camera->Update();
+
+    auto eye = Arc<owe::SceneAnimationCurve>::make();
+    eye->c0.push({ .frame = i32(), .value = -320.0f });
+    eye->c0.push({ .frame = i32(120), .value = 0.0f });
+    auto center = eye.clone();
+    auto zoom   = Arc<owe::SceneAnimationCurve>::make();
+    zoom->c0.push({ .frame = i32(), .value = 4.0f });
+    zoom->c0.push({ .frame = i32(120), .value = 1.0f });
+
+    owe::SceneCameraPath path;
+    path.camera            = Some(camera.clone());
+    path.node              = node.as_ptr();
+    path.default_translate = node->Translate();
+    path.CaptureViewport();
+    path.queue.push(owe::SceneCameraPathClip {
+        .fps    = 30.0f,
+        .length = i32(120),
+        .eye    = Some(rstd::move(eye)),
+        .center = Some(rstd::move(center)),
+        .zoom   = Some(rstd::move(zoom)),
+    });
+    path.queue.push(owe::SceneCameraPathClip {
+        .fps    = 30.0f,
+        .length = i32(60),
+        .loop   = true,
+    });
+
+    ASSERT_TRUE(path.Tick(0.0));
+    EXPECT_DOUBLE_EQ(camera->Transforms().eye.x(), 640.0);
+    EXPECT_DOUBLE_EQ(camera->Transforms().center.x(), 640.0);
+    EXPECT_DOUBLE_EQ(camera->Transforms().eye.y(), 540.0);
+    EXPECT_DOUBLE_EQ(camera->Width(), 480.0);
+    ASSERT_TRUE(path.Tick(2.0));
+    EXPECT_DOUBLE_EQ(camera->Transforms().eye.x(), 800.0);
+    EXPECT_DOUBLE_EQ(camera->Width(), 768.0);
+    ASSERT_TRUE(path.Tick(4.0));
+    EXPECT_DOUBLE_EQ(camera->Transforms().eye.x(), 960.0);
+    EXPECT_DOUBLE_EQ(camera->Width(), 1920.0);
+    ASSERT_TRUE(path.Tick(8.0));
+    EXPECT_DOUBLE_EQ(camera->Transforms().eye.x(), 960.0);
+    EXPECT_DOUBLE_EQ(camera->Transforms().eye.y(), 540.0);
+    EXPECT_DOUBLE_EQ(camera->Width(), 1920.0);
+    ASSERT_TRUE(path.Tick(100.0));
+    EXPECT_DOUBLE_EQ(camera->Transforms().eye.x(), 960.0);
+
+    path.SetEnabled(false);
+    ASSERT_TRUE(path.Tick(101.0));
+    EXPECT_DOUBLE_EQ(camera->Transforms().eye.x(), 960.0);
+    EXPECT_DOUBLE_EQ(camera->Width(), 1920.0);
+    path.SetEnabled(true);
+    ASSERT_TRUE(path.Tick(102.0));
+    EXPECT_DOUBLE_EQ(camera->Transforms().eye.x(), 640.0);
+    EXPECT_DOUBLE_EQ(camera->Width(), 480.0);
+}
+
+TEST(SceneCameraPath, LoopingClipWrapsWithoutAdvancingQueue) {
+    auto camera = Arc<owe::SceneCamera>::make(
+        owe::SceneCamera::MakePerspective(16.0 / 9.0, 0.01, 1000.0, 45.0));
+    camera->SetLookAt({ 0.0, 0.0, 5.0 }, { 0.0, 0.0, 0.0 }, { 0.0, 1.0, 0.0 });
+    camera->Update();
+    auto eye = Arc<owe::SceneAnimationCurve>::make();
+    eye->c2.push({ .frame = i32(), .value = 5.0f });
+    eye->c2.push({ .frame = i32(30), .value = 9.0f });
+
+    owe::SceneCameraPath path;
+    path.camera      = Some(camera.clone());
+    path.perspective = true;
+    path.CaptureViewport();
+    path.queue.push(owe::SceneCameraPathClip {
+        .fps    = 30.0f,
+        .length = i32(30),
+        .loop   = true,
+        .eye    = Some(rstd::move(eye)),
+    });
+    path.queue.push(owe::SceneCameraPathClip { .fps = 30.0f, .length = i32(300) });
+
+    ASSERT_TRUE(path.Tick(0.0));
+    ASSERT_TRUE(path.Tick(0.5));
+    EXPECT_DOUBLE_EQ(camera->Transforms().eye.z(), 7.0);
+    ASSERT_TRUE(path.Tick(1.0));
+    EXPECT_DOUBLE_EQ(camera->Transforms().eye.z(), 5.0);
+    ASSERT_TRUE(path.Tick(12.25));
+    EXPECT_NEAR(camera->Transforms().eye.z(), 6.0, 0.0001);
+    ASSERT_TRUE(path.Tick(0.0));
+    EXPECT_DOUBLE_EQ(camera->Transforms().eye.z(), 5.0);
+}
+
 TEST(UniformSourceRuntimeAlpha, Color4UsesBaseColorAndRuntimeAlpha) {
     owe::Scene scene;
     auto       node = Arc<owe::SceneNode>::make();
