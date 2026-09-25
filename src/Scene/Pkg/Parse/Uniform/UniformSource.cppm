@@ -83,11 +83,12 @@ enum class AudioUniformOutput : rstd::uint32_t
 
 enum class TextureUniformOutput : rstd::uint32_t
 {
-    Resolution0  = 0,
-    Mipmap0      = 16,
-    Rotation0    = 32,
-    Translation0 = 48,
-    Texel0       = 64,
+    Resolution0    = 0,
+    Mipmap0        = 16,
+    Rotation0      = 32,
+    Translation0   = 48,
+    Texel0         = 64,
+    ReductionScale = 80,
 };
 
 enum class ParticleTrailUniformOutput : rstd::uint32_t

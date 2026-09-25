@@ -964,6 +964,11 @@ auto ShadowUniformSource::Evaluate(ref<dyn<UniformUpdateContext>>,
 
 auto TextureUniformSource::Describe(mut_ref<dyn<UniformBindingSink>> sink) const
     -> Result<empty, UniformError> {
+    auto reduction = Bind(sink,
+                          TextureUniformOutput::ReductionScale,
+                          "g_TextureReductionScale"_str,
+                          UniformValueShape::Float(u32(1)));
+    if (reduction.is_err()) return reduction;
     for (usize index {}; index < WE_GLTEX_NAMES.len(); ++index) {
         auto resolution = Bind(sink,
                                TextureResolutionOutput(index.to_primitive()),
@@ -1002,7 +1007,9 @@ auto TextureUniformSource::Evaluate(ref<dyn<UniformUpdateContext>> context,
                                     mut_ref<dyn<UniformValueSink>> sink) const
     -> Result<empty, UniformError> {
     UniformWriter writer(sink);
-    auto          resources = context->Resources();
+    // Authored pixel offsets use unreduced texture coordinates; no global reduction is applied.
+    writer.Write(TextureUniformOutput::ReductionScale, 1.0f);
+    auto resources = context->Resources();
     for (usize index {}; index < WE_GLTEX_NAMES.len(); ++index) {
         auto texture = resources->Texture(index);
         if (texture.is_none()) continue;

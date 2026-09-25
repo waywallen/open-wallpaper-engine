@@ -85,6 +85,9 @@ public:
         } else if (name == "g_LightsPosition"_str) {
             light_position_shape = shape;
             found_light_position = true;
+        } else if (name == "g_TextureReductionScale"_str) {
+            texture_reduction_shape = shape;
+            found_texture_reduction = true;
         }
         return rstd::Ok(true);
     }
@@ -92,9 +95,11 @@ public:
     owe::UniformValueShape model_shape;
     owe::UniformValueShape spectrum_shape;
     owe::UniformValueShape light_position_shape;
+    owe::UniformValueShape texture_reduction_shape;
     bool                   found_model { false };
     bool                   found_spectrum { false };
     bool                   found_light_position { false };
+    bool                   found_texture_reduction { false };
 };
 
 class UpdateContext {
@@ -432,6 +437,23 @@ TEST(ShadowUniformSource, UsesAuthoredCascadeExtentAndLightObjectFrame) {
     EXPECT_FLOAT_EQ(atlas[usize(2)], 1.0f / 3.0f);
     EXPECT_FLOAT_EQ(atlas[usize(4)], 1.0f / 3.0f);
     EXPECT_FLOAT_EQ(atlas[usize(8)], 2.0f / 3.0f);
+}
+
+TEST(TextureUniformSource, PublishesUnreducedTextureScale) {
+    owe::TextureUniformSource source;
+    scene_test::ShapeSink     binding_sink;
+    auto                      bindings = rstd::dyn<owe::UniformBindingSink>::from_ref(binding_sink);
+    ASSERT_TRUE(source.Describe(bindings.as_mut_ref()).is_ok());
+    ASSERT_TRUE(binding_sink.found_texture_reduction);
+    EXPECT_EQ(binding_sink.texture_reduction_shape.scalar, owe::UniformScalarType::Float32);
+    EXPECT_EQ(binding_sink.texture_reduction_shape.kind, owe::UniformValueKind::Linear);
+    EXPECT_EQ(binding_sink.texture_reduction_shape.min_elements, u32(1));
+    EXPECT_EQ(binding_sink.texture_reduction_shape.max_elements, u32(1));
+
+    owe::SceneFrame frame;
+    auto scale = scene_test::Capture(frame, source, owe::TextureUniformOutput::ReductionScale);
+    ASSERT_EQ(scale.size(), usize(1));
+    EXPECT_FLOAT_EQ(scale[usize()], 1.0f);
 }
 
 TEST(TextureUniformSource, StaticTextureUsesIdentityTransform) {
