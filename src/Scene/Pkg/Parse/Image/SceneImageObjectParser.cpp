@@ -1142,15 +1142,25 @@ void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj
         image_effect_layer ? image_effect_layer->FinalMesh().GeometryTransform()
                            : spImgNode->GeometryTransform();
     const Matrix4d source_alignment_base_transform = spMesh->GeometryTransform();
+    const Matrix4d direct_alignment_base_transform =
+        source_uses_framebuffer_space
+            ? source_alignment_base_transform
+            : (Affine3d(Translation3d(alignment_offset.cast<double>())).matrix() *
+               source_alignment_base_transform)
+                  .eval();
+    if (image_effect_layer) {
+        image_effect_layer->SetSourceGeometryTransforms(source_alignment_base_transform,
+                                                        direct_alignment_base_transform);
+    }
     RegisterImageAlignmentBinding(
         context,
         spImgNode.as_ptr(),
         wpimgobj.alignment.as_str(),
         SceneParseContext::ImageAlignmentSetter::make([image_effect_layer,
                                                        source_uses_framebuffer_space,
-                                                       source_mesh = spMesh.clone(),
                                                        alignment_base_transform,
                                                        source_alignment_base_transform,
+                                                       direct_alignment_base_transform,
                                                        alignment_offset,
                                                        geometry_size](
                                                           SceneNode* node, ref<str> alignment) {
@@ -1159,14 +1169,16 @@ void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj
                 alignment_offset;
             const Matrix4d alignment_delta = Affine3d(Translation3d(delta.cast<double>())).matrix();
             Matrix4d       transform       = alignment_base_transform * alignment_delta;
-            if (image_effect_layer)
+            if (image_effect_layer) {
                 image_effect_layer->FinalMesh().SetGeometryTransform(rstd::move(transform));
-            else if (node)
+                const Matrix4d source_transform =
+                    source_uses_framebuffer_space
+                        ? (source_alignment_base_transform * alignment_delta).eval()
+                        : source_alignment_base_transform;
+                image_effect_layer->SetSourceGeometryTransforms(
+                    source_transform, direct_alignment_base_transform * alignment_delta);
+            } else if (node)
                 node->SetGeometryTransform(rstd::move(transform));
-            if (source_uses_framebuffer_space) {
-                source_mesh->SetGeometryTransform(source_alignment_base_transform *
-                                                  alignment_delta);
-            }
         }));
 
     AssignNodeFieldAnimations(context, *spImgNode.as_ptr(), wpimgobj.field_bindings);

@@ -54,8 +54,19 @@ void SceneNodeLayer::SetSourceDraw(SceneNode& node) {
     m_source_camera = rstd::into(node.Camera());
 }
 
+void SceneNodeLayer::SetSourceGeometryTransforms(const Eigen::Matrix4d& intermediate,
+                                                 const Eigen::Matrix4d& direct) {
+    m_source_geometry = Some(SourceGeometryTransforms { intermediate, direct });
+    ConfigureSourceDraw(m_source_intermediate);
+}
+
 void SceneNodeLayer::ConfigureSourceDraw(bool intermediate) {
+    m_source_intermediate = intermediate;
     if (m_sourceNode == nullptr) return;
+    if (m_source_geometry.is_some() && m_sourceNode->Mesh() != nullptr) {
+        m_sourceNode->Mesh()->SetGeometryTransform(intermediate ? m_source_geometry->intermediate
+                                                                : m_source_geometry->direct);
+    }
     if (intermediate) {
         m_sourceNode->SetCamera(m_source_camera.as_str());
         return;

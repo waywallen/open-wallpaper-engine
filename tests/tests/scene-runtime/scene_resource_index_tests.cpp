@@ -423,6 +423,30 @@ TEST(SceneResourceIndex, IncludesAllNodeLayerEffectDrawItems) {
     }
 }
 
+TEST(SceneNodeLayer, SourceGeometryTracksDrawModeAndUpdates) {
+    auto node = Arc<owe::SceneNode>::make();
+    auto mesh = MakeSingleSubmesh("source");
+    node->AddMesh(mesh.clone());
+    node->SetCamera("local"_str);
+    auto layer = Arc<owe::SceneNodeLayer>::make(node.as_ptr(), 296.0f, 118.0f, "_rt_source"_str);
+    Eigen::Matrix4d intermediate = Eigen::Matrix4d::Identity();
+    Eigen::Matrix4d direct       = Eigen::Matrix4d::Identity();
+    intermediate(0, 3)           = 7.0;
+    direct(1, 3)                 = 59.0;
+    layer->SetSourceGeometryTransforms(intermediate, direct);
+    for (bool local : { false, true, false, true }) {
+        layer->ConfigureSourceDraw(local);
+        EXPECT_TRUE(mesh->GeometryTransform().isApprox(local ? intermediate : direct));
+        EXPECT_EQ(node->Camera(), local ? "local"_str : ""_str);
+        direct(1, 3) += 10.0;
+        intermediate(0, 3) += 1.0;
+        layer->SetSourceGeometryTransforms(intermediate, direct);
+        EXPECT_TRUE(mesh->GeometryTransform().isApprox(local ? intermediate : direct));
+    }
+    EXPECT_TRUE(node->GeometryTransform().isIdentity());
+    EXPECT_TRUE(node->Translate().isZero());
+}
+
 TEST(SceneNodeLayer, FinalResolveTargetsFinalOutputBeforePublish) {
     owe::Scene scene;
     auto       layer = Arc<owe::SceneNodeLayer>::make(

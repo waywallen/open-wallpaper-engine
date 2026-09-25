@@ -17,6 +17,7 @@
 
 import rstd.cppstd;
 import rstd;
+import eigen;
 import wavsen.audio;
 import wescene.fs;
 import wescene.json;
@@ -533,6 +534,70 @@ TEST(PuppetScriptParsing, VisibilityScriptsInitializeTheirOwnPlayback) {
     EXPECT_EQ((*second_playback)->Frame(), rstd::i32(43));
     EXPECT_NEAR((*second_playback)->Sample().current, 43.2f, 0.0001f);
     EXPECT_NE((*first_playback).as_ptr(), (*second_playback).as_ptr());
+}
+
+TEST(ImageAlignmentParsing, DisabledEffectsPreserveSourceDrawAnchor) {
+    using namespace rstd::prelude;
+    auto assets = owe::fs::make_physical_fs(
+        owe::fs::Path(rstd::cppstd::as_str(WAYWALLEN_ASSETS_DIR).unwrap()));
+    ASSERT_TRUE(assets.is_ok());
+    auto effects = owe::fs::make_physical_fs(owe::fs::Path(
+        rstd::format("{}/effects/tint", rstd::cppstd::as_str(WAYWALLEN_ASSETS_DIR).unwrap())
+            .as_str()));
+    ASSERT_TRUE(effects.is_ok());
+    owe::fs::VFS vfs;
+    ASSERT_TRUE(vfs.mount("/assets"_str, rstd::move(assets).unwrap()).is_ok());
+    ASSERT_TRUE(vfs.mount("/assets"_str, rstd::move(effects).unwrap()).is_ok());
+    auto document = owe::wpscene::ParseSceneDocumentJson(
+        R"JSON({
+            "camera": {},
+            "general": {"orthogonalprojection": {"width": 8192, "height": 2576}},
+            "objects": [{
+                "id": 49, "name": "Clock housing", "image": "models/util/solidlayer.json",
+                "origin": "5070 2127 0", "size": "296 118", "scale": "3.5 3.5 3.5",
+                "alignment": "bottom",
+                "effects": [{"file": "effects/tint/effect.json", "visible": false}]
+            }]
+        })JSON"_str,
+        owe::wpscene::kSceneVersionUnknown);
+    ASSERT_TRUE(document.is_some());
+    wavsen::audio::SoundManager sound;
+    owe::SceneParser            parser;
+    auto                        parsed =
+        parser.Parse("image-alignment"_str,
+                     ref<owe::wpscene::SceneDocument>::from_raw_parts(rstd::addressof(*document)),
+                     mut_ref<owe::fs::VFS>::from_raw_parts(rstd::addressof(vfs)),
+                     mut_ref<wavsen::audio::SoundManager>::from_raw_parts(rstd::addressof(sound)));
+    ASSERT_TRUE(parsed.is_ok());
+    auto  scene = rstd::move(parsed).unwrap();
+    auto* node  = scene.scene->RootMut()->FindByName("Clock housing"_str);
+    ASSERT_NE(node, nullptr);
+    ASSERT_TRUE(node->HasLayer());
+    auto& layer = node->Layer();
+    ASSERT_EQ(layer->EffectCount(), usize(1));
+    auto& effect = layer->GetEffect(usize());
+    node->UpdateTrans();
+    auto bottom = [&](const owe::SceneMesh& mesh) {
+        const auto& vertices = mesh.GetVertexArray(usize());
+        const auto  offset =
+            vertices.AttributeOffset(owe::VAttr::Position.name).unwrap() / usize(sizeof(float));
+        const auto*           data = vertices.Data() + (offset + vertices.OneSize()).to_primitive();
+        const Eigen::Vector4d point { data[0], data[1], data[2], 1.0 };
+        return (node->ModelTrans() * node->GeometryTransform() * mesh.GeometryTransform() * point)
+            .y();
+    };
+    for (bool enabled : { false, true, false, true, false }) {
+        layer->SetEffectRuntimeVisible(*effect, enabled);
+        const bool intermediate = layer->RequiresIntermediateTarget();
+        EXPECT_EQ(intermediate, enabled);
+        layer->ConfigureSourceDraw(intermediate);
+        EXPECT_NEAR(bottom(*node->Mesh()), enabled ? 1920.5 : 2127.0, 1e-5);
+        if (enabled) {
+            layer->ResolveEffect(*scene.scene->DefaultEffectMesh(), "effect"_str);
+            EXPECT_NEAR(bottom(layer->FinalMesh()), 2127.0, 1e-5);
+        }
+        EXPECT_FLOAT_EQ(node->Translate().y(), 2127.0f);
+    }
 }
 
 TEST(PuppetUvParsing, ImageAndEffectMasksUseTheirBoundTextureSpace) {

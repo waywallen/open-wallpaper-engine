@@ -1907,6 +1907,8 @@ public:
                HasRuntimeVisibleEffect();
     }
     void             SetSourceDraw(SceneNode& node);
+    void             SetSourceGeometryTransforms(const Eigen::Matrix4d& intermediate,
+                                                 const Eigen::Matrix4d& direct);
     void             ConfigureSourceDraw(bool intermediate);
     ref<str>         CompositeTarget() const { return m_composite_target.as_str(); }
     SceneMesh&       FinalMesh() { return *m_final_mesh.get(); }
@@ -2006,6 +2008,12 @@ private:
     float      m_height { 1.0f };
     String     m_composite_target;
     String     m_source_camera;
+    struct SourceGeometryTransforms {
+        Eigen::Matrix4d intermediate;
+        Eigen::Matrix4d direct;
+    };
+    Option<SourceGeometryTransforms> m_source_geometry;
+    bool                             m_source_intermediate { true };
 
     bool              fullscreen { false };
     bool              m_final_local { false };
