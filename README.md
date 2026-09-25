@@ -8,7 +8,7 @@ Open source scene renderer, mostly for linux.
 - render graph for automatic pass dependencies
 
 ## Web Renderer
-CEF-based host for Wallpaper Engine web wallpapers.
+CEF-based host for web wallpapers.
 
 ## How to use
 
@@ -20,7 +20,7 @@ If you built waywallen yourself, you must [build](BUILD.md) this.
 If you use linux distribution package, you must install this as package too.  
 
 ### Standalone viewer
-Build first — see [BUILD.md](BUILD.md). Examples below assume the `clang-release` build tree.
+[Build](BUILD.md) first.  
 
 `SceneViewer` is a GLFW + Vulkan window that loads a Wallpaper Engine `pkg` directly. Point it at the Wallpaper Engine's `assets/` directory and a `scene.pkg`:
 
@@ -93,3 +93,7 @@ Flags (see `viewer/arg.hpp`):
 - [X] 3D model
 - [x] Scenescript  
 - [x] User Properties
+
+## License
+
+[GPL-2.0-only](LICENSE)

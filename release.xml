@@ -1,3 +1,32 @@
+<release version="0.3.0" date="2026-09-25">
+  <description>
+    <p>Added:</p>
+    <ul>
+      <li>Mouse parallax control for scene wallpapers, preserving camera motion and mouse interactions.</li>
+    </ul>
+    <p>Fixes:</p>
+    <ul>
+      <li>Camera path coordinates, animation looping and camera shake transforms.</li>
+      <li>Particle camera-facing orientation and turbulence mask weights.</li>
+      <li>Framebuffer history retention and initial contents for glass materials.</li>
+      <li>Linked texture history and graph dependency cycles.</li>
+      <li>Shadow depth clipping, transparent material depth writes and scripted ambient lighting.</li>
+      <li>Linked image sampling and model material rendering.</li>
+      <li>Puppet texture coordinate scaling and effect masks.</li>
+      <li>Text alignment inheritance and linked text background dependencies.</li>
+      <li>Image alignment and parallax origins when effects are disabled.</li>
+      <li>Effect geometry after runtime toggles and viewport mouse coordinates.</li>
+      <li>Child visibility when switching parent variants.</li>
+      <li>Missing texture reduction scale shader uniform.</li>
+    </ul>
+    <p>Changed:</p>
+    <ul>
+      <li>Move rendering infra to vrento.</li>
+      <li>Migrate more to rstd, vvk and licrypto.</li>
+    </ul>
+  </description>
+</release>
+
 <release version="0.2.10" date="2026-09-12">
   <description>
     <p>Added:</p>

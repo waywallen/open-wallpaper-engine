@@ -12,7 +12,7 @@ dependencies = [
 
 [[packages]]
 name = "owe-audio"
-version = "0.2.10"
+version = "0.3.0"
 dependencies = [
   "owe-core",
   "rstd-std",
@@ -20,7 +20,7 @@ dependencies = [
 
 [[packages]]
 name = "owe-core"
-version = "0.2.10"
+version = "0.3.0"
 dependencies = [
   "rstd-argparse",
   "rstd-cppstd",
@@ -35,7 +35,7 @@ source = "git+https://gitlab.com/libeigen/eigen.git#bc3b39870ecb690a623a3f49149a
 
 [[packages]]
 name = "owe-scene"
-version = "0.2.10"
+version = "0.3.0"
 dependencies = [
   "owe-audio",
   "owe-core",
@@ -59,7 +59,7 @@ source = "git+https://github.com/quickjs-ng/quickjs.git#3c051980ab7e783dfbfb1c70
 
 [[packages]]
 name = "owe-sceneviewer"
-version = "0.2.10"
+version = "0.3.0"
 dependencies = [
   "owe-core",
   "owe-scene",
@@ -70,7 +70,7 @@ dependencies = [
 
 [[packages]]
 name = "owe-tests"
-version = "0.2.10"
+version = "0.3.0"
 dependencies = [
   "owe-audio",
   "owe-core",
@@ -91,7 +91,7 @@ dependencies = [
 
 [[packages]]
 name = "owe-types"
-version = "0.2.10"
+version = "0.3.0"
 dependencies = [
   "owe-core",
   "rstd-std",
@@ -100,7 +100,7 @@ dependencies = [
 
 [[packages]]
 name = "owe-utils"
-version = "0.2.10"
+version = "0.3.0"
 dependencies = [
   "licrypto",
   "owe-core",
@@ -112,7 +112,7 @@ dependencies = [
 
 [[packages]]
 name = "owe-viewer-common"
-version = "0.2.10"
+version = "0.3.0"
 dependencies = [
   "owe-audio",
   "owe-core",
@@ -125,7 +125,7 @@ dependencies = [
 
 [[packages]]
 name = "owe-vulkan"
-version = "0.2.10"
+version = "0.3.0"
 dependencies = [
   "owe-core",
   "owe-types",
@@ -145,7 +145,7 @@ source = "git+https://github.com/KhronosGroup/glslang.git#275822a6261ee689aadb1d
 
 [[packages]]
 name = "owe-waywallen-plugin"
-version = "0.2.10"
+version = "0.3.0"
 runtime-dependencies = [
   "owe-waywallen-scene-renderer",
   "owe-waywallen-web-renderer",
@@ -153,7 +153,7 @@ runtime-dependencies = [
 
 [[packages]]
 name = "owe-waywallen-producer"
-version = "0.2.10"
+version = "0.3.0"
 dependencies = [
   "owe-audio",
   "rstd-cppstd",
@@ -164,7 +164,7 @@ dependencies = [
 
 [[packages]]
 name = "owe-waywallen-scene-renderer"
-version = "0.2.10"
+version = "0.3.0"
 dependencies = [
   "owe-core",
   "owe-scene",
@@ -179,7 +179,7 @@ dependencies = [
 
 [[packages]]
 name = "owe-waywallen-web-renderer"
-version = "0.2.10"
+version = "0.3.0"
 dependencies = [
   "owe-audio",
   "owe-core",
@@ -194,7 +194,7 @@ dependencies = [
 
 [[packages]]
 name = "owe-web"
-version = "0.2.10"
+version = "0.3.0"
 dependencies = [
   "owe-core",
   "rstd-cppstd",
@@ -235,7 +235,7 @@ architectures = [
 
 [[packages]]
 name = "owe-webviewer"
-version = "0.2.10"
+version = "0.3.0"
 dependencies = [
   "owe-audio",
   "owe-core",
@@ -386,7 +386,7 @@ source = "git+https://github.com/hypengw/SPIRV-Reflect.git#355785128c1b6ba808e3a
 [[packages]]
 name = "vrento"
 version = "0.1.0"
-source = "git+https://github.com/vecren/vrento.git#8620c037f5cb072c1a6ea11ee07426f7ffb19118"
+source = "git+https://github.com/vecren/vrento.git#a781859c940325a909c77613b5b2795cc3d65e48"
 dependencies = [
   "rstd-cppstd",
   "rstd-log",
