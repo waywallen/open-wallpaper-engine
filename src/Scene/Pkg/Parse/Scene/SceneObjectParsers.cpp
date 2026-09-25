@@ -214,6 +214,8 @@ void InitContext(SceneParseContext& context, fs::VFS& vfs, const wpscene::SceneM
     context.ortho_h            = ortho_extent[usize(1)];
     context.orthographic_scene = sc.general.isOrtho;
     context.uniform_state->SetOrthographicImplicitParallax(sc.general.isOrtho);
+    context.uniform_state->SetAmbientColor(sc.general.ambientcolor);
+    context.uniform_state->SetSkylightColor(sc.general.skylightcolor);
 
     {
         auto& gb = context.global_base_uniforms;
@@ -304,7 +306,7 @@ void InitContext(SceneParseContext& context, fs::VFS& vfs, const wpscene::SceneM
                         }));
             }
         });
-        WireCameraShakeScripts(context, sc.general.field_bindings);
+        WireGeneralFieldScripts(context, sc.general.field_bindings);
     }
 }
 
@@ -499,6 +501,7 @@ void ParseModelObjImpl(SceneParseContext& context, wpscene::ModelObject& model_o
                 auto shadow_build         = rstd::move(shadow_result).unwrap_unchecked();
                 auto pipeline             = shadow_build.material.Pipeline();
                 pipeline.depth_clamp      = true;
+                pipeline.depth_clip       = Some(true);
                 pipeline.depth_compare    = CompareOp::Greater;
                 pipeline.depth_bias       = true;
                 pipeline.depth_bias_slope = -4.0f;

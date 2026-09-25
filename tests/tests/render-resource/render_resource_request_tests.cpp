@@ -2034,6 +2034,21 @@ TEST(PipelineCacheDiagnostics, RecordsStableKeys) {
     EXPECT_EQ(cache_entries.len(), usize(2));
 }
 
+TEST(PipelineCacheKey, SeparatesIndependentDepthClipState) {
+    using namespace owe::vulkan;
+    PipelineResourceRequest request;
+    const auto              implicit = MakePipelineCacheKey(request);
+    request.depth_clip               = Some(true);
+    const auto enabled               = MakePipelineCacheKey(request);
+    EXPECT_FALSE(SamePipelineCacheKey(implicit, enabled));
+    EXPECT_TRUE(
+        SamePipelineCacheKey(enabled, MakePipelineCacheKey(MakePipelineResourceDesc(request))));
+    request.depth_clip  = Some(false);
+    const auto disabled = MakePipelineCacheKey(request);
+    EXPECT_FALSE(SamePipelineCacheKey(implicit, disabled));
+    EXPECT_FALSE(SamePipelineCacheKey(enabled, disabled));
+}
+
 TEST(PipelineCacheKey, PreservesShaderEncodingAndOwnedStages) {
     using namespace vrento::vulkan;
     PipelineResourceRequest request;

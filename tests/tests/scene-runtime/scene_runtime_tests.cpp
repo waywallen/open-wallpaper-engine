@@ -1134,6 +1134,73 @@ TEST(SceneCameraState, ReflectionPreservesUpAndDoesNotReplacePrimary) {
               reflected.revision + u64(1));
 }
 
+TEST(FrameUniformSource, PublishesUpdatedAmbientAndSkylightColors) {
+    auto state = Arc<owe::UniformSceneState>::make(Arc<owe::AudioResponseDemand>::make());
+    owe::FrameUniformSource source(state.clone());
+    state->SetAmbientColor({ 0.85f, 0.85f, 0.85f });
+    state->SetSkylightColor({ 0.69f, 0.69f, 0.69f });
+    auto ambient =
+        scene_test::Capture(owe::SceneFrame {}, source, owe::FrameUniformOutput::AmbientColor);
+    ASSERT_EQ(ambient.size(), usize(3));
+    EXPECT_FLOAT_EQ(ambient[usize()], 0.85f);
+    state->SetAmbientColor({ 0.9f, 0.8f, 0.7f });
+    state->SetSkylightColor({ 0.7f, 0.6f, 0.5f });
+    ambient =
+        scene_test::Capture(owe::SceneFrame {}, source, owe::FrameUniformOutput::AmbientColor);
+    auto sky =
+        scene_test::Capture(owe::SceneFrame {}, source, owe::FrameUniformOutput::SkylightColor);
+    ASSERT_EQ(sky.size(), usize(3));
+    EXPECT_FLOAT_EQ(ambient[usize()], 0.9f);
+    EXPECT_FLOAT_EQ(ambient[usize(2)], 0.7f);
+    EXPECT_FLOAT_EQ(sky[usize()], 0.7f);
+    EXPECT_FLOAT_EQ(sky[usize(2)], 0.5f);
+}
+
+TEST(SceneParserScript, GeneralLightingPublishesFieldScriptResults) {
+    auto document = owe::wpscene::ParseSceneDocumentJson(R"JSON({
+        "camera": {},
+        "general": {
+            "ambientcolor": {"value":"0.85 0.85 0.85", "script": "export function update(value) { return new Vec3(0.9, 0.8, 0.7); }"},
+            "skylightcolor": {"value":"0.69 0.69 0.69", "script": "export function update(value) { return new Vec3(0.7, 0.6, 0.5); }"}
+        }, "objects": []
+    })JSON"_str,
+                                                         owe::wpscene::kSceneVersionUnknown);
+    ASSERT_TRUE(document.is_some());
+    owe::fs::VFS                vfs;
+    wavsen::audio::SoundManager sound_manager;
+    owe::SceneParser            parser;
+    auto                        parsed =
+        parser.Parse("general-lighting"_str,
+                     ref<owe::wpscene::SceneDocument>::from_raw_parts(&*document),
+                     mut_ref<owe::fs::VFS>::from_raw_parts(&vfs),
+                     mut_ref<wavsen::audio::SoundManager>::from_raw_parts(&sound_manager));
+    ASSERT_TRUE(parsed.is_ok());
+    auto scene = rstd::move(parsed).unwrap();
+    ASSERT_EQ(scene.scene->GlobalSources().len(), usize(1));
+    auto source  = scene.scene->Resolve(scene.scene->GlobalSources()[usize()].source).unwrap();
+    auto capture = [&](owe::FrameUniformOutput output) {
+        owe::SceneFrame            frame;
+        scene_test::EmptyResources resources;
+        scene_test::UpdateContext  context_impl(frame, resources);
+        scene_test::UniformSink    sink_impl(owe::ToUniformOutput(output));
+        auto                       context = dyn<owe::UniformUpdateContext>::from_ref(context_impl);
+        auto                       sink    = dyn<owe::UniformValueSink>::from_ref(sink_impl);
+        EXPECT_TRUE(source->Evaluate(context.as_ref(), sink.as_mut_ref()).is_ok());
+        EXPECT_TRUE(sink_impl.Written());
+        return sink_impl.Value();
+    };
+    EXPECT_FLOAT_EQ(capture(owe::FrameUniformOutput::AmbientColor)[usize()], 0.85f);
+    owe::script::TickSceneScripts(*scene.scene, owe::script::FrameInputs {});
+    auto ambient = capture(owe::FrameUniformOutput::AmbientColor);
+    auto sky     = capture(owe::FrameUniformOutput::SkylightColor);
+    ASSERT_EQ(ambient.size(), usize(3));
+    ASSERT_EQ(sky.size(), usize(3));
+    EXPECT_FLOAT_EQ(ambient[usize()], 0.9f);
+    EXPECT_FLOAT_EQ(ambient[usize(2)], 0.7f);
+    EXPECT_FLOAT_EQ(sky[usize()], 0.7f);
+    EXPECT_FLOAT_EQ(sky[usize(2)], 0.5f);
+}
+
 TEST(CameraShake, SamplesThreeAxesAndVectorLengthRoughness) {
     owe::UniformCameraShake shake { true, 3.0f, 0.5f, 0.0f };
     const Eigen::Vector3d   expected(0.162090692, 0.291557827, 0.252441295);

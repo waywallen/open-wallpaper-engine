@@ -80,7 +80,8 @@ const rstd::array<Extension, 4> base_inst_exts {
         CStr::from_ptr(VK_KHR_EXTERNAL_FENCE_CAPABILITIES_EXTENSION_NAME).to_str().unwrap() },
 };
 #if __is_target_os(macos)
-const rstd::array<Extension, 7> base_device_exts {
+const rstd::array<Extension, 8> base_device_exts {
+    Extension { false, CStr::from_ptr(VK_EXT_DEPTH_CLIP_ENABLE_EXTENSION_NAME).to_str().unwrap() },
     // MoltenVK's swapchain→Metal present path uses the portability subset.
     Extension { false, "VK_KHR_portability_subset"_str },
     Extension { false, CStr::from_ptr(VK_EXT_MEMORY_BUDGET_EXTENSION_NAME).to_str().unwrap() },
@@ -94,7 +95,8 @@ const rstd::array<Extension, 7> base_device_exts {
     Extension { false, CStr::from_ptr(VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME).to_str().unwrap() },
 };
 #else
-const rstd::array<Extension, 8> base_device_exts {
+const rstd::array<Extension, 9> base_device_exts {
+    Extension { false, CStr::from_ptr(VK_EXT_DEPTH_CLIP_ENABLE_EXTENSION_NAME).to_str().unwrap() },
     Extension { false, CStr::from_ptr(VK_EXT_MEMORY_BUDGET_EXTENSION_NAME).to_str().unwrap() },
     Extension { false, CStr::from_ptr(VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME).to_str().unwrap() },
     Extension {

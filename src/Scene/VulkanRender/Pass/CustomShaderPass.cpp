@@ -950,6 +950,7 @@ void CustomShaderPass::prepare(Scene& scene, const Device& device, PassPrepareCo
             .color_blend     = color_blend,
             .depth           = pipeline_state.depth,
             .raster          = pipeline_state.raster,
+            .depth_clip      = material_ref.Pipeline().depth_clip,
             .multisample     = pipeline_state.multisample,
             .topology        = topology,
             .viewport_count =

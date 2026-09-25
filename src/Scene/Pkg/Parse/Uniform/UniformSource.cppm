@@ -44,6 +44,8 @@ enum class FrameUniformOutput : rstd::uint32_t
     TexelSize,
     TexelSizeHalf,
     Screen,
+    AmbientColor,
+    SkylightColor,
 };
 
 enum class LightUniformOutput : rstd::uint32_t
@@ -232,6 +234,10 @@ public:
     const UniformCameraShake&    CameraShake() const noexcept { return m_camera_shake; }
     const UniformFrameInputs&    Inputs() const noexcept { return m_inputs; }
     array<float, 2>              Ortho() const noexcept { return m_ortho; }
+    array<float, 3>              AmbientColor() const { return m_ambient_color; }
+    array<float, 3>              SkylightColor() const { return m_skylight_color; }
+    void                         SetAmbientColor(array<float, 3> color) { m_ambient_color = color; }
+    void SetSkylightColor(array<float, 3> color) { m_skylight_color = color; }
 
     void SetOrtho(float width, float height) { m_ortho = { width, height }; }
     void SetOrthographicImplicitParallax(bool enabled) {
@@ -265,6 +271,8 @@ private:
     UniformFrameInputs       m_inputs;
     UniformCameraParallax    m_camera_parallax;
     UniformCameraShake       m_camera_shake;
+    array<float, 3>          m_ambient_color {};
+    array<float, 3>          m_skylight_color {};
     bool                     m_orthographic_implicit_parallax { false };
     array<float, 2>          m_ortho { 1920.0f, 1080.0f };
     array<float, 2>          m_pointer_input { 0.5f, 0.5f };

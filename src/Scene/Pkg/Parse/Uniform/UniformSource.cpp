@@ -632,11 +632,15 @@ auto FrameUniformSource::Describe(mut_ref<dyn<UniformBindingSink>> sink) const
     using Output = FrameUniformOutput;
     auto global  = BindGlobalProducer(sink, GlobalUniformProducer::Frame);
     if (global.is_err()) return global;
-    const array<BindingEntry<Output>, 3> entries {
+    const array<BindingEntry<Output>, 5> entries {
         BindingEntry<Output> { Output::TexelSize, G_TEXELSIZE, UniformValueShape::Float(u32(2)) },
         BindingEntry<Output> {
             Output::TexelSizeHalf, G_TEXELSIZEHALF, UniformValueShape::Float(u32(2)) },
         BindingEntry<Output> { Output::Screen, G_SCREEN, UniformValueShape::Float(u32(3)) },
+        BindingEntry<Output> {
+            Output::AmbientColor, G_LIGHTAMBIENTCOLOR, UniformValueShape::Float(u32(3)) },
+        BindingEntry<Output> {
+            Output::SkylightColor, G_LIGHTSKYLIGHTCOLOR, UniformValueShape::Float(u32(3)) },
     };
     return BindEntries(sink, entries);
 }
@@ -656,6 +660,8 @@ auto FrameUniformSource::Evaluate(ref<dyn<UniformUpdateContext>> context,
     writer.Write(Output::Time, static_cast<float>(frame->elapsed.to_primitive()));
     writer.Write(Output::FrameTime, static_cast<float>(frame->delta.to_primitive()));
     writer.Write(Output::DayTime, 0.0f);
+    writer.Write(Output::AmbientColor, m_state->AmbientColor());
+    writer.Write(Output::SkylightColor, m_state->SkylightColor());
     writer.Write(Output::PointerPosition, inputs.pointer);
     writer.Write(Output::PointerPositionLast, inputs.pointer_last);
     if (writer.Wants(Output::TexelSize) || writer.Wants(Output::TexelSizeHalf) ||

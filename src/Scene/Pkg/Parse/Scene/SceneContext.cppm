@@ -242,7 +242,7 @@ void WireFieldScripts(SceneParseContext&, const Arc<SceneNode>&, const wpscene::
                       Option<Arc<dyn<FnMut<void(const script::ScriptValue&)>>>> = {});
 void WireImageEffectVisibilityScript(SceneParseContext&, SceneNode*, const wpscene::ImageEffect&,
                                      SceneEffectId);
-void WireCameraShakeScripts(SceneParseContext&, const wpscene::FieldBindings&);
+void WireGeneralFieldScripts(SceneParseContext&, const wpscene::FieldBindings&);
 void WireCameraFieldScripts(SceneParseContext&, const Arc<SceneNode>&, const Arc<SceneCamera>&,
                             const Arc<SceneCameraPath>&, const wpscene::FieldBindings&,
                             const Eigen::Vector3f&, const Eigen::Vector3f&);

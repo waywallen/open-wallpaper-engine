@@ -522,7 +522,7 @@ void WireImageEffectVisibilityScript(SceneParseContext& context, SceneNode* node
                     } });
 }
 
-void WireCameraShakeScripts(SceneParseContext& context, const wpscene::FieldBindings& fb) {
+void WireGeneralFieldScripts(SceneParseContext& context, const wpscene::FieldBindings& fb) {
     auto& ss = EnsureScriptScene(context);
     auto& rt = ss.runtime();
 
@@ -533,6 +533,8 @@ void WireCameraShakeScripts(SceneParseContext& context, const wpscene::FieldBind
         script::FieldKind kind  = script::FieldKind::Scalar;
         if (field == "camerashake"_str) {
             kind = script::FieldKind::Bool;
+        } else if (field == "ambientcolor"_str || field == "skylightcolor"_str) {
+            kind = script::FieldKind::Vec3;
         } else if (field != "camerashakeamplitude"_str && field != "camerashakespeed"_str &&
                    field != "camerashakeroughness"_str) {
             continue;
@@ -558,21 +560,35 @@ void WireCameraShakeScripts(SceneParseContext& context, const wpscene::FieldBind
 
         auto state      = context.uniform_state.clone();
         auto field_name = binding.field.clone();
-        ss.AddActuator({ fs,
-                         [state = state.clone(), field_name = rstd::move(field_name)](
-                             const script::ScriptValue& value) mutable {
-                             auto scalar = ScriptValueAsFloat(value);
-                             if (! scalar) return;
-                             auto& shake = state->CameraShake();
-                             if (field_name == "camerashake"_str)
-                                 shake.enable = *scalar >= 0.5f;
-                             else if (field_name == "camerashakeamplitude"_str)
-                                 shake.amplitude = *scalar;
-                             else if (field_name == "camerashakespeed"_str)
-                                 shake.speed = *scalar;
-                             else if (field_name == "camerashakeroughness"_str)
-                                 shake.roughness = *scalar;
-                         } });
+        ss.AddActuator(
+            { fs,
+              [state      = state.clone(),
+               field_name = rstd::move(field_name)](const script::ScriptValue& value) mutable {
+                  if (field_name == "ambientcolor"_str || field_name == "skylightcolor"_str) {
+                      const auto current = field_name == "ambientcolor"_str
+                                               ? state->AmbientColor()
+                                               : state->SkylightColor();
+                      auto       color   = ScriptValueAsVec3(value, Vector3f(current.data()));
+                      if (color.is_none() || ! color->allFinite()) return;
+                      const array<float, 3> result { color->x(), color->y(), color->z() };
+                      if (field_name == "ambientcolor"_str)
+                          state->SetAmbientColor(result);
+                      else
+                          state->SetSkylightColor(result);
+                      return;
+                  }
+                  auto scalar = ScriptValueAsFloat(value);
+                  if (! scalar) return;
+                  auto& shake = state->CameraShake();
+                  if (field_name == "camerashake"_str)
+                      shake.enable = *scalar >= 0.5f;
+                  else if (field_name == "camerashakeamplitude"_str)
+                      shake.amplitude = *scalar;
+                  else if (field_name == "camerashakespeed"_str)
+                      shake.speed = *scalar;
+                  else if (field_name == "camerashakeroughness"_str)
+                      shake.roughness = *scalar;
+              } });
     }
 }
 
