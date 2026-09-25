@@ -1749,6 +1749,30 @@ auto Scene::ActiveCameraHandle() const -> Option<Arc<SceneCamera>> {
     return CameraHandle((*m_active_camera).as_str());
 }
 
+auto Scene::ScreenToWorld(array<float, 2> position) -> Eigen::Vector3d {
+    const Eigen::Vector3d fallback {
+        static_cast<double>(position[usize()]) * m_ortho[usize()].to_primitive(),
+        (1.0 - static_cast<double>(position[usize(1)])) * m_ortho[usize(1)].to_primitive(),
+        0.0,
+    };
+    if (m_active_camera.is_none()) return fallback;
+    auto camera = CameraMut((*m_active_camera).as_str());
+    if (camera.is_none()) return fallback;
+    const Eigen::Matrix4d inverse = (**camera).GetViewProjectionMatrix().inverse();
+    if (! inverse.allFinite()) return fallback;
+    const double          x    = static_cast<double>(position[usize()]) * 2.0 - 1.0;
+    const double          y    = 1.0 - static_cast<double>(position[usize(1)]) * 2.0;
+    const Eigen::Vector4d near = inverse * Eigen::Vector4d(x, y, 0.0, 1.0);
+    const Eigen::Vector4d far  = inverse * Eigen::Vector4d(x, y, 1.0, 1.0);
+    if (near.w() == 0.0 || far.w() == 0.0) return fallback;
+    const Eigen::Vector3d origin    = near.head<3>() / near.w();
+    const Eigen::Vector3d direction = far.head<3>() / far.w() - origin;
+    if (f64(direction.z()).abs().to_primitive() < 1e-10) return fallback;
+    // Script cursor coordinates lie on the scene's z=0 plane.
+    const Eigen::Vector3d world = origin - direction * (origin.z() / direction.z());
+    return world.allFinite() ? world : fallback;
+}
+
 auto Scene::ActiveCameraTransforms() const -> Option<SceneCameraTransforms> {
     auto camera = ActiveCamera();
     if (camera.is_none()) return None();

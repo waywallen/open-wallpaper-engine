@@ -541,19 +541,13 @@ auto ParticleSubSystem::OwnerWorldToLocal(const Eigen::Vector3f& position) const
 }
 
 void ParticleSubSystem::UpdateFrameInput(f64 frame_time) {
-    const auto            pointer = m_scene.PointerPosition();
-    const auto            ortho   = m_scene.Ortho();
-    const Eigen::Vector3d mouse_world {
-        static_cast<double>(pointer[usize()]) * static_cast<double>(ortho[usize()].to_primitive()),
-        (1.0 - static_cast<double>(pointer[usize(1)])) *
-            static_cast<double>(ortho[usize(1)].to_primitive()),
-        0.0,
-    };
-    Eigen::Vector3d mouse_local            = mouse_world;
-    Eigen::Matrix3d world_from_local_dir   = Eigen::Matrix3d::Identity();
-    Eigen::Matrix3d local_from_world_dir   = Eigen::Matrix3d::Identity();
-    Eigen::Matrix4d local_from_world       = Eigen::Matrix4d::Identity();
-    Eigen::Matrix4d world_from_spawn_space = Eigen::Matrix4d::Identity();
+    const auto            pointer                = m_scene.PointerPosition();
+    const Eigen::Vector3d mouse_world            = m_scene.ScreenToWorld(pointer);
+    Eigen::Vector3d       mouse_local            = mouse_world;
+    Eigen::Matrix3d       world_from_local_dir   = Eigen::Matrix3d::Identity();
+    Eigen::Matrix3d       local_from_world_dir   = Eigen::Matrix3d::Identity();
+    Eigen::Matrix4d       local_from_world       = Eigen::Matrix4d::Identity();
+    Eigen::Matrix4d       world_from_spawn_space = Eigen::Matrix4d::Identity();
     if (m_owner_node != nullptr) {
         m_owner_node->UpdateTrans();
         const auto model       = m_owner_node->ModelTrans();

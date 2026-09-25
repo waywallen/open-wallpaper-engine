@@ -37,9 +37,6 @@ using rstd::time::Instant;
 struct UserData {
     owe::SceneWallpaper* psw { nullptr };
     bool                 mouse_position_locked { false };
-
-    rstd::uint16_t width;
-    rstd::uint16_t height;
 };
 
 extern "C" {
@@ -65,15 +62,11 @@ void mouse_button_callback(GLFWwindow* win, int button, int action, int /*mods*/
 void cursor_position_callback(GLFWwindow* win, double xpos, double ypos) {
     UserData* data = static_cast<UserData*>(glfwGetWindowUserPointer(win));
     if (! data || ! data->psw || data->mouse_position_locked) return;
-#if __is_target_os(macos)
     int width  = 0;
     int height = 0;
     glfwGetWindowSize(win, &width, &height);
     if (width <= 0 || height <= 0) return;
     data->psw->mouseInput(xpos / static_cast<double>(width), ypos / static_cast<double>(height));
-#else
-    data->psw->mouseInput(xpos / data->width, ypos / data->height);
-#endif
 }
 
 void cursor_enter_callback(GLFWwindow* win, int entered) {
@@ -137,8 +130,6 @@ int main(int argc, char** argv) {
     if (render_height <= 0) render_height = w_height;
 #endif
     UserData data;
-    data.width  = w_width;
-    data.height = w_height;
 
     owe::RenderInitInfo info;
     info.enable_valid_layer = args.enable_valid_layer;
@@ -256,7 +247,6 @@ int main(int argc, char** argv) {
         if (! locked_mouse) return;
         psw->mouseEnter(true);
         psw->mouseInput((*locked_mouse)[usize()], (*locked_mouse)[usize(1)]);
-#if __is_target_os(macos)
         int window_width  = 0;
         int window_height = 0;
         glfwGetWindowSize(window, &window_width, &window_height);
@@ -265,10 +255,6 @@ int main(int argc, char** argv) {
                              (*locked_mouse)[usize()] * window_width,
                              (*locked_mouse)[usize(1)] * window_height);
         }
-#else
-        glfwSetCursorPos(
-            window, (*locked_mouse)[usize()] * w_width, (*locked_mouse)[usize(1)] * w_height);
-#endif
     };
     apply_locked_mouse();
 

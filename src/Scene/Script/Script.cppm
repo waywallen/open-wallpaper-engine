@@ -90,7 +90,7 @@ struct FrameInputs {
     float                screen_w { 1920.0f };
     float                screen_h { 1080.0f };
     scene_audio::Buffers audio;
-    // Cursor state. (cursor_x, cursor_y) is normalised canvas coords:
+    // Cursor state. (cursor_x, cursor_y) is normalised viewport coords:
     // x ∈ [0,1] left-to-right, y ∈ [0,1] top-to-bottom. button bits use
     // GLFW numbering (left=0, right=1, middle=2). down is held-state,
     // pressed/released are edge events for this frame only.

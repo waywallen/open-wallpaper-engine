@@ -1024,7 +1024,11 @@ struct CursorWorld {
     double x { 0 }, y { 0 };
 };
 
-CursorWorld CursorToWorld(const FrameInputs& fi) {
+CursorWorld CursorToWorld(const FrameInputs& fi, owe::Scene* scene) {
+    if (scene != nullptr) {
+        const auto world = scene->ScreenToWorld({ fi.cursor_x, fi.cursor_y });
+        return CursorWorld { .x = world.x(), .y = world.y() };
+    }
     return CursorWorld {
         .x = double(fi.cursor_x) * double(fi.canvas_w),
         .y = (1.0 - double(fi.cursor_y)) * double(fi.canvas_h),
@@ -1062,7 +1066,7 @@ void UpdateInputObject(JSContext* ctx) {
         SetVec2Fields(ctx, screen, fi.cursor_x * fi.screen_w, fi.cursor_y * fi.screen_h);
     JS_FreeValue(ctx, screen);
 
-    const CursorWorld world = CursorToWorld(fi);
+    const CursorWorld world = CursorToWorld(fi, host->scene);
     JSValue           wp    = JS_GetPropertyStr(ctx, input, "cursorWorldPosition");
     if (JS_IsObject(wp)) SetVec3Fields(ctx, wp, world.x, world.y, 0.0);
     JS_FreeValue(ctx, wp);
@@ -3818,7 +3822,7 @@ void JsRuntime::TickAll(slice<owe::SceneAnimationEventDispatch> animation_events
     // cursorEnter/Leave/Move/Down/Up/Click that the script's module
     // exports. Runs before update() so update can react to state writes
     // the callbacks made this frame.
-    const CursorWorld    cursor      = CursorToWorld(m_impl->host.inputs);
+    const CursorWorld    cursor      = CursorToWorld(m_impl->host.inputs, m_impl->host.scene);
     const bool           in_window   = m_impl->host.inputs.cursor_in_window;
     const rstd::uint32_t btn_pressed = m_impl->host.inputs.mouse_buttons_pressed;
     const rstd::uint32_t btn_release = m_impl->host.inputs.mouse_buttons_released;

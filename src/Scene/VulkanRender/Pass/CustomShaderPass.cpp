@@ -225,9 +225,10 @@ void CustomShaderPass::declareResources(ResourceDeclarationContext& context) {
                         .usage     = resource::BufferUsage::Vertex,
                         .alignment = usize(4),
                     },
-                .lifetime        = mesh.Dynamic() ? resource::BufferLifetimeClass::Dynamic
-                                                  : resource::BufferLifetimeClass::Retained,
-                .content_version = vertex.DataGeneration(),
+                .lifetime         = mesh.Dynamic() ? resource::BufferLifetimeClass::Dynamic
+                                                   : resource::BufferLifetimeClass::Retained,
+                .content_version  = vertex.DataGeneration(),
+                .content_identity = vertex.BufferView().storage_generation,
             },
             slice<u8>::from_raw_parts(reinterpret_cast<const byte*>(vertex.Data()),
                                       vertex.CapacitySizeOf()));
@@ -249,9 +250,10 @@ void CustomShaderPass::declareResources(ResourceDeclarationContext& context) {
                     .usage     = resource::BufferUsage::Index,
                     .alignment = usize(4),
                 },
-            .lifetime        = mesh.Dynamic() ? resource::BufferLifetimeClass::Dynamic
-                                              : resource::BufferLifetimeClass::Retained,
-            .content_version = index.DataGeneration(),
+            .lifetime         = mesh.Dynamic() ? resource::BufferLifetimeClass::Dynamic
+                                               : resource::BufferLifetimeClass::Retained,
+            .content_version  = index.DataGeneration(),
+            .content_identity = index.BufferView().storage_generation,
         },
         slice<u8>::from_raw_parts(reinterpret_cast<const byte*>(index.Data()),
                                   index.CapacitySizeof()));

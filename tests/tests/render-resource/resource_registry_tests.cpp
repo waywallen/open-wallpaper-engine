@@ -634,6 +634,42 @@ TEST(BufferRegistry, ReusesPhysicalAllocationAcrossPreparedContentVersions) {
     EXPECT_EQ(backend.allocations, rstd::usize(2));
 }
 
+TEST(BufferRegistry, UploadsReplacementSourceWithMatchingVersionAndCapacity) {
+    owe::resource_registry::BufferRegistry registry;
+    BufferBackend                          backend;
+    auto buffer_backend = rstd::dyn<owe::vulkan::BufferBackend>::from_ref(backend);
+    auto content        = rstd::vec::Vec<rstd::u8>::make();
+    content.push(rstd::u8(1));
+    auto request = owe::resource::BufferRequest {
+        .name            = "effect-vertices"_Str,
+        .definition      = { .size = rstd::usize(64), .usage = owe::resource::BufferUsage::Vertex },
+        .content_version = rstd::u64(3),
+        .content_identity = rstd::u64(10),
+    };
+    auto first = registry.Ensure(request.clone(), content.as_slice(), buffer_backend.as_mut_ref());
+    ASSERT_TRUE(first.is_ok());
+    auto prepared = rstd::move(first).unwrap_unchecked();
+    for (auto identity : { 20, 10, 20, 10 }) {
+        request.content_identity = rstd::u64(identity);
+        auto changed =
+            registry.Ensure(request.clone(), content.as_slice(), buffer_backend.as_mut_ref());
+        ASSERT_TRUE(changed.is_ok());
+        EXPECT_EQ(changed->resource, prepared.resource);
+        EXPECT_EQ(changed->physical.as_ptr().as_raw_ptr(), prepared.physical.as_ptr().as_raw_ptr());
+        EXPECT_EQ(changed->physical->source_identity, request.content_identity);
+        auto writes = backend.writes;
+        ASSERT_TRUE(
+            registry.Ensure(request.clone(), content.as_slice(), buffer_backend.as_mut_ref())
+                .is_ok());
+        EXPECT_EQ(backend.writes, writes);
+    }
+    EXPECT_EQ(backend.allocations, rstd::usize(1));
+    EXPECT_EQ(backend.writes, rstd::usize(5));
+    auto entry = registry.ResolveBuffer(prepared.resource);
+    ASSERT_TRUE(entry.is_some());
+    EXPECT_EQ((**entry).content_version, rstd::u64(5));
+}
+
 TEST(ResourcePrepareService, VisitsBufferAndShaderPlansThroughTypedProviders) {
     owe::resource::TextureRegistry         textures;
     owe::resource_registry::BufferRegistry buffers;

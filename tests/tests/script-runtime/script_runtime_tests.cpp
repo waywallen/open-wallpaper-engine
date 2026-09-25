@@ -1260,6 +1260,86 @@ TEST(ScriptCursor, WorldPositionFlipsTopDownInputY) {
     EXPECT_NEAR(v.z, 150.0, 0.001);
 }
 
+TEST(ScriptCursor, CroppedViewportUsesCameraForInputAndClicks) {
+    owe::Scene scene;
+    scene.SetOrtho({ rstd::i32(5120), rstd::i32(1440) });
+    auto camera_node = Arc<owe::SceneNode>::make();
+    camera_node->SetTranslate({ 2560.0f, 720.0f, 0.0f });
+    auto camera =
+        Arc<owe::SceneCamera>::make(owe::SceneCamera::MakeOrthographic(2560, 1440, -1, 1));
+    camera->AttatchNode(camera_node.as_ptr());
+    scene.RegisterCamera("default"_Str, camera.clone());
+    ASSERT_TRUE(scene.SetActiveCamera("default"_str));
+
+    auto button = Arc<owe::SceneNode>::make();
+    button->SetTranslate({ 3750.0f, 1380.0f, 0.0f });
+    button->SetSize({ 112.0f, 112.0f });
+    scene.RootMut()->AppendChild(button.clone());
+    JsRuntime rt;
+    rt.SetScene(&scene);
+    rt.SetSceneRoot(scene.RootMut().as_raw_ptr());
+    auto* fs = rt.MakeFieldScript(
+        R"JS(
+            let clicks = 0;
+            export function cursorClick(event) {
+                if (Math.abs(event.worldPosition.x - input.cursorWorldPosition.x) < 0.001)
+                    clicks++;
+            }
+            export function update() {
+                return new Vec3(input.cursorWorldPosition.x, input.cursorWorldPosition.y, clicks);
+            }
+        )JS"_str,
+        "test/cropped_cursor"_str,
+        FieldKind::Vec3,
+        owe::MakeObject(),
+        owe::IntoJson("0 0 0"),
+        button.as_ptr());
+    ASSERT_NE(fs, nullptr);
+    auto fi                  = MakeFi(5120, 1440);
+    fi.cursor_x              = 1235.0f / 1280.0f;
+    fi.cursor_y              = 30.0f / 720.0f;
+    fi.cursor_in_window      = true;
+    fi.mouse_buttons_pressed = 1;
+    rt.SetFrameInputs(fi);
+    rt.TickAll();
+    ASSERT_TRUE(fs->last_value().is_Vec3());
+    const auto first = fs->last_value().as_Vec3().value;
+    EXPECT_NEAR(first.x, 3750.0, 0.001);
+    EXPECT_NEAR(first.y, 1380.0, 0.001);
+    EXPECT_EQ(first.z, 1.0);
+
+    camera->SetWidth(5120);
+    fi.cursor_x = 3750.0f / 5120.0f;
+    rt.SetFrameInputs(fi);
+    rt.TickAll();
+    const auto second = fs->last_value().as_Vec3().value;
+    EXPECT_NEAR(second.x, 3750.0, 0.001);
+    EXPECT_NEAR(second.y, 1380.0, 0.001);
+    EXPECT_EQ(second.z, 2.0);
+}
+
+TEST(ScriptCursor, SceneProjectionTracksViewportAndCameraChanges) {
+    owe::Scene scene;
+    scene.SetOrtho({ rstd::i32(5120), rstd::i32(1440) });
+    EXPECT_TRUE(scene.ScreenToWorld({ 0.25f, 0.25f }).isApprox(Eigen::Vector3d(1280, 1080, 0)));
+    auto node = Arc<owe::SceneNode>::make();
+    node->SetTranslate({ 2560.0f, 720.0f, 0.0f });
+    auto camera =
+        Arc<owe::SceneCamera>::make(owe::SceneCamera::MakeOrthographic(2560, 1440, -1, 1));
+    camera->AttatchNode(node.as_ptr());
+    scene.RegisterCamera("default"_Str, camera.clone());
+    ASSERT_TRUE(scene.SetActiveCamera("default"_str));
+    EXPECT_TRUE(scene.ScreenToWorld({ 0.0f, 0.0f }).isApprox(Eigen::Vector3d(1280, 1440, 0)));
+    EXPECT_TRUE(scene.ScreenToWorld({ 1.0f, 1.0f }).isApprox(Eigen::Vector3d(3840, 0, 0)));
+    camera->SetWidth(5120);
+    camera->SetHeight(2880);
+    EXPECT_TRUE(scene.ScreenToWorld({ 0.0f, 0.0f }).isApprox(Eigen::Vector3d(0, 2160, 0)));
+    node->SetTranslate({ 100.0f, 200.0f, 0.0f });
+    EXPECT_TRUE(scene.ScreenToWorld({ 0.5f, 0.5f }).isApprox(Eigen::Vector3d(100, 200, 0)));
+    camera->SetWidth(0);
+    EXPECT_TRUE(scene.ScreenToWorld({ 0.25f, 0.25f }).isApprox(Eigen::Vector3d(1280, 1080, 0)));
+}
+
 // ---------------------------------------------------------------------------
 // Texture animation override
 

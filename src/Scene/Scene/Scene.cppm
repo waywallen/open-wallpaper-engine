@@ -2770,6 +2770,7 @@ public:
     }
     void SetPointerPosition(array<float, 2> position) { m_pointer_position = rstd::move(position); }
     auto PointerPosition() const -> array<float, 2> { return m_pointer_position; }
+    auto ScreenToWorld(array<float, 2> position) -> Eigen::Vector3d;
     void SetClearColor(array<float, 3> color) { m_clear_color = rstd::move(color); }
     auto ClearColor() const -> array<float, 3> { return m_clear_color.clone(); }
     void SetClearColorUserKey(String key) { m_clear_color_user_key = rstd::move(key); }
