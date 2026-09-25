@@ -38,22 +38,12 @@ Matrix4d NodeCameraFrame(SceneNode& node) {
 } // namespace
 
 Vector3d SceneCamera::GetPosition(SceneRenderViewKind view) const {
-    Vector3d position = Vector3d::Zero();
-    if (m_lookat) {
-        position = m_eye;
-    } else if (m_node) {
-        position = Affine3d(m_node->GetLocalTrans()) * Vector3d::Zero();
-    }
-    if (view == SceneRenderViewKind::Reflection) position.y() = -position.y();
-    return position;
+    return RenderTransforms(view).eye;
 }
 
 Vector3d SceneCamera::GetDirection() const {
-    if (m_lookat) return (m_center - m_eye).normalized();
-    if (m_node) {
-        return (m_node->GetLocalTrans() * Vector4d(0.0f, 0.0f, -1.0f, 0.0f)).head<3>();
-    }
-    return -Vector3d::UnitZ();
+    const auto transforms = Transforms();
+    return (transforms.center - transforms.eye).normalized();
 }
 
 auto SceneCamera::Transforms() const -> SceneCameraTransforms {
@@ -68,6 +58,17 @@ auto SceneCamera::Transforms() const -> SceneCameraTransforms {
         };
     }
     return {};
+}
+
+auto SceneCamera::RenderTransforms(SceneRenderViewKind view) const -> SceneCameraTransforms {
+    auto transforms = Transforms();
+    transforms.eye += m_view_offset;
+    transforms.center += m_view_offset;
+    if (view == SceneRenderViewKind::Reflection) {
+        transforms.eye.y()    = -transforms.eye.y();
+        transforms.center.y() = -transforms.center.y();
+    }
+    return transforms;
 }
 
 bool SceneCamera::SetTransforms(const SceneCameraTransforms& transforms) {
@@ -125,24 +126,10 @@ auto SceneCamera::CameraSnapshot(SceneRenderViewKind view) -> vrento::CameraSnap
 }
 
 Matrix4d SceneCamera::CalculateReflectionViewProjectionMatrix() {
-    Vector3d eye    = Vector3d::Zero();
-    Vector3d center = -Vector3d::UnitZ();
-    Vector3d up     = Vector3d::UnitY();
-    if (m_lookat) {
-        eye    = m_eye;
-        center = m_center;
-        up     = m_up;
-    } else if (m_node) {
-        const Matrix4d frame = NodeCameraFrame(*m_node);
-        eye                  = frame.block<3, 1>(0, 3);
-        center               = eye - frame.block<3, 1>(0, 2);
-        up                   = frame.block<3, 1>(0, 1);
-    }
-    eye.y()    = -eye.y();
-    center.y() = -center.y();
+    const auto transforms = RenderTransforms(SceneRenderViewKind::Reflection);
     // WE preserves camera-up so the reflection texture remains screen-upright.
 
-    const Matrix4d view = LookAt(eye, center, up);
+    const Matrix4d view = LookAt(transforms.eye, transforms.center, transforms.up);
     m_reflection_camera.Set(view, ProjectionMatrix());
     return m_reflection_camera.ViewProjection();
 }
@@ -168,6 +155,7 @@ void SceneCamera::CalculateViewProjectionMatrix() {
         view = NodeCameraFrame(*m_node).inverse();
     } else
         view = Matrix4d::Identity();
+    view = view * Affine3d(Translation3d(-m_view_offset)).matrix();
     m_camera.Set(view, ProjectionMatrix());
 }
 

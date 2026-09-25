@@ -110,8 +110,9 @@ void FinalizeUniformSources(SceneParseContext& context) {
     auto ortho = scene.Ortho();
     context.uniform_state->SetOrtho(static_cast<float>(ortho[usize()].to_primitive()),
                                     static_cast<float>(ortho[usize(1)].to_primitive()));
-    scene.Runtime().RegisterSystem(UniformRuntimeSystem { context.uniform_state.clone() },
-                                   SceneRuntimeSchedule::BeforeRender);
+    scene.Runtime().RegisterSystem(
+        UniformRuntimeSystem { context.uniform_state.clone(), scene, context.orthographic_scene },
+        SceneRuntimeSchedule::BeforeRender);
 
     auto registrar = dyn<UniformSourceRegistrar>::from_ref(scene);
     auto writer    = dyn<UniformAttachmentWriter>::from_ref(scene);

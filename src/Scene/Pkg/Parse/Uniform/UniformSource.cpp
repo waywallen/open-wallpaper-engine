@@ -35,13 +35,6 @@ auto MakeArcUniformBindingLease(const Arc<T>& state) -> Option<Box<dyn<UniformBi
         Box<dyn<UniformBindingLease>>::make(ArcUniformBindingLease<T> { .state = state.clone() }));
 }
 
-float Smooth(float value) { return value * value * (3.0f - 2.0f * value); }
-
-template<typename T>
-constexpr T Clamp(T value, T minimum, T maximum) {
-    return rstd::cmp::min(rstd::cmp::max(value, minimum), maximum);
-}
-
 auto UserScalar(const Json& property) -> Option<float> {
     const auto& value = SceneUserPropertyPayload(property);
     if (auto number = value.as_f64(); number.is_some()) {
@@ -52,49 +45,6 @@ auto UserScalar(const Json& property) -> Option<float> {
         return ParseJsonFloat(*string).ok();
     }
     return None();
-}
-
-Vector2f ShakeOffset(float x, float roughness) {
-    const float r    = Clamp(roughness, 0.0f, 2.0f);
-    const float over = Clamp(r - 1.0f, 0.0f, 1.0f);
-    const float grow = over * over;
-
-    constexpr float pi       = f32::consts::PI.to_primitive();
-    const float     beat_pos = rstd::cmp::max(x, 0.0f) / (pi * 0.5f);
-    const auto      beat     = static_cast<rstd::int32_t>(f32(beat_pos).floor().to_primitive());
-    const float     local    = beat_pos - static_cast<float>(beat);
-    const float     amount   = Smooth(local);
-
-    static constexpr array<array<float, 2>, 8> directions {
-        array<float, 2> { -1.0f, 1.0f }, array<float, 2> { 1.0f, -1.0f },
-        array<float, 2> { -1.0f, 1.0f }, array<float, 2> { 1.0f, -1.0f },
-        array<float, 2> { 1.0f, 1.0f },  array<float, 2> { -1.0f, -1.0f },
-        array<float, 2> { 1.0f, 1.0f },  array<float, 2> { -1.0f, -1.0f },
-    };
-    static constexpr array<float, 8> base_factors {
-        0.8f, 1.0f, 0.45f, 0.6f, 0.8f, 1.0f, 0.45f, 0.6f,
-    };
-    static constexpr array<float, 8> rough_factors {
-        6.0f, 8.0f, 1.0f, 1.0f, 6.0f, 8.0f, 1.0f, 1.0f,
-    };
-
-    auto sample = [&](rstd::int32_t index) -> Vector2f {
-        if ((index % 2) != 0) return Vector2f::Zero();
-        const auto  direction = usize(static_cast<rstd::size_t>(
-            (index / 2) % static_cast<rstd::int32_t>(directions.len().to_primitive())));
-        const float factor =
-            base_factors[direction] * (1.0f + (rough_factors[direction] - 1.0f) * grow);
-        return { directions[direction][usize(0)] * factor,
-                 directions[direction][usize(1)] * factor };
-    };
-
-    const Vector2f a     = sample(beat);
-    const Vector2f b     = sample(beat + 1);
-    const Vector2f delta = b - a;
-    Vector2f       curve { -delta.y(), delta.x() };
-    if (curve.squaredNorm() > 0.0f) curve.normalize();
-    const float bend = f32(local * pi).sin().to_primitive() * (0.09f + grow * 0.04f) * delta.norm();
-    return a * (1.0f - amount) + b * amount + curve * bend;
 }
 
 class UniformWriter {
@@ -433,6 +383,34 @@ auto UniformSceneState::ComputeParallaxOffset(const UniformNodeState& state,
     return { offset.x(), offset.y() };
 }
 
+auto UniformCameraShake::Sample(float runtime, bool orthographic, float height) const -> Vector3d {
+    if (! enable) return Vector3d::Zero();
+    const float time  = runtime * (speed * speed);
+    const float power = f32(roughness).powf(f32(3.0f)).to_primitive();
+    Vector3f    offset { f32(time).cos().to_primitive(),
+                         f32(time * 1.333f).sin().to_primitive(),
+                         f32(time).sin().to_primitive() };
+    float       scale = amplitude * 0.1f;
+    if (orthographic) {
+        offset.z() = 0.0f;
+        scale *= height * 0.1f;
+    }
+    if (power > 0.001f && power != 1.0f) {
+        const float length = offset.norm();
+        offset = (offset * (1.0f / length)) * f32(length).powf(f32(power)).to_primitive();
+    }
+    offset *= scale;
+    return offset.allFinite() ? Vector3d(offset.cast<double>()) : Vector3d::Zero();
+}
+
+void UniformRuntimeSystem::Update(ref<SceneFrame> frame) {
+    m_state->Advance(*frame);
+    m_scene.SetActiveCameraViewOffset(
+        m_state->CameraShake().Sample(static_cast<float>(frame->elapsed.to_primitive()),
+                                      m_orthographic,
+                                      m_state->Ortho()[usize(1)]));
+}
+
 void UniformSceneState::Advance(const SceneFrame& frame) {
     m_inputs.pointer_last = m_inputs.pointer;
     const double delay    = rstd::cmp::max(static_cast<double>(m_camera_parallax.delay), 0.0);
@@ -535,7 +513,6 @@ auto TransformUniformSource::Evaluate(ref<dyn<UniformUpdateContext>> context,
     const auto    render_view = context->RenderView();
     node.UpdateTrans();
 
-    const auto frame            = context->Frame();
     const bool req_mi           = writer.Wants(Output::ModelInverse);
     const bool req_m            = writer.Wants(Output::Model);
     const bool req_normal_model = writer.Wants(Output::NormalModel);
@@ -547,21 +524,8 @@ auto TransformUniformSource::Evaluate(ref<dyn<UniformUpdateContext>> context,
     const bool req_effect_model = writer.Wants(Output::EffectModel) || req_emvp || req_emvpi ||
                                   writer.Wants(Output::LayerModel);
 
-    Matrix4d    view_projection   = camera.GetViewProjectionMatrix(render_view);
-    const auto& shake             = m_state->CameraShake();
-    auto        active_camera_ref = m_node->camera_resolver->Active();
-    const bool  active_camera     = (*camera_ref).as_raw_ptr() == active_camera_ref.as_raw_ptr();
-    if (shake.enable && active_camera && ! camera.IsPerspective() && shake.amplitude > 0.0f &&
-        shake.speed > 0.0f) {
-        const auto  ortho       = m_state->Ortho();
-        const float base_extent = rstd::cmp::min(ortho[usize(1)], ortho[usize(0)]);
-        const float scale       = shake.amplitude * base_extent * 0.01f;
-        const float time   = static_cast<float>(frame->elapsed.to_primitive()) * shake.speed * 2.0f;
-        const auto  offset = ShakeOffset(time, shake.roughness);
-        view_projection =
-            view_projection *
-            Affine3d(Translation3d(Vector3d(offset.x() * scale, offset.y() * scale, 0.0))).matrix();
-    }
+    const Matrix4d view_projection   = camera.GetViewProjectionMatrix(render_view);
+    auto           active_camera_ref = m_node->camera_resolver->Active();
 
     writer.Write(Output::ViewProjection, ShaderValue::fromMatrix(view_projection));
     if (m_node->eye_position_override.is_some()) {
@@ -893,7 +857,7 @@ auto ShadowUniformSource::Evaluate(ref<dyn<UniformUpdateContext>>,
     using Output = ShadowUniformOutput;
     UniformWriter writer(sink);
 
-    const auto      camera_transform = m_camera->Transforms();
+    const auto      camera_transform = m_camera->RenderTransforms();
     Eigen::Vector3d forward          = camera_transform.center - camera_transform.eye;
     if (! forward.allFinite() || forward.squaredNorm() <= 1e-12) {
         return writer.Finish();

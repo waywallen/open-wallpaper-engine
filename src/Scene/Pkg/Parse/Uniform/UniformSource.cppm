@@ -149,6 +149,8 @@ struct UniformCameraShake {
     float amplitude { 0.0f };
     float speed { 0.0f };
     float roughness { 1.0f };
+
+    auto Sample(float runtime, bool orthographic, float height) const -> Eigen::Vector3d;
 };
 
 struct UniformNodeConfigDraft {
@@ -284,12 +286,15 @@ private:
 
 class UniformRuntimeSystem {
 public:
-    explicit UniformRuntimeSystem(Arc<UniformSceneState> state): m_state(rstd::move(state)) {}
+    UniformRuntimeSystem(Arc<UniformSceneState> state, Scene& scene, bool orthographic)
+        : m_state(rstd::move(state)), m_scene(scene), m_orthographic(orthographic) {}
 
-    void Update(ref<SceneFrame> frame) { m_state->Advance(*frame); }
+    void Update(ref<SceneFrame> frame);
 
 private:
     Arc<UniformSceneState> m_state;
+    Scene&                 m_scene;
+    bool                   m_orthographic;
 };
 
 class TransformUniformSource {

@@ -1079,7 +1079,13 @@ public:
         m_lookat = true;
     }
     bool IsLookAt() const { return m_lookat; }
+    // Base transforms remain independent of transient rendering offsets.
     auto Transforms() const -> SceneCameraTransforms;
+    auto RenderTransforms(SceneRenderViewKind view = SceneRenderViewKind::Primary) const
+        -> SceneCameraTransforms;
+    void SetViewOffset(const Eigen::Vector3d& offset) {
+        m_view_offset = offset.allFinite() ? offset : Eigen::Vector3d::Zero();
+    }
     bool SetTransforms(const SceneCameraTransforms& transforms);
     auto AuthoredTransforms() const -> SceneCameraTransforms;
     bool SetAuthoredTransforms(const SceneCameraTransforms& transforms);
@@ -1114,6 +1120,7 @@ public:
         m_eye         = cam.m_eye;
         m_center      = cam.m_center;
         m_up          = cam.m_up;
+        m_view_offset = cam.m_view_offset;
         m_node        = cam.m_node;
     }
 
@@ -1147,6 +1154,7 @@ private:
     Eigen::Vector3d m_eye { Eigen::Vector3d::Zero() };
     Eigen::Vector3d m_center { -Eigen::Vector3d::UnitZ() };
     Eigen::Vector3d m_up { Eigen::Vector3d::UnitY() };
+    Eigen::Vector3d m_view_offset { Eigen::Vector3d::Zero() };
 
     vrento::CameraState<Eigen::Matrix4d> m_camera;
     vrento::CameraState<Eigen::Matrix4d> m_reflection_camera;
@@ -2784,6 +2792,7 @@ public:
 
     void RegisterLinkedCamera(String source, String linked);
     void UpdateLinkedCamera(ref<str> name);
+    void SetActiveCameraViewOffset(const Eigen::Vector3d& offset);
 
     void   TickCameraPaths();
     void   TickMaterialShaderAnimations();

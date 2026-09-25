@@ -1735,6 +1735,8 @@ auto Scene::CameraHandle(ref<str> name) const -> Option<Arc<SceneCamera>> {
 
 bool Scene::SetActiveCamera(ref<str> name) {
     if (! m_cameras.contains_key(name)) return false;
+    if (m_active_camera.is_some() && (*m_active_camera).as_str() != name)
+        SetActiveCameraViewOffset(Eigen::Vector3d::Zero());
     m_active_camera = Some(String::make(name));
     return true;
 }
@@ -2587,6 +2589,14 @@ void Scene::UpdateLinkedCamera(ref<str> name) {
         (**camera).Clone(**source);
         (**camera).Update();
     }
+}
+
+void Scene::SetActiveCameraViewOffset(const Eigen::Vector3d& offset) {
+    if (m_active_camera.is_none()) return;
+    auto camera = CameraMut((*m_active_camera).as_str());
+    if (camera.is_none()) return;
+    (**camera).SetViewOffset(offset);
+    UpdateLinkedCamera((*m_active_camera).as_str());
 }
 
 bool Scene::ResizeRenderTarget(ref<str> name, i32 width, i32 height) {

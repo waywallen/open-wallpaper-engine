@@ -1134,6 +1134,174 @@ TEST(SceneCameraState, ReflectionPreservesUpAndDoesNotReplacePrimary) {
               reflected.revision + u64(1));
 }
 
+TEST(CameraShake, SamplesThreeAxesAndVectorLengthRoughness) {
+    owe::UniformCameraShake shake { true, 3.0f, 0.5f, 0.0f };
+    const Eigen::Vector3d   expected(0.162090692, 0.291557827, 0.252441295);
+    EXPECT_TRUE(shake.Sample(4.0f, false, 1080).isApprox(expected, 1e-6));
+    EXPECT_TRUE(shake.Sample(0.0f, false, 1080).isApprox(Eigen::Vector3d(0.3, 0, 0), 1e-6));
+    EXPECT_TRUE(shake.Sample(1.1951633f, false, 1080)
+                    .isApprox(Eigen::Vector3d(0.286707908, 0.116352516, 0.088309434), 2e-6));
+    EXPECT_TRUE(shake.Sample(15.430774f, false, 1080)
+                    .isApprox(Eigen::Vector3d(-0.226311371, -0.272700263, -0.196934554), 2e-6));
+    shake.roughness = 0.5f;
+    EXPECT_TRUE(shake.Sample(4.0f, false, 1080)
+                    .isApprox(Eigen::Vector3d(0.121172355, 0.217956677, 0.188714762), 1e-6));
+    shake.roughness = 1.0f;
+    EXPECT_TRUE(shake.Sample(4.0f, false, 1080).isApprox(expected, 1e-6));
+    shake.roughness = 2.0f;
+    EXPECT_TRUE(shake.Sample(4.0f, false, 1080)
+                    .isApprox(Eigen::Vector3d(1.66185942, 2.98924088, 2.58819270), 2e-6));
+}
+
+TEST(CameraShake, OrthographicHeightZeroSpeedAndDisabledState) {
+    owe::UniformCameraShake shake { true, 3.0f, 0.0f, 0.0f };
+    EXPECT_TRUE(shake.Sample(30.0f, false, 1920).isApprox(Eigen::Vector3d(0.3, 0, 0), 1e-6));
+    EXPECT_TRUE(shake.Sample(30.0f, true, 1920).isApprox(Eigen::Vector3d(57.6, 0, 0), 1e-6));
+    shake.speed = 0.5f;
+    auto flat   = shake.Sample(4.0f, true, 1920);
+    EXPECT_NEAR(flat.x(), 31.1214128, 1e-5);
+    EXPECT_NEAR(flat.y(), 55.9791027, 1e-5);
+    EXPECT_DOUBLE_EQ(flat.z(), 0.0);
+    shake.roughness     = 0.5f;
+    const double length = f64(flat.head<2>().norm() / 57.6).powf(f64(0.125)).to_primitive() * 57.6;
+    EXPECT_NEAR(shake.Sample(4.0f, true, 1920).norm(), length, 1e-5);
+    shake.amplitude = 0.0f;
+    EXPECT_TRUE(shake.Sample(4.0f, true, 1920).isZero());
+    shake.amplitude = 3.0f;
+    shake.enable    = false;
+    EXPECT_TRUE(shake.Sample(4.0f, false, 1920).isZero());
+}
+
+TEST(SceneCameraState, ViewOffsetPreservesBaseAndNodeAffineInverse) {
+    auto parent = Arc<owe::SceneNode>::make();
+    auto child  = Arc<owe::SceneNode>::make();
+    parent->SetTranslate({ 20, 30, 40 });
+    parent->SetRotation({ 0.2f, 0.3f, 0.4f });
+    child->SetScale({ 9, 7, 2 });
+    parent->AppendChild(child.clone());
+    auto camera = owe::SceneCamera::MakeOrthographic(200, 100, -100, 100);
+    camera.AttatchNode(child.as_ptr());
+    const auto            base     = camera.Transforms();
+    const auto            authored = camera.AuthoredTransforms();
+    const Eigen::Vector3d offset(2, 3, 4);
+    camera.SetViewOffset(offset);
+    const Eigen::Matrix4d translated =
+        Eigen::Affine3d(Eigen::Translation3d(offset)).matrix() * child->ModelTrans();
+    const auto snapshot = camera.CameraSnapshot();
+    EXPECT_TRUE((snapshot.view * translated).isIdentity(1e-12));
+    EXPECT_TRUE(camera.GetPosition().isApprox(base.eye + offset));
+    EXPECT_TRUE(camera.Transforms().eye.isApprox(base.eye));
+    EXPECT_TRUE(camera.AuthoredTransforms().eye.isApprox(authored.eye));
+    camera.SetViewOffset(offset);
+    EXPECT_EQ(camera.CameraSnapshot().revision, snapshot.revision);
+    EXPECT_TRUE(camera.GetViewMatrix().isApprox(snapshot.view));
+    camera.SetViewOffset(Eigen::Vector3d::Zero());
+    EXPECT_TRUE((camera.GetViewMatrix() * child->ModelTrans()).isIdentity(1e-12));
+}
+
+TEST(SceneCameraState, ViewOffsetMovesReflectionAndUniformEyeTogether) {
+    auto camera =
+        Arc<owe::SceneCamera>::make(owe::SceneCamera::MakePerspective(1.5, 0.1, 1000, 60));
+    const Eigen::Vector3d eye(2, 4, 10), center(1, 2, 0), up(0, 1, 0), offset(3, 5, 7);
+    camera->SetLookAt(eye, center, up);
+    camera->SetViewOffset(offset);
+    const auto snapshot = camera->CameraSnapshot();
+    EXPECT_TRUE(snapshot.view.isApprox(Eigen::LookAt(eye + offset, center + offset, up)));
+    EXPECT_TRUE(camera->CameraSnapshot(owe::SceneRenderViewKind::Reflection)
+                    .view.isApprox(
+                        Eigen::LookAt(Eigen::Vector3d(5, -9, 17), Eigen::Vector3d(4, -7, 7), up)));
+    EXPECT_TRUE(camera->GetPosition(owe::SceneRenderViewKind::Reflection)
+                    .isApprox(Eigen::Vector3d(5, -9, 17)));
+    auto state    = Arc<owe::UniformSceneState>::make(Arc<owe::AudioResponseDemand>::make());
+    auto resolver = Arc<owe::UniformCameraResolver>::make(camera.clone());
+    auto node     = Arc<owe::UniformNodeState>::make(Arc<owe::SceneNode>::make(), resolver.clone());
+    owe::TransformUniformSource source(state.clone(), node.clone());
+    auto                        uniform_eye =
+        scene_test::Capture(owe::SceneFrame {}, source, owe::TransformUniformOutput::EyePosition);
+    ASSERT_EQ(uniform_eye.size(), usize(3));
+    EXPECT_FLOAT_EQ(uniform_eye[usize()], 5.0f);
+    EXPECT_FLOAT_EQ(uniform_eye[usize(1)], 9.0f);
+    EXPECT_FLOAT_EQ(uniform_eye[usize(2)], 17.0f);
+    auto vp = scene_test::Capture(
+        owe::SceneFrame {}, source, owe::TransformUniformOutput::ViewProjection);
+    ASSERT_EQ(vp.size(), usize(16));
+    for (usize index {}; index < usize(16); ++index)
+        EXPECT_NEAR(vp[index], snapshot.view_projection.data()[index.to_primitive()], 1e-5);
+    EXPECT_TRUE(camera->AuthoredTransforms().eye.isApprox(eye));
+}
+
+TEST(CameraShake, RuntimeUpdatesLinkedViewAndClearsDisabledOrPreviousCamera) {
+    owe::Scene scene;
+    auto       camera =
+        Arc<owe::SceneCamera>::make(owe::SceneCamera::MakeOrthographic(1080, 1920, -1, 1));
+    auto linked = Arc<owe::SceneCamera>::make(*camera);
+    auto effect = Arc<owe::SceneCamera>::make(owe::SceneCamera::MakeOrthographic(2, 2, -1, 1));
+    scene.RegisterCamera("main"_Str, camera.clone());
+    scene.RegisterCamera("linked"_Str, linked.clone());
+    scene.RegisterCamera("effect"_Str, effect.clone());
+    scene.RegisterLinkedCamera("main"_Str, "linked"_Str);
+    ASSERT_TRUE(scene.SetActiveCamera("main"_str));
+    auto state = Arc<owe::UniformSceneState>::make(Arc<owe::AudioResponseDemand>::make());
+    state->SetOrtho(1080, 1920);
+    state->CameraShake() = { true, 3.0f, 0.5f, 0.0f };
+    owe::UniformRuntimeSystem runtime(state.clone(), scene, true);
+    owe::SceneFrame           frame;
+    frame.elapsed  = f64(4.0);
+    auto frame_ref = ref<owe::SceneFrame>::from_raw_parts(&frame);
+    runtime.Update(frame_ref);
+    const auto first = camera->CameraSnapshot();
+    EXPECT_TRUE(linked->GetViewMatrix().isApprox(first.view));
+    EXPECT_TRUE(effect->GetViewMatrix().isIdentity());
+    EXPECT_NEAR(camera->GetPosition().y(), 55.9791027, 1e-5);
+    EXPECT_TRUE(scene.ActiveCameraTransforms()->eye.isZero());
+    runtime.Update(frame_ref);
+    EXPECT_EQ(camera->CameraSnapshot().revision, first.revision);
+    const Eigen::Vector3d origin(10, 20, 0);
+    ASSERT_TRUE(scene.SetActiveCameraTransforms(
+        { origin, origin - Eigen::Vector3d::UnitZ(), Eigen::Vector3d::UnitY() }));
+    runtime.Update(frame_ref);
+    EXPECT_TRUE(scene.ActiveCameraTransforms()->eye.isApprox(origin));
+    EXPECT_TRUE(scene.ScreenToWorld({ 0.5f, 0.5f }).isApprox(camera->GetPosition(), 1e-6));
+    state->ApplyUserProperty("camerashakespeed"_str, owe::ParseJson("0"_str).unwrap());
+    runtime.Update(frame_ref);
+    EXPECT_TRUE(camera->GetPosition().isApprox(origin + Eigen::Vector3d(57.6, 0, 0), 1e-6));
+    state->ApplyUserProperty("camerashake"_str, owe::ParseJson("false"_str).unwrap());
+    runtime.Update(frame_ref);
+    EXPECT_TRUE(camera->GetPosition().isApprox(origin));
+    EXPECT_TRUE(linked->GetPosition().isApprox(origin));
+    state->CameraShake().enable = true;
+    runtime.Update(frame_ref);
+    ASSERT_TRUE(scene.SetActiveCamera("effect"_str));
+    EXPECT_TRUE(camera->GetPosition().isApprox(origin));
+    EXPECT_TRUE(linked->GetPosition().isApprox(origin));
+    EXPECT_TRUE(effect->GetPosition().isZero());
+}
+
+TEST(ShadowUniformSource, CascadeCentersUseFinalCameraPosition) {
+    auto camera =
+        Arc<owe::SceneCamera>::make(owe::SceneCamera::MakePerspective(1.0, 0.1, 1000, 50));
+    const Eigen::Vector3d origin(2, 4, 10), offset(3, 5, 7);
+    camera->SetLookAt(origin, origin - Eigen::Vector3d::UnitZ(), Eigen::Vector3d::UnitY());
+    camera->SetViewOffset(offset);
+    auto                  light_node = Arc<owe::SceneNode>::make();
+    owe::SceneLight::Desc desc;
+    desc.type        = owe::SceneLightType::Directional;
+    desc.cast_shadow = true;
+    owe::SceneLight light(desc);
+    light.setNode(light_node.as_ptr());
+    owe::ShadowUniformSource source(camera.clone(), ref<owe::SceneLight>::from_raw_parts(&light));
+    auto                     translated = scene_test::Capture(
+        owe::SceneFrame {}, source, owe::ShadowUniformOutput::ViewProjectionMatrices);
+    camera->SetViewOffset(Eigen::Vector3d::Zero());
+    camera->SetLookAt(
+        origin + offset, origin + offset - Eigen::Vector3d::UnitZ(), Eigen::Vector3d::UnitY());
+    auto explicit_camera = scene_test::Capture(
+        owe::SceneFrame {}, source, owe::ShadowUniformOutput::ViewProjectionMatrices);
+    ASSERT_EQ(translated.size(), explicit_camera.size());
+    for (usize index {}; index < translated.size(); ++index)
+        EXPECT_FLOAT_EQ(translated[index], explicit_camera[index]);
+}
+
 TEST(SceneCameraPath, UserBindingMutatesRegisteredArc) {
     owe::Scene scene;
     auto       path                = Arc<owe::SceneCameraPath>::make();
