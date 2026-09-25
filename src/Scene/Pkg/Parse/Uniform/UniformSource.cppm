@@ -236,14 +236,18 @@ public:
 
     UniformCameraParallax&       CameraParallax() noexcept { return m_camera_parallax; }
     const UniformCameraParallax& CameraParallax() const noexcept { return m_camera_parallax; }
-    UniformCameraShake&          CameraShake() noexcept { return m_camera_shake; }
-    const UniformCameraShake&    CameraShake() const noexcept { return m_camera_shake; }
-    const UniformFrameInputs&    Inputs() const noexcept { return m_inputs; }
-    array<float, 2>              Ortho() const noexcept { return m_ortho; }
-    array<float, 3>              AmbientColor() const { return m_ambient_color; }
-    array<float, 3>              SkylightColor() const { return m_skylight_color; }
-    void                         SetAmbientColor(array<float, 3> color) { m_ambient_color = color; }
-    void SetSkylightColor(array<float, 3> color) { m_skylight_color = color; }
+    float                        MouseParallaxInfluence() const noexcept {
+        return m_mouse_parallax ? m_camera_parallax.mouse_influence : 0.0f;
+    }
+    void                      SetMouseParallax(bool enabled) { m_mouse_parallax = enabled; }
+    UniformCameraShake&       CameraShake() noexcept { return m_camera_shake; }
+    const UniformCameraShake& CameraShake() const noexcept { return m_camera_shake; }
+    const UniformFrameInputs& Inputs() const noexcept { return m_inputs; }
+    array<float, 2>           Ortho() const noexcept { return m_ortho; }
+    array<float, 3>           AmbientColor() const { return m_ambient_color; }
+    array<float, 3>           SkylightColor() const { return m_skylight_color; }
+    void                      SetAmbientColor(array<float, 3> color) { m_ambient_color = color; }
+    void                      SetSkylightColor(array<float, 3> color) { m_skylight_color = color; }
 
     void SetOrtho(float width, float height) { m_ortho = { width, height }; }
     void SetOrthographicImplicitParallax(bool enabled) {
@@ -280,6 +284,7 @@ private:
     array<float, 3>          m_ambient_color {};
     array<float, 3>          m_skylight_color {};
     bool                     m_orthographic_implicit_parallax { false };
+    bool                     m_mouse_parallax { true };
     array<float, 2>          m_ortho { 1920.0f, 1080.0f };
     array<float, 2>          m_pointer_input { 0.5f, 0.5f };
     Arc<AudioResponseDemand> m_audio_demand;
@@ -290,6 +295,7 @@ public:
     explicit UniformRuntimeInput(Arc<UniformSceneState> state): m_state(rstd::move(state)) {}
 
     void SetPointerInput(double x, double y) { m_state->SetPointerInput(x, y); }
+    void SetMouseParallax(bool enabled) { m_state->SetMouseParallax(enabled); }
     void SetAudioSpectrum(const scene_audio::Buffers& buffers) {
         m_state->SetAudioSpectrum(buffers);
     }

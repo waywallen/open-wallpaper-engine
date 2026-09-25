@@ -47,7 +47,7 @@ class RenderMsg final {
               (SetScene, (Box<Scene> scene; Arc<UniformRuntimeInput> uniform_input;
                           Option<SceneLoadBenchHandle> load_bench; Option<u64> random_seed;)),
               (SetFillMode, (FillMode mode;)), (SetSpeed, (f32 speed;)),
-              (SetUserProperty, (String key; Json property;)),
+              (SetMouseParallax, (bool enabled;)), (SetUserProperty, (String key; Json property;)),
               (SetMediaStatus, (MediaStatus status;)),
               (SetAudioResponseDemandCallback, (AudioResponseDemandCallback callback;)),
               (SetAudioResponseEnabled, (bool enabled;)),
@@ -64,7 +64,7 @@ class MainMsg final {
               (SetAudioClientIdentity, (SceneAudioClientIdentity identity;)),
               (AudioDeviceEvent, (wavsen::audio::AudioDeviceEvent event;)),
               (SetFillMode, (FillMode mode;)), (SetSpeed, (f32 speed;)),
-              (SetUserProperty, (String key; Json value;)),
+              (SetMouseParallax, (bool enabled;)), (SetUserProperty, (String key; Json value;)),
               (SetFirstFrameCallback, (FirstFrameCallback cb;)),
               (SetUserPropertyDiagnosticCallback, (UserPropertyDiagnosticCallback cb;)),
               (UserPropertyDiagnostics, (Vec<SceneUserPropertyDiagnostic> diagnostics;)),
@@ -252,6 +252,7 @@ public:
     void on(MainMsg::AudioDeviceEvent_payload&&);
     void on(MainMsg::SetFillMode_payload&&);
     void on(MainMsg::SetSpeed_payload&&);
+    void on(MainMsg::SetMouseParallax_payload&&);
     void on(MainMsg::SetUserProperty_payload&&);
     void on(MainMsg::SetFirstFrameCallback_payload&&);
     void on(MainMsg::SetUserPropertyDiagnosticCallback_payload&&);
@@ -329,6 +330,7 @@ public:
     void on(RenderMsg::SetScene_payload&&);
     void on(RenderMsg::SetFillMode_payload&&);
     void on(RenderMsg::SetSpeed_payload&&);
+    void on(RenderMsg::SetMouseParallax_payload&&);
     void on(RenderMsg::SetUserProperty_payload&&);
     void on(RenderMsg::SetMediaStatus_payload&&);
     void on(RenderMsg::SetAudioResponseDemandCallback_payload&&);
@@ -399,6 +401,7 @@ private:
     RenderSceneSnapshot                 m_render_scene;
     Option<Box<rg::RenderGraph>>        m_rg;
     f32                                 m_speed { 1.0f };
+    bool                                m_mouse_parallax { true };
     FillMode                            m_fillmode { FillMode::ASPECTCROP };
     bool                                m_stopped { false };
     Option<AudioResponseDemandCallback> m_audio_response_demand_callback;
@@ -464,6 +467,7 @@ void SceneRenderController::start() {
                 RSTD_CASE_PAYLOAD(SetScene, value) { on(rstd::move(value)); }
                 RSTD_CASE_PAYLOAD(SetFillMode, value) { on(rstd::move(value)); }
                 RSTD_CASE_PAYLOAD(SetSpeed, value) { on(rstd::move(value)); }
+                RSTD_CASE_PAYLOAD(SetMouseParallax, value) { on(rstd::move(value)); }
                 RSTD_CASE_PAYLOAD(SetUserProperty, value) { on(rstd::move(value)); }
                 RSTD_CASE_PAYLOAD(SetMediaStatus, value) { on(rstd::move(value)); }
                 RSTD_CASE_PAYLOAD(SetAudioResponseDemandCallback, value) { on(rstd::move(value)); }
@@ -744,6 +748,7 @@ void SceneRenderController::on(RenderMsg::SetScene_payload&& m) {
     m_uniform_input_owner = Some(rstd::move(m.uniform_input));
     m_scene               = m_scene_owner->get();
     m_uniform_input       = m_uniform_input_owner->as_ptr().as_raw_ptr();
+    m_uniform_input->SetMouseParallax(m_mouse_parallax);
     m_scene_audio_response.end();
     m_first_frame_ok = false;
     if (m_scene) {
@@ -756,6 +761,11 @@ void SceneRenderController::on(RenderMsg::SetScene_payload&& m) {
 }
 
 void SceneRenderController::on(RenderMsg::SetSpeed_payload&& m) { m_speed = m.speed; }
+
+void SceneRenderController::on(RenderMsg::SetMouseParallax_payload&& m) {
+    m_mouse_parallax = m.enabled;
+    if (m_uniform_input) m_uniform_input->SetMouseParallax(m_mouse_parallax);
+}
 
 void SceneRenderController::on(RenderMsg::SetUserProperty_payload&& m) {
     if (! m_scene) return;
@@ -1048,6 +1058,7 @@ void SceneRuntimeController::startMainLoop() {
                 RSTD_CASE_PAYLOAD(AudioDeviceEvent, value) { on(rstd::move(value)); }
                 RSTD_CASE_PAYLOAD(SetFillMode, value) { on(rstd::move(value)); }
                 RSTD_CASE_PAYLOAD(SetSpeed, value) { on(rstd::move(value)); }
+                RSTD_CASE_PAYLOAD(SetMouseParallax, value) { on(rstd::move(value)); }
                 RSTD_CASE_PAYLOAD(SetUserProperty, value) { on(rstd::move(value)); }
                 RSTD_CASE_PAYLOAD(SetFirstFrameCallback, value) { on(rstd::move(value)); }
                 RSTD_CASE_PAYLOAD(SetUserPropertyDiagnosticCallback, value) {
@@ -1120,6 +1131,7 @@ void SceneRuntimeController::on(MainMsg::Configure_payload&& m) {
     on(MainMsg::SetMuted_payload { m_config.muted });
     on(MainMsg::SetFillMode_payload { m_config.fill_mode });
     on(MainMsg::SetSpeed_payload { f32(m_config.speed) });
+    on(MainMsg::SetMouseParallax_payload { m_config.mouse_parallax });
     onLoadScene();
 }
 
@@ -1165,6 +1177,11 @@ void SceneRuntimeController::on(MainMsg::AudioDeviceEvent_payload&& m) {
 void SceneRuntimeController::on(MainMsg::SetFillMode_payload&& m) {
     m_config.fill_mode = m.mode;
     m_render_controller->post(RenderMsg::SetFillMode(m.mode));
+}
+
+void SceneRuntimeController::on(MainMsg::SetMouseParallax_payload&& m) {
+    m_config.mouse_parallax = m.enabled;
+    m_render_controller->post(RenderMsg::SetMouseParallax(m.enabled));
 }
 
 void SceneRuntimeController::on(MainMsg::SetSpeed_payload&& m) {
@@ -1531,6 +1548,10 @@ void SceneWallpaper::setMuted(bool muted) { m_runtime->post(MainMsg::SetMuted(mu
 void SceneWallpaper::setFillMode(FillMode mode) { m_runtime->post(MainMsg::SetFillMode(mode)); }
 
 void SceneWallpaper::setSpeed(float speed) { m_runtime->post(MainMsg::SetSpeed(f32(speed))); }
+
+void SceneWallpaper::setMouseParallax(bool enabled) {
+    m_runtime->post(MainMsg::SetMouseParallax(enabled));
+}
 
 void SceneWallpaper::setMediaStatus(MediaStatus status) {
     m_runtime->post(RenderMsg::SetMediaStatus(rstd::move(status)));

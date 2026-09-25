@@ -58,6 +58,7 @@ struct Options {
     bool     test_pattern { false };
     float    initial_volume { 1.0f };
     float    initial_playback_rate { 1.0f };
+    bool     initial_mouse_parallax { true };
     bool     settings_enable_audio { true };
     bool     property_enable_audio { true };
     String   render_node;
@@ -73,6 +74,7 @@ struct Options {
 constexpr const char* kSettingsEnableAudioKey = "enable_audio";
 constexpr const char* kPropertyEnableAudioKey = "waywallen.enable_audio";
 constexpr const char* kPlaybackSpeedKey       = "waywallen.playback_speed";
+constexpr const char* kMouseParallaxKey       = "waywallen.mouse_parallax";
 
 [[noreturn]] void die(ref<str> msg) {
     rstd_error("waywallen-wescene-renderer: {}", msg);
@@ -634,6 +636,17 @@ void set_playback_rate(HostState& s, const char* value) {
     if (s.wp) s.wp->setSpeed(rate);
 }
 
+void set_mouse_parallax(HostState& s, const char* value) {
+    bool enabled = true;
+    if (! parse_bool_wire(value, enabled)) {
+        rstd_warn("waywallen-wescene-renderer: invalid {} value '{}'; ignoring",
+                  kMouseParallaxKey,
+                  value ? value : "");
+        return;
+    }
+    if (s.wp) s.wp->setMouseParallax(enabled);
+}
+
 void set_fps(HostState& s, uint32_t fps) {
     if (! s.wp || fps == 0) return;
     s.wp->setFps(fps);
@@ -671,6 +684,9 @@ void apply_control(HostState& s, ww_bridge_control_t& msg) {
             } else if ((CStr::from_ptr(key).to_bytes() ==
                         CStr::from_ptr(kPlaybackSpeedKey).to_bytes())) {
                 set_playback_rate(s, val);
+            } else if (CStr::from_ptr(key).to_bytes() ==
+                       CStr::from_ptr(kMouseParallaxKey).to_bytes()) {
+                set_mouse_parallax(s, val);
             } else if ((CStr::from_ptr(key).to_bytes() ==
                         CStr::from_ptr("test_pattern").to_bytes())) {
                 // Wescene's test_pattern flag is set on initial spawn
@@ -962,6 +978,17 @@ int run(int argc, char** argv) {
                             }
                             return;
                         }
+                        if (k == as_str(kMouseParallaxKey).unwrap()) {
+                            bool enabled = true;
+                            if (parse_user_property_bool(v, enabled)) {
+                                opts.initial_mouse_parallax = enabled;
+                            } else {
+                                rstd_warn("waywallen-wescene-renderer: invalid {} initial value; "
+                                          "using true",
+                                          kMouseParallaxKey);
+                            }
+                            return;
+                        }
                         opts.initial_user_properties.insert(String::make(k), v.clone());
                     });
                 }
@@ -1039,6 +1066,7 @@ int run(int argc, char** argv) {
     wp_config.user_properties = rstd::move(opts.initial_user_properties);
     wp_config.fps             = opts.initial_fps;
     wp_config.speed           = opts.initial_playback_rate;
+    wp_config.mouse_parallax  = opts.initial_mouse_parallax;
     wp_config.volume          = effective_volume(host);
     wp_config.volume_scale    = 0.0f;
     wp_config.muted           = ! effective_audio_enabled(host);

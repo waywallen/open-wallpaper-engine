@@ -193,6 +193,13 @@ local function add_predefined_properties(entry, props)
         props["waywallen.playback_speed"] == nil then
         props["waywallen.playback_speed"] = PLAYBACK_SPEED_PROPERTY
     end
+    if entry.wp_type == "scene" and props["waywallen.mouse_parallax"] == nil then
+        props["waywallen.mouse_parallax"] = {
+            text = tr("Mouse parallax"),
+            type = "bool",
+            value = true,
+        }
+    end
 end
 
 function M.properties(entry, ctx)

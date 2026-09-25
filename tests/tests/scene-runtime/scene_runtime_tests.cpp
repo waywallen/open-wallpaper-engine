@@ -1636,6 +1636,66 @@ TEST(UniformSourceRuntimeAlpha, VisibleTrueRestoresLayerAlpha) {
     EXPECT_FLOAT_EQ(restored[rstd::usize(3)], 0.35f);
 }
 
+TEST(UniformSourceParallax, HostSwitchOnlyRemovesMouseContribution) {
+    auto state = Arc<owe::UniformSceneState>::make(Arc<owe::AudioResponseDemand>::make());
+    state->CameraParallax() = { true, 0.5f, 0.0f, 0.25f };
+    state->SetOrtho(100.0f, 80.0f);
+    auto camera =
+        Arc<owe::SceneCamera>::make(owe::SceneCamera::MakeOrthographic(100, 80, -1.0, 1.0));
+    auto camera_node = Arc<owe::SceneNode>::make(
+        Eigen::Vector3f { 10.0f, 20.0f, 0.0f }, Eigen::Vector3f::Ones(), Eigen::Vector3f::Zero());
+    camera->AttatchNode(camera_node.as_ptr());
+    auto node = Arc<owe::SceneNode>::make(
+        Eigen::Vector3f { 30.0f, 50.0f, 0.0f }, Eigen::Vector3f::Ones(), Eigen::Vector3f::Zero());
+    auto                  resolver = Arc<owe::UniformCameraResolver>::make(camera.clone());
+    owe::UniformNodeState node_state(node.clone(), resolver.clone());
+    node_state.parallax.authored = true;
+    node_state.parallax.depth    = { 1.0f, 1.0f };
+    owe::UniformRuntimeInput input(state.clone());
+    owe::FrameUniformSource  frame_source(state.clone());
+    auto                     offset = [&] {
+        return state->ComputeParallaxOffset(node_state, *camera, owe::SceneRenderViewKind::Primary);
+    };
+    auto capture = [&](owe::FrameUniformOutput output) {
+        return scene_test::Capture(owe::SceneFrame {}, frame_source, output);
+    };
+    input.SetPointerInput(0.0, 1.0);
+    state->Advance(owe::SceneFrame {});
+    auto enabled = offset();
+    EXPECT_FLOAT_EQ(enabled[usize()], 16.25f);
+    EXPECT_FLOAT_EQ(enabled[usize(1)], 20.0f);
+    input.SetMouseParallax(false);
+    auto disabled = offset();
+    EXPECT_FLOAT_EQ(disabled[usize()], 10.0f);
+    EXPECT_FLOAT_EQ(disabled[usize(1)], 15.0f);
+    auto position = capture(owe::FrameUniformOutput::ParallaxPosition);
+    EXPECT_FLOAT_EQ(position[usize()], 0.5f);
+    EXPECT_FLOAT_EQ(position[usize(1)], 0.5f);
+    input.SetPointerInput(1.0, 0.0);
+    state->Advance(owe::SceneFrame {});
+    EXPECT_FLOAT_EQ(offset()[usize()], disabled[usize()]);
+    EXPECT_FLOAT_EQ(offset()[usize(1)], disabled[usize(1)]);
+    auto pointer = capture(owe::FrameUniformOutput::PointerPosition);
+    EXPECT_FLOAT_EQ(pointer[usize()], 1.0f);
+    EXPECT_FLOAT_EQ(pointer[usize(1)], 0.0f);
+    camera_node->SetTranslate(Eigen::Vector3f { 20.0f, 30.0f, 0.0f });
+    EXPECT_FLOAT_EQ(offset()[usize()], 5.0f);
+    EXPECT_FLOAT_EQ(offset()[usize(1)], 10.0f);
+    auto property = owe::ParseJson("0.5"_str).unwrap();
+    state->ApplyUserProperty("cameraparallaxmouseinfluence"_str, property);
+    EXPECT_FLOAT_EQ(state->MouseParallaxInfluence(), 0.0f);
+    EXPECT_FLOAT_EQ(state->CameraParallax().mouse_influence, 0.5f);
+    input.SetMouseParallax(true);
+    EXPECT_FLOAT_EQ(state->MouseParallaxInfluence(), 0.5f);
+    position = capture(owe::FrameUniformOutput::ParallaxPosition);
+    EXPECT_FLOAT_EQ(position[usize()], 0.75f);
+    EXPECT_FLOAT_EQ(position[usize(1)], 0.75f);
+    state->CameraParallax().enable = false;
+    position                       = capture(owe::FrameUniformOutput::ParallaxPosition);
+    EXPECT_FLOAT_EQ(position[usize()], 0.5f);
+    EXPECT_FLOAT_EQ(position[usize(1)], 0.5f);
+}
+
 TEST(UniformSourceParallax, UserPropertiesDriveEveryParallaxField) {
     auto state = Arc<owe::UniformSceneState>::make(Arc<owe::AudioResponseDemand>::make());
     state->CameraParallax() = { true, 0.03f, 0.1f, 0.36f };

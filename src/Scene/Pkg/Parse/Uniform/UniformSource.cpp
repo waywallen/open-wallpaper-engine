@@ -374,8 +374,8 @@ auto UniformSceneState::ComputeParallaxOffset(const UniformNodeState& state,
     const auto     ortho_values = Ortho();
     const Vector2f ortho { ortho_values[usize(0)], ortho_values[usize(1)] };
     const Vector2f pointer(Inputs().pointer.data());
-    const Vector2f pointer_offset = Scaling(1.0f, -1.0f) * (Vector2f { 0.5f, 0.5f } - pointer);
-    const Vector2f mouse = pointer_offset.cwiseProduct(ortho) * CameraParallax().mouse_influence;
+    const Vector2f pointer_offset  = Scaling(1.0f, -1.0f) * (Vector2f { 0.5f, 0.5f } - pointer);
+    const Vector2f mouse           = pointer_offset.cwiseProduct(ortho) * MouseParallaxInfluence();
     const Vector3f camera_position = camera.GetPosition(view).cast<float>();
     const Vector2f offset =
         (node_position.head<2>() - camera_position.head<2>() + mouse).cwiseProduct(depth) *
@@ -735,8 +735,8 @@ auto FrameUniformSource::Evaluate(ref<dyn<UniformUpdateContext>> context,
     const auto& parallax = m_state->CameraParallax();
     if (parallax.enable) {
         const Vector2f centered = Vector2f(inputs.pointer.data()) - Vector2f { 0.5f, 0.5f };
-        parallax_position =
-            Vector2f { 0.5f, 0.5f } + (Scaling(1.0f, -1.0f) * centered) * parallax.mouse_influence;
+        parallax_position = Vector2f { 0.5f, 0.5f } +
+                            (Scaling(1.0f, -1.0f) * centered) * m_state->MouseParallaxInfluence();
     }
     writer.Write(Output::ParallaxPosition,
                  array<float, 2> { parallax_position.x(), parallax_position.y() });
