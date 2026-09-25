@@ -866,6 +866,76 @@ TEST(MdlMesh, PackedAttributesPreserveIntegerBitsAndPadding) {
     EXPECT_FLOAT_EQ(vertices.Data()[uv + 1], 0.75f);
 }
 
+TEST(MdlMesh, ExplicitUvScalePreservesSecondaryCoordinatesAndSource) {
+    for (bool parts : { false, true }) {
+        for (int secondary : { 0, 1, 2 }) {
+            owe::Mdl::Mesh source;
+            source.positions.push(array<float, 3> { 1.0f, 2.0f, 3.0f });
+            source.texcoords.push(array<float, 2> { 0.5f, 0.75f });
+            source.indices.push(array<rstd::uint32_t, 3> { 0u, 0u, 0u });
+            if (parts) source.parts.push(owe::Mdl::Mesh::Part { 0, 0, 3 });
+            if (secondary == 1) source.part_uv2.push(array<float, 2> { 0.125f, 0.25f });
+            if (secondary == 2) source.texcoord2.push(array<float, 2> { 0.125f, 0.25f });
+
+            for (const auto scale :
+                 { array<float, 2> { 0.5f, 0.25f }, array<float, 2> { 1.0f, 1.0f } }) {
+                owe::SceneMesh::Submesh submesh;
+                owe::MdlParser::GenMeshFromMdl(submesh, source, scale);
+                ASSERT_EQ(submesh.vertex_arrays.len(), usize(1));
+                const auto& vertex = submesh.vertex_arrays[usize()];
+                const auto  uv     = vertex.AttributeOffset(owe::VAttr::TexCoord.name).unwrap() /
+                                     usize(sizeof(float));
+                EXPECT_FLOAT_EQ(vertex.Data()[uv.to_primitive()], 0.5f * scale[usize()]);
+                EXPECT_FLOAT_EQ(vertex.Data()[uv.to_primitive() + 1], 0.75f * scale[usize(1)]);
+                EXPECT_FLOAT_EQ(vertex.Data()[0], 1.0f);
+                EXPECT_FLOAT_EQ(vertex.Data()[1], 2.0f);
+                EXPECT_FLOAT_EQ(vertex.Data()[2], 3.0f);
+                if (secondary != 0) {
+                    const auto uv4 =
+                        vertex.AttributeOffset(owe::VAttr::TexCoordVec4.name).unwrap() /
+                        usize(sizeof(float));
+                    EXPECT_FLOAT_EQ(vertex.Data()[uv4.to_primitive()], 0.5f * scale[usize()]);
+                    EXPECT_FLOAT_EQ(vertex.Data()[uv4.to_primitive() + 1], 0.75f * scale[usize(1)]);
+                    EXPECT_FLOAT_EQ(vertex.Data()[uv4.to_primitive() + 2], 0.125f);
+                    EXPECT_FLOAT_EQ(vertex.Data()[uv4.to_primitive() + 3], 0.25f);
+                }
+                EXPECT_FLOAT_EQ(source.texcoords[usize()][usize()], 0.5f);
+                EXPECT_FLOAT_EQ(source.texcoords[usize()][usize(1)], 0.75f);
+            }
+        }
+    }
+}
+
+TEST(MdlMesh, MaskUvScaleMatchesMainMeshWithoutChangingPartSelection) {
+    owe::Mdl::Mesh source;
+    source.positions.push(array<float, 3> { 1.0f, 2.0f, 3.0f });
+    source.texcoords.push(array<float, 2> { 0.5f, 0.75f });
+    source.part_uv2.push(array<float, 2> { 0.125f, 0.25f });
+    source.indices.push(array<rstd::uint32_t, 3> { 0u, 0u, 0u });
+    source.indices.push(array<rstd::uint32_t, 3> { 0u, 0u, 0u });
+    source.parts.push(owe::Mdl::Mesh::Part { 12, 0, 3 });
+    source.parts.push(owe::Mdl::Mesh::Part { 34, 3, 3 });
+    Vec<rstd::uint32_t> selected;
+    selected.push(1u);
+    for (const auto scale : { array<float, 2> { 0.5f, 0.25f }, array<float, 2> { 1.0f, 1.0f } }) {
+        owe::SceneMesh::Submesh main, mask;
+        owe::MdlParser::GenMeshFromMdl(main, source, scale);
+        owe::MdlParser::GenMaskSubmeshFromMdl(mask, source, selected.as_slice(), scale);
+        ASSERT_EQ(mask.draw_ranges.len(), usize(1));
+        EXPECT_EQ(mask.draw_ranges[usize()].first_index, u32(3));
+        EXPECT_EQ(mask.draw_ranges[usize()].index_count, u32(3));
+        const auto& vertex  = mask.vertex_arrays[usize()];
+        const auto& primary = main.vertex_arrays[usize()];
+        const auto  uv =
+            vertex.AttributeOffset(owe::VAttr::TexCoord.name).unwrap() / usize(sizeof(float));
+        EXPECT_FLOAT_EQ(vertex.Data()[uv.to_primitive()], 0.5f * scale[usize()]);
+        EXPECT_FLOAT_EQ(vertex.Data()[uv.to_primitive() + 1], 0.75f * scale[usize(1)]);
+        EXPECT_FLOAT_EQ(vertex.Data()[uv.to_primitive()], primary.Data()[uv.to_primitive()]);
+        EXPECT_FLOAT_EQ(vertex.Data()[uv.to_primitive() + 1],
+                        primary.Data()[uv.to_primitive() + 1]);
+    }
+}
+
 TEST(MdlMesh, FindsMeshByNormalizedMaterialReference) {
     owe::Mdl mdl;
     mdl.meshes.push(owe::Mdl::Mesh {});

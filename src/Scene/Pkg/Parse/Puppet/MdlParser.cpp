@@ -1215,11 +1215,6 @@ void MdlParser::GenMeshFromMdl(SceneMesh::Submesh& submesh, const Mdl::Mesh& src
                                array<float, 2> texcoord_scale, array<float, 3> position_offset) {
     const size_t vert_num = src.positions.len().to_primitive();
     if (vert_num == 0) return;
-    if (! src.part_uv2.is_empty() || ! src.parts.is_empty()) {
-        // V21+ part meshes already store primary UVs in backing-texture space.
-        texcoord_scale = { 1.0f, 1.0f };
-    }
-
     // Build the attribute list in a stable order. Skinning attrs come early so
     // a puppet vertex layout matches what WE shaders historically expect.
     Vec<VertexAttrSpec> specs;

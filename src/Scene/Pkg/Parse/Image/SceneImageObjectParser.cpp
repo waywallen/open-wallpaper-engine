@@ -304,19 +304,15 @@ void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj
             for (const auto& mb : pmesh.masks) {
                 target.Submeshes().emplace_back();
                 auto& pre_sm = target.Submeshes().last_mut().unwrap().get_mut();
-                MdlParser::GenMaskSubmeshFromMdl(pre_sm,
-                                                 pmesh,
-                                                 mb.part_ids_b.as_slice(),
-                                                 { mapRate[usize()], mapRate[usize(1)] });
+                MdlParser::GenMaskSubmeshFromMdl(
+                    pre_sm, pmesh, mb.part_ids_b.as_slice(), { 1.0f, 1.0f });
                 pre_sm.material_slot   = slot++;
                 pre_sm.output_override = rstd::into(PUPPET_MASK_RT);
 
                 target.Submeshes().emplace_back();
                 auto& clip_sm = target.Submeshes().last_mut().unwrap().get_mut();
-                MdlParser::GenMaskSubmeshFromMdl(clip_sm,
-                                                 pmesh,
-                                                 mb.part_ids_a.as_slice(),
-                                                 { mapRate[usize()], mapRate[usize(1)] });
+                MdlParser::GenMaskSubmeshFromMdl(
+                    clip_sm, pmesh, mb.part_ids_a.as_slice(), { 1.0f, 1.0f });
                 clip_sm.material_slot = slot++;
             }
         }

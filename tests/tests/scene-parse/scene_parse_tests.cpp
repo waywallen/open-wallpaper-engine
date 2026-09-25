@@ -24,6 +24,7 @@ import wescene.pkg.parse;
 import wescene.pkg_fs;
 import wescene.pkg.scene_obj;
 import wescene.scene;
+import wescene.spec_names;
 import wescene.testing.scene_parse_probe;
 import wescene.types;
 
@@ -532,6 +533,108 @@ TEST(PuppetScriptParsing, VisibilityScriptsInitializeTheirOwnPlayback) {
     EXPECT_EQ((*second_playback)->Frame(), rstd::i32(43));
     EXPECT_NEAR((*second_playback)->Sample().current, 43.2f, 0.0001f);
     EXPECT_NE((*first_playback).as_ptr(), (*second_playback).as_ptr());
+}
+
+TEST(PuppetUvParsing, ImageAndEffectMasksUseTheirBoundTextureSpace) {
+    using namespace rstd::prelude;
+    auto path = rstd::format("{}/3493636545/scene.pkg",
+                             rstd::cppstd::as_str(WAYWALLEN_WORKSHOP_DIR).unwrap());
+    auto pkg  = owe::fs::WPPkgFs::open(owe::fs::Path(path.as_str()));
+    if (pkg.is_err()) GTEST_SKIP() << "workshop 3493636545 is not available";
+    auto assets = owe::fs::make_physical_fs(
+        owe::fs::Path(rstd::cppstd::as_str(WAYWALLEN_ASSETS_DIR).unwrap()));
+    ASSERT_TRUE(assets.is_ok());
+    owe::fs::VFS vfs;
+    ASSERT_TRUE(vfs.mount("/assets"_str, rstd::move(assets).unwrap()).is_ok());
+    ASSERT_TRUE(vfs.mount("/assets"_str, pkg->mount_handle()).is_ok());
+    auto padded_path = rstd::format("{}/3757177441/scene.pkg",
+                                    rstd::cppstd::as_str(WAYWALLEN_WORKSHOP_DIR).unwrap());
+    auto padded_pkg  = owe::fs::WPPkgFs::open(owe::fs::Path(padded_path.as_str()));
+    if (padded_pkg.is_err()) GTEST_SKIP() << "workshop 3757177441 is not available";
+    ASSERT_TRUE(vfs.mount("/assets"_str, padded_pkg->mount_handle()).is_ok());
+    auto effect_assets = owe::fs::make_physical_fs(owe::fs::Path(
+        rstd::format("{}/effects/scroll", rstd::cppstd::as_str(WAYWALLEN_ASSETS_DIR).unwrap())
+            .as_str()));
+    ASSERT_TRUE(effect_assets.is_ok());
+    ASSERT_TRUE(vfs.mount("/assets"_str, rstd::move(effect_assets).unwrap()).is_ok());
+    auto temporary = rstd::fs::TempDir::make("owe-puppet-uv"_str).unwrap();
+    auto root      = rstd::path::PathBuf::from(temporary.path().as_os_str().to_os_string());
+    ASSERT_TRUE(
+        rstd::fs::write(
+            root.join("direct.json"_str).as_path(),
+            R"({"autosize":true,"material":"materials/睫毛.json","puppet":"models/图层 1_puppet.mdl"})"_bytes)
+            .is_ok());
+    ASSERT_TRUE(
+        rstd::fs::write(
+            root.join("unpadded.json"_str).as_path(),
+            R"({"autosize":true,"nopadding":true,"material":"materials/睫毛.json","puppet":"models/图层 1_puppet.mdl"})"_bytes)
+            .is_ok());
+    auto mount = owe::fs::make_physical_fs(temporary.path());
+    ASSERT_TRUE(mount.is_ok());
+    ASSERT_TRUE(vfs.mount("/assets"_str, rstd::move(mount).unwrap()).is_ok());
+    owe::Mdl mdl;
+    ASSERT_TRUE(owe::MdlParser::Parse("models/图层 1_puppet.mdl"_str, vfs, mdl));
+    ASSERT_FALSE(mdl.meshes.is_empty());
+    const auto& source = mdl.meshes[usize()];
+    ASSERT_FALSE(source.masks.is_empty());
+
+    auto document = owe::wpscene::ParseSceneDocumentJson(
+        R"JSON({
+            "camera": {},
+            "general": {"orthogonalprojection": {"width": 1920, "height": 1080}},
+            "objects": [
+                {"id": 1, "name": "Direct", "image": "direct.json"},
+                {"id": 2, "name": "Unpadded", "image": "unpadded.json"},
+                {"id": 3, "name": "Effect", "image": "direct.json",
+                 "effects": [{"file": "effects/scroll/effect.json", "visible": true}]}
+            ]
+        })JSON"_str,
+        owe::wpscene::kSceneVersionUnknown);
+    ASSERT_TRUE(document.is_some());
+    wavsen::audio::SoundManager sound;
+    owe::SceneParser            parser;
+    auto                        parsed =
+        parser.Parse("puppet-uv"_str,
+                     ref<owe::wpscene::SceneDocument>::from_raw_parts(rstd::addressof(*document)),
+                     mut_ref<owe::fs::VFS>::from_raw_parts(rstd::addressof(vfs)),
+                     mut_ref<wavsen::audio::SoundManager>::from_raw_parts(rstd::addressof(sound)));
+    ASSERT_TRUE(parsed.is_ok());
+    auto scene = rstd::move(parsed).unwrap();
+    for (ref<str> name : { "Direct"_str, "Unpadded"_str, "Effect"_str }) {
+        auto* node = scene.scene->RootMut()->FindByName(name);
+        ASSERT_NE(node, nullptr);
+        owe::SceneMesh* mesh = node->Mesh();
+        if (name == "Effect"_str) {
+            ASSERT_TRUE(node->HasLayer());
+            auto& layer = node->Layer();
+            layer->ResolveEffect(*scene.scene->DefaultEffectMesh(), "effect"_str);
+            ASSERT_FALSE(layer->ResolvedEffects().is_empty());
+            auto* effect = layer->ResolvedEffects().last().unwrap().get();
+            ASSERT_FALSE(effect->Nodes().is_empty());
+            mesh = effect->Nodes().last().unwrap().get()->sceneNode->Mesh();
+        }
+        ASSERT_NE(mesh, nullptr);
+        ASSERT_EQ(mesh->Submeshes().len(), usize(1) + source.masks.len() * usize(2));
+        array<float, 2> scale { 1.0f, 1.0f };
+        if (name == "Direct"_str) {
+            auto resolution =
+                mesh->Material()->customShader.constValues.get("g_Texture0Resolution"_str);
+            ASSERT_TRUE(resolution.is_some());
+            const auto& value = **resolution;
+            scale = { value[usize(2)] / value[usize()], value[usize(3)] / value[usize(1)] };
+            EXPECT_TRUE(scale[usize()] != 1.0f || scale[usize(1)] != 1.0f);
+        }
+        for (const auto& submesh : mesh->Submeshes()) {
+            ASSERT_EQ(submesh.vertex_arrays.len(), usize(1));
+            const auto& vertices = submesh.vertex_arrays[usize()];
+            const auto  uv =
+                vertices.AttributeOffset(owe::VAttr::TexCoord.name).unwrap() / usize(sizeof(float));
+            EXPECT_FLOAT_EQ(vertices.Data()[uv.to_primitive()],
+                            source.texcoords[usize()][usize()] * scale[usize()]);
+            EXPECT_FLOAT_EQ(vertices.Data()[uv.to_primitive() + 1],
+                            source.texcoords[usize()][usize(1)] * scale[usize(1)]);
+        }
+    }
 }
 
 TEST(TextColorBlendParsing, PreservesOverlayAdditiveAndDirectModes) {
