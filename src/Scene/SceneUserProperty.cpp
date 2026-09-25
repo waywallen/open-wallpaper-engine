@@ -99,7 +99,7 @@ UserPropertyCoerceResult CoerceUserPropertyValue(const Json& property) {
         Vec<float> values;
         if (ParseFloatList(*raw.as_str(), values)) {
             result.ok    = true;
-            result.value = values.len() == usize(1) ? ShaderValue(values[usize()])
+            result.value = values.len() == usize(1) ? ShaderValue(values.first().unwrap().get())
                                                     : ShaderValue(values.as_slice());
             return result;
         }

@@ -845,11 +845,12 @@ Json DumpWorkshop(const std::string& workshop_dir, std::string& err, DumpFlags f
         SetSnapshot(jm, "mesh_count", static_cast<int64_t>(mdl.header.mesh_count));
         SetSnapshot(jm, "mdls", mdl.mdls);
         SetSnapshot(jm, "mdla", mdl.mdla);
-        const Mdl::Mesh* m0 = mdl.meshes.is_empty() ? nullptr : &mdl.meshes[usize()];
+        const Mdl::Mesh* m0 = mdl.meshes.is_empty() ? nullptr : &mdl.meshes.first().unwrap().get();
         SetSnapshot(jm,
                     "mat_json_file",
-                    m0 && ! m0->mat_json_files.is_empty() ? m0->mat_json_files[usize()].as_str()
-                                                          : ref<str>());
+                    m0 && ! m0->mat_json_files.is_empty()
+                        ? m0->mat_json_files.first().unwrap()->as_str()
+                        : ref<str>());
         SetSnapshot(
             jm, "vertex_count", m0 ? static_cast<int>(m0->positions.len().to_primitive()) : 0);
         SetSnapshot(jm, "index_count", m0 ? static_cast<int>(m0->indices.len().to_primitive()) : 0);
@@ -939,7 +940,7 @@ Json DumpWorkshop(const std::string& workshop_dir, std::string& err, DumpFlags f
                 for (usize ti {}; ti < a.bone_tracks.len(); ++ti) {
                     const auto& tk = a.bone_tracks[ti];
                     if (tk.frames.is_empty()) continue;
-                    const auto& f0      = tk.frames[usize()];
+                    const auto& f0      = tk.frames.first().unwrap().get();
                     bool        any_pos = false, any_sc = false, any_an = false;
                     for (const auto& fr : tk.frames) {
                         if ((fr.position - f0.position).norm() > 0.5f) any_pos = true;

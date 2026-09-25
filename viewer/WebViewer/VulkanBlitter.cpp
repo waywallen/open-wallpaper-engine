@@ -562,8 +562,8 @@ bool VulkanBlitter::CreateSwapchain() {
     VK_CHECK(instance_dispatch_.vkGetPhysicalDeviceSurfaceFormatsKHR(
         phys_, surface_, &fcount, formats.data()));
 
-    swap_format_     = formats[usize()].format;
-    swap_colorspace_ = formats[usize()].colorSpace;
+    swap_format_     = formats.first().unwrap()->format;
+    swap_colorspace_ = formats.first().unwrap()->colorSpace;
     for (auto& f : formats) {
         if (f.format == VK_FORMAT_B8G8R8A8_UNORM) {
             swap_format_     = f.format;

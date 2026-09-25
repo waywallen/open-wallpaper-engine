@@ -320,10 +320,10 @@ void VulkanRender::pumpFontAtlases(Scene& scene) {
         // Coalesce all dirty rects into one AABB. Typical: ≤ a handful of
         // glyph slots per frame, so a single upload covering the union beats
         // submitting one copy per rect.
-        rstd::uint32_t min_x = rects[usize()].x;
-        rstd::uint32_t min_y = rects[usize()].y;
-        rstd::uint32_t max_x = rects[usize()].x + rects[usize()].w;
-        rstd::uint32_t max_y = rects[usize()].y + rects[usize()].h;
+        rstd::uint32_t min_x = rects.first().unwrap()->x;
+        rstd::uint32_t min_y = rects.first().unwrap()->y;
+        rstd::uint32_t max_x = rects.first().unwrap()->x + rects.first().unwrap()->w;
+        rstd::uint32_t max_y = rects.first().unwrap()->y + rects.first().unwrap()->h;
         for (auto& r : rects) {
             if (r.x < min_x) min_x = r.x;
             if (r.y < min_y) min_y = r.y;

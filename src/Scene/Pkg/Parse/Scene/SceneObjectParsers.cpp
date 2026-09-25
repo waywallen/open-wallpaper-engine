@@ -519,18 +519,17 @@ void ParseModelObjImpl(SceneParseContext& context, wpscene::ModelObject& model_o
         const auto texcoord_scale = Texture0UvScale(scene_mat);
         mesh->AddMaterial(rstd::move(scene_mat));
         RegisterMaterialBindings(*context.scene,
-                                 mesh->MaterialSlots()[mesh->MaterialSlots().len() - usize(1)],
+                                 mesh->MaterialSlots().last_mut().unwrap().get_mut(),
                                  *wpmat,
                                  shader_info);
-        WireMaterialShaderValueScripts(
-            context,
-            node,
-            mesh->MaterialSlots()[mesh->MaterialSlots().len() - usize(1)],
-            *wpmat,
-            shader_info);
+        WireMaterialShaderValueScripts(context,
+                                       node,
+                                       mesh->MaterialSlots().last_mut().unwrap().get_mut(),
+                                       *wpmat,
+                                       shader_info);
 
         mesh->Submeshes().emplace_back();
-        auto& submesh = mesh->Submeshes()[mesh->Submeshes().len() - usize(1)];
+        auto& submesh = mesh->Submeshes().last_mut().unwrap().get_mut();
         MdlParser::GenMeshFromMdl(
             submesh, mdl_mesh, { texcoord_scale[usize()], texcoord_scale[usize(1)] });
         submesh.material_slot = material_slot;

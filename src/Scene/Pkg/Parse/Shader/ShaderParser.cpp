@@ -1110,8 +1110,8 @@ struct SynthOutput {
 
 inline rstd::size_t ArraySlots(ref<str> arr) {
     const auto bytes = arr.as_bytes();
-    if (bytes.len() < usize(3) || bytes[usize()] != u8('[') ||
-        bytes[bytes.len() - usize(1)] != u8(']'))
+    if (bytes.len() < usize(3) || bytes.first().unwrap().get() != u8('[') ||
+        bytes.last().unwrap().get() != u8(']'))
         return 1;
     rstd::size_t n = 0;
     for (usize i(1); i + usize(1) < bytes.len(); ++i) {
@@ -1449,8 +1449,8 @@ struct UniformLayout {
 
 inline rstd::size_t ParseArrayCount(ref<str> arr) {
     auto bytes = arr.as_bytes();
-    if (bytes.len() < usize(3) || bytes[usize()] != u8('[') ||
-        bytes[bytes.len() - usize(1)] != u8(']'))
+    if (bytes.len() < usize(3) || bytes.first().unwrap().get() != u8('[') ||
+        bytes.last().unwrap().get() != u8(']'))
         return 1;
     rstd::size_t n = 0;
     for (usize i(1); i + usize(1) < bytes.len(); ++i) {
@@ -1611,7 +1611,7 @@ usize LinearUniformElementCount(ref<str> ty) {
     for (ref<str> prefix : { "float"_str, "int"_str, "uint"_str, "bool"_str }) {
         if (! hlsl_ty.starts_with(prefix) || hlsl_ty.size() != prefix.len() + usize(1)) continue;
         const char width =
-            static_cast<char>(hlsl_ty.as_bytes()[hlsl_ty.len() - usize(1)].to_primitive());
+            static_cast<char>(hlsl_ty.as_bytes().last().unwrap().get().to_primitive());
         if (width >= '2' && width <= '4') return usize(static_cast<rstd::size_t>(width - '0'));
     }
     return usize();
@@ -3135,7 +3135,7 @@ void ShaderParser::UpdateSceneShaderVariantDescFromCompiledUnits(SceneShaderVari
                                 ? kGlobalUniformSetIdentity
                                 : u64(),
             });
-            target = rstd::addressof(desc.descriptor_sets[desc.descriptor_sets.len() - usize(1)]);
+            target = rstd::addressof(desc.descriptor_sets.last_mut().unwrap().get_mut());
         }
         target->bindings.push(SceneShaderDescriptorBindingInterface {
             .name             = rstd::into(binding.name),

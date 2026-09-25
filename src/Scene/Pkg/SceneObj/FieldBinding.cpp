@@ -171,8 +171,7 @@ auto FieldBindings::Ensure(ref<str> field) -> mut_ref<FieldBindingSpec> {
         .identity = next_field_binding_identity.fetch_add(u64(1), Ordering::Relaxed),
         .field    = String::make(field),
     });
-    return mut_ref<FieldBindingSpec>::from_raw_parts(
-        rstd::addressof(entries[entries.len() - usize(1)]));
+    return entries.last_mut().unwrap();
 }
 
 bool FieldBindings::HasAnimation(ref<str> field) const noexcept {

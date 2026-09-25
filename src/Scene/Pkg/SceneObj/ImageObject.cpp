@@ -236,8 +236,8 @@ bool ImageEffect::FromFileJson(const owe::Json& json, fs::VFS& vfs) {
                 fbo.scale = u32(1);
             }
             fbos.push(rstd::move(fbo));
-            passes[usize()].bind.push({ "previous"_Str, i32() });
-            passes[usize()].target = "_rt_FullCompoBuffer1"_Str;
+            passes.first_mut().unwrap()->bind.push({ "previous"_Str, i32() });
+            passes.first_mut().unwrap()->target = "_rt_FullCompoBuffer1"_Str;
             passes[usize(1)].bind.push({ "_rt_FullCompoBuffer1"_Str, i32() });
         }
     } else {

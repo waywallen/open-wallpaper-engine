@@ -102,7 +102,8 @@ void BuildBloomPostProcess(SceneParseContext& context, fs::VFS& vfs,
         auto pp_mesh = Arc<SceneMesh>::make();
         pp_mesh->ChangeMeshDataFrom(*scene.DefaultEffectMesh());
         pp_mesh->AddMaterial(rstd::move(material));
-        RegisterMaterialBindings(scene, pp_mesh->MaterialSlots()[usize()], wpmat, wpShaderInfo);
+        RegisterMaterialBindings(
+            scene, pp_mesh->MaterialSlots().first_mut().unwrap().get_mut(), wpmat, wpShaderInfo);
         pp_node->AddMesh(pp_mesh.clone());
 
         // Camera name drives CustomShaderPass color-write mask: empty or

@@ -670,7 +670,7 @@ static void EmitShadowPasses(ExtraInfo& extra) {
     if (extra.render_scene == nullptr) return;
     auto definitions = extra.render_scene->ShadowDefinitions();
     if (definitions.is_empty()) return;
-    const auto& definition = definitions[usize()];
+    const auto& definition = definitions.first().unwrap().get();
     const auto  target     = definition.target.as_str();
     bool        first      = true;
 

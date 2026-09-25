@@ -303,7 +303,7 @@ void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj
             if (&pmesh != primary_puppet_mesh) continue;
             for (const auto& mb : pmesh.masks) {
                 target.Submeshes().emplace_back();
-                auto& pre_sm = target.Submeshes()[target.Submeshes().len() - usize(1)];
+                auto& pre_sm = target.Submeshes().last_mut().unwrap().get_mut();
                 MdlParser::GenMaskSubmeshFromMdl(pre_sm,
                                                  pmesh,
                                                  mb.part_ids_b.as_slice(),
@@ -312,7 +312,7 @@ void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj
                 pre_sm.output_override = rstd::into(PUPPET_MASK_RT);
 
                 target.Submeshes().emplace_back();
-                auto& clip_sm = target.Submeshes()[target.Submeshes().len() - usize(1)];
+                auto& clip_sm = target.Submeshes().last_mut().unwrap().get_mut();
                 MdlParser::GenMaskSubmeshFromMdl(clip_sm,
                                                  pmesh,
                                                  mb.part_ids_a.as_slice(),
@@ -333,7 +333,7 @@ void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj
             if (primary_puppet_mesh != nullptr) {
                 effct_final_mesh.Submeshes().emplace_back();
                 MdlParser::GenMeshFromMdl(
-                    effct_final_mesh.Submeshes()[effct_final_mesh.Submeshes().len() - usize(1)],
+                    effct_final_mesh.Submeshes().last_mut().unwrap().get_mut(),
                     *primary_puppet_mesh,
                     { 1.0f, 1.0f });
             }
@@ -355,7 +355,7 @@ void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj
                 Affine3d(Translation3d(alignment_offset.cast<double>())).matrix());
             if (primary_puppet_mesh != nullptr) {
                 mesh.Submeshes().emplace_back();
-                MdlParser::GenMeshFromMdl(mesh.Submeshes()[mesh.Submeshes().len() - usize(1)],
+                MdlParser::GenMeshFromMdl(mesh.Submeshes().last_mut().unwrap().get_mut(),
                                           *primary_puppet_mesh,
                                           { mapRate[usize()], mapRate[usize(1)] });
             }
@@ -389,22 +389,22 @@ void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj
         if (control.is_some()) spImgNode->SetVideoControl(rstd::move(*control));
     }
     mesh.AddMaterial(rstd::move(material));
-    track_image_property_material(mesh.MaterialSlots()[mesh.MaterialSlots().len() - usize(1)]);
+    track_image_property_material(mesh.MaterialSlots().last_mut().unwrap().get_mut());
     RegisterMaterialBindings(
         *context.scene,
-        mesh.MaterialSlots()[usize()],
+        mesh.MaterialSlots().first_mut().unwrap().get_mut(),
         image_wpmat,
         shaderInfo,
         Some(ref<wpscene::Material>::from_raw_parts(&image_user_texture_fallback)));
     WireMaterialShaderValueScripts(context,
                                    spImgNode,
-                                   mesh.MaterialSlots()[mesh.MaterialSlots().len() - usize(1)],
+                                   mesh.MaterialSlots().last_mut().unwrap().get_mut(),
                                    image_wpmat,
                                    shaderInfo);
 
     for (const auto* supplemental_mesh : supplemental_puppet_meshes) {
         if (supplemental_mesh->mat_json_files.is_empty()) continue;
-        const auto& material_ref       = supplemental_mesh->mat_json_files[usize()];
+        const auto& material_ref       = supplemental_mesh->mat_json_files.first().unwrap().get();
         auto        supplemental_wpmat = MdlParser::ParseMaterial(material_ref, vfs);
         if (supplemental_wpmat.is_none()) continue;
 
@@ -438,21 +438,21 @@ void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj
         const auto supplemental_slot =
             rstd::as_cast<u32>(usize(mesh.MaterialSlots().len().to_primitive()));
         mesh.AddMaterial(rstd::move(supplemental_material));
-        track_image_property_material(mesh.MaterialSlots()[mesh.MaterialSlots().len() - usize(1)]);
+        track_image_property_material(mesh.MaterialSlots().last_mut().unwrap().get_mut());
         RegisterMaterialBindings(
             *context.scene,
-            mesh.MaterialSlots()[mesh.MaterialSlots().len() - usize(1)],
+            mesh.MaterialSlots().last_mut().unwrap().get_mut(),
             *supplemental_wpmat,
             supplemental_shader_info,
             Some(ref<wpscene::Material>::from_raw_parts(&supplemental_user_texture_fallback)));
         WireMaterialShaderValueScripts(context,
                                        spImgNode,
-                                       mesh.MaterialSlots()[mesh.MaterialSlots().len() - usize(1)],
+                                       mesh.MaterialSlots().last_mut().unwrap().get_mut(),
                                        *supplemental_wpmat,
                                        supplemental_shader_info);
 
         mesh.Submeshes().emplace_back();
-        auto& supplemental_submesh = mesh.Submeshes()[mesh.Submeshes().len() - usize(1)];
+        auto& supplemental_submesh = mesh.Submeshes().last_mut().unwrap().get_mut();
         MdlParser::GenMeshFromMdl(
             supplemental_submesh,
             *supplemental_mesh,
@@ -538,10 +538,9 @@ void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj
                 const auto pre_slot =
                     rstd::as_cast<u32>(usize(mesh.MaterialSlots().len().to_primitive()));
                 mesh.AddMaterial(rstd::move(mask_scene_mat));
-                track_image_property_material(
-                    mesh.MaterialSlots()[mesh.MaterialSlots().len() - usize(1)]);
+                track_image_property_material(mesh.MaterialSlots().last_mut().unwrap().get_mut());
                 mesh.Submeshes().emplace_back();
-                auto& pre_sm = mesh.Submeshes()[mesh.Submeshes().len() - usize(1)];
+                auto& pre_sm = mesh.Submeshes().last_mut().unwrap().get_mut();
                 MdlParser::GenMaskSubmeshFromMdl(pre_sm,
                                                  pmesh,
                                                  mb.part_ids_b.as_slice(),
@@ -578,10 +577,9 @@ void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj
                 const auto clip_slot =
                     rstd::as_cast<u32>(usize(mesh.MaterialSlots().len().to_primitive()));
                 mesh.AddMaterial(rstd::move(clip_scene_mat));
-                track_image_property_material(
-                    mesh.MaterialSlots()[mesh.MaterialSlots().len() - usize(1)]);
+                track_image_property_material(mesh.MaterialSlots().last_mut().unwrap().get_mut());
                 mesh.Submeshes().emplace_back();
-                auto& clip_sm = mesh.Submeshes()[mesh.Submeshes().len() - usize(1)];
+                auto& clip_sm = mesh.Submeshes().last_mut().unwrap().get_mut();
                 MdlParser::GenMaskSubmeshFromMdl(clip_sm,
                                                  pmesh,
                                                  mb.part_ids_a.as_slice(),
@@ -872,21 +870,25 @@ void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj
                 }
                 spMesh->AddMaterial(rstd::move(material));
                 track_image_property_material(
-                    spMesh->MaterialSlots()[spMesh->MaterialSlots().len() - usize(1)]);
+                    spMesh->MaterialSlots().last_mut().unwrap().get_mut());
                 Option<ref<wpscene::Material>> binding_fallback;
                 if (user_texture_fallback.is_some()) {
                     binding_fallback = Some(ref<wpscene::Material>::from_raw_parts(
                         rstd::addressof(*user_texture_fallback)));
                 }
                 RegisterMaterialBindings(*context.scene,
-                                         spMesh->MaterialSlots()[usize()],
+                                         spMesh->MaterialSlots().first_mut().unwrap().get_mut(),
                                          wpmat,
                                          wpEffShaderInfo,
                                          binding_fallback);
                 RegisterLayerPreviousBindings(
                     *context.scene, *spMesh->Material(), wpmat, image_node_id, effect_composite);
                 WireMaterialShaderValueScripts(
-                    context, spImgNode, spMesh->MaterialSlots()[usize()], wpmat, wpEffShaderInfo);
+                    context,
+                    spImgNode,
+                    spMesh->MaterialSlots().first_mut().unwrap().get_mut(),
+                    wpmat,
+                    wpEffShaderInfo);
                 auto add_puppet_mask_materials = [&]() -> bool {
                     if (! (puppet.is_some() && wpmat.use_puppet && puppet_has_masks)) return true;
                     const auto source_tex =
@@ -928,7 +930,7 @@ void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj
                                                           effect_composite);
                             spMesh->AddMaterial(rstd::move(mask_material));
                             track_image_property_material(
-                                spMesh->MaterialSlots()[spMesh->MaterialSlots().len() - usize(1)]);
+                                spMesh->MaterialSlots().last_mut().unwrap().get_mut());
 
                             wpscene::Material clip_wpmat = wpmat.clone();
                             (void)clip_wpmat.combos.insert("CLIPPINGTARGET"_Str, i32(1));
@@ -961,7 +963,7 @@ void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj
                                                           effect_composite);
                             spMesh->AddMaterial(rstd::move(clip_material));
                             track_image_property_material(
-                                spMesh->MaterialSlots()[spMesh->MaterialSlots().len() - usize(1)]);
+                                spMesh->MaterialSlots().last_mut().unwrap().get_mut());
                         }
                     }
                     return true;
@@ -1034,8 +1036,10 @@ void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj
                 LoadConstvalue(context, material, passthrough_mat, shader_info);
                 auto mesh = Arc<SceneMesh>::make();
                 mesh->AddMaterial(rstd::move(material));
-                RegisterMaterialBindings(
-                    *context.scene, mesh->MaterialSlots()[usize()], passthrough_mat, shader_info);
+                RegisterMaterialBindings(*context.scene,
+                                         mesh->MaterialSlots().first_mut().unwrap().get_mut(),
+                                         passthrough_mat,
+                                         shader_info);
                 RegisterLayerPreviousBindings(*context.scene,
                                               *mesh->Material(),
                                               passthrough_mat,
@@ -1114,10 +1118,11 @@ void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj
                         LoadConstvalue(context, finalMaterial, passthrough_mat, wpFinalShaderInfo);
                         auto spFinalMesh = Arc<SceneMesh>::make();
                         spFinalMesh->AddMaterial(rstd::move(finalMaterial));
-                        RegisterMaterialBindings(*context.scene,
-                                                 spFinalMesh->MaterialSlots()[usize()],
-                                                 passthrough_mat,
-                                                 wpFinalShaderInfo);
+                        RegisterMaterialBindings(
+                            *context.scene,
+                            spFinalMesh->MaterialSlots().first_mut().unwrap().get_mut(),
+                            passthrough_mat,
+                            wpFinalShaderInfo);
                         RegisterLayerPreviousBindings(*context.scene,
                                                       *spFinalMesh->Material(),
                                                       passthrough_mat,
@@ -1215,8 +1220,8 @@ void ParseShapeObj(SceneParseContext& context, wpscene::ShapeObject& shape_obj) 
         rstd_error("shape '{}' has no renderable effect", shape_obj.name);
         return;
     }
-    auto direct_draw_material = first_effect->materials[usize()].clone();
-    direct_draw_material.MergePass(first_effect->passes[usize()]);
+    auto direct_draw_material = first_effect->materials.first().unwrap()->clone();
+    direct_draw_material.MergePass(first_effect->passes.first().unwrap().get());
     auto direct_draw = direct_draw_material.combos.get("DIRECTDRAW"_str);
     if (direct_draw.is_none() || **direct_draw == i32()) {
         rstd_error("shape '{}' first effect is not direct draw", shape_obj.name);
@@ -1240,8 +1245,8 @@ void ParseShapeObj(SceneParseContext& context, wpscene::ShapeObject& shape_obj) 
     image.angles   = shape_obj.angles;
     image.size     = { edge, edge };
     image.visible  = shape_obj.visible;
-    image.material = last_effect->materials[last_effect->materials.len() - usize(1)].clone();
-    image.material.MergePass(last_effect->passes[last_effect->passes.len() - usize(1)]);
+    image.material = last_effect->materials.last().unwrap()->clone();
+    image.material.MergePass(last_effect->passes.last().unwrap().get());
     image.material.blending  = "additive"_Str;
     image.effects            = rstd::move(shape_obj.effects);
     image.nopadding          = true;

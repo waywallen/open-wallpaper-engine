@@ -316,8 +316,10 @@ TEST(AnimationBinding, KeepsAmbiguousRelationsIndependent) {
                     }
                  })"_str);
     image.effects.emplace_back();
-    image.effects[image.effects.len() - usize(1)].materials.push(owe::wpscene::Material {});
-    ParseBinding(image.effects[image.effects.len() - usize(1)]
+    image.effects.last_mut().unwrap()->materials.push(owe::wpscene::Material {});
+    ParseBinding(image.effects.last_mut()
+                     .unwrap()
+                     .get_mut()
                      .materials[usize()]
                      .constantshadervalues_bindings,
                  "amount"_str,

@@ -462,9 +462,10 @@ static PathBuf ResolveViaFontconfig(ref<str> name) {
     if (text.is_none() || ! text->starts_with("systemfont_"_str)) return {};
     auto family_bytes = Vec<u8>::from(text->get(usize(11), text->len()).unwrap().as_bytes());
     if (family_bytes.is_empty()) return {};
-    const u8 first        = family_bytes[usize()];
-    family_bytes[usize()] = u8(static_cast<unsigned char>(std::toupper(first.to_primitive())));
-    auto family           = CString::make(rstd::move(family_bytes));
+    const u8 first = family_bytes.first().unwrap().get();
+    family_bytes.first_mut().unwrap().get_mut() =
+        u8(static_cast<unsigned char>(std::toupper(first.to_primitive())));
+    auto family = CString::make(rstd::move(family_bytes));
     if (family.is_err() || ! FcInit()) return {};
     FcPattern* pat = FcNameParse(reinterpret_cast<const FcChar8*>(family->as_ptr()));
     if (pat == nullptr) return {};
@@ -502,7 +503,7 @@ FontCache::ResolvedBlob FontCache::ResolveSystemFont(ref<str> name, bool fallbac
             Vec<rstd::fs::ReadDir> stack;
             stack.push(rstd::move(entries).unwrap_unchecked());
             while (! stack.is_empty()) {
-                auto entry = stack[stack.len() - usize(1)].next();
+                auto entry = stack.last_mut().unwrap()->next();
                 if (entry.is_none()) {
                     (void)stack.pop();
                     continue;
@@ -967,15 +968,15 @@ void TextLayouter::SetText(ref<str> utf8) {
             }
             continue;
         }
-        if (wrap > 0.0f && ! lines[lines.len() - usize(1)].glyphs.is_empty() &&
-            lines[lines.len() - usize(1)].width + gi->advance_x > wrap) {
+        if (wrap > 0.0f && ! lines.last().unwrap()->glyphs.is_empty() &&
+            lines.last().unwrap()->width + gi->advance_x > wrap) {
             if (IsBreakSpace(cp)) {
                 // The break falls on the space itself; drop it rather than
                 // carry it to the head of the next line.
                 lines.emplace_back();
                 continue;
             }
-            auto&              line  = lines[lines.len() - usize(1)];
+            auto&              line  = lines.last_mut().unwrap().get_mut();
             const rstd::size_t start = line.word_start;
             if (start > 0 && start < line.glyphs.len().to_primitive()) {
                 TextLineRunGI next;
@@ -987,9 +988,9 @@ void TextLayouter::SetText(ref<str> utf8) {
                 // The space that ended the word stays behind; it is invisible
                 // but would still count towards the finished line's width.
                 while (! line.glyphs.is_empty() &&
-                       line.glyphs[line.glyphs.len() - usize(1)]->pixel_w == 0 &&
-                       line.glyphs[line.glyphs.len() - usize(1)]->pixel_h == 0) {
-                    line.width -= line.glyphs[line.glyphs.len() - usize(1)]->advance_x;
+                       line.glyphs.last().unwrap().get()->pixel_w == 0 &&
+                       line.glyphs.last().unwrap().get()->pixel_h == 0) {
+                    line.width -= line.glyphs.last().unwrap().get()->advance_x;
                     (void)line.glyphs.pop();
                 }
                 line.word_start = 0;
@@ -998,7 +999,7 @@ void TextLayouter::SetText(ref<str> utf8) {
                 lines.emplace_back();
             }
         }
-        auto& line = lines[lines.len() - usize(1)];
+        auto& line = lines.last_mut().unwrap().get_mut();
         line.glyphs.emplace_back(gi);
         line.width += gi->advance_x;
         if (IsBreakSpace(cp)) line.word_start = line.glyphs.len().to_primitive();
@@ -1014,7 +1015,7 @@ void TextLayouter::SetText(ref<str> utf8) {
                 auto& last = lines[usize(im.style.max_rows - 1)];
                 while (! last.glyphs.is_empty() &&
                        (wrap > 0.0f && last.width + 3.0f * dot->advance_x > wrap)) {
-                    last.width -= last.glyphs[last.glyphs.len() - usize(1)]->advance_x;
+                    last.width -= last.glyphs.last().unwrap().get()->advance_x;
                     (void)last.glyphs.pop();
                 }
                 for (int i = 0; i < 3; ++i) {

@@ -118,7 +118,7 @@ Option<SceneCameraLookAtTrack> ParseLookAtTrack(const owe::Json& json) {
                      [](const SceneCameraLookAtKey& left, const SceneCameraLookAtKey& right) {
                          return left.frame < right.frame;
                      });
-    if (track.duration <= 0.0f) track.duration = track.keys[track.keys.len() - usize(1)].frame;
+    if (track.duration <= 0.0f) track.duration = track.keys.last().unwrap()->frame;
     if (track.duration <= 0.0f) track.duration = 1.0f;
     return Some(rstd::move(track));
 }

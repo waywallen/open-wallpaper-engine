@@ -405,14 +405,13 @@ auto BuildMaterial(fs::VFS& vfs, ShaderCache& shader_cache,
                     i32(texh.mapWidth), i32(texh.mapHeight), i32(texh.mapWidth), i32(texh.mapHeight)
                 };
             }
-            material.texture_metadata[material.texture_metadata.len() - usize(1)] =
-                SceneMaterialTextureMetadata {
-                    .has_extent    = true,
-                    .source_extent = { rstd::as_cast<float>(resolution[usize(0)]),
-                                       rstd::as_cast<float>(resolution[usize(1)]) },
-                    .sample_extent = { rstd::as_cast<float>(resolution[usize(2)]),
-                                       rstd::as_cast<float>(resolution[usize(3)]) },
-                };
+            material.texture_metadata.last_mut().unwrap().get_mut() = SceneMaterialTextureMetadata {
+                .has_extent    = true,
+                .source_extent = { rstd::as_cast<float>(resolution[usize(0)]),
+                                   rstd::as_cast<float>(resolution[usize(1)]) },
+                .sample_extent = { rstd::as_cast<float>(resolution[usize(2)]),
+                                   rstd::as_cast<float>(resolution[usize(3)]) },
+            };
 
             auto scene_texture = scene.Texture(name.as_str());
             if (scene_texture.is_none()) {
@@ -442,9 +441,10 @@ auto BuildMaterial(fs::VFS& vfs, ShaderCache& shader_cache,
                                                resolution[usize(0)] % rstd::as_cast<i32>(f1.width);
                         resolution[usize(3)] = resolution[usize(1)] -
                                                resolution[usize(1)] % rstd::as_cast<i32>(f1.height);
-                        material.texture_metadata[material.texture_metadata.len() - usize(1)]
-                            .sample_extent = { rstd::as_cast<float>(resolution[usize(2)]),
-                                               rstd::as_cast<float>(resolution[usize(3)]) };
+                        material.texture_metadata.last_mut().unwrap().get_mut().sample_extent = {
+                            rstd::as_cast<float>(resolution[usize(2)]),
+                            rstd::as_cast<float>(resolution[usize(3)])
+                        };
                     }
                     (void)materialShader.constValues.insert(
                         rstd::into(G_RENDERVAR1),
@@ -514,7 +514,7 @@ auto BuildMaterial(fs::VFS& vfs, ShaderCache& shader_cache,
     material.SetPipeline(rstd::move(pipeline));
 
     // FS is always the last unit (VS may be followed by optional GS, then FS).
-    const auto& fs_active = sd_units[sd_units.len() - usize(1)].preprocess_info.active_tex_slots;
+    const auto& fs_active = sd_units.last().unwrap()->preprocess_info.active_tex_slots;
     for (usize i {}; i < material.textures.len(); ++i) {
         if (! fs_active.contains(rstd::as_cast<u32>(i))) material.textures[i].clear();
     }

@@ -449,13 +449,11 @@ TEST(SceneNodeLayer, FinalResolveTargetsFinalOutputBeforePublish) {
 
     layer->ResolveEffect(*scene.DefaultEffectMesh(), "effect"_str);
 
-    auto final_target =
-        layer->ResolvedTarget(*final_effect->Nodes()[final_effect->Nodes().len() - usize(1)]);
+    auto final_target = layer->ResolvedTarget(*final_effect->Nodes().last().unwrap().get());
     EXPECT_EQ(final_target.kind, owe::SceneEffectTargetKind::Named);
     EXPECT_EQ(final_target.key, "_rt_final"_str);
 
-    auto publish_target =
-        layer->ResolvedTarget(*publish_effect->Nodes()[publish_effect->Nodes().len() - usize(1)]);
+    auto publish_target = layer->ResolvedTarget(*publish_effect->Nodes().last().unwrap().get());
     EXPECT_EQ(publish_target.kind, owe::SceneEffectTargetKind::Named);
     EXPECT_EQ(publish_target.key, "_rt_link"_str);
 }

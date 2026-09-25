@@ -407,7 +407,7 @@ public:
 
     auto AppendSlot() -> ParticleSlot {
         auto slots = AppendSlots(usize(1));
-        return slots[usize()];
+        return slots.first().unwrap().get();
     }
 
     void ResetSlots(slice<ParticleSlot> slots) {
@@ -465,8 +465,9 @@ public:
 
     auto AcquireSlot(usize max_slots) -> Option<ParticleSlot> {
         auto slots = AcquireSlots(usize(1), max_slots);
-        if (slots.is_empty()) return None();
-        return Some(slots[usize()]);
+        return slots.first().map([](ref<ParticleSlot> slot) {
+            return slot.get();
+        });
     }
 
     void ReleaseSlot(ParticleSlot slot) {

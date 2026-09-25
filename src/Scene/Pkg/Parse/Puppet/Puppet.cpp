@@ -190,7 +190,7 @@ slice<Eigen::Affine3f> PuppetLayer::genFrame(double time) noexcept {
             if (! track.HasTransformSamples() || ! HasAuthoredTrack(track)) continue;
             const double blend = rstd::cmp::max(layer.anim_layer.blend, 0.0);
             if (blend <= 0.0) continue;
-            replace_base_frame = rstd::addressof(track.frames[usize()]);
+            replace_base_frame = rstd::addressof(track.frames.first().unwrap().get());
             break;
         }
 
@@ -226,7 +226,7 @@ slice<Eigen::Affine3f> PuppetLayer::genFrame(double time) noexcept {
                 (additive_uses_first_frame && ! HasAuthoredTrack(track)))
                 continue;
             if (info.frame_a >= track.frames.len() || info.frame_b >= track.frames.len()) continue;
-            auto& frame_base = track.frames[usize()];
+            auto& frame_base = track.frames.first().unwrap().get();
             auto& frame_a    = track.frames[info.frame_a];
             auto& frame_b    = track.frames[info.frame_b];
 

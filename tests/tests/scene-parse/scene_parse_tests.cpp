@@ -678,12 +678,11 @@ TEST(ImageColorBlendParsing, EffectLayerPreservesLinearDodgeAttachmentOwner) {
     auto& layer = node->Layer();
     layer->ResolveEffect(*scene.scene->DefaultEffectMesh(), "effect"_str);
     ASSERT_FALSE(layer->ResolvedEffects().is_empty());
-    auto* final_effect = layer->ResolvedEffects()[layer->ResolvedEffects().len() - rstd::usize(1)];
+    auto* final_effect = layer->ResolvedEffects().last().unwrap().get();
     ASSERT_NE(final_effect, nullptr);
     ASSERT_FALSE(final_effect->Nodes().is_empty());
-    auto* final_material = final_effect->Nodes()[final_effect->Nodes().len() - rstd::usize(1)]
-                               ->sceneNode->Mesh()
-                               ->Material();
+    auto* final_material =
+        final_effect->Nodes().last().unwrap().get()->sceneNode->Mesh()->Material();
     ASSERT_NE(final_material, nullptr);
     EXPECT_EQ(final_material->Pipeline().blend_mode, owe::BlendMode::Additive);
 }

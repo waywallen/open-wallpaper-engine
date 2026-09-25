@@ -955,7 +955,8 @@ public:
     }
 
     SceneMaterial* Material() {
-        return m_materials.is_empty() ? nullptr : m_materials[usize()].as_ptr().as_raw_ptr();
+        return m_materials.is_empty() ? nullptr
+                                      : m_materials.first().unwrap()->as_ptr().as_raw_ptr();
     }
 
     const Eigen::Matrix4d& GeometryTransform() const { return m_data->geometry_transform; }

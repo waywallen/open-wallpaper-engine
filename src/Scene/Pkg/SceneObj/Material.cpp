@@ -180,7 +180,7 @@ bool Material::FromJson(const owe::Json& json, SceneVersion /*v*/) {
         rstd_error("material no data");
         return false;
     }
-    const auto& jContent = (**pass_array)[rstd::usize()];
+    const auto& jContent = (**pass_array).first().unwrap().get();
     if (jContent.get("shader"_str).is_none()) {
         rstd_error("material no shader");
         return false;

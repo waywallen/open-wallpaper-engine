@@ -198,13 +198,12 @@ auto SceneShaderArtifactProvider::LoadShader(const resource::ShaderRequest& requ
                 artifact.descriptor_sets.push(resource::ShaderArtifactDescriptorSet {
                     .set = binding.set,
                 });
-                target = rstd::addressof(
-                    artifact.descriptor_sets[artifact.descriptor_sets.len() - usize(1)]);
+                target = rstd::addressof(artifact.descriptor_sets.last_mut().unwrap().get_mut());
             }
             target->bindings.push(binding.clone());
         }
         if (! artifact.descriptor_sets.is_empty()) {
-            auto push_set = artifact.descriptor_sets[usize()].set;
+            auto push_set = artifact.descriptor_sets.first().unwrap()->set;
             for (const auto& set : artifact.descriptor_sets) {
                 if (set.set > push_set) push_set = set.set;
             }

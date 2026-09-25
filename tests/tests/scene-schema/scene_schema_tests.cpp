@@ -72,7 +72,7 @@ TEST(CameraPathDocument, ParsesClipCurvesAndInheritedOptions) {
     owe::wpscene::CameraPathDocument document;
     ASSERT_TRUE(document.FromJson(json));
     ASSERT_EQ(document.paths.len(), rstd::usize(1));
-    const auto& clip = document.paths[rstd::usize()];
+    const auto& clip = document.paths.first().unwrap().get();
     EXPECT_EQ(clip.id, rstd::i32(7));
     EXPECT_FLOAT_EQ(clip.options.fps, 24.0f);
     EXPECT_EQ(clip.options.length, rstd::i32(120));

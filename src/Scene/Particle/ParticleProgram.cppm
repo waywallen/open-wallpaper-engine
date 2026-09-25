@@ -382,7 +382,7 @@ public:
     auto CreateInstance() -> ParticleInstance& {
         m_instances.push(
             Box<ParticleInstance>::make(m_definition.schema, m_definition.view_layout));
-        return *m_instances[m_instances.len() - usize(1)];
+        return *m_instances.last_mut().unwrap().get_mut();
     }
 
     auto Instances() const noexcept -> slice<Box<ParticleInstance>> {

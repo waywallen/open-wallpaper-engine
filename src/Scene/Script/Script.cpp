@@ -2285,7 +2285,7 @@ JSValue ParticleGet(JSContext* ctx, JSValueConst this_val, ref<str> field, bool 
         if (value.len() < usize(3)) return JS_UNDEFINED;
         return MakeVec3(ctx, value[usize()], value[usize(1)], value[usize(2)]);
     }
-    return value.is_empty() ? JS_UNDEFINED : JS_NewFloat64(ctx, value[usize()]);
+    return value.is_empty() ? JS_UNDEFINED : JS_NewFloat64(ctx, value.first().unwrap().get());
 }
 
 JSValue ParticleSet(JSContext* ctx, JSValueConst this_val, JSValueConst value, ref<str> field,

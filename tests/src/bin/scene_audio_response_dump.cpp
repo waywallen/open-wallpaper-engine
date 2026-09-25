@@ -362,7 +362,7 @@ auto LoadWebCapture(const DumpArgs& args) -> Option<Vec<CaptureFrame>> {
         if (! std::isfinite(audio_ms) || audio_ms < 0.0) continue;
         const auto end_sample_frame = static_cast<rstd::uint64_t>(std::llround(audio_ms * 48.0));
         if (! frames.is_empty() &&
-            end_sample_frame < frames[frames.len() - usize(1)].end_sample_frame.to_primitive()) {
+            end_sample_frame < frames.last().unwrap()->end_sample_frame.to_primitive()) {
             std::fprintf(stderr, "Web capture time moved backwards at line %zu\n", line_number);
             return None();
         }

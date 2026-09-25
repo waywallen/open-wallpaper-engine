@@ -788,14 +788,14 @@ struct RenderProgram {
                     .size    = allocation.size(),
                 });
             }
-            auto images = Vec<resource_registry::DescriptorImageBinding>::make();
-            auto prepared =
-                graphics->PrepareDescriptor(device,
-                                            pipeline_layout_assignments.entries[usize()].layout,
-                                            u32(),
-                                            images.as_slice(),
-                                            buffers.as_slice(),
-                                            resource_registry::DescriptorBindingReuse::Shared);
+            auto images   = Vec<resource_registry::DescriptorImageBinding>::make();
+            auto prepared = graphics->PrepareDescriptor(
+                device,
+                pipeline_layout_assignments.entries.first().unwrap()->layout,
+                u32(),
+                images.as_slice(),
+                buffers.as_slice(),
+                resource_registry::DescriptorBindingReuse::Shared);
             if (prepared.is_err()) {
                 auto error = rstd::move(prepared).unwrap_err_unchecked();
                 rstd_error("prepare global descriptor set failed: {}", error.message.as_str());
@@ -945,8 +945,8 @@ struct RenderProgram {
             if (pass->supportsRenderScope()) {
                 bool can_join = false;
                 if (! pending_scope_passes.is_empty()) {
-                    auto previous = resolve(
-                        pass_records[pending_scope_passes[pending_scope_passes.len() - usize(1)]]);
+                    auto previous =
+                        resolve(pass_records[pending_scope_passes.last().unwrap().get()]);
                     can_join = previous && pass->canJoinRenderScopeAfter(*previous);
                 }
                 if (can_join) {
@@ -1049,9 +1049,9 @@ struct RenderProgram {
             auto& scoped_passes = scope.scoped_passes;
             if (scoped_passes.is_empty()) continue;
             if (scoped_passes.len() == usize(1)) {
-                auto pass = resolve(pass_records[scoped_passes[usize()]]);
+                auto pass = resolve(pass_records[scoped_passes.first().unwrap().get()]);
                 if (pass && pass->prepared()) {
-                    withRecordContext(scoped_passes[usize()],
+                    withRecordContext(scoped_passes.first().unwrap().get(),
                                       rr,
                                       [](VulkanPass& target, PassRecordContext& context) {
                                           target.record(context);
@@ -1072,19 +1072,21 @@ struct RenderProgram {
                     target.prepareRenderScopeDraw(context);
                 });
             }
-            withRecordContext(
-                scoped_passes[usize()], rr, [](VulkanPass& target, PassRecordContext& context) {
-                    target.beginRenderScope(context);
-                });
+            withRecordContext(scoped_passes.first().unwrap().get(),
+                              rr,
+                              [](VulkanPass& target, PassRecordContext& context) {
+                                  target.beginRenderScope(context);
+                              });
             for (auto index : scoped_passes) {
                 withRecordContext(index, rr, [](VulkanPass& target, PassRecordContext& context) {
                     target.recordRenderScopeDraw(context);
                 });
             }
-            withRecordContext(
-                scoped_passes[usize()], rr, [](VulkanPass& target, PassRecordContext& context) {
-                    target.endRenderScope(context);
-                });
+            withRecordContext(scoped_passes.first().unwrap().get(),
+                              rr,
+                              [](VulkanPass& target, PassRecordContext& context) {
+                                  target.endRenderScope(context);
+                              });
         }
         return true;
     }

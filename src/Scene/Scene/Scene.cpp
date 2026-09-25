@@ -238,7 +238,7 @@ float cubic(float p0, float p1, float p2, float p3, float t) {
 i32 curve_end(const SceneAnimationCurve& curve) {
     i32  end {};
     auto absorb_last = [&end](slice<SceneAnimationKey> keys) {
-        if (! keys.is_empty()) end = rstd::cmp::max(keys[keys.len() - usize(1)].frame, end);
+        if (! keys.is_empty()) end = rstd::cmp::max(keys.last().unwrap()->frame, end);
     };
     absorb_last(curve.c0.as_slice());
     absorb_last(curve.c1.as_slice());
@@ -289,8 +289,8 @@ float eval_segment(const SceneAnimationKey& a, const SceneAnimationKey& b, float
 
 float eval_axis(slice<SceneAnimationKey> keys, const SceneAnimationSample& frame) {
     if (keys.is_empty()) return 0.0f;
-    const auto& first = keys[usize()];
-    const auto& last  = keys[keys.len() - usize(1)];
+    const auto& first = keys.first().unwrap().get();
+    const auto& last  = keys.last().unwrap().get();
 
     if (frame.wraps && frame.current < rstd::as_cast<float>(first.frame)) {
         auto previous = last;
@@ -316,7 +316,7 @@ Eigen::Vector3f lerp_vec3(const Eigen::Vector3f& a, const Eigen::Vector3f& b, fl
 
 SceneCameraLookAtKey eval_lookat_track(const SceneCameraLookAtTrack& track, float frame) {
     if (track.keys.is_empty()) return {};
-    if (frame <= track.keys[usize()].frame) return track.keys[usize()];
+    if (frame <= track.keys.first().unwrap()->frame) return track.keys.first().unwrap().get();
     for (usize i(1); i < track.keys.len(); ++i) {
         const auto& a = track.keys[i - usize(1)];
         const auto& b = track.keys[i];
@@ -331,7 +331,7 @@ SceneCameraLookAtKey eval_lookat_track(const SceneCameraLookAtTrack& track, floa
             .up     = lerp_vec3(a.up, b.up, t).normalized(),
         };
     }
-    return track.keys[track.keys.len() - usize(1)];
+    return track.keys.last().unwrap().get();
 }
 
 Option<SceneCameraLookAtKey> eval_lookat_tracks(slice<SceneCameraLookAtTrack> tracks,
@@ -353,7 +353,7 @@ Option<SceneCameraLookAtKey> eval_lookat_tracks(slice<SceneCameraLookAtTrack> tr
         if (frame <= offset + duration) return Some(eval_lookat_track(track, frame - offset));
         offset += duration;
     }
-    const auto& last = tracks[tracks.len() - usize(1)];
+    const auto& last = tracks.last().unwrap().get();
     return Some(eval_lookat_track(last, last.duration));
 }
 
@@ -876,9 +876,10 @@ void RenderSceneSnapshot::Rebuild(Scene& scene, RenderSceneVersion version) {
             continue;
         }
         m_shadow_casters.push(RenderShadowCasterRecord {
-            .render_item    = id,
-            .material       = (*view->material->shadow_variant).clone(),
-            .instance_count = rstd::as_cast<u32>(m_shadow_definitions[usize()].viewports.len()),
+            .render_item = id,
+            .material    = (*view->material->shadow_variant).clone(),
+            .instance_count =
+                rstd::as_cast<u32>(m_shadow_definitions.first().unwrap()->viewports.len()),
         });
     }
 
@@ -2487,14 +2488,14 @@ bool Scene::ApplyUserLightVisibilityBindings(ref<str> key, const Json& property)
 
 auto Scene::RegisterLight(Box<SceneLight> light) -> mut_ref<SceneLight> {
     m_lights.push(rstd::move(light));
-    return m_lights[m_lights.len() - usize(1)].deref_mut();
+    return m_lights.last_mut().unwrap()->deref_mut();
 }
 
 auto Scene::Lights() const -> slice<Box<SceneLight>> { return m_lights.as_slice(); }
 
 auto Scene::RegisterPostProcess(Box<ScenePostProcess> post_process) -> mut_ref<ScenePostProcess> {
     m_post_processes.push(rstd::move(post_process));
-    return m_post_processes[m_post_processes.len() - usize(1)].deref_mut();
+    return m_post_processes.last_mut().unwrap()->deref_mut();
 }
 
 auto Scene::PostProcesses() const -> slice<Box<ScenePostProcess>> {

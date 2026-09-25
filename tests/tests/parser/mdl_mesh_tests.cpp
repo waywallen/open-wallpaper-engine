@@ -167,9 +167,9 @@ TEST(Puppet, PartialReplacementInterpolatesRotationAndScaleFromReference) {
     auto& reference = *puppet->bones[usize()].animation_reference;
     reference.rotate(Eigen::AngleAxisf(0.4f, Eigen::Vector3f::UnitZ()));
     reference.scale(Eigen::Vector3f(2.0f, 3.0f, 1.0f));
-    auto& track                      = puppet->anims[usize()].bone_tracks[usize()];
-    track.frames[usize()].angle.x()  = -1.6f;
-    track.frames[usize(1)].angle.x() = 1.2f;
+    auto& track                                  = puppet->anims[usize()].bone_tracks[usize()];
+    track.frames.first_mut().unwrap()->angle.x() = -1.6f;
+    track.frames[usize(1)].angle.x()             = 1.2f;
     for (auto& frame : track.frames) frame.scale = Eigen::Vector3f(4.0f, 1.0f, 2.0f);
     puppet->prepared();
     owe::PuppetLayer                 layer(puppet.clone());
@@ -181,7 +181,7 @@ TEST(Puppet, PartialReplacementInterpolatesRotationAndScaleFromReference) {
     playback->Advance(0.25, events);
     playback->Pause();
     Eigen::Quaterniond sample;
-    sample.coeffs() = (0.75 * track.frames[usize()].quaternion.coeffs() +
+    sample.coeffs() = (0.75 * track.frames.first().unwrap()->quaternion.coeffs() +
                        0.25 * track.frames[usize(1)].quaternion.coeffs())
                           .normalized();
     const Eigen::Quaterniond reference_rotation(Eigen::AngleAxisd(0.4, Eigen::Vector3d::UnitZ()));
@@ -532,7 +532,7 @@ TEST(Puppet, FirstFrameRotationDeltasUseReferenceLocalSpace) {
         .scale    = Eigen::Vector3f::Ones(),
     });
     puppet->prepared();
-    const auto& base = track.frames[usize()].quaternion;
+    const auto& base = track.frames.first().unwrap()->quaternion;
     const auto& end  = track.frames[usize(1)].quaternion;
     for (bool additive : { false, true }) {
         for (double weight : { 0.25, 0.5, 1.0 }) {
@@ -911,9 +911,9 @@ TEST(MdlMesh, Mdlv23LargeStaticMeshUsesUint32GlobalIndices) {
     ASSERT_EQ(mesh.texcoords.len(), mesh.positions.len());
     ASSERT_EQ(mesh.indices.len(), usize(260096));
     ASSERT_LT(MaxMeshIndex(mesh), mesh.positions.len().to_primitive());
-    EXPECT_EQ(mesh.indices[usize(0)], (array<std::uint32_t, 3> { 0u, 1u, 2u }));
+    EXPECT_EQ(mesh.indices.first().unwrap().get(), (array<std::uint32_t, 3> { 0u, 1u, 2u }));
     EXPECT_EQ(mesh.indices[usize(1)], (array<std::uint32_t, 3> { 0u, 2u, 3u }));
-    EXPECT_EQ(mesh.indices[mesh.indices.len() - usize(1)],
+    EXPECT_EQ(mesh.indices.last().unwrap().get(),
               (array<std::uint32_t, 3> { 520188u, 520190u, 520191u }));
     EXPECT_EQ(CountUvSeamTriangles(mesh), 0u);
 
@@ -960,7 +960,7 @@ TEST(MdlMesh, Mdlv23ReadsPerMeshMaterialSkins) {
 
     const auto& mesh = mdl.meshes[usize()];
     ASSERT_EQ(mesh.mat_json_files.len(), usize(2));
-    EXPECT_EQ(mesh.mat_json_files[usize()].as_str(), "materials/prism/prism.json"_str);
+    EXPECT_EQ(mesh.mat_json_files.first().unwrap()->as_str(), "materials/prism/prism.json"_str);
     EXPECT_EQ(mesh.mat_json_files[usize(1)].as_str(), "materials/prism/prism_main.json"_str);
     EXPECT_EQ(mesh.positions.len(), usize(60));
     EXPECT_EQ(mesh.indices.len(), usize(32));
@@ -995,14 +995,14 @@ TEST(MdlPuppet, Mdlv23ReadsMultiCurveMorphEvents) {
     ASSERT_EQ(left_eye.name.as_str(), "Left eye"_str);
     ASSERT_EQ(left_eye.v4_events.len(), usize(1));
 
-    const auto& event = left_eye.v4_events[usize()];
+    const auto& event = left_eye.v4_events.first().unwrap().get();
     EXPECT_EQ(event.flags, 0);
     ASSERT_EQ(event.curves.len(), usize(6));
     for (usize i {}; i < event.curves.len(); ++i) {
         const auto& curve = event.curves[i];
         EXPECT_EQ(curve.id, i.to_primitive());
         ASSERT_EQ(curve.values.len(), usize(211));
-        EXPECT_FLOAT_EQ(curve.values[usize()], 1.0f);
+        EXPECT_FLOAT_EQ(curve.values.first().unwrap().get(), 1.0f);
     }
 
     ASSERT_EQ(mdl.morph_sections.len(), usize(1));

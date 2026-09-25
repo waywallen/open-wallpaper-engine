@@ -341,7 +341,7 @@ bool owe::vulkan::GenReflect(slice<ShaderCode> codes, Vec<Uni_ShaderSpv>& spvs,
                     .set        = b.set,
                     .binding    = b.binding,
                     .member_map = {} });
-                auto& ref_block = ref.blocks[ref.blocks.len() - usize(1)];
+                auto& ref_block = ref.blocks.last_mut().unwrap().get_mut();
                 (void)uniform_block_indices.insert(rstd::into(bind_name),
                                                    ref.blocks.len() - usize(1));
 

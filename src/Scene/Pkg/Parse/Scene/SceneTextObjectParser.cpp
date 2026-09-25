@@ -823,14 +823,18 @@ void ParseTextObjImpl(SceneParseContext& context, wpscene::TextObject& obj) {
                             rstd::addressof(*user_texture_fallback)));
                     }
                     RegisterMaterialBindings(scene,
-                                             mesh->MaterialSlots()[usize()],
+                                             mesh->MaterialSlots().first_mut().unwrap().get_mut(),
                                              wpmat,
                                              shader_info,
                                              binding_fallback);
                     RegisterLayerPreviousBindings(
                         scene, *mesh->Material(), wpmat, text_node_id, composite);
                     WireMaterialShaderValueScripts(
-                        context, layer_node, mesh->MaterialSlots()[usize()], wpmat, shader_info);
+                        context,
+                        layer_node,
+                        mesh->MaterialSlots().first_mut().unwrap().get_mut(),
+                        wpmat,
+                        shader_info);
                     effect_node->AddMesh(mesh.clone());
                     SetUniformConfig(context, effect_node, rstd::move(sv));
                     (*runtime_targets)
@@ -877,7 +881,7 @@ void ParseTextObjImpl(SceneParseContext& context, wpscene::TextObject& obj) {
             auto publish_mesh = Arc<SceneMesh>::make();
             publish_mesh->AddMaterial(rstd::move(published->material));
             RegisterMaterialBindings(scene,
-                                     publish_mesh->MaterialSlots()[usize()],
+                                     publish_mesh->MaterialSlots().first_mut().unwrap().get_mut(),
                                      published->source,
                                      published->shader_info);
             RegisterLayerPreviousBindings(
@@ -906,8 +910,10 @@ void ParseTextObjImpl(SceneParseContext& context, wpscene::TextObject& obj) {
         compose_sv = rstd::move(loaded->sv);
         compose_sv.SetParallaxContract(obj.parallax, obj.id);
         compose_mesh->AddMaterial(rstd::move(loaded->material));
-        RegisterMaterialBindings(
-            scene, compose_mesh->MaterialSlots()[usize()], loaded->source, loaded->shader_info);
+        RegisterMaterialBindings(scene,
+                                 compose_mesh->MaterialSlots().first_mut().unwrap().get_mut(),
+                                 loaded->source,
+                                 loaded->shader_info);
         RegisterLayerPreviousBindings(
             scene, *compose_mesh->Material(), loaded->source, text_node_id, composite);
         layer_node->AddMesh(compose_mesh.clone());

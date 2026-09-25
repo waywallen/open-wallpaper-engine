@@ -101,7 +101,7 @@ ParticleAnimationMode ToAnimMode(ref<str> str) {
 void ApplyParticleOverride(wpscene::ParticleInstanceoverride& state, ref<str> field,
                            slice<float> values) {
     auto write_scalar = [&](float& destination) {
-        if (values.len() >= usize(1)) destination = values[usize()];
+        if (auto first = values.first(); first.is_some()) destination = first->get();
     };
     auto write_vec3 = [&](array<float, 3>& destination, float scale) -> bool {
         if (values.len() < usize(3)) return false;
@@ -392,7 +392,7 @@ void BuildParticleObjectNode(ParticleObjectParseServices& services,
         ParticleInstanceModifiers(override_state.clone(), particle_obj.flags, ! is_child);
     const auto& override = *override_state;
 
-    const auto& wppartRenderer    = particle_obj.renderers[usize()];
+    const auto& wppartRenderer    = particle_obj.renderers.first().unwrap().get();
     auto        render_desc       = DescribeParticleRender(wppartRenderer);
     bool        render_rope       = render_desc.rope;
     bool        render_rope_trail = render_desc.rope_trail;
@@ -592,12 +592,14 @@ void BuildParticleObjectNode(ParticleObjectParseServices& services,
     }
 
     mesh.AddMaterial(rstd::move(material));
-    RegisterMaterialBindings(
-        *services.scene, mesh.MaterialSlots()[usize()], particle_obj.material, shaderInfo);
+    RegisterMaterialBindings(*services.scene,
+                             mesh.MaterialSlots().first_mut().unwrap().get_mut(),
+                             particle_obj.material,
+                             shaderInfo);
     if (services.construction_context != nullptr) {
         WireMaterialShaderValueScripts(*services.construction_context,
                                        spNode,
-                                       mesh.MaterialSlots()[mesh.MaterialSlots().len() - usize(1)],
+                                       mesh.MaterialSlots().last_mut().unwrap().get_mut(),
                                        particle_obj.material,
                                        shaderInfo);
     }
