@@ -320,8 +320,11 @@ auto UniformSceneState::LogicalParallaxState(const UniformNodeState& state) cons
             }
         }
     }
-    if (current == rstd::addressof(state) && ! state.node->Camera().is_empty()) {
-        for (auto* parent = state.node->Parent(); parent != nullptr; parent = parent->Parent()) {
+    // Layer cameras (compose/passthrough) and effect_projection redirects land on the
+    // effect owner, which is not the parallax origin. Walk to an empty-camera ancestor
+    // so every pass of the layer shares the same origin as sibling draws (e.g. photo).
+    if (! current->node->Camera().is_empty()) {
+        for (auto* parent = current->node->Parent(); parent != nullptr; parent = parent->Parent()) {
             if (auto* found = FindNodeState(parent);
                 found != nullptr && found->node->Camera().is_empty()) {
                 current = found;

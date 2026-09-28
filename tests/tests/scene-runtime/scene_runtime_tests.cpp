@@ -1992,6 +1992,93 @@ TEST(UniformSourceParallax, InactiveEffectDoesNotReplaceLayerOrigin) {
     }
 }
 
+// Regression test: verify that compose/passthrough rendering under a photo
+// with camera parallax uses the same parallax origin as the parent photo.
+//
+// Previously, a composelayer containing effects could produce a duplicated,
+// offset copy of the character when its framebuffer sample was blended back
+// with partial opacity. The regression was caused by LogicalParallaxState
+// resolving the parallax origin at the compose/effect-projection node
+// (layer camera / effect_projection_node) instead of continuing to an
+// ancestor with an empty camera. As a result, the compose/effect pass used
+// the compose node's world position as its parallax origin, while the photo
+// pass used the parent origin. With typical parallax amounts (e.g. 0.07),
+// this difference was large enough to produce a visible, pixel-scale offset.
+//
+// The fix is expected to resolve through non-empty cameras until a common
+// empty-camera ancestor is found, ensuring that the photo, compose, and
+// effect passes share the same parallax origin.
+//
+// This fixture also guards against a false negative by explicitly computing
+// the offset produced by the previous buggy behavior and verifying that it
+// differs significantly from the photo offset (so the case would still fail
+// if the buggy compose-world origin were used).
+//
+// Real-world regression case:
+// Steam Workshop wallpaper 3430271967 (photo + puppet + composelayer 音圈).
+// After rebuilding the scene plugin and reloading the wallpaper, enable
+// camera parallax and move the mouse. The character must remain aligned
+// without producing a secondary/ghost image.
+TEST(UniformSourceParallax, ComposeLayerCameraSharesParentParallaxOrigin) {
+    auto camera_node = Arc<owe::SceneNode>::make(Eigen::Vector3f { 1920.0f, 1080.0f, 0.0f },
+                                                 Eigen::Vector3f::Ones(),
+                                                 Eigen::Vector3f::Zero());
+    auto camera =
+        Arc<owe::SceneCamera>::make(owe::SceneCamera::MakeOrthographic(3840, 2160, -1.0, 1.0));
+    camera->AttatchNode(camera_node.as_ptr());
+    auto resolver = Arc<owe::UniformCameraResolver>::make(camera.clone());
+    auto state    = Arc<owe::UniformSceneState>::make(Arc<owe::AudioResponseDemand>::make());
+    state->SetOrthographicImplicitParallax(true);
+    state->SetOrtho(3840.0f, 2160.0f);
+    state->CameraParallax() = { true, 0.07f, 0.0f, 1.0f };
+    state->SetPointerInput(0.5, 0.5);
+    state->Advance(owe::SceneFrame {});
+
+    auto photo   = Arc<owe::SceneNode>::make(Eigen::Vector3f { 1920.0f, 1080.0f, 0.0f },
+                                             Eigen::Vector3f { 0.54125f, 0.54125f, 1.0f },
+                                             Eigen::Vector3f::Zero());
+    auto compose = Arc<owe::SceneNode>::make(Eigen::Vector3f { 1680.87378f, 730.31299f, 0.0f },
+                                             Eigen::Vector3f { 5.48290f, 5.48290f, 1.0f },
+                                             Eigen::Vector3f::Zero());
+    auto effect  = Arc<owe::SceneNode>::make();
+    photo->AppendChild(compose.clone());
+    effect->SetParentAnchor(compose.as_ptr());
+    compose->SetCamera("_rt_node_8_layer_camera"_str);
+
+    auto photo_state         = Arc<owe::UniformNodeState>::make(photo.clone(), resolver.clone());
+    auto compose_state       = Arc<owe::UniformNodeState>::make(compose.clone(), resolver.clone());
+    auto effect_state        = Arc<owe::UniformNodeState>::make(effect.clone(), resolver.clone());
+    photo_state->object_id   = i32(16);
+    compose_state->object_id = effect_state->object_id = i32(94);
+    effect_state->effect_projection_node               = Some(compose.clone());
+    state->SetNodeState({ .index = u32(1), .generation = u32(1) }, photo_state.clone());
+    state->SetNodeState({ .index = u32(2), .generation = u32(1) }, compose_state.clone());
+    state->SetNodeState({ .index = u32(3), .generation = u32(1) }, effect_state.clone());
+
+    const auto photo_offset =
+        state->ComputeParallaxOffset(*photo_state, *camera, owe::SceneRenderViewKind::Primary);
+    const auto compose_offset =
+        state->ComputeParallaxOffset(*compose_state, *camera, owe::SceneRenderViewKind::Primary);
+    const auto effect_offset =
+        state->ComputeParallaxOffset(*effect_state, *camera, owe::SceneRenderViewKind::Primary);
+    EXPECT_NEAR(compose_offset[usize()], photo_offset[usize()], 1e-4f);
+    EXPECT_NEAR(compose_offset[usize(1)], photo_offset[usize(1)], 1e-4f);
+    EXPECT_NEAR(effect_offset[usize()], photo_offset[usize()], 1e-4f);
+    EXPECT_NEAR(effect_offset[usize(1)], photo_offset[usize(1)], 1e-4f);
+
+    // Fixture must still discriminate the old bug: origin at compose world
+    // position (not photo) yields a clearly different shift at amount 0.07.
+    compose->UpdateTrans();
+    const Eigen::Vector2f compose_world =
+        compose->ModelTrans().block<3, 1>(0, 3).head<2>().cast<float>();
+    const Eigen::Vector2f camera_pos = camera->GetPosition().head<2>().cast<float>();
+    const Eigen::Vector2f buggy_offset =
+        (compose_world - camera_pos).cwiseProduct(Eigen::Vector2f { 1.0f, 1.0f }) * 0.07f;
+    const float buggy_delta = std::hypot(buggy_offset.x() - photo_offset[usize()],
+                                         buggy_offset.y() - photo_offset[usize(1)]);
+    EXPECT_GT(buggy_delta, 1.0f);
+}
+
 TEST(UniformSourceParallax, OrthographicOmittedDepthUsesImplicitParallax) {
     owe::Scene scene;
     scene.SetOrtho({ i32(1920), i32(1080) });
