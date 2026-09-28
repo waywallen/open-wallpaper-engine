@@ -3,6 +3,10 @@ module;
 #include <rstd/macro.hpp>
 #include <rstd/enum.hpp>
 #include "quickjs.h"
+#include <errno.h>
+#include <fcntl.h>
+#include <sys/file.h>
+#include <unistd.h>
 
 module wescene.script;
 import eigen;
@@ -505,7 +509,9 @@ struct EngineHostState {
     // round-trip arbitrary script values through the persistence file.
     // Empty `ls_path` means in-memory only (the legacy bootstrap shape).
     HashMap<String, String> ls_data;
-    PathBuf                 ls_path;
+    // Last uncommitted operation per key; None represents a deletion.
+    HashMap<String, Option<String>> ls_pending;
+    PathBuf                         ls_path;
     // Set around every init/update/cursor invocation so host callbacks can
     // resolve the owning field binding.
     FieldScript*                             active_field_script { nullptr };
@@ -926,40 +932,160 @@ JSValue EngineClearDeferred(JSContext* ctx, JSValueConst, int argc, JSValueConst
 
 namespace
 {
-struct PersistedLocalStorage {};
+PathBuf LocalStorageSidecar(const PathBuf& path, ref<str> suffix) {
+    auto name = path.as_path().as_os_str().to_os_string();
+    name.push(suffix);
+    return PathBuf::from(rstd::move(name));
+}
+
+Option<PathBuf> ResolveLocalStoragePath(const PathBuf& path) {
+    auto target = path.clone();
+    // Resolve the data path before choosing the stable lock and temporary
+    // file, including relative/dangling symlinks to a not-yet-created file.
+    for (int depth = 0; depth < 40; ++depth) {
+        auto canonical = rstd::fs::canonicalize(target.as_path());
+        if (canonical.is_ok()) return Some(canonical.unwrap());
+        if (canonical.unwrap_err().kind().code != rstd::io::error::ErrorKind::NotFound)
+            return None();
+        auto parent = target.as_path().parent();
+        auto name   = target.as_path().file_name();
+        if (parent.is_none() || name.is_none()) return None();
+        auto directory = (*parent).is_empty() ? PathBuf::from("."_str) : PathBuf::from(*parent);
+        auto link      = rstd::fs::read_link(target.as_path());
+        if (link.is_ok()) {
+            target = directory.join(link.unwrap().as_path());
+            continue;
+        }
+        auto metadata = rstd::fs::symlink_metadata(target.as_path());
+        if (metadata.is_ok() ||
+            metadata.unwrap_err().kind().code != rstd::io::error::ErrorKind::NotFound)
+            return None();
+        auto resolved_parent = rstd::fs::canonicalize(directory.as_path());
+        if (resolved_parent.is_err()) return None();
+        return Some(resolved_parent.unwrap().join(ref<rstd::path::Path>(*name)));
+    }
+    return None();
+}
+
+// Lock a stable sidecar inode: the data file is atomically replaced below.
+class LocalStorageLock {
+public:
+    explicit LocalStorageLock(const PathBuf& path) {
+        auto lock_path = LocalStorageSidecar(path, ".lock"_str);
+        auto native    = lock_path.as_path().to_cstring().unwrap();
+        m_fd           = ::open(native.as_ptr(), O_CREAT | O_RDWR | O_CLOEXEC, 0600);
+        if (m_fd < 0) return;
+        int result;
+        do {
+            result = ::flock(m_fd, LOCK_EX);
+        } while (result < 0 && errno == EINTR);
+        if (result < 0) {
+            ::close(m_fd);
+            m_fd = -1;
+        }
+    }
+    ~LocalStorageLock() {
+        if (m_fd >= 0) ::close(m_fd);
+    }
+    LocalStorageLock(const LocalStorageLock&)            = delete;
+    LocalStorageLock& operator=(const LocalStorageLock&) = delete;
+    bool              acquired() const { return m_fd >= 0; }
+
+private:
+    int m_fd { -1 };
+};
 } // namespace
 
-void FlushLocalStorage(EngineHostState* host) {
-    if (host->ls_path.is_empty()) return;
+bool FlushLocalStorage(EngineHostState* host, const PathBuf& path) {
     auto object = rstd::json::Map::make();
     for (auto [k, v] : host->ls_data.iter()) object.insert(k->clone(), Json::String(v->clone()));
     auto out    = Json::Object(rstd::move(object));
-    auto path   = host->ls_path.as_path();
     auto source = rstd::json::to_string(out);
-    if (rstd::fs::write(path, source.as_str().as_bytes()).is_err())
-        rstd_warn("localStorage flush: cannot write {}", host->ls_path.as_path().to_string_lossy());
+    // The caller holds LocalStorageLock, so one reusable temporary path is
+    // sufficient. Readers see either complete snapshot, even if a writer exits.
+    auto temporary = LocalStorageSidecar(path, ".tmp"_str);
+    if (rstd::fs::write(temporary.as_path(), source.as_str().as_bytes()).is_err()) {
+        rstd_warn("localStorage flush: cannot write {}", temporary.as_path().to_string_lossy());
+        (void)rstd::fs::remove_file(temporary.as_path());
+        return false;
+    }
+    auto published = rstd::fs::rename(temporary.as_path(), path.as_path());
+    if (published.is_err()) {
+        rstd_warn("localStorage flush: cannot publish {}: {}",
+                  path.as_path().to_string_lossy(),
+                  published.unwrap_err());
+        (void)rstd::fs::remove_file(temporary.as_path());
+        return false;
+    }
+    return true;
 }
 
-void LoadLocalStorage(EngineHostState* host) {
-    host->ls_data.clear();
-    if (host->ls_path.is_empty()) return;
-    auto path   = host->ls_path.as_path();
-    auto source = rstd::fs::read_to_string(path);
-    if (source.is_err()) return;
+bool LoadLocalStorage(EngineHostState* host, const PathBuf& path) {
+    if (path.is_empty()) {
+        host->ls_data.clear();
+        return true;
+    }
+    auto source = rstd::fs::read_to_string(path.as_path());
+    if (source.is_err()) {
+        if (source.unwrap_err().kind().code == rstd::io::error::ErrorKind::NotFound) {
+            host->ls_data.clear();
+            return true;
+        }
+        rstd_warn("localStorage load: cannot open {}", host->ls_path.as_path().to_string_lossy());
+        return false;
+    }
     auto parsed = rstd::json::from_str(source.unwrap().as_str());
     if (parsed.is_err()) {
         rstd_warn("localStorage parse failed: {}", parsed.unwrap_err());
-        return;
+        return false;
     }
     auto doc    = parsed.unwrap();
     auto object = doc.as_object();
-    if (object.is_none()) return;
+    if (object.is_none()) return false;
+    host->ls_data.clear();
     (*object)->iter().for_each([&](auto entry) {
         auto [entry_key, entry_value] = entry;
         const auto& value             = *entry_value;
         if (auto stored = value.as_str(); stored.is_some())
             (void)host->ls_data.insert(entry_key->clone(), rstd::into(*stored));
     });
+    return true;
+}
+
+void ApplyLocalStorageMutation(EngineHostState* host, ref<str> key, Option<ref<str>> value) {
+    if (value) {
+        (void)host->ls_data.insert(String::make(key), String::make(*value));
+    } else {
+        (void)host->ls_data.remove(key);
+    }
+}
+
+void UpdateLocalStorage(EngineHostState* host, ref<str> key, Option<ref<str>> value) {
+    ApplyLocalStorageMutation(host, key, value);
+    if (host->ls_path.is_empty()) return;
+    Option<String> pending;
+    if (value) pending = Some(String::make(*value));
+    (void)host->ls_pending.insert(String::make(key), rstd::move(pending));
+    auto path = ResolveLocalStoragePath(host->ls_path);
+    if (path.is_none()) {
+        rstd_warn("localStorage update: cannot resolve {}",
+                  host->ls_path.as_path().to_string_lossy());
+        return;
+    }
+    LocalStorageLock lock(*path);
+    if (! lock.acquired()) {
+        rstd_warn("localStorage update: cannot lock {}", host->ls_path.as_path().to_string_lossy());
+        return;
+    }
+    // Merge only local operations, including failed earlier writes, into the
+    // latest committed map. Keep them pending until atomic publication succeeds.
+    if (! LoadLocalStorage(host, *path)) return;
+    for (auto [pending_key, pending_value] : host->ls_pending.iter()) {
+        Option<ref<str>> mutation;
+        if (pending_value->is_some()) mutation = Some((**pending_value).as_str());
+        ApplyLocalStorageMutation(host, pending_key->as_str(), mutation);
+    }
+    if (FlushLocalStorage(host, *path)) host->ls_pending.clear();
 }
 
 JSValue LocalStorageGet(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv) {
@@ -986,13 +1112,13 @@ JSValue LocalStorageSet(JSContext* ctx, JSValueConst, int argc, JSValueConst* ar
     }
     const char* s    = JS_ToCString(ctx, jv);
     auto*       host = static_cast<EngineHostState*>(JS_GetContextOpaque(ctx));
-    if (s)
-        (void)host->ls_data.insert(rstd::into(rstd::cppstd::as_str(key).unwrap()),
-                                   rstd::into(rstd::cppstd::as_str(s).unwrap()));
+    if (s) {
+        UpdateLocalStorage(
+            host, rstd::cppstd::as_str(key).unwrap(), Some(rstd::cppstd::as_str(s).unwrap()));
+    }
     if (s) JS_FreeCString(ctx, s);
     JS_FreeValue(ctx, jv);
     JS_FreeCString(ctx, key);
-    FlushLocalStorage(host);
     return JS_UNDEFINED;
 }
 
@@ -1001,9 +1127,8 @@ JSValue LocalStorageRemove(JSContext* ctx, JSValueConst, int argc, JSValueConst*
     const char* key = JS_ToCString(ctx, argv[0]);
     if (! key) return JS_UNDEFINED;
     auto* host = static_cast<EngineHostState*>(JS_GetContextOpaque(ctx));
-    (void)host->ls_data.remove(rstd::cppstd::as_str(key).unwrap());
+    UpdateLocalStorage(host, rstd::cppstd::as_str(key).unwrap(), None());
     JS_FreeCString(ctx, key);
-    FlushLocalStorage(host);
     return JS_UNDEFINED;
 }
 
@@ -3747,7 +3872,9 @@ void JsRuntime::SetBoneResolvers(BoneIndexResolver     index_resolver,
 
 void JsRuntime::SetPersistence(PathBuf path) {
     m_impl->host.ls_path = rstd::move(path);
-    LoadLocalStorage(&m_impl->host);
+    m_impl->host.ls_data.clear();
+    m_impl->host.ls_pending.clear();
+    LoadLocalStorage(&m_impl->host, m_impl->host.ls_path);
 }
 
 namespace

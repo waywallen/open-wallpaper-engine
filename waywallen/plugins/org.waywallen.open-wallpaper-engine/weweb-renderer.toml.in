@@ -6,6 +6,8 @@ bin = "@OWE_WEWEB_BIN@"
 types = ["web"]
 priority = 100
 activity = "continuous"
+# DOM mouse state is local to one independent display or continuous Canvas.
+sharing = "per_target"
 spawn_version = 10
 extras = ["workshop_id"]
 
