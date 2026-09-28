@@ -31,6 +31,25 @@ Json ParseWireValue(const Json& schema, const Json& value) {
     const auto type = DescriptorType(schema);
     if (type.is_empty() || type == "textinput"_str) return value.clone();
 
+    if (type == "combo"_str) {
+        // The wire carries text, but scripts compare against the authored
+        // option values (often strings such as "0" and "1") using ===.
+        if (auto options = schema.get("options"_str); options.is_some()) {
+            if (auto array = (*options)->as_array(); array.is_some()) {
+                for (const auto& option : **array) {
+                    auto candidate = option.get("value"_str);
+                    if (candidate.is_none()) continue;
+                    if (**candidate == value ||
+                        (((*candidate)->is_number() || (*candidate)->is_boolean()) &&
+                         rstd::json::to_string(**candidate).as_str() == *value.as_str()))
+                        return (*candidate)->clone();
+                }
+            }
+        }
+        if (auto current = schema.get("value"_str); current.is_some() && (*current)->is_string())
+            return value.clone();
+    }
+
     auto parsed = rstd::json::from_str(*value.as_str(), { .allow_comments = true });
     return parsed.is_ok() ? parsed.unwrap() : value.clone();
 }

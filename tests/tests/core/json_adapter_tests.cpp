@@ -83,6 +83,40 @@ TEST(UserProperty, NonTextWireValuesKeepExistingJsonCoercion) {
     EXPECT_DOUBLE_EQ((**value).as_f64().unwrap_or(rstd::f64()).to_primitive(), 1.5);
 }
 
+TEST(UserProperty, ComboWireValuesKeepAuthoredOptionTypesAcrossChanges) {
+    auto schema = owe::ParseJson(R"({
+        "type":"combo", "value":"0",
+        "options":[{"value":"0"},{"value":"1"},{"value":"true"},{"value":2}]
+    })"_str)
+                      .unwrap();
+    for (auto raw : { "1"_str, "true"_str, "0"_str, "1"_str }) {
+        schema     = owe::MergeUserPropertyDescriptor(schema, owe::MakeUserPropertyWirePatch(raw));
+        auto value = schema.get("value"_str);
+        ASSERT_TRUE(value.is_some());
+        ASSERT_TRUE((*value)->is_string());
+        EXPECT_EQ(*(*value)->as_str(), raw);
+    }
+    schema = owe::MergeUserPropertyDescriptor(schema, owe::MakeUserPropertyWirePatch("2"_str));
+    auto numeric = schema.get("value"_str);
+    ASSERT_TRUE(numeric.is_some());
+    EXPECT_EQ((*numeric)->as_i64().unwrap_or(rstd::i64(-1)), rstd::i64(2));
+
+    schema = owe::MergeUserPropertyDescriptor(schema, owe::MakeUserPropertyWirePatch("1"_str));
+    auto restored = schema.get("value"_str);
+    ASSERT_TRUE(restored.is_some());
+    ASSERT_TRUE((*restored)->is_string());
+    EXPECT_EQ(rstd::cppstd::as_string_view(*(*restored)->as_str()), "1");
+}
+
+TEST(UserProperty, ComboWithoutOptionsUsesAuthoredValueType) {
+    auto schema = owe::ParseJson(R"({"type":"combo","value":"0"})"_str).unwrap();
+    auto merged = owe::MergeUserPropertyDescriptor(schema, owe::MakeUserPropertyWirePatch("1"_str));
+    auto value  = merged.get("value"_str);
+    ASSERT_TRUE(value.is_some());
+    ASSERT_TRUE((*value)->is_string());
+    EXPECT_EQ(rstd::cppstd::as_string_view(*(*value)->as_str()), "1");
+}
+
 TEST(UserProperty, UnknownTypeDefersWireValueCoercion) {
     auto patch  = owe::MakeUserPropertyWirePatch("12"_str);
     auto merged = owe::MergeUserPropertyDescriptor(
