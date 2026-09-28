@@ -565,6 +565,7 @@ void ParticleSubSystem::UpdateFrameInput(f64 frame_time) {
     }
     m_frame.subsystem              = this;
     m_frame.mouse_local            = mouse_local;
+    m_frame.mouse_in_window        = m_scene.PointerInWindow();
     m_frame.world_from_local_dir   = world_from_local_dir;
     m_frame.local_from_world_dir   = local_from_world_dir;
     m_frame.world_from_spawn_space = world_from_spawn_space;
@@ -622,7 +623,8 @@ void ParticleSubSystem::UpdateControlpoints(ParticleInstanceRef current) {
             }
             angles = Eigen::Vector3f { (*m_instance_modifiers).ControlpointAngle(index).data() };
         }
-        if (controlpoint.link_mouse) controlpoint.offset += m_frame.mouse_local;
+        controlpoint.mouse_driven = controlpoint.link_mouse;
+        if (controlpoint.mouse_driven) controlpoint.offset += m_frame.mouse_local;
         if (controlpoint.angle_track) {
             angles = controlpoint.angle_track->EvaluateVec3(angles);
         }
@@ -656,6 +658,7 @@ void ParticleSubSystem::UpdateControlpoints(ParticleInstanceRef current) {
             *bounded.parent, bounded.parent_instance_index, slot));
         m_controlpoints[controlpoint_index].offset =
             (position - current.state->bounded.position).cast<double>();
+        m_controlpoints[controlpoint_index].mouse_driven = false;
         ++controlpoint_index;
     }
 }

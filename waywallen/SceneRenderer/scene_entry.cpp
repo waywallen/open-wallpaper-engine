@@ -707,11 +707,14 @@ void apply_control(HostState& s, ww_bridge_control_t& msg) {
     case WW_EVT_IN_POINTER_MOTION: {
         const auto& pm = msg.u.pointer_motion.event;
         if (s.wp && s.width > u32() && s.height > u32()) {
-            s.wp->mouseInput(static_cast<double>(pm.x) / s.width.to_primitive(),
-                             static_cast<double>(pm.y) / s.height.to_primitive());
-            // The bridge has no explicit enter/leave; treat every motion
-            // event as proof the cursor is inside.
-            s.wp->mouseEnter(true);
+            // The daemon sends (-1, -1) when the pointer leaves the output.
+            const bool inside = pm.x >= 0.0f && pm.y >= 0.0f && pm.x <= s.width.to_primitive() &&
+                                pm.y <= s.height.to_primitive();
+            if (inside) {
+                s.wp->mouseInput(static_cast<double>(pm.x) / s.width.to_primitive(),
+                                 static_cast<double>(pm.y) / s.height.to_primitive());
+            }
+            s.wp->mouseEnter(inside);
         }
         break;
     }

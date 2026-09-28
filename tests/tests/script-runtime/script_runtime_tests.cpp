@@ -1020,16 +1020,30 @@ TEST(ScriptCursor, EnterLeaveAndMove) {
     rt.TickAll();
     EXPECT_EQ(fs->last_value().as_Scalar().value.v, 1'000'001);
 
-    // Still inside (no edge): +1 move.
+    // Neither frame ticks nor repeated input snapshots imply movement.
+    for (int frame = 0; frame < 60; ++frame) {
+        if (frame % 2 == 0) rt.SetFrameInputs(fi);
+        rt.TickAll();
+    }
+    EXPECT_EQ(fs->last_value().as_Scalar().value.v, 1'000'001);
+
+    // Sub-pixel movement on either axis still dispatches one move.
+    fi.cursor_x += 0.25f / fi.canvas_w;
     rt.SetFrameInputs(fi);
     rt.TickAll();
     EXPECT_EQ(fs->last_value().as_Scalar().value.v, 1'000'002);
+    rt.TickAll();
+    EXPECT_EQ(fs->last_value().as_Scalar().value.v, 1'000'002);
+    fi.cursor_y += 0.25f / fi.canvas_h;
+    rt.SetFrameInputs(fi);
+    rt.TickAll();
+    EXPECT_EQ(fs->last_value().as_Scalar().value.v, 1'000'003);
 
     // Move outside: +1 leave (no move when outside).
     fi.cursor_x = 100.0f / 1920.0f;
     rt.SetFrameInputs(fi);
     rt.TickAll();
-    EXPECT_EQ(fs->last_value().as_Scalar().value.v, 1'001'002);
+    EXPECT_EQ(fs->last_value().as_Scalar().value.v, 1'001'003);
 }
 
 TEST(ScriptCursor, ClickAndDownUpInside) {

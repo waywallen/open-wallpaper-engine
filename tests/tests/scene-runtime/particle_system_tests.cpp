@@ -170,6 +170,38 @@ struct InvalidKeyProgram {
 
 struct EmptyFrame {};
 
+auto MakeTimedParticleSubsystem(owe::Scene& scene, ref<str> emitter_name, i32 controlpoint = i32(),
+                                float duration = 0.0f) -> Box<owe::ParticleSubSystem> {
+    auto subsystem = Box<owe::ParticleSubSystem>::make(scene,
+                                                       Arc<owe::SceneMesh>::make(),
+                                                       u32(64),
+                                                       f64(1.0),
+                                                       u32(1),
+                                                       f64(1.0),
+                                                       owe::ParticleSubSystem::SpawnType::STATIC,
+                                                       owe::ParticleAnimationSpec {});
+    subsystem->AddInitializer(owe::ParticleParser::GenInitializer(
+        owe::ParseJson(R"({"name":"lifetimerandom","min":0.5,"max":0.5})"_str).unwrap(), u32(64)));
+    owe::wpscene::Emitter emitter;
+    emitter.name         = String::make(emitter_name);
+    emitter.rate         = 64.0f;
+    emitter.controlpoint = controlpoint;
+    emitter.duration     = duration;
+    subsystem->AddEmitter(owe::ParticleParser::GenEmitter(emitter, *subsystem, usize()));
+    subsystem->Finalize();
+    return subsystem;
+}
+
+auto LiveParticleCount(owe::ParticleSubSystem& subsystem) -> usize {
+    usize count {};
+    for (usize index {}; index < subsystem.System().InstanceCount(); ++index) {
+        for (const auto& state : subsystem.System().Instance(index).Binding().Read().States()) {
+            if (state.active) ++count;
+        }
+    }
+    return count;
+}
+
 } // namespace
 
 TEST(ParticleStorage, OwnsIndependentAttributesAndReusesStableSlots) {
@@ -416,6 +448,87 @@ TEST(ParticleSubSystem, PlaybackResetClearsAndRestartsIndependentStorage) {
     playback->reset_sequence.fetch_add(u32(1), rstd::sync::atomic::Ordering::AcqRel);
     subsystem.Tick(f64(1.0 / 60.0), false);
     EXPECT_GT(subsystem.System().Instance(usize()).Storage().Len(), usize());
+}
+
+TEST(ParticleSubSystem, CursorEmittersRunWhileStationaryAndStopOutsideTheOutput) {
+    for (auto name : { "sphererandom"_str, "boxrandom"_str }) {
+        owe::Scene scene;
+        scene.SetPointerPosition({ 0.25f, 0.5f });
+        auto subsystem                                    = MakeTimedParticleSubsystem(scene, name);
+        subsystem->ControlpointsMut()[usize()].link_mouse = true;
+        auto owner                                        = rstd::sync::Arc<owe::SceneNode>::make();
+        subsystem->SetOwnerNode(owner.as_ptr());
+
+        // No pointer has entered this output yet.
+        subsystem->Tick(f64(1.0 / 64.0), false);
+        EXPECT_EQ(LiveParticleCount(*subsystem), usize());
+        scene.SetPointerInWindow(true);
+        subsystem->Tick(f64(1.0 / 64.0), false);
+        ASSERT_EQ(LiveParticleCount(*subsystem), usize(1));
+
+        // A stationary pointer keeps emitting, including above other windows.
+        for (int i = 0; i < 10; ++i) {
+            scene.SetPointerPosition({ 0.25f, 0.5f });
+            owner->SetTranslate({ static_cast<float>(i), 0.0f, 0.0f });
+            subsystem->Tick(f64(1.0 / 64.0), false);
+            EXPECT_EQ(LiveParticleCount(*subsystem), usize(static_cast<rstd::size_t>(i + 2)));
+        }
+        // Leaving stops emission while existing particles continue to age.
+        scene.SetPointerInWindow(false);
+        subsystem->Tick(f64(1.0 / 64.0), false);
+        EXPECT_EQ(LiveParticleCount(*subsystem), usize(11));
+        for (int i = 0; i < 256; ++i) subsystem->Tick(f64(1.0 / 64.0), false);
+        EXPECT_EQ(LiveParticleCount(*subsystem), usize());
+        // Re-entering at the same coordinates restarts without a backlog.
+        scene.SetPointerInWindow(true);
+        subsystem->Tick(f64(1.0 / 64.0), false);
+        EXPECT_EQ(LiveParticleCount(*subsystem), usize(1));
+        subsystem->Tick(f64(1.0 / 64.0), false);
+        EXPECT_EQ(LiveParticleCount(*subsystem), usize(2));
+    }
+}
+
+TEST(ParticleSubSystem, MouseForceControlpointsDoNotStopIndependentEmitters) {
+    for (auto name : { "sphererandom"_str, "boxrandom"_str }) {
+        owe::Scene scene;
+        auto       subsystem = MakeTimedParticleSubsystem(scene, name);
+        // Dust can react to the cursor at point 1 while emitting from point 0.
+        subsystem->ControlpointsMut()[usize(1)].link_mouse = true;
+        subsystem->Tick(f64(1.0 / 64.0), false);
+        EXPECT_EQ(LiveParticleCount(*subsystem), usize(1));
+        subsystem->Tick(f64(1.0 / 64.0), false);
+        EXPECT_EQ(LiveParticleCount(*subsystem), usize(2));
+    }
+}
+
+TEST(ParticleSubSystem, ExplicitCursorParticleEmissionsWorkOutsideTheOutput) {
+    for (auto name : { "sphererandom"_str, "boxrandom"_str }) {
+        owe::Scene scene;
+        auto       subsystem = MakeTimedParticleSubsystem(scene, name, i32(2));
+        subsystem->ControlpointsMut()[usize(2)].link_mouse = true;
+        auto playback = rstd::sync::Arc<owe::ParticlePlaybackState>::make();
+        subsystem->SetPlaybackState(playback.clone());
+        subsystem->Tick(f64(1.0 / 64.0), false);
+        EXPECT_EQ(LiveParticleCount(*subsystem), usize());
+        playback->pending_emit_count.store(u32(3));
+        subsystem->Tick(f64(1.0 / 64.0), false);
+        EXPECT_EQ(LiveParticleCount(*subsystem), usize(3));
+        subsystem->Tick(f64(1.0 / 64.0), false);
+        EXPECT_EQ(LiveParticleCount(*subsystem), usize(3));
+    }
+}
+
+TEST(ParticleSubSystem, CursorEmitterDurationElapsesOutsideTheOutput) {
+    for (auto name : { "sphererandom"_str, "boxrandom"_str }) {
+        owe::Scene scene;
+        scene.SetPointerPosition({ 0.25f, 0.5f });
+        auto subsystem = MakeTimedParticleSubsystem(scene, name, i32(), 0.125f);
+        subsystem->ControlpointsMut()[usize()].link_mouse = true;
+        subsystem->Tick(f64(0.25), false);
+        scene.SetPointerInWindow(true);
+        subsystem->Tick(f64(1.0 / 64.0), false);
+        EXPECT_EQ(LiveParticleCount(*subsystem), usize());
+    }
 }
 
 TEST(ParticleSubSystem, ConvertsWorldSpaceFollowAnchorsIntoChildLocalSpace) {
@@ -787,6 +900,71 @@ TEST(ParticleSubSystem, MapsParentParticlesIntoStaticChildControlpoints) {
     EXPECT_TRUE(child_system->Controlpoints()[usize()].offset.isZero());
     EXPECT_TRUE(child_system->Controlpoints()[usize(1)].offset.isApprox(
         Eigen::Vector3d { 50.0, 0.0, 0.0 }));
+}
+
+TEST(ParticleSubSystem, ParentOverriddenMouseControlpointKeepsEmittingOutside) {
+    for (auto name : { "sphererandom"_str, "boxrandom"_str }) {
+        owe::Scene scene;
+        scene.SetPointerPosition({ 0.25f, 0.5f });
+        ASSERT_FALSE(scene.PointerInWindow());
+        owe::ParticleSubSystem parent(scene,
+                                      Arc<owe::SceneMesh>::make(),
+                                      u32(1),
+                                      f64(),
+                                      u32(1),
+                                      f64(1.0),
+                                      owe::ParticleSubSystem::SpawnType::STATIC,
+                                      owe::ParticleAnimationSpec {});
+        parent.AddInitializer(owe::ParticleParser::GenInitializer(
+            owe::ParseJson(R"({"name":"lifetimerandom","min":1,"max":1})"_str).unwrap(), u32(1)));
+        parent.AddEmitter(Box<dyn<particle::ParticleEmitterProgram>>::make(
+            owe::SphereEmitterProgram(parent.SpawnPipeline(),
+                                      owe::ParticleSphereEmitterArgs {
+                                          .origin        = { 50.0f, 0.0f, 0.0f },
+                                          .instantaneous = u32(1),
+                                      },
+                                      usize())));
+        auto child = Box<owe::ParticleSubSystem>::make(
+            scene,
+            Arc<owe::SceneMesh>::make(),
+            u32(64),
+            f64(1.0),
+            u32(1),
+            f64(1.0),
+            owe::ParticleSubSystem::SpawnType::STATIC_CONTROLPOINT,
+            owe::ParticleAnimationSpec {});
+        child->SetParentControlpointStartIndex(i32());
+        child->ControlpointsMut()[usize()].link_mouse = true;
+        child->AddInitializer(owe::ParticleParser::GenInitializer(
+            owe::ParseJson(R"({"name":"lifetimerandom","min":0.5,"max":0.5})"_str).unwrap(),
+            u32(64)));
+        owe::wpscene::Emitter emitter;
+        emitter.name         = String::make(name);
+        emitter.rate         = 64.0f;
+        emitter.controlpoint = i32();
+        child->AddEmitter(owe::ParticleParser::GenEmitter(emitter, *child, usize()));
+        child->Finalize();
+        auto* child_system = child.get();
+        parent.AddChild(rstd::move(child));
+        parent.Finalize();
+
+        parent.Tick(f64(1.0 / 64.0), false);
+        ASSERT_EQ(child_system->System().InstanceCount(), usize(1));
+        ASSERT_TRUE(child_system->Controlpoints()[usize()].offset.isApprox(
+            Eigen::Vector3d { 50.0, 0.0, 0.0 }));
+        EXPECT_EQ(LiveParticleCount(*child_system), usize(1));
+        parent.Tick(f64(1.0 / 64.0), false);
+        EXPECT_EQ(LiveParticleCount(*child_system), usize(2));
+
+        // Once this point is no longer parent-overridden, it must obey the
+        // absent pointer again; moving the override back enables emission.
+        child_system->SetParentControlpointStartIndex(i32(1));
+        parent.Tick(f64(1.0 / 64.0), false);
+        EXPECT_EQ(LiveParticleCount(*child_system), usize(2));
+        child_system->SetParentControlpointStartIndex(i32());
+        parent.Tick(f64(1.0 / 64.0), false);
+        EXPECT_EQ(LiveParticleCount(*child_system), usize(3));
+    }
 }
 
 TEST(ParticleInstanceModifiers, CloneRetainsReadOnlyBindingsAfterSourceReplacement) {

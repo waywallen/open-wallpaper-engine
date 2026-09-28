@@ -540,6 +540,7 @@ void SceneRenderController::onDraw() {
         {
             auto pos = m_mouse_pos.load();
             m_scene->SetPointerPosition(array<float, 2> { pos[usize()], pos[usize(1)] });
+            m_scene->SetPointerInWindow(cursorInWindow());
             if (m_uniform_input) m_uniform_input->SetPointerInput(pos[usize()], pos[usize(1)]);
         }
         // Drive any per-Scene scenescripts before particle emission.
