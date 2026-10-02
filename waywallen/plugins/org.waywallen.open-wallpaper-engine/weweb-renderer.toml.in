@@ -4,6 +4,7 @@
 [renderers.weweb-renderer]
 bin = "@OWE_WEWEB_BIN@"
 types = ["web"]
+type_labels = { web = { msgid = "Web" } }
 priority = 100
 activity = "continuous"
 spawn_version = 10

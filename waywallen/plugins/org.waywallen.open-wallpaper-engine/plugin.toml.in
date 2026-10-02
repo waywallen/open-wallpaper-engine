@@ -21,6 +21,7 @@ directory = "i18n"
 [renderers.wescene-renderer]
 bin = "@OWE_WESCENE_BIN@"
 types = ["scene"]
+type_labels = { scene = { msgid = "Scene" } }
 priority = 100
 activity = "continuous"
 spawn_version = 10
