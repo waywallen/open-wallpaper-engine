@@ -1,4 +1,5 @@
 #include <rstd/test/gtest.hpp>
+#include <filesystem>
 
 import rstd.cppstd;
 import rstd;
@@ -1632,6 +1633,178 @@ TEST(ScriptLocalStorage, PreservesNativePathBytes) {
         ASSERT_NE(script, nullptr);
         rt.TickAll();
         EXPECT_EQ(script->last_value().as_Scalar().value.v, 17);
+    }
+}
+
+TEST(ScriptLocalStorage, IndependentRuntimesMergeWritesAndDoNotRestoreDeletedKeys) {
+    const std::string path = MakeTmpLsPath("shared");
+    JsRuntime         first;
+    JsRuntime         second;
+    first.SetPersistence(rstd::path::PathBuf::from(rstd::cppstd::as_str(path).unwrap()));
+    second.SetPersistence(rstd::path::PathBuf::from(rstd::cppstd::as_str(path).unwrap()));
+    ASSERT_NE(MakeProbe(first, "test/ls_first", "localStorage.set('a', 1);"), nullptr);
+    ASSERT_NE(MakeProbe(second, "test/ls_second", "localStorage.set('b', 2);"), nullptr);
+    {
+        JsRuntime reader;
+        reader.SetPersistence(rstd::path::PathBuf::from(rstd::cppstd::as_str(path).unwrap()));
+        auto* probe = MakeProbe(reader, "test/ls_merged", R"JS(
+            export function update() {
+                return (localStorage.get('a') ?? 0) + (localStorage.get('b') ?? 0);
+            }
+        )JS");
+        ASSERT_NE(probe, nullptr);
+        reader.TickAll();
+        EXPECT_EQ(LastScalar(probe), 3.0);
+    }
+
+    ASSERT_NE(MakeProbe(first, "test/ls_delete", "localStorage.remove('a');"), nullptr);
+    ASSERT_NE(MakeProbe(second, "test/ls_stale_writer", "localStorage.set('c', 4);"), nullptr);
+    JsRuntime reader;
+    reader.SetPersistence(rstd::path::PathBuf::from(rstd::cppstd::as_str(path).unwrap()));
+    auto* probe = MakeProbe(reader, "test/ls_after_delete", R"JS(
+        export function update() {
+            return localStorage.get('a') === undefined
+                ? (localStorage.get('b') ?? 0) + (localStorage.get('c') ?? 0) : -1;
+        }
+    )JS");
+    ASSERT_NE(probe, nullptr);
+    reader.TickAll();
+    EXPECT_EQ(LastScalar(probe), 6.0);
+    std::error_code error;
+    std::filesystem::remove(path, error);
+    std::filesystem::remove(path + ".lock", error);
+}
+
+TEST(ScriptLocalStorage, ConcurrentRuntimesKeepAllIndependentKeys) {
+    const std::string        path    = MakeTmpLsPath("concurrent");
+    constexpr int            writers = 4;
+    constexpr int            writes  = 16;
+    std::atomic<int>         ready { 0 };
+    std::vector<std::thread> threads;
+    for (int writer = 0; writer < writers; ++writer) {
+        threads.emplace_back([&, writer] {
+            JsRuntime runtime;
+            runtime.SetPersistence(rstd::path::PathBuf::from(rstd::cppstd::as_str(path).unwrap()));
+            ready.fetch_add(1);
+            while (ready.load() != writers) std::this_thread::yield();
+            for (int index = 0; index < writes; ++index) {
+                const auto key    = std::to_string(writer) + "_" + std::to_string(index);
+                const auto script = "localStorage.set('" + key + "', 1);";
+                const auto sha    = "test/ls_concurrent_" + key;
+                EXPECT_NE(MakeProbe(runtime, sha.c_str(), script.c_str()), nullptr);
+            }
+        });
+    }
+    for (auto& thread : threads) thread.join();
+    JsRuntime reader;
+    reader.SetPersistence(rstd::path::PathBuf::from(rstd::cppstd::as_str(path).unwrap()));
+    auto* probe = MakeProbe(reader, "test/ls_concurrent_reader", R"JS(
+        export function update() {
+            let count = 0;
+            for (let writer = 0; writer < 4; ++writer)
+                for (let index = 0; index < 16; ++index)
+                    count += localStorage.get(writer + '_' + index) ?? 0;
+            return count;
+        }
+    )JS");
+    ASSERT_NE(probe, nullptr);
+    reader.TickAll();
+    EXPECT_EQ(LastScalar(probe), double(writers * writes));
+    EXPECT_FALSE(std::filesystem::exists(path + ".tmp"));
+    std::error_code error;
+    std::filesystem::remove(path, error);
+    std::filesystem::remove(path + ".lock", error);
+}
+
+TEST(ScriptLocalStorage, RetriesPendingMutationsAfterPersistenceFailure) {
+    for (const char* suffix : { ".tmp", ".lock" }) {
+        auto      directory = rstd::fs::TempDir::make("owe-ls-retry"_str).unwrap();
+        auto      path      = rstd::path::PathBuf::from(directory.path()).join("storage.json"_str);
+        auto      native    = std::filesystem::path(path.as_path().to_cstring().unwrap().as_ptr());
+        auto      blocked   = std::filesystem::path(native.native() + suffix);
+        JsRuntime first;
+        JsRuntime second;
+        first.SetPersistence(path.clone());
+        second.SetPersistence(path.clone());
+        ASSERT_NE(MakeProbe(first, "retry/seed", "localStorage.set('old', 5);"), nullptr);
+        std::filesystem::remove(blocked);
+        ASSERT_TRUE(std::filesystem::create_directory(blocked));
+        ASSERT_NE(MakeProbe(first, "retry/pending", R"JS(
+            localStorage.set('a', 1);
+            localStorage.remove('old');
+            localStorage.set('a', 3);
+            localStorage.set('discard', 9);
+            localStorage.remove('discard');
+            export function update() {
+                return localStorage.get('a') === 3 && localStorage.get('old') === undefined
+                    && localStorage.get('discard') === undefined ? 1 : 0;
+            }
+        )JS"),
+                  nullptr);
+        auto* local = MakeProbe(first, "retry/local", R"JS(
+            export function update() { return localStorage.get('a'); }
+        )JS");
+        ASSERT_NE(local, nullptr);
+        first.TickAll();
+        EXPECT_EQ(LastScalar(local), 3.0);
+        ASSERT_TRUE(std::filesystem::remove(blocked));
+        ASSERT_NE(MakeProbe(second, "retry/remote", "localStorage.set('remote', 42);"), nullptr);
+        ASSERT_NE(MakeProbe(first, "retry/recover", "localStorage.set('b', 2);"), nullptr);
+        JsRuntime reader;
+        reader.SetPersistence(path.clone());
+        auto* persisted = MakeProbe(reader, "retry/read", R"JS(
+            export function update() {
+                return localStorage.get('old') === undefined && localStorage.get('discard') === undefined
+                    ? (localStorage.get('a') ?? 0) + (localStorage.get('b') ?? 0)
+                        + (localStorage.get('remote') ?? 0) : -1;
+            }
+        )JS");
+        ASSERT_NE(persisted, nullptr);
+        reader.TickAll();
+        EXPECT_EQ(LastScalar(persisted), 47.0);
+        first.TickAll();
+        EXPECT_EQ(LastScalar(local), 3.0);
+    }
+}
+
+TEST(ScriptLocalStorage, SymlinkAliasesKeepTheirTargetAndShareMutations) {
+    for (bool existing : { false, true }) {
+        auto directory      = rstd::fs::TempDir::make("owe-ls-symlink"_str).unwrap();
+        auto root           = rstd::path::PathBuf::from(directory.path());
+        auto target         = root.join("real.json"_str);
+        auto alias          = root.join("alias.json"_str);
+        auto absolute_alias = root.join("absolute.json"_str);
+        auto native_target = std::filesystem::path(target.as_path().to_cstring().unwrap().as_ptr());
+        auto native_alias  = std::filesystem::path(alias.as_path().to_cstring().unwrap().as_ptr());
+        JsRuntime direct;
+        direct.SetPersistence(target.clone());
+        if (existing)
+            ASSERT_NE(MakeProbe(direct, "symlink/seed", "localStorage.set('seed', 7);"), nullptr);
+        std::filesystem::create_symlink("real.json", native_alias);
+        std::filesystem::create_symlink(native_target,
+                                        absolute_alias.as_path().to_cstring().unwrap().as_ptr());
+        JsRuntime relative;
+        JsRuntime absolute;
+        relative.SetPersistence(alias.clone());
+        absolute.SetPersistence(absolute_alias.clone());
+        ASSERT_NE(MakeProbe(relative, "symlink/relative", "localStorage.set('a', 1);"), nullptr);
+        ASSERT_NE(MakeProbe(direct, "symlink/direct", "localStorage.set('b', 2);"), nullptr);
+        ASSERT_NE(MakeProbe(absolute, "symlink/absolute", "localStorage.set('c', 4);"), nullptr);
+        EXPECT_TRUE(std::filesystem::is_symlink(native_alias));
+        EXPECT_TRUE(
+            std::filesystem::is_symlink(absolute_alias.as_path().to_cstring().unwrap().as_ptr()));
+        EXPECT_FALSE(std::filesystem::exists(native_alias.native() + ".lock"));
+        JsRuntime reader;
+        reader.SetPersistence(target.clone());
+        auto* persisted = MakeProbe(reader, "symlink/read", R"JS(
+            export function update() {
+                return (localStorage.get('a') ?? 0) + (localStorage.get('b') ?? 0)
+                    + (localStorage.get('c') ?? 0);
+            }
+        )JS");
+        ASSERT_NE(persisted, nullptr);
+        reader.TickAll();
+        EXPECT_EQ(LastScalar(persisted), 7.0);
     }
 }
 

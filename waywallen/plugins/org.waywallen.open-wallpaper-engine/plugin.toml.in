@@ -24,6 +24,8 @@ types = ["scene"]
 type_labels = { scene = { msgid = "Scene" } }
 priority = 100
 activity = "continuous"
+# Each target needs its own cursor/control-point state.
+sharing = "per_target"
 spawn_version = 10
 extras = ["assets", "workshop_id"]
 

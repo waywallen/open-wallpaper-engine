@@ -7,6 +7,8 @@ types = ["web"]
 type_labels = { web = { msgid = "Web" } }
 priority = 100
 activity = "continuous"
+# DOM mouse state is local to one independent display or continuous Canvas.
+sharing = "per_target"
 spawn_version = 10
 extras = ["workshop_id"]
 

@@ -3,10 +3,13 @@ module;
 #include <rstd/enum.hpp>
 
 #include <errno.h>
+#include <fcntl.h>
 #include <signal.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
+#include <sys/file.h>
 #include <sys/prctl.h>
 #include <sys/socket.h>
 
@@ -151,9 +154,55 @@ PathBuf derive_cache_dir(ref<str> workshop_id) {
     }
     auto dir = base.join("waywallen-weweb-renderer"_str);
     if (! workshop_id.is_empty()) dir.push(workshop_id);
-    (void)rstd::fs::create_dir_all(dir.as_path());
     return dir;
 }
+
+// Chromium exclusively locks root_cache_path. Lease the first free profile
+// slot, so disk usage is bounded by peak concurrency instead of renderer UUIDs.
+// Never unlink a lease file: a second process may already have opened its inode.
+class CefProfileLease final {
+public:
+    CefProfileLease()                                  = default;
+    CefProfileLease(const CefProfileLease&)            = delete;
+    CefProfileLease& operator=(const CefProfileLease&) = delete;
+
+    ~CefProfileLease() {
+        if (m_fd >= 0) ::close(m_fd);
+    }
+
+    PathBuf acquire(const PathBuf& root) {
+        if (root.is_empty()) die("cannot determine CEF cache directory"_str);
+        for (u64 slot {};; ++slot) {
+            auto path    = root.join("profiles"_str).join(rstd::format("{}", slot).as_str());
+            auto created = rstd::fs::create_dir_all(path.as_path());
+            if (created.is_err())
+                die(rstd::format("create CEF profile directory: {}", created.unwrap_err())
+                        .as_str());
+            auto lease  = path.join(".lease"_str);
+            auto native = lease.as_path().to_cstring().unwrap();
+            int  fd     = ::open(native.as_ptr(), O_CREAT | O_RDWR | O_CLOEXEC, 0600);
+            if (fd < 0)
+                die(rstd::format("open CEF profile lease: {}", Error::last_os_error()).as_str());
+            int rc;
+            do {
+                rc = ::flock(fd, LOCK_EX | LOCK_NB);
+            } while (rc < 0 && errno == EINTR);
+            if (rc == 0) {
+                m_fd = fd;
+                return path;
+            }
+            const int error = errno;
+            ::close(fd);
+            if (error != EWOULDBLOCK && error != EAGAIN) {
+                die(rstd::format("lock CEF profile lease: {}", Error::from_raw_os_error(i32(error)))
+                        .as_str());
+            }
+        }
+    }
+
+private:
+    int m_fd { -1 };
+};
 
 PathBuf executable_dir(const char* argv0) {
     auto executable = rstd::fs::read_link("/proc/self/exe"_str);
@@ -518,6 +567,9 @@ namespace waywallen
 int run(int argc, char** argv) {
     // CRITICAL: CEF re-execs this binary as helper procs. Must run
     // before argparse / logging / anything with side effects.
+    // The lease must outlive BrowserHost, including CEF shutdown on unwinding.
+    // Its descriptor is close-on-exec, so CEF helpers cannot keep a slot leased.
+    CefProfileLease    profile;
     weweb::BrowserHost host;
     if (int helper_exit = host.RunOrExitIfHelper(argc, argv); helper_exit >= 0) {
         return helper_exit;
@@ -700,7 +752,7 @@ int run(int argc, char** argv) {
     weweb::BrowserHost::InitOptions ho;
     ho.resources_dir = exe_dir.clone();
     ho.locales_dir   = exe_dir.join("locales"_str);
-    ho.cache_dir     = derive_cache_dir(opts.workshop_id.as_str());
+    ho.cache_dir     = profile.acquire(derive_cache_dir(opts.workshop_id.as_str()));
     if (opts.remote_debugging_port > i32()) {
         ho.enable_remote_debugging = true;
         ho.remote_debugging_port   = opts.remote_debugging_port.to_primitive();
