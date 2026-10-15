@@ -497,6 +497,11 @@ struct EngineHostState {
     // backing SceneNode.
     JSValue default_layer { JS_UNDEFINED };
     JSValue default_scene { JS_UNDEFINED };
+    // Keep layer identity stable for thisLayer/getLayer/enumerateLayers comparisons.
+    HashMap<owe::SceneNode*, JSValue> layer_objects;
+    HashSet<owe::SceneNode*>          script_layers;
+    // Keep registered queries enabled even when the scene has no wallpaper layers.
+    bool registered_layer_queries { false };
     // engine.setTimeout / setInterval queue. Swept once per frame in
     // JsRuntime::TickAll before the script update loop runs.
     Vec<DeferredCb> deferred;
@@ -1556,6 +1561,11 @@ globalThis.__wwSerializeLayerConfig = function(config) {
 };
 
 // --- thisLayer / thisScene stub ---------------------------------------------
+function __wwGetStubLayer(name) {
+    if (typeof name === 'number') return null;
+    return __wwCreateNodeStub();
+}
+
 // Stand-in for the per-script SceneNode binding. Property reads return
 // sensible defaults; writes are silently accepted. getTransformMatrix returns
 // a shaped value so matrix accesses don't TypeError.
@@ -1582,7 +1592,9 @@ function __wwCreateNodeStub() {
             if (key === 'getTransformMatrix')  return () => ({ m: identity.slice() });
             if (key === 'getChildren')         return () => [];
             if (key === 'getName')             return () => '';
-            if (key === 'getLayer')            return (_n) => __wwCreateNodeStub();
+            if (key === 'getLayer')            return (_n) => __wwGetStubLayer(_n);
+            if (key === 'getLayerCount')       return () => 0;
+            if (key === 'enumerateLayers')     return () => [];
             if (key === 'getEffect')           return (_n) => __wwCreateEffectStub();
             if (key === 'getTextureAnimation') return () => __wwCreateTexAnimStub();
             if (key === 'getVideoTexture')     return () => __wwCreateVideoTextureStub();
@@ -1970,11 +1982,16 @@ inline owe::SceneNode* GetLayerNode(JSValueConst value) {
 }
 
 JSValue WrapLayerNode(JSContext* ctx, owe::SceneNode* node, bool property_object = false) {
+    auto* host = static_cast<EngineHostState*>(JS_GetContextOpaque(ctx));
+    if (host && ! property_object) {
+        auto object = host->layer_objects.get(node);
+        if (object.is_some()) return JS_DupValue(ctx, **object);
+    }
     JSValue obj = JS_NewObjectClass(ctx, s_layer_class_id);
     if (JS_IsException(obj)) return obj;
-    auto* host = static_cast<EngineHostState*>(JS_GetContextOpaque(ctx));
     JS_SetOpaque(
         obj, new LayerHandle { .host = host, .node = node, .property_object = property_object });
+    if (host && ! property_object) (void)host->layer_objects.insert(node, JS_DupValue(ctx, obj));
     return obj;
 }
 
@@ -2587,10 +2604,60 @@ JSValue NodeGetName(JSContext* ctx, JSValueConst this_val, int, JSValueConst*) {
     return NodeGetNameValue(ctx, this_val);
 }
 
+// Parsed scenes query registered wallpaper layers, excluding internal nodes.
+// Runtimes without authored scene metadata query all tree nodes.
+bool IsScriptSceneLayer(EngineHostState* host, owe::SceneNode* node) {
+    return ! host || ! host->registered_layer_queries || host->script_layers.contains(node);
+}
+
+// Walk wallpaper layers in the same depth-first order for every scene query.
+// A visitor returning false ends traversal.
+template<typename Visitor>
+bool VisitScriptSceneLayers(EngineHostState* host, owe::SceneNode* root, Visitor& visit) {
+    if (! root) return true;
+    for (const auto& child : root->GetChildren()) {
+        if (IsScriptSceneLayer(host, child.as_ptr()) && ! visit(child.as_ptr())) return false;
+        if (! VisitScriptSceneLayers(host, child.as_ptr(), visit)) return false;
+    }
+    return true;
+}
+
+owe::SceneNode* SceneLayerAt(JSContext* ctx, owe::SceneNode* root, JSValueConst value) {
+    double        numeric_index {};
+    rstd::int64_t index {};
+    if (JS_ToFloat64(ctx, &numeric_index, value) != 0 || JS_ToInt64(ctx, &index, value) != 0 ||
+        index < 0 || numeric_index != static_cast<double>(index))
+        return nullptr;
+    auto*           host   = static_cast<EngineHostState*>(JS_GetContextOpaque(ctx));
+    owe::SceneNode* result = nullptr;
+    auto            find   = [&](owe::SceneNode* node) {
+        if (index-- != 0) return true;
+        result = node;
+        return false;
+    };
+    VisitScriptSceneLayers(host, root, find);
+    return result;
+}
+
+JSValue NodeSceneGetLayerCount(JSContext* ctx, JSValueConst this_val, int, JSValueConst*) {
+    auto*         host  = static_cast<EngineHostState*>(JS_GetContextOpaque(ctx));
+    rstd::int64_t total = 0;
+    auto          count = [&](owe::SceneNode*) {
+        ++total;
+        return true;
+    };
+    VisitScriptSceneLayers(host, GetLayerNode(this_val), count);
+    return JS_NewInt64(ctx, total);
+}
+
 JSValue NodeGetLayer(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
     auto* host = static_cast<EngineHostState*>(JS_GetContextOpaque(ctx));
     auto* n    = GetLayerNode(this_val);
     if (! n || argc < 1) return JS_DupValue(ctx, host->default_layer);
+    if (JS_IsNumber(argv[0])) {
+        auto* hit = SceneLayerAt(ctx, n, argv[0]);
+        return hit ? WrapLayerNode(ctx, hit) : JS_NULL;
+    }
     const char* name = JS_ToCString(ctx, argv[0]);
     if (! name) return JS_DupValue(ctx, host->default_layer);
     String          layer_name = rstd::into(rstd::cppstd::as_str(name).unwrap());
@@ -2652,13 +2719,30 @@ bool TreeContains(owe::SceneNode* root, owe::SceneNode* needle) {
     return false;
 }
 
+void PruneSceneLayerBindings(JSContext* ctx, EngineHostState& host, owe::SceneNode* root) {
+    host.layer_objects.retain([&](owe::SceneNode* node, JSValue& object) {
+        if (TreeContains(root, node)) return true;
+        JS_FreeValue(ctx, object);
+        return false;
+    });
+    host.script_layers.retain([&](owe::SceneNode* node) {
+        return TreeContains(root, node);
+    });
+}
+
 JSValue NodeSceneLayerListIncludes(JSContext* ctx, JSValueConst this_val, int argc,
                                    JSValueConst* argv) {
     if (argc < 1) return JS_NewBool(ctx, false);
     JSValue root_val = JS_GetPropertyStr(ctx, this_val, "__wwRoot");
     auto*   root     = GetLayerNode(root_val);
     auto*   needle   = GetLayerNode(argv[0]);
-    bool    found    = TreeContains(root, needle);
+    auto*   host     = static_cast<EngineHostState*>(JS_GetContextOpaque(ctx));
+    bool    found    = false;
+    auto    find     = [&](owe::SceneNode* node) {
+        found = node == needle;
+        return ! found;
+    };
+    VisitScriptSceneLayers(host, root, find);
     JS_FreeValue(ctx, root_val);
     return JS_NewBool(ctx, found);
 }
@@ -2668,17 +2752,13 @@ JSValue NodeSceneEnumerateLayers(JSContext* ctx, JSValueConst this_val, int, JSV
     auto*   n   = GetLayerNode(this_val);
     if (! n) return arr;
 
+    auto*          host   = static_cast<EngineHostState*>(JS_GetContextOpaque(ctx));
     rstd::uint32_t i      = 0;
-    auto           append = [&](auto& self, owe::SceneNode* node) -> void {
-        if (! node) return;
+    auto           append = [&](owe::SceneNode* node) {
         JS_DefinePropertyValueUint32(ctx, arr, i++, WrapLayerNode(ctx, node), JS_PROP_C_W_E);
-        for (const auto& child : node->GetChildren()) {
-            self(self, child.as_ptr());
-        }
+        return true;
     };
-    for (const auto& child : n->GetChildren()) {
-        append(append, child.as_ptr());
-    }
+    VisitScriptSceneLayers(host, n, append);
     JS_DefinePropertyValueStr(ctx, arr, "__wwRoot", WrapLayerNode(ctx, n), JS_PROP_C_W_E);
     JS_DefinePropertyValueStr(ctx,
                               arr,
@@ -2821,6 +2901,7 @@ JSValue NodeSceneCreateLayer(JSContext* ctx, JSValueConst /*this_val*/, int argc
         }
     }
     if (! node) return JS_ThrowReferenceError(ctx, "createLayer asset is unavailable");
+    (void)host->script_layers.insert(node);
     if (host->scene)
         (void)host->scene->SetNodeVisible(*node, true);
     else
@@ -3346,6 +3427,7 @@ const JSCFunctionListEntry s_layer_proto_funcs[] = {
     JS_CFUNC_DEF("getChildren", 0, NodeGetChildren),
     JS_CFUNC_DEF("getName", 0, NodeGetName),
     JS_CFUNC_DEF("getLayer", 1, NodeGetLayer),
+    JS_CFUNC_DEF("getLayerCount", 0, NodeSceneGetLayerCount),
     JS_CFUNC_DEF("getEffect", 1, NodeGetEffect),
     JS_CFUNC_DEF("getEffectCount", 0, NodeGetEffectCount),
     JS_CFUNC_DEF("enumerateLayers", 0, NodeSceneEnumerateLayers),
@@ -3627,6 +3709,7 @@ JsRuntime::~JsRuntime() {
         if (! JS_IsUndefined(d.fn)) JS_FreeValue(m_impl->ctx, d.fn);
     }
     m_impl->host.deferred.clear();
+    PruneSceneLayerBindings(m_impl->ctx, m_impl->host, nullptr);
     if (m_impl->ctx) JS_FreeContext(m_impl->ctx);
     if (m_impl->rt) JS_FreeRuntime(m_impl->rt);
 }
@@ -3755,7 +3838,10 @@ namespace
 void RunFieldScriptInit(JSContext* ctx, JsRuntime::Impl* rt, FieldScript* fs);
 }
 
-void JsRuntime::SetScene(owe::Scene* scene) { m_impl->host.scene = scene; }
+void JsRuntime::SetScene(owe::Scene* scene) {
+    m_impl->host.scene = scene;
+    if (scene) m_impl->host.registered_layer_queries = true;
+}
 
 void JsRuntime::SetInitializationOrder(FieldScript& script, rstd::uint64_t order) {
     if (script.m_impl->rt != m_impl.get() || script.m_impl->init_done) return;
@@ -3765,10 +3851,14 @@ void JsRuntime::SetInitializationOrder(FieldScript& script, rstd::uint64_t order
 void JsRuntime::RegisterInitialLayerConfig(owe::SceneNode* node, Json config) {
     if (node == nullptr) return;
     (void)m_impl->host.initial_layer_configs.insert(node, rstd::move(config));
+    (void)m_impl->host.script_layers.insert(node);
+    m_impl->host.registered_layer_queries = true;
 }
 
 void JsRuntime::SetSceneRoot(owe::SceneNode* root) {
     if (! m_impl->ctx) return;
+    if (m_impl->scene_root && m_impl->scene_root != root)
+        PruneSceneLayerBindings(m_impl->ctx, m_impl->host, root);
     if (! JS_IsUndefined(m_impl->wrapped_scene)) JS_FreeValue(m_impl->ctx, m_impl->wrapped_scene);
     m_impl->scene_root      = root;
     m_impl->host.scene_root = root;
@@ -4109,7 +4199,10 @@ FieldScript* JsRuntime::MakeFieldScript(ref<str> source, ref<str> script_sha,
     if (! ctx) return nullptr;
     m_impl->host.pending_registered_assets.clear();
 
-    auto*   node          = context.layer;
+    auto* node = context.layer;
+    // Factories can initialize scripts before createLayer returns. Register the
+    // owning layer before its module or init function can query the scene.
+    if (node) (void)m_impl->host.script_layers.insert(node);
     JSValue wrapped_layer = node ? WrapLayerNode(ctx, node) : JS_UNDEFINED;
     JSValue wrapped_object { JS_UNDEFINED };
     switch (context.object_kind) {

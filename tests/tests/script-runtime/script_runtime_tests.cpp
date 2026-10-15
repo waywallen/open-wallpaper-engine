@@ -22,13 +22,14 @@ namespace
 // The module body schedules timers/intervals that mutate that counter, so we
 // can observe the JsRuntime's deferred-callback sweep through FieldScript's
 // last_value().
-FieldScript* MakeProbe(JsRuntime& rt, const char* sha, const char* src) {
+FieldScript* MakeProbe(JsRuntime& rt, const char* sha, const char* src,
+                       owe::SceneNode* node = nullptr) {
     return rt.MakeFieldScript(rstd::cppstd::as_str(src).unwrap(),
                               rstd::cppstd::as_str(sha).unwrap(),
                               FieldKind::Scalar,
                               /*properties_config=*/owe::MakeObject(),
                               /*initial_value=*/owe::IntoJson(0),
-                              /*node=*/nullptr);
+                              /*node=*/node);
 }
 
 double Tick(JsRuntime& rt, double runtime) {
@@ -3312,4 +3313,343 @@ TEST(ScriptSource, AcceptsBorrowedSubstringWithoutTerminator) {
     runtime.TickAll();
     ASSERT_TRUE(script->last_value().is_Scalar());
     EXPECT_EQ(script->last_value().as_Scalar().value.v, 42.0);
+}
+
+namespace
+{
+struct LayerQueryScene {
+    Arc<owe::SceneNode> root  = Arc<owe::SceneNode>::make();
+    Arc<owe::SceneNode> first = Arc<owe::SceneNode>::make(
+        Eigen::Vector3f::Zero(), Eigen::Vector3f::Ones(), Eigen::Vector3f::Zero(), "first"_str);
+    Arc<owe::SceneNode> nested = Arc<owe::SceneNode>::make(
+        Eigen::Vector3f::Zero(), Eigen::Vector3f::Ones(), Eigen::Vector3f::Zero(), "nested"_str);
+    Arc<owe::SceneNode> last = Arc<owe::SceneNode>::make(
+        Eigen::Vector3f::Zero(), Eigen::Vector3f::Ones(), Eigen::Vector3f::Zero(), "0"_str);
+    JsRuntime rt;
+
+    LayerQueryScene() {
+        first->AppendChild(nested.clone());
+        // The parser also attaches internal camera nodes to the scene root.
+        root->AppendChild(Arc<owe::SceneNode>::make());
+        root->AppendChild(first.clone());
+        root->AppendChild(last.clone());
+        rt.RegisterInitialLayerConfig(first.as_ptr(), owe::MakeObject());
+        rt.RegisterInitialLayerConfig(nested.as_ptr(), owe::MakeObject());
+        rt.RegisterInitialLayerConfig(last.as_ptr(), owe::MakeObject());
+        rt.SetFrameInputs(FrameInputs {});
+        rt.SetSceneRoot(root.as_ptr());
+    }
+};
+} // namespace
+
+TEST(ScriptScene, IndexedLayerQueriesExcludeInternalNodes) {
+    LayerQueryScene scene;
+    auto*           fs = MakeProbe(scene.rt, "test/indexed_scene_layers", R"JS(
+        export function update() {
+            const layers = thisScene.enumerateLayers();
+            return thisScene.getLayerCount() === 3 && layers.length === 3 &&
+                   thisScene.getLayer(0).name === 'first' &&
+                   thisScene.getLayer(1).name === 'nested' &&
+                   thisScene.getLayer(2).name === '0' &&
+                   thisScene.getLayer('0').name === '0';
+        }
+    )JS");
+    ASSERT_NE(fs, nullptr);
+    scene.rt.TickAll();
+    EXPECT_EQ(LastScalar(fs), 1.0);
+}
+
+TEST(ScriptScene, NumericLayerLookupRejectsInvalidIndexes) {
+    LayerQueryScene scene;
+    auto*           fs = MakeProbe(scene.rt, "test/invalid_layer_indexes", R"JS(
+        export function update() {
+            return [-1, 3, 0.5, NaN, Infinity, -Infinity, 1e100].every(
+                index => thisScene.getLayer(index) === null);
+        }
+    )JS");
+    ASSERT_NE(fs, nullptr);
+    scene.rt.TickAll();
+    EXPECT_EQ(LastScalar(fs), 1.0);
+}
+
+TEST(ScriptScene, LayerQueriesPreserveThisLayerIdentity) {
+    LayerQueryScene scene;
+    auto*           fs = MakeProbe(scene.rt,
+                                   "test/layer_query_identity",
+                                   R"JS(
+        export function update() {
+            const layers = thisScene.enumerateLayers();
+            return thisScene.getLayer(0) === thisLayer &&
+                   thisScene.getLayer('first') === thisLayer &&
+                   layers[0] === thisLayer &&
+                   layers.every((layer, index) => thisScene.getLayer(index) === layer);
+        }
+    )JS",
+                                   scene.first.as_ptr());
+    ASSERT_NE(fs, nullptr);
+    scene.rt.TickAll();
+    EXPECT_EQ(LastScalar(fs), 1.0);
+}
+
+TEST(ScriptScene, IndexedLayerWritesReachTheSelectedNode) {
+    LayerQueryScene scene;
+    auto*           fs = MakeProbe(scene.rt, "test/indexed_layer_visibility", R"JS(
+        export function update() {
+            thisScene.getLayer(1).visible = false;
+            return thisScene.getLayerCount();
+        }
+    )JS");
+    ASSERT_NE(fs, nullptr);
+    scene.rt.TickAll();
+    EXPECT_EQ(LastScalar(fs), 3.0);
+    EXPECT_FALSE(scene.nested->Visible());
+    EXPECT_TRUE(scene.first->Visible());
+    EXPECT_TRUE(scene.last->Visible());
+}
+
+TEST(ScriptScene, IndexedQueriesIncludeCreatedAndReusedAssetLayers) {
+    LayerQueryScene          scene;
+    Vec<Arc<owe::SceneNode>> created;
+    scene.rt.SetLayerFactory(JsRuntime::LayerFactory::make(
+        [&scene, &created](owe::SceneNode*, LayerAssetReference) -> Option<Arc<owe::SceneNode>> {
+            auto node = Arc<owe::SceneNode>::make();
+            scene.root->AppendChild(node.clone());
+            created.push(node.clone());
+            return Some(rstd::move(node));
+        }));
+    auto* fs = MakeProbe(scene.rt,
+                         "test/indexed_created_layer",
+                         R"JS(
+        let result = 0;
+        export function init() {
+            const asset = engine.registerAsset('models/prism.mdl');
+            const layer = thisScene.createLayer(asset);
+            if (thisScene.getLayerCount() !== 4 || thisScene.getLayer(3) !== layer) return;
+            thisScene.destroyLayer(layer);
+            if (layer.visible) return;
+            const reused = thisScene.createLayer(asset);
+            result = reused === layer && reused.visible &&
+                     thisScene.getLayerCount() === 4 &&
+                     thisScene.enumerateLayers()[3] === reused;
+        }
+        export function update() { return result; }
+    )JS",
+                         scene.first.as_ptr());
+    ASSERT_NE(fs, nullptr);
+    scene.rt.TickAll();
+    EXPECT_EQ(LastScalar(fs), 1.0);
+    EXPECT_EQ(created.len(), usize(1));
+}
+
+TEST(ScriptScene, IndexedQueriesFollowLayerSorting) {
+    LayerQueryScene scene;
+    owe::Scene      owner;
+    scene.rt.SetScene(&owner);
+    auto* fs = MakeProbe(scene.rt, "test/indexed_sorted_layer", R"JS(
+        export function update() {
+            const layer = thisScene.getLayer(2);
+            thisScene.sortLayer(layer, 0);
+            return thisScene.getLayer(0) === layer &&
+                   thisScene.enumerateLayers()[0] === layer &&
+                   thisScene.getLayerCount() === 3;
+        }
+    )JS");
+    ASSERT_NE(fs, nullptr);
+    scene.rt.TickAll();
+    EXPECT_EQ(LastScalar(fs), 1.0);
+}
+
+TEST(ScriptScene, LayerQueriesFollowSceneRootReplacement) {
+    LayerQueryScene scene;
+    auto*           before = MakeProbe(scene.rt, "test/layer_before_root_change", R"JS(
+        globalThis.oldLayer = thisScene.getLayer(0);
+        export function update() { return 1; }
+    )JS");
+    ASSERT_NE(before, nullptr);
+    auto root        = Arc<owe::SceneNode>::make();
+    auto replacement = Arc<owe::SceneNode>::make(Eigen::Vector3f::Zero(),
+                                                 Eigen::Vector3f::Ones(),
+                                                 Eigen::Vector3f::Zero(),
+                                                 "replacement"_str);
+    root->AppendChild(replacement.clone());
+    scene.rt.RegisterInitialLayerConfig(replacement.as_ptr(), owe::MakeObject());
+    scene.rt.SetSceneRoot(root.as_ptr());
+    auto* after = MakeProbe(scene.rt,
+                            "test/layer_after_root_change",
+                            R"JS(
+        export function update() {
+            return thisScene.getLayerCount() === 1 &&
+                   thisScene.getLayer(0).name === 'replacement' &&
+                   thisScene.getLayer(0) === thisLayer &&
+                   thisScene.getLayer(0) !== globalThis.oldLayer;
+        }
+    )JS",
+                            replacement.as_ptr());
+    ASSERT_NE(after, nullptr);
+    scene.rt.TickAll();
+    EXPECT_EQ(LastScalar(after), 1.0);
+}
+
+TEST(ScriptScene, EmptySceneHasNoIndexedLayers) {
+    auto      root = Arc<owe::SceneNode>::make();
+    JsRuntime rt;
+    rt.SetFrameInputs(FrameInputs {});
+    rt.SetSceneRoot(root.as_ptr());
+    auto* fs = MakeProbe(rt, "test/empty_scene_layers", R"JS(
+        export function update() {
+            return thisScene.getLayerCount() === 0 &&
+                   thisScene.enumerateLayers().length === 0 &&
+                   thisScene.getLayer(0) === null;
+        }
+    )JS");
+    ASSERT_NE(fs, nullptr);
+    rt.TickAll();
+    EXPECT_EQ(LastScalar(fs), 1.0);
+}
+
+TEST(ScriptScene, UnboundSceneLayerQueriesUseEmptyDefaults) {
+    JsRuntime rt;
+    rt.SetFrameInputs(FrameInputs {});
+    auto* fs = MakeProbe(rt, "test/unbound_scene_layers", R"JS(
+        const count = thisScene.getLayerCount();
+        export function update() {
+            return count === 0 && thisScene.enumerateLayers().length === 0 &&
+                   thisScene.getLayer(0) === null && thisScene.getLayer('future') !== null;
+        }
+    )JS");
+    ASSERT_NE(fs, nullptr);
+    rt.TickAll();
+    EXPECT_EQ(LastScalar(fs), 1.0);
+}
+
+TEST(ScriptScene, SceneRootReplacementPreservesRetainedLayerIdentity) {
+    LayerQueryScene scene;
+    auto*           fs = MakeProbe(scene.rt,
+                                   "test/retained_layer_identity",
+                                   R"JS(
+        globalThis.retainedLayer = thisScene.getLayer(0);
+        export function update() {
+            return thisScene.getLayerCount() === 2 &&
+                   thisScene.getLayer(0) === globalThis.retainedLayer &&
+                   thisScene.getLayer(0) === thisLayer;
+        }
+    )JS",
+                                   scene.first.as_ptr());
+    ASSERT_NE(fs, nullptr);
+    auto root = Arc<owe::SceneNode>::make();
+    ASSERT_TRUE(scene.root->RemoveChild(*scene.first));
+    root->AppendChild(scene.first.clone());
+    scene.rt.SetSceneRoot(root.as_ptr());
+    scene.rt.TickAll();
+    EXPECT_EQ(LastScalar(fs), 1.0);
+}
+
+TEST(ScriptScene, CreatingFirstDynamicLayerPreservesStandaloneTreeQueries) {
+    auto root     = Arc<owe::SceneNode>::make();
+    auto existing = Arc<owe::SceneNode>::make(
+        Eigen::Vector3f::Zero(), Eigen::Vector3f::Ones(), Eigen::Vector3f::Zero(), "existing"_str);
+    root->AppendChild(existing.clone());
+    Vec<Arc<owe::SceneNode>> created;
+    JsRuntime                rt;
+    rt.SetFrameInputs(FrameInputs {});
+    rt.SetSceneRoot(root.as_ptr());
+    rt.SetLayerFactory(JsRuntime::LayerFactory::make(
+        [&root, &created](owe::SceneNode*, LayerAssetReference) -> Option<Arc<owe::SceneNode>> {
+            auto node = Arc<owe::SceneNode>::make();
+            root->AppendChild(node.clone());
+            created.push(node.clone());
+            return Some(rstd::move(node));
+        }));
+    auto* fs = MakeProbe(rt,
+                         "test/first_dynamic_layer_membership",
+                         R"JS(
+        let result = 0;
+        export function init() {
+            const existing = thisScene.getLayer(0);
+            if (thisScene.getLayerCount() !== 1 || existing.name !== 'existing') return;
+            const created = thisScene.createLayer('models/prism.mdl');
+            result = thisScene.getLayerCount() === 2 &&
+                     thisScene.getLayer(0) === existing &&
+                     thisScene.getLayer(1) === created &&
+                     thisScene.enumerateLayers().length === 2;
+        }
+        export function update() { return result; }
+    )JS",
+                         existing.as_ptr());
+    ASSERT_NE(fs, nullptr);
+    rt.TickAll();
+    EXPECT_EQ(LastScalar(fs), 1.0);
+    EXPECT_EQ(root->GetChildren().len(), usize(2));
+}
+
+TEST(ScriptScene, EmptyRegisteredLayerSetDoesNotExposeInternalNodes) {
+    LayerQueryScene scene;
+    auto            root = Arc<owe::SceneNode>::make();
+    root->AppendChild(Arc<owe::SceneNode>::make());
+    scene.rt.SetSceneRoot(root.as_ptr());
+    auto* fs = MakeProbe(scene.rt, "test/empty_registered_layer_membership", R"JS(
+        export function update() {
+            return thisScene.getLayerCount() === 0 &&
+                   thisScene.enumerateLayers().length === 0 &&
+                   thisScene.getLayer(0) === null;
+        }
+    )JS");
+    ASSERT_NE(fs, nullptr);
+    scene.rt.TickAll();
+    EXPECT_EQ(LastScalar(fs), 1.0);
+}
+
+TEST(ScriptScene, LayerListIncludesExcludesInternalNodesAndRoot) {
+    LayerQueryScene scene;
+    auto*           fs = MakeProbe(scene.rt, "test/filtered_layer_membership", R"JS(
+        export function update() {
+            const layers = thisScene.enumerateLayers();
+            const camera = thisScene.getChildren()[0];
+            return layers.includes(thisScene.getLayer(0)) &&
+                   !layers.includes(camera) && !layers.includes(thisScene);
+        }
+    )JS");
+    ASSERT_NE(fs, nullptr);
+    scene.rt.TickAll();
+    EXPECT_EQ(LastScalar(fs), 1.0);
+}
+
+TEST(ScriptScene, CreatedLayerIsQueryableDuringNestedScriptInitialization) {
+    LayerQueryScene          scene;
+    Vec<Arc<owe::SceneNode>> created;
+    FieldScript*             nested = nullptr;
+    scene.rt.SetLayerFactory(JsRuntime::LayerFactory::make(
+        [&scene, &created, &nested](owe::SceneNode*,
+                                    LayerAssetReference) -> Option<Arc<owe::SceneNode>> {
+            auto node = Arc<owe::SceneNode>::make();
+            scene.root->AppendChild(node.clone());
+            created.push(node.clone());
+            nested = MakeProbe(scene.rt,
+                               "test/created_layer_nested_init",
+                               R"JS(
+                const topLevelVisible = thisScene.getLayerCount() === 4 &&
+                                        thisScene.getLayer(3) === thisLayer;
+                let result = 0;
+                export function init() {
+                    result = topLevelVisible && thisScene.getLayerCount() === 4 &&
+                             thisScene.getLayer(3) === thisLayer &&
+                             thisScene.enumerateLayers().includes(thisLayer);
+                }
+                export function update() { return result; }
+            )JS",
+                               node.as_ptr());
+            return Some(rstd::move(node));
+        }));
+    auto* caller = MakeProbe(scene.rt,
+                             "test/created_layer_caller",
+                             R"JS(
+        export function init() { thisScene.createLayer('models/prism.mdl'); }
+        export function update() { return 1; }
+    )JS",
+                             scene.first.as_ptr());
+    ASSERT_NE(caller, nullptr);
+    ASSERT_NE(nested, nullptr);
+    scene.rt.TickAll();
+    EXPECT_EQ(LastScalar(nested), 1.0);
+    EXPECT_EQ(created.len(), usize(1));
 }
