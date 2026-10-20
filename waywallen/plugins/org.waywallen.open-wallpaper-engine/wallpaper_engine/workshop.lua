@@ -16,6 +16,7 @@ local subscribed = nil
 -- Bytes on disk per id, as Steam wrote them down when it unpacked the item.
 -- A missing id means "the record does not say", never "empty".
 local sizes = {}
+local updates = {}
 
 local ESCAPES = { n = "\n", t = "\t", r = "\r" }
 
@@ -104,7 +105,7 @@ end
 -- Fold one Steam root's record into `found` and `found_sizes`. Returns whether
 -- the file could be used at all: an unreadable or detail-less file must leave
 -- the snapshot unset instead of declaring every installed item unsubscribed.
-local function fold_root(ctx, steam_root, found, found_sizes)
+local function fold_root(ctx, steam_root, found, found_sizes, found_updates)
     local path = steam_root .. ACF_REL
     if not ctx.fs.exists(path) then return false end
     local text = ctx.fs.read(path)
@@ -133,6 +134,21 @@ local function fold_root(ctx, steam_root, found, found_sizes)
     end
     local details = field(app, "WorkshopItemDetails")
     if type(details) ~= "table" then return false end
+    if type(downloaded) == "table" then
+        for id, installed in pairs(downloaded) do
+            local entry = details[id]
+            local manifest = field(installed, "manifest")
+            local latest = field(entry, "latest_manifest") or field(entry, "manifest")
+            if manifest and manifest ~= "" and manifest ~= "0"
+                and latest and latest ~= "" and latest ~= "0" then
+                found_updates[tostring(id)] = manifest ~= latest
+            else
+                local time = tonumber(field(installed, "timeupdated"))
+                local latest_time = tonumber(field(entry, "latest_timeupdated") or field(entry, "timeupdated"))
+                found_updates[tostring(id)] = time ~= nil and time > 0 and latest_time ~= nil and latest_time > time
+            end
+        end
+    end
     local usable = false
     for id, entry in pairs(details) do
         if type(entry) == "table" then
@@ -150,13 +166,15 @@ end
 -- Re-read Steam's record for every registered Steam root. Called from the
 -- source scan because that is the only callback whose context carries `ctx.fs`.
 function M.refresh(ctx, roots)
-    local found, found_sizes, usable = {}, {}, false
+    local found, found_sizes, found_updates, usable = {}, {}, {}, false
     for _, steam_root in ipairs(roots) do
-        if fold_root(ctx, steam_root, found, found_sizes) then usable = true end
+        found_updates[steam_root] = {}
+        if fold_root(ctx, steam_root, found, found_sizes, found_updates[steam_root]) then usable = true end
     end
     -- Sizes stand on their own: they describe the directories on this disk, so
     -- a record without usable details still gets to report the ones it listed.
     sizes = found_sizes
+    updates = found_updates
     if not usable then
         subscribed = nil
         return
@@ -171,6 +189,7 @@ end
 -- and must not outlive a sign-out.
 function M.forget()
     subscribed = nil
+    updates = {}
 end
 
 -- "subscribed" for items Steam recorded on this machine, nil when the local
@@ -192,6 +211,11 @@ end
 -- the client hides the "Size" row while nothing knows the answer.
 function M.size(id)
     return sizes[tostring(id)]
+end
+
+function M.update_available(id, steam_root)
+    local root = updates[steam_root]
+    return root ~= nil and root[tostring(id)] == true
 end
 
 -- The daemon turns a non-empty `external_id` into an "Unsubscribe" button, so

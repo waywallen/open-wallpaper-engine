@@ -47,6 +47,7 @@ local function scan_container(ctx, steam_root, container, name_prefix, is_worksh
                 tags = (project and project.tags) or {},
                 content_rating = project and project.contentrating or nil,
                 external_id = external_id,
+                update_available = is_workshop and workshop.update_available(id, steam_root) or false,
                 web_url = external_id and
                     ("https://steamcommunity.com/sharedfiles/filedetails/?id=" .. external_id) or nil,
                 -- Steam measured the item when it unpacked it; without that the
