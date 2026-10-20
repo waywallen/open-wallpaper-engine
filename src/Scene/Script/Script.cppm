@@ -57,9 +57,15 @@ public:
     ScriptValue(StringValue value): ScriptValue(String(rstd::move(value))) {}
 };
 
-struct BoneTranslation {
-    float x { 0.0f }, y { 0.0f }, z { 0.0f };
+struct BoneTransformData {
+    float m[16] { 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f,
+                  0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f };
+    float x() const { return m[12]; }
+    float y() const { return m[13]; }
+    float z() const { return m[14]; }
 };
+
+using BoneTranslation = BoneTransformData;
 
 // What kind of value a FieldScript is expected to produce. Set at parse
 // time based on the field name's well-known type — see the per-field-kind
@@ -237,10 +243,14 @@ public:
     void SetMediaStatus(const MediaStatus& status);
 
     using BoneIndexResolver = Box<dyn<FnMut<uint32_t(owe::SceneNode*, ref<str>)>>>;
+    using BoneCountResolver = Box<dyn<FnMut<uint32_t(owe::SceneNode*)>>>;
     using BoneTransformResolver =
-        Box<dyn<FnMut<Option<BoneTranslation>(owe::SceneNode*, uint32_t, double)>>>;
-    void SetBoneResolvers(BoneIndexResolver     index_resolver,
-                          BoneTransformResolver transform_resolver);
+        Box<dyn<FnMut<Option<BoneTransformData>(owe::SceneNode*, uint32_t, double)>>>;
+    using BoneSetTransformResolver =
+        Box<dyn<FnMut<void(owe::SceneNode*, uint32_t, const BoneTransformData&)>>>;
+    void SetBoneResolvers(BoneIndexResolver index_resolver, BoneCountResolver count_resolver,
+                          BoneTransformResolver    transform_resolver,
+                          BoneSetTransformResolver set_transform_resolver);
 
     // Drive every alive FieldScript once. Invokes their cached `update`
     // export and stores the coerced return into FieldScript::last_value().
@@ -263,7 +273,7 @@ public:
     using PointSizeGetter = Arc<dyn<FnMut<double()>>>;
     using PointSizeSetter = Arc<dyn<FnMut<bool(double)>>>;
     using TextAlignSetter = Arc<dyn<FnMut<bool(ref<str>)>>>;
-    void RegisterTextSetter(owe::SceneNode* node, TextSetter setter);
+    void RegisterTextSetter(owe::SceneNode* node, TextSetter setter, ref<str> initial_text);
     void RegisterTextAlignSetters(owe::SceneNode* node, String horizontal, String vertical,
                                   double point_size, TextAlignSetter set_horizontal,
                                   TextAlignSetter         set_vertical,

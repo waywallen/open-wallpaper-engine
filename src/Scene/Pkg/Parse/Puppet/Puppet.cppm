@@ -277,7 +277,9 @@ public:
     // Borrowed until this instance is evaluated, prepared, or destroyed again.
     slice<Eigen::Affine3f>  genFrame(double time) noexcept;
     rstd::uint32_t          boneIndex(ref<str> name) const noexcept;
+    rstd::uint32_t          boneCount() const noexcept;
     Option<Eigen::Affine3f> boneTransform(rstd::uint32_t index, double time) noexcept;
+    void setBoneTransform(rstd::uint32_t index, const Eigen::Affine3f& transform) noexcept;
     Option<Eigen::Affine3f> attachmentTransform(usize index, double time) noexcept;
     auto AnimationPlaybacks() const noexcept -> slice<Arc<SceneAnimationPlayback>>;
     auto AnimationPlayback(i32 layer_id) const -> Option<Arc<SceneAnimationPlayback>>;
@@ -310,6 +312,7 @@ private:
     Vec<Arc<SceneAnimationPlayback>> m_playbacks;
     Vec<float>                       m_texture_channel_blend_map;
     Vec<Eigen::Affine3f>             m_final_affines;
+    Vec<Option<Eigen::Affine3f>>     m_script_bone_overrides;
     Arc<Puppet>                      m_puppet;
 };
 
