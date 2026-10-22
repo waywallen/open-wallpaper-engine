@@ -217,7 +217,15 @@ void AppHandler::OnContextInitialized() {
 
 void AppHandler::OnContextCreated(CefRefPtr<CefBrowser> /*browser*/, CefRefPtr<CefFrame> frame,
                                   CefRefPtr<CefV8Context> context) {
-    if (! frame || ! frame->IsMain() || ! context) return;
+    if (! frame || ! context) return;
+
+    // Cancel selection in every frame without blocking wallpaper mouse handlers.
+    frame->ExecuteJavaScript("window.addEventListener('selectstart', function(event) { "
+                             "event.preventDefault(); }, true);",
+                             "weweb://internal/disable_selection.js",
+                             0);
+
+    if (! frame->IsMain()) return;
 
     const int generation = m_next_audio_context_generation++;
     (void)m_audio_context_generations.insert(reinterpret_cast<rstd::uintptr_t>(context.get()),
