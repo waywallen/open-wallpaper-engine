@@ -1396,6 +1396,51 @@ TEST(TextureLoader, DeclarationUsesMetadataWithoutLoadingContent) {
     EXPECT_EQ(parses->load(), u32(1));
 }
 
+namespace
+{
+struct AtlasMipParser {
+    usize first_mips;
+    usize second_mips;
+    auto  Retention(ref<str>) const -> owe::ImageRetention { return owe::ImageRetention::Parser; }
+    auto  Describe(ref<str>) const -> Result<owe::ImageDescription, owe::ImageParseError> {
+        owe::ImageDescription result;
+        result.header.format = owe::TextureFormat::RGBA8;
+        result.slots.push({ 64, 32, first_mips });
+        result.slots.push({ 128, 64, second_mips });
+        return Ok(rstd::move(result));
+    }
+    auto ParseHeader(ref<str>) const -> Result<owe::ImageHeader, owe::ImageParseError> {
+        return Ok(owe::ImageHeader {});
+    }
+    auto Parse(ref<str>) const -> Result<Arc<owe::Image>, owe::ImageParseError> {
+        return Err(owe::ImageParseError { .kind = owe::ImageParseErrorKind::DecodeFailed });
+    }
+    auto ParseMany(slice<String> names) const
+        -> Vec<Result<Arc<owe::Image>, owe::ImageParseError>> {
+        Vec<Result<Arc<owe::Image>, owe::ImageParseError>> result;
+        for (const auto& name : names) result.push(Parse(name.as_str()));
+        return result;
+    }
+};
+} // namespace
+
+TEST(TextureLoader, DeclarationAcceptsAtlasSlotsWithDifferentMipCounts) {
+    // Each atlas slot is uploaded as its own texture, so only the shortest mip chain is
+    // guaranteed for every frame.
+    auto check = [](usize first, usize second) {
+        owe::Scene scene;
+        scene.SetImageParser(Arc<dyn<owe::IImageParser>>::make(AtlasMipParser { first, second }));
+        auto                            snapshot = owe::ExtractRenderSceneSnapshot(scene);
+        SnapshotImportedTextureProvider provider(snapshot, scene.CaptureImageSource());
+        auto declared = provider.Declare(MakeImportedTextureRequest("atlas"_str));
+        ASSERT_TRUE(declared.is_ok());
+        EXPECT_EQ(declared->mip_levels, 4u);
+        EXPECT_EQ(declared->layers, 1u);
+    };
+    check(usize(4), usize(5));
+    check(usize(5), usize(4));
+}
+
 TEST(TextureLoader, DeclarationAndMissingPlaceholderHaveMatchingDescriptions) {
     owe::Scene                      scene;
     auto                            snapshot = owe::ExtractRenderSceneSnapshot(scene);

@@ -309,12 +309,16 @@ public:
                 .kind    = resource::ResourceErrorKind::MissingDefinition,
                 .message = rstd::format("invalid texture metadata {}", request.name) });
         auto shape = (*descriptions)[usize()];
-        for (const auto& slot : *descriptions)
-            if (slot.mip_levels != shape.mip_levels || slot.layers != shape.layers)
+        for (const auto& slot : *descriptions) {
+            if (slot.layers != shape.layers)
                 return Err(resource::ResourceError {
                     .kind    = resource::ResourceErrorKind::MissingDefinition,
                     .message = rstd::format("animated texture {} has incompatible subresources",
                                             request.name) });
+            // Each slot is uploaded as its own texture, so slots may carry different mip
+            // chains; declare the shortest one, which every slot can satisfy.
+            if (slot.mip_levels < shape.mip_levels) shape.mip_levels = slot.mip_levels;
+        }
         return Ok(rstd::move(shape));
     }
 
