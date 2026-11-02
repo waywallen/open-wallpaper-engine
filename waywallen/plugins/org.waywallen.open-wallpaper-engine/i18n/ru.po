@@ -189,6 +189,10 @@ msgstr "Недавно добавленные"
 msgid "Most subscribed"
 msgstr "Самые популярные"
 
+#: wallpaper_engine/wallpaper.lua:198
+msgid "Mouse parallax"
+msgstr "Параллакс от мыши"
+
 #: wallpaper_engine/api.lua:89
 msgid "Music"
 msgstr "Музыка"

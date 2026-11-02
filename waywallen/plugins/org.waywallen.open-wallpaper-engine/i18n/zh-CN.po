@@ -189,6 +189,10 @@ msgstr "最新"
 msgid "Most subscribed"
 msgstr "订阅最多"
 
+#: wallpaper_engine/wallpaper.lua:198
+msgid "Mouse parallax"
+msgstr "鼠标视差"
+
 #: wallpaper_engine/api.lua:89
 msgid "Music"
 msgstr "音乐"
