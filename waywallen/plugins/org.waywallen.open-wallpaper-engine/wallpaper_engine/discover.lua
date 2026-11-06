@@ -7,9 +7,6 @@ local cached_details = {}
 
 function M.search(ctx, params)
     local result = api.search(ctx, params)
-    -- Workshop items carry their creator's steamid64, never the name behind it;
-    -- resolve the ids in page order so the top of the grid is named first when
-    -- the lookup cannot cover all of them.
     local creators = {}
     for _, item in ipairs(result.items) do
         creators[#creators + 1] = tostring(item.creator or "")
