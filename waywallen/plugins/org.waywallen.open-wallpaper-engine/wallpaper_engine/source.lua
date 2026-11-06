@@ -13,9 +13,11 @@ function M.auto_detect(ctx)
     }
     local found, seen = {}, {}
     for _, root in ipairs(candidates) do
-        if not seen[root] and (ctx.fs.exists(root .. project_util.WORKSHOP)
+        -- ~/.steam/steam is usually a symlink to ~/.local/share/Steam.
+        local key = ctx.fs.canonicalize and ctx.fs.canonicalize(root) or root
+        if not seen[key] and (ctx.fs.exists(root .. project_util.WORKSHOP)
             or ctx.fs.exists(root .. project_util.PROJECTS_REL)) then
-            seen[root] = true
+            seen[key] = true
             table.insert(found, root)
         end
     end
