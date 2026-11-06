@@ -47,7 +47,7 @@ owe::FrameSurfaceCompletionStatus ToFrameCompletionStatus(BridgeSlotCompletionSt
 auto SurfaceFailure(owe::FrameSurfaceErrorKind kind, BridgeSurfaceError cause)
     -> Option<owe::FrameSurfaceError> {
     return Some(owe::FrameSurfaceError {
-        kind, Some(Arc<dyn<rstd::error::Error>>::make(rstd::move(cause))) });
+        kind, Some(Box<dyn<rstd::error::Error>>::make(rstd::move(cause))) });
 }
 
 auto ToFrameCompletion(const BridgeSlotCompletionResult& result, owe::FrameSurfaceIdentity identity,
@@ -55,7 +55,7 @@ auto ToFrameCompletion(const BridgeSlotCompletionResult& result, owe::FrameSurfa
     owe::FrameSurfaceCompletionResult converted { .status = ToFrameCompletionStatus(result.status),
                                                   .identity = identity };
     if (converted.error)
-        converted.error->cause = Some(Arc<dyn<rstd::error::Error>>::make(
+        converted.error->cause = Some(Box<dyn<rstd::error::Error>>::make(
             submitting ? BridgeSurfaceError::Submit(result.status, result.error_code)
                        : BridgeSurfaceError::Abort(result.status, result.error_code)));
     return converted;
@@ -125,7 +125,7 @@ owe::FrameSurfaceAcquireResult BridgeExSwapchain::acquireRenderTarget() {
         auto aborted = m_core.abortSlot(acquired.identity);
         auto error   = owe::FrameSurfaceError { owe::FrameSurfaceErrorKind::InvalidLease };
         if (! aborted.completed())
-            error.cause = Some(Arc<dyn<rstd::error::Error>>::make(
+            error.cause = Some(Box<dyn<rstd::error::Error>>::make(
                 BridgeSurfaceError::Abort(aborted.status, aborted.error_code)));
         return { .status = owe::FrameSurfaceAcquireStatus::ProtocolError,
                  .error  = Some(rstd::move(error)) };

@@ -644,7 +644,7 @@ struct MediaProducerLease {
     Arc<MediaRegistry::State::Runtime> runtime;
     auto Pump(TextureContext& context, double seconds) -> Result<bool, MediaError> {
         runtime->Pump(context, seconds);
-        if (runtime->error.is_some()) return Err(runtime->error->clone());
+        if (runtime->error.is_some()) return Err(runtime->error.take().unwrap());
         return Ok(runtime->updated);
     }
     auto ContentRevision() const -> u64 { return runtime->content_revision; }
@@ -880,7 +880,8 @@ void MediaRegistry::State::Runtime::Pump(TextureContext& context, double dt_seco
     });
     if (reserved.is_err()) {
         auto failure = reserved.unwrap_err();
-        if (failure.kind != tex::ErrorKind::Busy) error = Some(MediaError::texture(failure));
+        if (failure.kind != tex::ErrorKind::Busy)
+            error = Some(MediaError::texture(rstd::move(failure)));
         return;
     }
     auto        write        = rstd::move(reserved).unwrap();
@@ -1187,7 +1188,7 @@ auto MediaRegistry::Pump(TextureContext& context, double seconds) -> Result<usiz
         auto runtime = weak.upgrade();
         if (! runtime) continue;
         runtime->Pump(context, seconds);
-        if (runtime->error.is_some()) return Err(runtime->error->clone());
+        if (runtime->error.is_some()) return Err(runtime->error.take().unwrap());
         if (runtime->updated) ++updated;
     }
     return Ok(updated);
@@ -1262,7 +1263,7 @@ export namespace owe::video
 inline auto ResourceFailure(MediaError error) -> vrento::resource::ResourceError {
     return vrento::resource::ResourceError::external(
         rstd::format("video operation={}", int(error.operation)),
-        Arc<dyn<rstd::error::Error>>::make(rstd::move(error)));
+        Box<dyn<rstd::error::Error>>::make(rstd::move(error)));
 }
 struct WavsenTextureFactory {
     MediaRegistry media;

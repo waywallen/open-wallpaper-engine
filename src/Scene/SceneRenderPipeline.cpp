@@ -50,7 +50,7 @@ auto SceneRenderPipeline::failed(ScenePrepareError error)
     m_ready          = false;
     m_attempt_active = false;
     ++m_stats.preparation_failures;
-    m_last_failure = Some(rstd::sync::Arc<ScenePrepareFailure>::make(m_attempt, error.clone()));
+    m_last_failure = Some(rstd::sync::Arc<ScenePrepareFailure>::make(m_attempt, error));
     return Err(rstd::move(error));
 }
 auto SceneRenderPipeline::finishAttempt(Result<PrepareOutcome, ScenePrepareError> result)

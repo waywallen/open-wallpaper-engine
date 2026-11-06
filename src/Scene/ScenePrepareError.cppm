@@ -10,21 +10,16 @@ using PrepareOutcome = vulkan::PrepareOutcome;
 class ScenePrepareError {
     RSTD_ENUM(ScenePrepareError, (GraphBuild, (vrento::fg::Error source;)),
               (Renderer, (vulkan::RenderPrepareError source;)))
-public:
-    auto clone() const -> ScenePrepareError {
-        if (is_GraphBuild()) return GraphBuild(as_GraphBuild().source);
-        return Renderer(as_Renderer().source.clone());
-    }
 };
 class ScenePrepareFailure {
-    u64               attempt_;
-    ScenePrepareError error_;
+    u64                     attempt_;
+    vrento::ErrorDiagnostic error_;
 
 public:
-    ScenePrepareFailure(u64 attempt, ScenePrepareError error)
-        : attempt_(attempt), error_(rstd::move(error)) {}
+    ScenePrepareFailure(u64 attempt, const ScenePrepareError& error)
+        : attempt_(attempt), error_(vrento::ErrorDiagnostic::capture(error)) {}
     auto attempt() const -> u64 { return attempt_; }
-    auto error() const -> const ScenePrepareError& { return error_; }
+    auto error() const -> const vrento::ErrorDiagnostic& { return error_; }
 };
 } // namespace owe
 

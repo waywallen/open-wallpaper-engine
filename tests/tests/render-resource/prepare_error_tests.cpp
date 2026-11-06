@@ -20,15 +20,14 @@ TEST(PrepareError, OwnsNestedResourceCauseAfterContextRelease) {
         return owe::ScenePrepareError::Renderer(rstd::move(error));
     };
     auto  error    = make();
-    auto  copy     = error.clone();
-    auto& renderer = copy.as_Renderer().source;
+    auto& renderer = error.as_Renderer().source;
     EXPECT_EQ(renderer.context.resource_transaction, u64(17));
     EXPECT_EQ(renderer.context.compilation, 23u);
     EXPECT_EQ(renderer.context.scope, 29u);
     auto& resource = renderer.as_Resources().source;
     EXPECT_TRUE(resource.message.as_str().contains("scene/image.tex"_str));
     EXPECT_EQ(resource.source->as_Texture().source.native, -4);
-    auto     source = as<rstd::error::Error>(copy).source();
+    auto     source = as<rstd::error::Error>(error).source();
     unsigned depth {};
     while (source) {
         ++depth;
@@ -40,18 +39,14 @@ TEST(PrepareError, OwnsNestedResourceCauseAfterContextRelease) {
 TEST(PrepareError, NativeCompileCauseSurvivesStatusCopies) {
     vrento::vulkan::GraphExecutionError error { vrento::vulkan::GraphExecutionStage::Prepare,
                                                 { 7 } };
-    error.cause = vrento::vulkan::GraphExecutionCause::Resource(
-        vrento::resource::ResourceErrorSnapshot(vrento::resource::ResourceError {
-            .message = "create pipeline failed"_Str,
-            .source  = Some(vrento::resource::ResourceErrorSource::Native(-3)) }));
-    auto cloned = error;
+    error.cause   = vrento::vulkan::GraphExecutionCause::Resource(vrento::resource::ResourceError {
+        .message = "create pipeline failed"_Str,
+        .source  = Some(vrento::resource::ResourceErrorSource::Native(-3)) });
+    auto snapshot = vrento::vulkan::GraphExecutionErrorSnapshot::capture(error);
     error.cause =
         vrento::vulkan::GraphExecutionCause::Reason(vrento::vulkan::GraphFailure::InvalidState);
-    EXPECT_EQ(cloned.pass.value, 7u);
-    EXPECT_EQ(cloned.cause.as_Resource().error.error().source->as_Native().code, -3);
-    auto source = as<rstd::error::Error>(cloned).source();
-    ASSERT_TRUE(source.is_some());
-    EXPECT_TRUE((*source)->source().is_some());
+    EXPECT_EQ(snapshot.pass.value, 7u);
+    EXPECT_TRUE(snapshot.diagnostic.sources.len() >= usize(2));
 }
 
 TEST(PrepareError, RetainsDrawIdentityAndUniformCause) {
@@ -61,10 +56,10 @@ TEST(PrepareError, RetainsDrawIdentityAndUniformCause) {
         item,
         owe::vulkan::DrawPrepareError::Uniform(
             vrento::UniformBufferUpdateError { "missing uniform binding"_Str }));
-    auto copy = error.clone();
-    EXPECT_EQ(copy.as_Draw().pass.value, 9u);
-    EXPECT_EQ(copy.as_Draw().item.index, u32(11));
-    EXPECT_TRUE(copy.as_Draw().source.as_Uniform().source.message.as_str().contains("binding"_str));
+    EXPECT_EQ(error.as_Draw().pass.value, 9u);
+    EXPECT_EQ(error.as_Draw().item.index, u32(11));
+    EXPECT_TRUE(
+        error.as_Draw().source.as_Uniform().source.message.as_str().contains("binding"_str));
 }
 
 TEST(PrepareError, PipelineOwnsFailureAcrossRetryAndDestruction) {
@@ -88,8 +83,8 @@ TEST(PrepareError, PipelineOwnsFailureAcrossRetryAndDestruction) {
         EXPECT_EQ((*first)->attempt(), u64(1));
         EXPECT_EQ(pipeline.stats().preparation_failures, 2u);
     }
-    EXPECT_TRUE((*first)->error().is_Renderer());
-    EXPECT_TRUE(as<rstd::error::Error>((*first)->error()).source().is_some());
+    EXPECT_TRUE((*first)->error().message.as_str().contains("renderer"_str));
+    EXPECT_TRUE((*first)->error().sources.len() > usize());
 }
 
 TEST(PrepareError, ShaderBackendReturnsCompilerDiagnostic) {

@@ -21,21 +21,13 @@ enum class MediaOperation
 class MediaCause {
     RSTD_ENUM(MediaCause, (Texture, (vrento::texture::Error error;)), (Decoder, (String message;)),
               (Invalid, (String detail;)), (Backend, (vrento::vulkan::BackendError error;)))
-public:
-    auto clone() const -> MediaCause {
-        if (is_Texture()) return Texture(as_Texture().error);
-        if (is_Decoder()) return Decoder(as_Decoder().message.clone());
-        if (is_Invalid()) return Invalid(as_Invalid().detail.clone());
-        return Backend(as_Backend().error.clone());
-    }
 };
 struct MediaError {
     MediaOperation operation;
     MediaCause     cause;
-    auto           clone() const -> MediaError { return { operation, cause.clone() }; }
     static auto    texture(vrento::texture::Error error,
                            MediaOperation         operation = MediaOperation::Prepare) -> MediaError {
-        return { operation, MediaCause::Texture(error) };
+        return { operation, MediaCause::Texture(rstd::move(error)) };
     }
     static auto decoder(MediaOperation operation, String message) -> MediaError {
         return { operation, MediaCause::Decoder(rstd::move(message)) };

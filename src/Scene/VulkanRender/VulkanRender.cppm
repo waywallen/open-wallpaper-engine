@@ -103,13 +103,13 @@ struct ResourcePreparation {
 };
 
 struct RenderDiagnostics {
-    vrento::vulkan::CompileStatus                    compilation;
-    vrento::vulkan::RendererStatistics               renderer;
-    vrento::resource_registry::ResourcePrepareStatus preparation;
-    vrento::resource_registry::ResourceStatistics    resources;
-    vrento::resource_registry::PipelineCacheStats    pipelines;
-    Option<vrento::vulkan::FrameState>               frame;
-    Option<vrento::vulkan::GraphExecutionError>      frame_error;
+    vrento::vulkan::CompileStatus                       compilation;
+    vrento::vulkan::RendererStatistics                  renderer;
+    vrento::resource_registry::ResourcePrepareStatus    preparation;
+    vrento::resource_registry::ResourceStatistics       resources;
+    vrento::resource_registry::PipelineCacheStats       pipelines;
+    Option<vrento::vulkan::FrameState>                  frame;
+    Option<vrento::vulkan::GraphExecutionErrorSnapshot> frame_error;
 };
 
 class VulkanRender {

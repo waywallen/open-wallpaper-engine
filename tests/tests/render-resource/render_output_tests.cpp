@@ -299,8 +299,7 @@ TEST(RenderOutput, ClearAndResize) {
     auto failure = renderer.diagnostics().frame_error;
     rstd_assert(failure && failure->stage == vk::GraphExecutionStage::Binding);
     rstd_assert(failure->resource.valid());
-    rstd_assert(failure->texture_error() &&
-                failure->texture_error()->kind == tex::ErrorKind::Invalid);
+    rstd_assert(failure->texture && failure->texture->kind == tex::ErrorKind::Invalid);
     rstd_assert(counts->acquired == 1 && counts->aborted == 1 && counts->submitted == 0);
     install();
     rstd_assert(! renderer.renderedTarget("_rt_default"_str).unwrap().ready());

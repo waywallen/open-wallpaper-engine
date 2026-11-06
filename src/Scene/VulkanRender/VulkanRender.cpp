@@ -261,17 +261,17 @@ struct VulkanRender::Impl {
     vrento::vulkan::TextureOutput                          m_texture_output;
     VkFormat                                               m_present_format { VK_FORMAT_UNDEFINED };
     auto waitForPreparedUploads(RenderingResources&) -> Result<empty, vrento::texture::Error>;
-    Option<vrento::vulkan::GraphFrame>          m_frame;
-    Option<vrento::vulkan::GraphExecutionError> m_last_frame_error;
-    Option<HostOutputFrame>                     m_output;
-    bool                                        m_frame_submitted {};
+    Option<vrento::vulkan::GraphFrame>                  m_frame;
+    Option<vrento::vulkan::GraphExecutionErrorSnapshot> m_last_frame_error;
+    Option<HostOutputFrame>                             m_output;
+    bool                                                m_frame_submitted {};
     auto prepareFontUploads(vrento::texture::Submission&,
                             Vec<vrento::resource_registry::PreparedTextureUpdate>&)
         -> Result<empty, resource::ResourceError>;
     bool beginFrame(vrento::texture::Submission);
     bool prepareOutputFrame(Scene&);
     bool executeFrame();
-    void reportFrameError(vrento::vulkan::GraphExecutionError);
+    void reportFrameError(vrento::vulkan::GraphExecutionErrorSnapshot);
     void failOutput(bool uncertain = false);
     auto createFrameSynchronization(bool external) -> Option<Arc<FrameSynchronizationOwner>>;
     void closeOutput();
@@ -479,9 +479,8 @@ bool VulkanRender::Impl::beginFrame(vrento::texture::Submission work) {
     auto                                                  fonts = prepareFontUploads(work, uploads);
     if (fonts.is_err()) {
         vrento::vulkan::GraphExecutionError error { vrento::vulkan::GraphExecutionStage::Prepare };
-        error.cause = vrento::vulkan::GraphExecutionCause::Resource(
-            vrento::resource::ResourceErrorSnapshot(rstd::move(fonts).unwrap_err()));
-        reportFrameError(rstd::move(error));
+        error.cause = vrento::vulkan::GraphExecutionCause::Resource(rstd::move(fonts).unwrap_err());
+        reportFrameError(vrento::vulkan::GraphExecutionErrorSnapshot::capture(error));
         return false;
     }
     auto request = m_scene_render_state.captureFrame(m_rendering_resources,
@@ -490,7 +489,8 @@ bool VulkanRender::Impl::beginFrame(vrento::texture::Submission work) {
                                                      m_output->target,
                                                      (*m_graphics)->shared_descriptor());
     if (request.is_err()) {
-        reportFrameError(request.unwrap_err());
+        reportFrameError(
+            vrento::vulkan::GraphExecutionErrorSnapshot::capture(request.unwrap_err()));
         return false;
     }
     auto& sync = *m_output->synchronization;
@@ -506,22 +506,26 @@ bool VulkanRender::Impl::beginFrame(vrento::texture::Submission work) {
                                                    rstd::move(work),
                                                    rstd::move(uploads));
     if (frame.is_err()) {
-        reportFrameError(frame.unwrap_err());
+        reportFrameError(vrento::vulkan::GraphExecutionErrorSnapshot::capture(frame.unwrap_err()));
         return false;
     }
     m_frame            = Some(frame.unwrap());
     m_last_frame_error = None();
     return true;
 }
-void VulkanRender::Impl::reportFrameError(vrento::vulkan::GraphExecutionError error) {
-    m_last_frame_error = Some(vrento::vulkan::GraphExecutionError(error));
-    rstd_error("frame failed: {}", DescribeNativeFailure(error));
+void VulkanRender::Impl::reportFrameError(vrento::vulkan::GraphExecutionErrorSnapshot error) {
+    rstd_error("frame failed: {}", error.diagnostic.message);
+    for (const auto& source : error.diagnostic.sources) rstd_error("frame cause: {}", source);
     if (m_scene_render_state.installed())
         if (auto resource = m_scene_render_state.inputGraph().find_resource(error.resource))
             rstd_error("frame resource: {}", resource->name);
+    m_last_frame_error = Some(rstd::move(error));
 }
 void VulkanRender::Impl::failOutput(bool uncertain) {
-    if (m_frame && m_frame->error()) reportFrameError(*m_frame->error());
+    if (m_frame) {
+        auto error = m_frame->error();
+        if (error) reportFrameError(rstd::move(error).unwrap());
+    }
     if (m_output && (uncertain || m_output->window_image))
         m_output->blocked = true;
     else {

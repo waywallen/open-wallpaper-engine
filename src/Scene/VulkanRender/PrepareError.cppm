@@ -81,17 +81,6 @@ class DrawPrepareError {
               (Buffers, (vrento::resource::ResourceError source;)),
               (Descriptor, (u32 set; vrento::resource::ResourceError source;)),
               (Uniform, (vrento::UniformBufferUpdateError source;)))
-public:
-    auto clone() const -> DrawPrepareError {
-        if (is_Missing()) return Missing(as_Missing().kind, as_Missing().item);
-        if (is_Texture()) return Texture(as_Texture().use);
-        if (is_Buffer()) return Buffer(as_Buffer().use);
-        if (is_Shader()) return Shader(as_Shader().use);
-        if (is_Layout()) return Layout(as_Layout().use);
-        if (is_Buffers()) return Buffers(as_Buffers().source.clone());
-        if (is_Descriptor()) return Descriptor(as_Descriptor().set, as_Descriptor().source.clone());
-        return Uniform(vrento::UniformBufferUpdateError { as_Uniform().source.message.clone() });
-    }
 };
 struct PrepareContext {
     u64                         resource_transaction {};
@@ -109,21 +98,6 @@ class RenderPrepareError {
               (Upload, (vrento::texture::Error source;)))
 public:
     PrepareContext context;
-    auto           clone() const -> RenderPrepareError {
-        auto copy = [&]() -> RenderPrepareError {
-            if (is_State()) return State(as_State().reason);
-            if (is_Graph()) return Graph(as_Graph().source);
-            if (is_Resources())
-                return Resources(as_Resources().operation, as_Resources().source.clone());
-            if (is_Draw()) return Draw(as_Draw().pass, as_Draw().item, as_Draw().source.clone());
-            if (is_OutputResources()) return OutputResources(as_OutputResources().source.clone());
-            if (is_OutputDescription()) return OutputDescription(as_OutputDescription().source);
-            if (is_Compile()) return Compile(as_Compile().source);
-            return Upload(as_Upload().source);
-        }();
-        copy.context = context;
-        return copy;
-    }
 };
 } // namespace owe::vulkan
 

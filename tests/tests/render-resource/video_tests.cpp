@@ -213,10 +213,9 @@ TEST(MediaRegistry, OpenFailureOwnsDecoderDiagnostic) {
     EXPECT_EQ(error.operation, media::MediaOperation::Open);
     ASSERT_TRUE(error.cause.is_Decoder());
     EXPECT_FALSE(error.cause.as_Decoder().message.is_empty());
-    auto snapshot =
-        vrento::resource::ResourceErrorSnapshot(media::ResourceFailure(rstd::move(error)));
+    auto failure = media::ResourceFailure(rstd::move(error));
     media.Clear();
-    auto source = snapshot.error().source->as_External().source.deref();
+    auto source = failure.source->as_External().source.deref();
     auto saved  = rstd::error::downcast_ref<media::MediaError>(source);
     ASSERT_TRUE(saved.is_some());
     EXPECT_FALSE((*saved)->cause.as_Decoder().message.is_empty());
