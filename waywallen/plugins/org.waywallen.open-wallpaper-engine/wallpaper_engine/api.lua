@@ -55,6 +55,7 @@ M.filters = {
         id = "miscellaneous",
         title = tr("Miscellaneous"),
         type = "multi_select",
+        supports_exclusion = true,
         options = {
             { value = "Approved", label = tr("Approved") },
             { value = "Audio responsive", label = tr("Audio responsive") },
@@ -71,6 +72,7 @@ M.filters = {
         id = "genre",
         title = tr("Genre"),
         type = "multi_select",
+        supports_exclusion = true,
         options = {
             { value = "Abstract", label = tr("Abstract") },
             { value = "Animal", label = tr("Animal") },
@@ -141,6 +143,9 @@ function M.search(ctx, params)
     local excluded = {
         Application = true, Preset = true, Asset = true, ["Asset Pack"] = true,
     }
+    for _, tag in ipairs(params.excluded_tags or {}) do
+        excluded[tag] = true
+    end
     local required = {}
     local selected_types = {}
     local selected_ratings = {}
