@@ -117,6 +117,10 @@ msgstr "Для всех"
 msgid "Fantasy"
 msgstr "Фэнтези"
 
+#: wallpaper_engine/map.lua:55
+msgid "Favorites"
+msgstr "В избранном"
+
 #: plugin.toml
 msgid "Frame rate"
 msgstr "Частота кадров"
@@ -329,6 +333,10 @@ msgstr "Сеанс Steam истёк. Войдите снова"
 msgid "Steam sign-in must be renewed"
 msgstr "Необходимо повторно войти в Steam"
 
+#: wallpaper_engine/map.lua:54
+msgid "Subscribers"
+msgstr "Подписчики"
+
 #: wallpaper_engine/api.lua:96
 msgid "Technology"
 msgstr "Технологии"
@@ -404,6 +412,10 @@ msgstr "Сверхширокое стандартное разрешение"
 #: wallpaper_engine/api.lua:99
 msgid "Unspecified"
 msgstr "Не указано"
+
+#: wallpaper_engine/map.lua:56
+msgid "Upvotes"
+msgstr "Голоса «за»"
 
 #: wallpaper_engine/api.lua:66
 msgid "User Shortcut"

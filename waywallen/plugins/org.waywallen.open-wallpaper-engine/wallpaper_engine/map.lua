@@ -44,32 +44,25 @@ function M.search_item(item, authors)
     }
 end
 
-local function summary(item)
-    local parts = {}
-    local subs = item.subscriptions or item.lifetime_subscriptions
-    if subs then
-        table.insert(parts, tostring(subs) .. " subscribers")
+local function fields(item)
+    local out = {}
+    local function field(key, label, value)
+        if value ~= nil then
+            table.insert(out, { key = key, label = label, value = tostring(value) })
+        end
     end
-    if item.favorited then
-        table.insert(parts, tostring(item.favorited) .. " favorites")
-    end
-    local vote = item.vote_data or {}
-    if vote.votes_up then
-        table.insert(parts, tostring(vote.votes_up) .. " up")
-    end
-    return table.concat(parts, "  \194\183  ")
+    field("subscribers", tr("Subscribers"), item.subscriptions or item.lifetime_subscriptions)
+    field("favorites", tr("Favorites"), item.favorited)
+    field("votes_up", tr("Upvotes"), (item.vote_data or {}).votes_up)
+    return out
 end
 
 function M.details(item)
-    local desc = item.description or item.short_description or item.file_description or ""
-    local head = summary(item)
-    if head ~= "" then
-        desc = head .. "\n\n" .. desc
-    end
     return {
-        description = desc,
+        description = item.description or item.short_description or item.file_description or "",
         size = tostring(item.file_size or ""),
         tags = tag_names(item),
+        fields = fields(item),
         web_url = "https://steamcommunity.com/sharedfiles/filedetails/?id=" ..
             tostring(item.publishedfileid or ""),
     }

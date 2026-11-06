@@ -117,6 +117,10 @@ msgstr "所有人"
 msgid "Fantasy"
 msgstr "奇幻"
 
+#: wallpaper_engine/map.lua:55
+msgid "Favorites"
+msgstr ""
+
 #: plugin.toml
 msgid "Frame rate"
 msgstr "帧率"
@@ -329,6 +333,10 @@ msgstr "Steam 会话已过期，请重新登录"
 msgid "Steam sign-in must be renewed"
 msgstr "需要重新登录 Steam"
 
+#: wallpaper_engine/map.lua:54
+msgid "Subscribers"
+msgstr ""
+
 #: wallpaper_engine/api.lua:96
 msgid "Technology"
 msgstr "科技"
@@ -404,6 +412,10 @@ msgstr "超宽屏标准分辨率"
 #: wallpaper_engine/api.lua:99
 msgid "Unspecified"
 msgstr "未指定"
+
+#: wallpaper_engine/map.lua:56
+msgid "Upvotes"
+msgstr ""
 
 #: wallpaper_engine/api.lua:66
 msgid "User Shortcut"
