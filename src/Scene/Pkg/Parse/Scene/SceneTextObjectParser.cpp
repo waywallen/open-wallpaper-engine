@@ -329,7 +329,7 @@ void ParseTextObjImpl(SceneParseContext& context, wpscene::TextObject& obj) {
     style.mesh_origin =
         direct_text ? text::TextMeshOrigin::Layout : text::TextMeshOrigin::InkBounds;
     style.color                 = { obj.color[usize(0)], obj.color[usize(1)], obj.color[usize(2)] };
-    style.alpha                 = obj.alpha;
+    style.alpha                 = direct_text ? 1.0f : obj.alpha;
     style.brightness            = obj.brightness;
     style.opaquebackground      = has_bg;
     style.background_color      = { obj.backgroundcolor[usize(0)],
@@ -415,6 +415,7 @@ void ParseTextObjImpl(SceneParseContext& context, wpscene::TextObject& obj) {
         direct_text ? sp_node.clone()
                     : Arc<SceneNode>::make(
                           Vector3f::Zero(), Vector3f::Ones(), Vector3f::Zero(), obj.name.as_str());
+    if (direct_text) layer_node->SetBaseColor(Vector3f::Ones(), obj.alpha);
     layer_node->SetReflected(obj.reflected);
     layer_node->ID() = obj.id;
 
@@ -440,7 +441,10 @@ void ParseTextObjImpl(SceneParseContext& context, wpscene::TextObject& obj) {
     const auto text_node_id                       = scene.RegisterNode(
         *layer_node,
         obj.id >= i32() ? Some(WallpaperLayerId { .value = obj.id }) : None<WallpaperLayerId>());
-    scene.RegisterNode(*sp_node);
+    const auto glyph_node_id  = scene.RegisterNode(*sp_node);
+    const auto opacity_source = scene.Register(Box<dyn<UniformSource>>::make(
+        text::TextOpacityUniformSource(direct_text ? Some(layer_node.clone()) : None())));
+    (void)scene.AttachNode(glyph_node_id, opacity_source);
     Option<Arc<TextRuntimeTargets>> runtime_targets;
     String                          link_output;
     if (direct_text) {

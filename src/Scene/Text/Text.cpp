@@ -271,6 +271,7 @@ namespace
 constexpr auto kTextShaderHlsl = R"hlsl(
 [[vk::binding(0, 1)]] cbuffer ww_Uniforms {
     column_major float4x4 g_ModelViewProjectionMatrix;
+    float g_TextOpacity;
 };
 
 struct VSInput {
@@ -299,7 +300,7 @@ SamplerState g_Texture0_sampler;
 
 float4 main_ps(PSInput i) : SV_Target {
     float a = g_Texture0.Sample(g_Texture0_sampler, i.v_uv).r;
-    return float4(i.v_col.rgb, i.v_col.a * a);
+    return float4(i.v_col.rgb, i.v_col.a * a * g_TextOpacity);
 }
 )hlsl"_str;
 
@@ -382,6 +383,31 @@ Option<Arc<owe::SceneShader>> GetTextCopyBackgroundSceneShader() {
     static const auto shader =
         CompileInlineShader("text_copybackground"_str, kTextCopyBackgroundShaderHlsl);
     return shader.clone();
+}
+
+auto TextOpacityUniformSource::Describe(mut_ref<dyn<UniformBindingSink>> sink) const
+    -> Result<empty, UniformError> {
+    auto result = sink->Bind(
+        UniformOutputId { .value = u32(static_cast<rstd::uint32_t>(TextOpacityOutput::Opacity)) },
+        "g_TextOpacity"_str,
+        UniformValueShape::Float(u32(1)));
+    if (result.is_err()) return Err(rstd::move(result).unwrap_err_unchecked());
+    return Ok(empty {});
+}
+
+auto TextOpacityUniformSource::Version(ref<dyn<UniformUpdateContext>> context) const -> u64 {
+    return context->Frame()->revision;
+}
+
+auto TextOpacityUniformSource::Evaluate(ref<dyn<UniformUpdateContext>>,
+                                        mut_ref<dyn<UniformValueSink>> sink) const
+    -> Result<empty, UniformError> {
+    const auto id =
+        UniformOutputId { .value = u32(static_cast<rstd::uint32_t>(TextOpacityOutput::Opacity)) };
+    if (! sink->Wants(id)) return Ok(empty {});
+    const float opacity = m_node.is_some() ? (**m_node).EffectiveAlpha() : 1.0f;
+    const auto  value   = UniformValue(ShaderValue(opacity));
+    return sink->Write(id, value.View());
 }
 
 auto TextUniformSource::Describe(rstd::mut_ref<rstd::dyn<UniformBindingSink>> sink) const

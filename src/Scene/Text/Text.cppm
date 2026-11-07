@@ -124,6 +124,25 @@ private:
     Arc<TextUniformState> m_state;
 };
 
+enum class TextOpacityOutput : rstd::uint32_t
+{
+    Opacity,
+};
+
+class TextOpacityUniformSource {
+public:
+    explicit TextOpacityUniformSource(Option<Arc<SceneNode>> node): m_node(rstd::move(node)) {}
+
+    auto Describe(mut_ref<dyn<UniformBindingSink>>) const -> Result<empty, UniformError>;
+    auto Version(ref<dyn<UniformUpdateContext>>) const -> u64;
+    auto Evaluate(ref<dyn<UniformUpdateContext>>, mut_ref<dyn<UniformValueSink>>) const
+        -> Result<empty, UniformError>;
+    auto AcquireBindingLease() const -> Option<Box<dyn<UniformBindingLease>>> { return None(); }
+
+private:
+    Option<Arc<SceneNode>> m_node;
+};
+
 enum class TextMeshOrigin
 {
     Layout,

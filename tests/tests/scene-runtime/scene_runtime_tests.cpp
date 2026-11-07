@@ -1205,6 +1205,24 @@ TEST(TextUniformSource, OwnsTextProjectionOutputs) {
     EXPECT_EQ(value.size().to_primitive(), 16u);
 }
 
+TEST(TextOpacityUniformSource, UsesNodeAlphaForDirectText) {
+    auto node = Arc<owe::SceneNode>::make();
+    node->SetBaseColor(Eigen::Vector3f::Ones(), 0.6f);
+    owe::text::TextOpacityUniformSource source(Some(node.clone()));
+    auto                                value =
+        scene_test::Capture(owe::SceneFrame {}, source, owe::text::TextOpacityOutput::Opacity);
+    EXPECT_FLOAT_EQ(value[usize()], 0.6f);
+
+    node->SetUserAlpha(0.0f);
+    value = scene_test::Capture(owe::SceneFrame {}, source, owe::text::TextOpacityOutput::Opacity);
+    EXPECT_FLOAT_EQ(value[usize()], 0.0f);
+
+    owe::text::TextOpacityUniformSource intermediate(None());
+    value = scene_test::Capture(
+        owe::SceneFrame {}, intermediate, owe::text::TextOpacityOutput::Opacity);
+    EXPECT_FLOAT_EQ(value[usize()], 1.0f);
+}
+
 TEST(TextUniformSource, EffectProjectionIncludesGeometryAlignment) {
     auto camera =
         Arc<owe::SceneCamera>::make(owe::SceneCamera::MakeOrthographic(200, 100, -1.0, 1.0));
