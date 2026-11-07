@@ -152,20 +152,25 @@ void ParseCameraObj(SceneParseContext& context, wpscene::CameraObject& cam) {
     if (! cam.visible_user.empty())
         node->SetVisibleUserBinding(ToSceneUserVisibilityBinding(cam.visible_user));
 
-    if (cam.visible) camera_owner->AttatchNode(node.as_ptr());
     if (use_perspective) {
-        if (cam.fov > 0.0f) camera_owner->SetFov(cam.fov);
         camera_owner->SetAspect(rstd::as_cast<double>(context.ortho_w) /
                                 rstd::as_cast<double>(context.ortho_h));
         (void)scene.SetActiveCamera(camera_name);
     }
 
-    auto path                 = Arc<SceneCameraPath>::make();
-    path->camera_name         = String::make(camera_name);
-    path->camera              = Some(camera_owner.clone());
-    path->node                = node.as_ptr();
-    path->default_translate   = default_translate;
-    path->default_rotation    = default_rotation;
+    auto path               = Arc<SceneCameraPath>::make();
+    path->camera_name       = String::make(camera_name);
+    path->camera            = Some(camera_owner.clone());
+    path->node              = node.as_ptr();
+    path->default_translate = default_translate;
+    path->default_rotation  = default_rotation;
+    path->default_lookat    = camera_owner->IsLookAt();
+    if (path->default_lookat) {
+        const auto transforms = camera_owner->Transforms();
+        path->default_eye     = transforms.eye.cast<float>();
+        path->default_center  = transforms.center.cast<float>();
+        path->default_up      = transforms.up.cast<float>();
+    }
     path->path_translate_bias = path_translate_bias;
     path->path_rotation_bias  = path_rotation_bias;
     path->default_width       = default_width;

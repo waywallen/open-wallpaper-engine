@@ -1544,6 +1544,46 @@ TEST(SceneCameraPath, UserBindingMutatesRegisteredArc) {
     EXPECT_TRUE(path->enabled);
 }
 
+TEST(SceneCameraPath, HiddenParentDoesNotOverrideCamera) {
+    owe::Scene scene;
+    auto       camera = Arc<owe::SceneCamera>::make(
+        owe::SceneCamera::MakePerspective(16.0 / 9.0, 0.1, 1000.0, 45.0));
+    camera->SetLookAt({ 0.0, 0.0, 5.0 }, { 0.0, 0.0, 0.0 }, { 0.0, 1.0, 0.0 });
+    camera->Update();
+    scene.RegisterCamera(String::make("default"_str), camera.clone());
+
+    auto parent = Arc<owe::SceneNode>::make();
+    auto node   = Arc<owe::SceneNode>::make();
+    ASSERT_TRUE(parent->AppendChild(node.clone()));
+    parent->SetVisible(false);
+
+    auto path            = Arc<owe::SceneCameraPath>::make();
+    path->camera         = Some(camera.clone());
+    path->camera_name    = String::make("default"_str);
+    path->node           = node.as_ptr();
+    path->perspective    = true;
+    path->origin_base    = { 10.0f, 0.0f, 0.0f };
+    path->default_lookat = true;
+    path->default_eye    = { 0.0f, 0.0f, 5.0f };
+    path->default_center = { 0.0f, 0.0f, 0.0f };
+    path->default_up     = { 0.0f, 1.0f, 0.0f };
+    path->CaptureViewport();
+    scene.RegisterCameraPath(path.clone());
+
+    scene.TickCameraPaths();
+    EXPECT_DOUBLE_EQ(camera->Transforms().eye.z(), 5.0);
+    parent->SetVisible(true);
+    scene.TickCameraPaths();
+    EXPECT_DOUBLE_EQ(camera->Transforms().eye.x(), 10.0);
+    parent->SetVisible(false);
+    scene.TickCameraPaths();
+    EXPECT_DOUBLE_EQ(camera->Transforms().eye.z(), 5.0);
+    camera->SetLookAt({ 2.0, 0.0, 5.0 }, { 2.0, 0.0, 0.0 }, { 0.0, 1.0, 0.0 });
+    camera->Update();
+    scene.TickCameraPaths();
+    EXPECT_DOUBLE_EQ(camera->Transforms().eye.x(), 2.0);
+}
+
 TEST(SceneCameraPath, SequentialQueueSamplesClipAndHoldsEmptyClip) {
     auto camera = Arc<owe::SceneCamera>::make(
         owe::SceneCamera::MakePerspective(16.0 / 9.0, 0.01, 1000.0, 45.0));

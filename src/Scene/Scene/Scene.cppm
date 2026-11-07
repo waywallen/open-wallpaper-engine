@@ -3119,6 +3119,7 @@ private:
     Vec<String>                                m_camera_names;
     Option<String>                             m_active_camera;
     Vec<Arc<SceneCameraPath>>                  m_camera_paths;
+    HashSet<String>                            m_active_camera_paths;
     HashMap<String, Vec<Arc<SceneCameraPath>>> m_camera_path_user_index;
 
     void RebuildElidableLayerIds();

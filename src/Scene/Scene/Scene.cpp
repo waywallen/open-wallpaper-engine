@@ -2810,20 +2810,28 @@ Vec<SceneMaterialDirtyEvent> Scene::ConsumePreparedMaterialDirtyEvents() {
 void Scene::TickCameraPaths() {
     if (m_camera_paths.is_empty()) return;
 
+    auto effective_enabled = [](const SceneCameraPath& path) {
+        if (! path.enabled) return false;
+        for (auto* parent = path.node ? path.node->Parent() : nullptr; parent;
+             parent       = parent->Parent())
+            if (! parent->Visible()) return false;
+        return true;
+    };
     HashSet<String> has_enabled;
     for (const auto& path : m_camera_paths) {
-        if (path->enabled) has_enabled.insert(path->camera_name.clone());
+        if (effective_enabled(*path)) has_enabled.insert(path->camera_name.clone());
     }
 
     HashSet<String> touched;
     HashSet<String> reset;
     for (const auto& path : m_camera_paths) {
-        if (! path->enabled) continue;
+        if (! effective_enabled(*path)) continue;
         if (path->Tick(m_runtime.Frame().elapsed.to_primitive()))
             touched.insert(path->camera_name.clone());
     }
     for (const auto& path : m_camera_paths) {
-        if (path->enabled || has_enabled.contains(path->camera_name.as_str()) ||
+        if (has_enabled.contains(path->camera_name.as_str()) ||
+            ! m_active_camera_paths.contains(path->camera_name.as_str()) ||
             reset.contains(path->camera_name.as_str()))
             continue;
         if (path->ApplyDefault()) touched.insert(path->camera_name.clone());
@@ -2833,6 +2841,7 @@ void Scene::TickCameraPaths() {
     touched.iter().for_each([&](ref<String> name) {
         UpdateLinkedCamera(name->as_str());
     });
+    m_active_camera_paths = rstd::move(has_enabled);
 }
 
 void Scene::TickMaterialShaderAnimations() {

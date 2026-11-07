@@ -655,7 +655,15 @@ void WireCameraFieldScripts(SceneParseContext& context, const Arc<SceneNode>& no
         SetScriptInitializationOrder(context, *fs, node);
         TrackRegisteredAssets(context, fs);
 
-        if (field == "origin"_str) {
+        if (field == "visible"_str) {
+            auto path = camera_path.clone();
+            ss.AddActuator({ fs, [node, path = rstd::move(path)](const script::ScriptValue& value) {
+                                if (! value.is_Bool()) return;
+                                const bool visible = value.as_Bool().value.v;
+                                node->SetVisible(visible);
+                                path->SetEnabled(visible);
+                            } });
+        } else if (field == "origin"_str) {
             auto path         = camera_path.clone();
             auto camera_owner = camera.clone();
             ss.AddActuator(
