@@ -219,20 +219,50 @@ script::ScriptScene& EnsureScriptScene(SceneParseContext& context) {
                         }
                         return 0;
                     }),
+                script::JsRuntime::BoneCountResolver::make(
+                    [layers = layers.clone()](SceneNode* node) -> rstd::uint32_t {
+                        auto layer = LookupPuppetLayer(layers, node);
+                        return layer.is_some() ? (*layer)->boneCount() : 0;
+                    }),
                 script::JsRuntime::BoneTransformResolver::make(
                     [layers = layers.clone()](SceneNode*     node,
                                               rstd::uint32_t index,
-                                              double time) -> Option<script::BoneTranslation> {
+                                              double time) -> Option<script::BoneTransformData> {
                         auto layer = LookupPuppetLayer(layers, node);
                         if (layer.is_none()) return None();
                         auto bone = (*layer)->boneTransform(index, time);
                         if (bone.is_none()) return None();
 
                         node->UpdateTrans();
-                        Eigen::Affine3f world = Eigen::Affine3f::Identity();
-                        world.matrix()        = node->ModelTrans().cast<float>();
-                        Eigen::Vector3f t     = (world * *bone).translation();
-                        return Some(script::BoneTranslation { t.x(), t.y(), t.z() });
+                        Eigen::Affine3f world         = Eigen::Affine3f::Identity();
+                        world.matrix()                = node->ModelTrans().cast<float>();
+                        Eigen::Matrix4f           mat = (world * *bone).matrix();
+                        script::BoneTransformData data;
+                        for (int col = 0; col < 4; ++col) {
+                            for (int row = 0; row < 4; ++row) {
+                                data.m[col * 4 + row] = mat(row, col);
+                            }
+                        }
+                        return Some(data);
+                    }),
+                script::JsRuntime::BoneSetTransformResolver::make(
+                    [layers = layers.clone()](SceneNode*                       node,
+                                              rstd::uint32_t                   index,
+                                              const script::BoneTransformData& data) {
+                        auto layer = LookupPuppetLayer(layers, node);
+                        if (layer.is_none()) return;
+
+                        node->UpdateTrans();
+                        Eigen::Matrix4f mat;
+                        for (int col = 0; col < 4; ++col) {
+                            for (int row = 0; row < 4; ++row) {
+                                mat(row, col) = data.m[col * 4 + row];
+                            }
+                        }
+                        Eigen::Affine3f world      = Eigen::Affine3f::Identity();
+                        world.matrix()             = node->ModelTrans().cast<float>();
+                        Eigen::Affine3f local_bone = world.inverse() * Eigen::Affine3f(mat);
+                        (*layer)->setBoneTransform(index, local_bone);
                     }));
         if (context.user_properties.is_some())
             (*context.user_properties)->iter().for_each([&](auto entry) {

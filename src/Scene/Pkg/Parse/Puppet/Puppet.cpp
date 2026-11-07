@@ -285,6 +285,12 @@ slice<Eigen::Affine3f> PuppetLayer::genFrame(double time) noexcept {
         affine = parent * affine;
     }
 
+    for (usize i {}; i < m_final_affines.len() && i < m_script_bone_overrides.len(); ++i) {
+        if (m_script_bone_overrides[i].is_some()) {
+            m_final_affines[i] = *m_script_bone_overrides[i];
+        }
+    }
+
     for (usize i {}; i < m_final_affines.len(); ++i) {
         m_final_affines[i] *= bones[i].inv_bind.matrix();
     }
@@ -614,8 +620,22 @@ auto PuppetLayer::DrawOrder(slice<PartOrder> parts) const -> Vec<usize> {
 
 PuppetLayer::PuppetLayer(Arc<Puppet> pup): m_puppet(rstd::move(pup)) {
     m_final_affines.reserve(m_puppet->bones.len());
+    m_script_bone_overrides.reserve(m_puppet->bones.len());
     for (usize i {}; i < m_puppet->bones.len(); ++i) {
         m_final_affines.emplace_back(Affine3f::Identity());
+        m_script_bone_overrides.emplace_back(None());
     }
 }
 PuppetLayer::~PuppetLayer() = default;
+
+rstd::uint32_t PuppetLayer::boneCount() const noexcept {
+    return m_puppet ? static_cast<rstd::uint32_t>(m_puppet->bones.len().to_primitive()) : 0;
+}
+
+void PuppetLayer::setBoneTransform(rstd::uint32_t         index,
+                                   const Eigen::Affine3f& transform) noexcept {
+    if (index == 0) return;
+    const usize zero_based(index - 1);
+    if (zero_based >= m_script_bone_overrides.len()) return;
+    m_script_bone_overrides[zero_based] = Some(Eigen::Affine3f(transform));
+}

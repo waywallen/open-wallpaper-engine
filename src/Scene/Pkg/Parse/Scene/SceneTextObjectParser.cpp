@@ -1048,7 +1048,8 @@ void ParseTextObjImpl(SceneParseContext& context, wpscene::TextObject& obj) {
             layer_node.as_ptr(),
             script::JsRuntime::TextSetter::make([set_text = set_text.clone()](ref<str> s) {
                 set_text->operator()(s);
-            }));
+            }),
+            s_text.as_str());
     }
 
     Vec<Arc<SceneNode>> text_before_nodes;
