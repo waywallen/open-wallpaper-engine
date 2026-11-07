@@ -34,14 +34,11 @@ namespace
 {
 
 template<typename T, typename Make>
-void DecodeObject(Vec<SceneObject>& objects, const SceneObjectRecord& record, owe::fs::VFS& vfs,
-                  SceneVersion version, Make make) {
+Option<SceneObject> DecodeObject(const owe::Json& authored, owe::fs::VFS& vfs, SceneVersion version,
+                                 Make make) {
     T value;
-    if (! value.FromJson(record.authored, vfs, version)) {
-        rstd_error("parse scene object failed, name: {}", record.metadata.name);
-        return;
-    }
-    objects.push(make(rstd::move(value)));
+    if (! value.FromJson(authored, vfs, version)) return None();
+    return Some(make(rstd::move(value)));
 }
 
 } // namespace
@@ -49,68 +46,63 @@ void DecodeObject(Vec<SceneObject>& objects, const SceneObjectRecord& record, ow
 namespace owe::wpscene
 {
 
+Option<SceneObject> DecodeSceneObject(const owe::Json& authored, mut_ref<fs::VFS> vfs,
+                                      SceneVersion version) {
+    switch (ClassifySceneObject(authored)) {
+    case SceneObjectKind::Container: {
+        ContainerObject value;
+        if (value.FromJson(authored)) return Some(SceneObject::Container(rstd::move(value)));
+        return None();
+    }
+    case SceneObjectKind::Image:
+        return DecodeObject<ImageObject>(authored, *vfs, version, [](ImageObject value) {
+            return SceneObject::Image(rstd::move(value));
+        });
+    case SceneObjectKind::Shape:
+        return DecodeObject<ShapeObject>(authored, *vfs, version, [](ShapeObject value) {
+            return SceneObject::Shape(rstd::move(value));
+        });
+    case SceneObjectKind::Particle:
+        return DecodeObject<ParticleObject>(authored, *vfs, version, [](ParticleObject value) {
+            return SceneObject::Particle(rstd::move(value));
+        });
+    case SceneObjectKind::Sound:
+        return DecodeObject<SoundObject>(authored, *vfs, version, [](SoundObject value) {
+            return SceneObject::Sound(rstd::move(value));
+        });
+    case SceneObjectKind::Light:
+        return DecodeObject<LightObject>(authored, *vfs, version, [](LightObject value) {
+            return SceneObject::Light(rstd::move(value));
+        });
+    case SceneObjectKind::Text:
+        return DecodeObject<TextObject>(authored, *vfs, version, [](TextObject value) {
+            return SceneObject::Text(rstd::move(value));
+        });
+    case SceneObjectKind::Model:
+        return DecodeObject<ModelObject>(authored, *vfs, version, [](ModelObject value) {
+            return SceneObject::Model(rstd::move(value));
+        });
+    case SceneObjectKind::Camera:
+        return DecodeObject<CameraObject>(authored, *vfs, version, [](CameraObject value) {
+            return SceneObject::Camera(rstd::move(value));
+        });
+    case SceneObjectKind::Unknown: return None();
+    }
+    return None();
+}
+
 Vec<SceneObject> DecodeSceneObjects(ref<SceneDocument> document, mut_ref<fs::VFS> vfs) {
     Vec<SceneObject> objects;
     objects.reserve(document->objects.len());
     for (const auto& record : document->objects) {
-        switch (record.metadata.kind) {
-        case SceneObjectKind::Container: {
-            if (! record.metadata.has_id) break;
-            ContainerObject value;
-            if (value.FromJson(record.authored))
-                objects.push(SceneObject::Container(rstd::move(value)));
-            break;
-        }
-        case SceneObjectKind::Image:
-            DecodeObject<ImageObject>(
-                objects, record, *vfs, document->metadata.pkg_version, [](ImageObject value) {
-                    return SceneObject::Image(rstd::move(value));
-                });
-            break;
-        case SceneObjectKind::Shape:
-            DecodeObject<ShapeObject>(
-                objects, record, *vfs, document->metadata.pkg_version, [](ShapeObject value) {
-                    return SceneObject::Shape(rstd::move(value));
-                });
-            break;
-        case SceneObjectKind::Particle:
-            DecodeObject<ParticleObject>(
-                objects, record, *vfs, document->metadata.pkg_version, [](ParticleObject value) {
-                    return SceneObject::Particle(rstd::move(value));
-                });
-            break;
-        case SceneObjectKind::Sound:
-            DecodeObject<SoundObject>(
-                objects, record, *vfs, document->metadata.pkg_version, [](SoundObject value) {
-                    return SceneObject::Sound(rstd::move(value));
-                });
-            break;
-        case SceneObjectKind::Light:
-            DecodeObject<LightObject>(
-                objects, record, *vfs, document->metadata.pkg_version, [](LightObject value) {
-                    return SceneObject::Light(rstd::move(value));
-                });
-            break;
-        case SceneObjectKind::Text:
-            DecodeObject<TextObject>(
-                objects, record, *vfs, document->metadata.pkg_version, [](TextObject value) {
-                    return SceneObject::Text(rstd::move(value));
-                });
-            break;
-        case SceneObjectKind::Model:
-            DecodeObject<ModelObject>(
-                objects, record, *vfs, document->metadata.pkg_version, [](ModelObject value) {
-                    return SceneObject::Model(rstd::move(value));
-                });
-            break;
-        case SceneObjectKind::Camera:
-            DecodeObject<CameraObject>(
-                objects, record, *vfs, document->metadata.pkg_version, [](CameraObject value) {
-                    return SceneObject::Camera(rstd::move(value));
-                });
-            break;
-        case SceneObjectKind::Unknown: break;
-        }
+        if (record.metadata.kind == SceneObjectKind::Unknown ||
+            (record.metadata.kind == SceneObjectKind::Container && ! record.metadata.has_id))
+            continue;
+        auto object = DecodeSceneObject(record.authored, vfs, document->metadata.pkg_version);
+        if (object.is_some())
+            objects.push(rstd::move(*object));
+        else
+            rstd_error("parse scene object failed, name: {}", record.metadata.name);
     }
     return objects;
 }

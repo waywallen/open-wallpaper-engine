@@ -79,19 +79,19 @@ void BuildBloomPostProcess(SceneParseContext& context, fs::VFS& vfs,
         if (mutate.is_some()) (**mutate)(wpmat);
 
         ShaderInfo wpShaderInfo;
-        wpShaderInfo.baseConstSvs = context.global_base_uniforms.clone();
+        wpShaderInfo.baseConstSvs = context.layer_resources->global_base_uniforms.clone();
 
         auto                   pp_node = Arc<SceneNode>::make();
         SceneMaterial          material;
         UniformNodeConfigDraft svData;
-        auto                   material_result = BuildMaterial(vfs,
-                                                               *context.shader_cache,
-                                                               context.shader_environment,
-                                                               wpmat,
-                                                               scene,
-                                                               rstd::move(wpShaderInfo),
-                                                               GeometryStageRequirement::None,
-                                                               context.load_bench);
+        auto material_result = BuildMaterial(vfs,
+                                             *context.layer_resources->shader_cache,
+                                             context.layer_resources->shader_environment,
+                                             wpmat,
+                                             scene,
+                                             rstd::move(wpShaderInfo),
+                                             GeometryStageRequirement::None,
+                                             context.load_bench);
         if (material_result.is_err()) {
             rstd_error("bloom: BuildMaterial failed: {}", mat_relpath);
             return false;

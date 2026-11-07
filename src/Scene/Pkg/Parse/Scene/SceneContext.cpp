@@ -4,30 +4,41 @@ import rstd;
 
 using namespace rstd::prelude;
 
-void owe::SetUniformConfig(SceneParseContext& context, const Arc<SceneNode>& node,
+auto owe::ResolveTextureSize(Scene& scene, ref<str> texture) -> Option<array<float, 2>> {
+    auto parsed = scene.ParseImageHeader(texture);
+    if (parsed.is_err()) return None();
+    auto  header = rstd::move(parsed).unwrap_unchecked();
+    float width {};
+    float height {};
+    if (header.isSprite && header.spriteAnim.numFrames() > usize()) {
+        const auto& frame = header.spriteAnim.GetCurFrame();
+        width             = frame.width;
+        height            = frame.height;
+    } else {
+        width  = static_cast<float>(header.width > 0 ? header.width : header.mapWidth);
+        height = static_cast<float>(header.height > 0 ? header.height : header.mapHeight);
+    }
+    if (width <= 0.0f || height <= 0.0f) return None();
+    return Some(array<float, 2> { width, height });
+}
+
+void owe::SetUniformConfig(SceneLayerBuildContext& context, const Arc<SceneNode>& node,
                            UniformNodeConfigDraft config) {
     config.configured = true;
-    context.uniform_state->RegisterNodeParallaxContract(*node, config.object_id, config.parallax);
-    for (auto& entry : context.uniform_configs) {
+    context.layer_resources->uniform_state->RegisterNodeParallaxContract(
+        *node, config.object_id, config.parallax);
+    for (auto& entry : context.layer_build.uniform_configs) {
         if (entry.node.as_ptr() != node.as_ptr()) continue;
         entry.config = rstd::move(config);
         return;
     }
-    context.uniform_configs.push(SceneUniformConfigDraft {
+    context.layer_build.uniform_configs.push(SceneUniformConfigDraft {
         .node   = node.clone(),
         .config = rstd::move(config),
     });
 }
 
-auto owe::FindUniformConfig(const SceneParseContext& context, const SceneNode& node)
-    -> const UniformNodeConfigDraft* {
-    for (const auto& entry : context.uniform_configs) {
-        if (entry.node.as_ptr() == &node) return &entry.config;
-    }
-    return nullptr;
-}
-
-void owe::ApplyParallaxUniformConfig(SceneParseContext& context, const Arc<SceneNode>& node,
+void owe::ApplyParallaxUniformConfig(SceneLayerBuildContext& context, const Arc<SceneNode>& node,
                                      const wpscene::ParallaxDepthBinding& parallax, i32 object_id,
                                      bool propagate_to_children) {
     if (! parallax.authored && wpscene::IsZeroParallaxDepth(parallax.depth)) return;
@@ -42,11 +53,11 @@ auto owe::SceneParseContext::NextSyntheticObjectId() -> i32 {
     return id;
 }
 
-void owe::RegisterNodeRef(SceneParseContext& context, i32 id, SceneParseContext::NodeRef node) {
+void owe::RegisterNodeRef(SceneLayerBuildContext& context, i32 id, SceneLayerNodeDraft node) {
     if (node.node.is_some()) {
         context.scene->RegisterNode(**node.node,
                                     id >= i32() ? Some(WallpaperLayerId { .value = id })
                                                 : None<WallpaperLayerId>());
     }
-    (void)context.node_id_map.insert(id, rstd::move(node));
+    (void)context.layer_build.node_id_map.insert(id, rstd::move(node));
 }

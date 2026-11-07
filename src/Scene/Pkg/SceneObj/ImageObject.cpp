@@ -298,6 +298,7 @@ Option<ImageAssetInfo> owe::wpscene::LoadImageAssetInfo(fs::VFS& vfs, ref<str> i
 }
 
 bool ImageObject::FromJson(const owe::Json& json, fs::VFS& vfs, SceneVersion v) {
+    size_from_texture = false;
     owe::GetJsonValue(json, "image"_str, image);
     composite_layer = image == "models/util/composelayer.json"_str;
     ReadVisibleProperty(json, visible, visible_user);
@@ -326,6 +327,7 @@ bool ImageObject::FromJson(const owe::Json& json, fs::VFS& vfs, SceneVersion v) 
             owe::GetJsonValue(json, "size"_str, size);
         } else {
             size = { origin[usize(0)] * 2, origin[usize(1)] * 2 };
+            owe::GetJsonValue(*jImage, "autosize"_str, size_from_texture, false);
         }
     }
     owe::GetJsonValue(json, "color"_str, color, false);
@@ -369,13 +371,31 @@ bool ImageObject::FromJson(const owe::Json& json, fs::VFS& vfs, SceneVersion v) 
     return true;
 }
 
+bool ImageObject::FromAsset(rstd::ref<rstd::str> asset, fs::VFS& vfs, SceneVersion version) {
+    size_from_texture = false;
+    image             = rstd::into(asset);
+    name              = rstd::format("__createLayer:{}", asset);
+    composite_layer   = image == "models/util/composelayer.json"_str;
+    auto json         = LoadImageAssetJson(*this, vfs, version, false);
+    if (json.is_none()) return false;
+    i32 width {}, height {};
+    owe::GetJsonValue(*json, "width"_str, width, false);
+    owe::GetJsonValue(*json, "height"_str, height, false);
+    if (width > i32() && height > i32()) {
+        size = { static_cast<float>(width.to_primitive()),
+                 static_cast<float>(height.to_primitive()) };
+    } else {
+        size_from_texture = true;
+    }
+    return true;
+}
+
 bool ImageObject::FromAsset(rstd::ref<rstd::str> asset, array<float, 2> asset_size, fs::VFS& vfs,
                             SceneVersion version) {
-    image           = rstd::into(asset);
-    name            = rstd::format("__createLayer:{}", asset);
-    size            = { asset_size[rstd::usize()], asset_size[rstd::usize(1)] };
-    composite_layer = image == "models/util/composelayer.json"_str;
-    return LoadImageAssetJson(*this, vfs, version, false).is_some();
+    if (! FromAsset(asset, vfs, version)) return false;
+    size              = { asset_size[rstd::usize()], asset_size[rstd::usize(1)] };
+    size_from_texture = false;
+    return true;
 }
 
 bool ShapeObject::FromJson(const owe::Json& json, fs::VFS& vfs, SceneVersion v) {

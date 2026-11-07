@@ -45,6 +45,7 @@ class SceneObject {
               (Camera, (CameraObject value;)))
 };
 
-Vec<SceneObject> DecodeSceneObjects(ref<SceneDocument>, mut_ref<fs::VFS>);
+Option<SceneObject> DecodeSceneObject(const owe::Json&, mut_ref<fs::VFS>, SceneVersion);
+Vec<SceneObject>    DecodeSceneObjects(ref<SceneDocument>, mut_ref<fs::VFS>);
 
 } // namespace owe::wpscene

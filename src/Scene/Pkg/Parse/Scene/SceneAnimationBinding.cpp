@@ -402,7 +402,7 @@ void ResolveAnimationScope(SceneAnimationBindingScope&             scope,
     }
 }
 
-auto ResolveFieldAnimations(const SceneParseContext&      context,
+auto ResolveFieldAnimations(const SceneLayerBuildContext& context,
                             const wpscene::FieldBindings& bindings) -> ResolvedFieldAnimations {
     ResolvedFieldAnimations parsed;
     for (const auto& binding : bindings.Entries()) {
@@ -440,23 +440,25 @@ auto owe::BuildAnimationBindingScope(const wpscene::ImageObject& object)
     return scope;
 }
 
-void owe::PrepareAnimationBindings(SceneParseContext&            context,
+void owe::PrepareAnimationBindings(SceneLayerBuildContext&       context,
                                    const wpscene::FieldBindings& bindings) {
     auto span = SceneLoadSpan(context.load_bench, &SceneLoadProbeIds::animation_bindings);
     context.animation_bindings = BuildAnimationBindingScope(bindings);
 }
 
-void owe::PrepareAnimationBindings(SceneParseContext&              context,
+void owe::PrepareAnimationBindings(SceneLayerBuildContext&         context,
                                    const wpscene::ContainerObject& object) {
     PrepareAnimationBindings(context, object.field_bindings);
 }
 
-void owe::PrepareAnimationBindings(SceneParseContext& context, const wpscene::ImageObject& object) {
+void owe::PrepareAnimationBindings(SceneLayerBuildContext&     context,
+                                   const wpscene::ImageObject& object) {
     auto span = SceneLoadSpan(context.load_bench, &SceneLoadProbeIds::animation_bindings);
     context.animation_bindings = BuildAnimationBindingScope(object);
 }
 
-void owe::PrepareAnimationBindings(SceneParseContext& context, const wpscene::ShapeObject& object) {
+void owe::PrepareAnimationBindings(SceneLayerBuildContext&     context,
+                                   const wpscene::ShapeObject& object) {
     auto span = SceneLoadSpan(context.load_bench, &SceneLoadProbeIds::animation_bindings);
     Vec<const wpscene::FieldBindingSpec*> authored;
     CollectBindings(object.field_bindings, authored);
@@ -464,7 +466,7 @@ void owe::PrepareAnimationBindings(SceneParseContext& context, const wpscene::Sh
     ResolveAnimationScope(context.animation_bindings, authored.as_slice());
 }
 
-void owe::PrepareAnimationBindings(SceneParseContext&             context,
+void owe::PrepareAnimationBindings(SceneLayerBuildContext&        context,
                                    const wpscene::ParticleObject& object) {
     auto span = SceneLoadSpan(context.load_bench, &SceneLoadProbeIds::animation_bindings);
     Vec<const wpscene::FieldBindingSpec*> authored;
@@ -475,15 +477,18 @@ void owe::PrepareAnimationBindings(SceneParseContext&             context,
     ResolveAnimationScope(context.animation_bindings, authored.as_slice());
 }
 
-void owe::PrepareAnimationBindings(SceneParseContext& context, const wpscene::SoundObject& object) {
+void owe::PrepareAnimationBindings(SceneLayerBuildContext&     context,
+                                   const wpscene::SoundObject& object) {
     PrepareAnimationBindings(context, object.field_bindings);
 }
 
-void owe::PrepareAnimationBindings(SceneParseContext& context, const wpscene::LightObject& object) {
+void owe::PrepareAnimationBindings(SceneLayerBuildContext&     context,
+                                   const wpscene::LightObject& object) {
     PrepareAnimationBindings(context, object.field_bindings);
 }
 
-void owe::PrepareAnimationBindings(SceneParseContext& context, const wpscene::TextObject& object) {
+void owe::PrepareAnimationBindings(SceneLayerBuildContext&    context,
+                                   const wpscene::TextObject& object) {
     auto span = SceneLoadSpan(context.load_bench, &SceneLoadProbeIds::animation_bindings);
     Vec<const wpscene::FieldBindingSpec*> authored;
     CollectBindings(object.field_bindings, authored);
@@ -491,23 +496,24 @@ void owe::PrepareAnimationBindings(SceneParseContext& context, const wpscene::Te
     ResolveAnimationScope(context.animation_bindings, authored.as_slice());
 }
 
-void owe::PrepareAnimationBindings(SceneParseContext& context, const wpscene::ModelObject& object) {
+void owe::PrepareAnimationBindings(SceneLayerBuildContext&     context,
+                                   const wpscene::ModelObject& object) {
     PrepareAnimationBindings(context, object.field_bindings);
 }
 
-void owe::PrepareAnimationBindings(SceneParseContext&           context,
+void owe::PrepareAnimationBindings(SceneLayerBuildContext&      context,
                                    const wpscene::CameraObject& object) {
     PrepareAnimationBindings(context, object.field_bindings);
 }
 
-auto owe::ResolveAnimationTrack(const SceneParseContext&         context,
+auto owe::ResolveAnimationTrack(const SceneLayerBuildContext&    context,
                                 const wpscene::FieldBindingSpec& binding) -> SceneAnimationTrack {
     auto track = context.animation_bindings.Resolve(binding);
     if (track.is_some()) return rstd::move(*track);
     return ToSceneAnimationTrack(*binding.animation);
 }
 
-void owe::AssignNodeFieldAnimations(SceneParseContext& context, SceneNode& node,
+void owe::AssignNodeFieldAnimations(SceneLayerBuildContext& context, SceneNode& node,
                                     const wpscene::FieldBindings& bindings) {
     auto parsed = ResolveFieldAnimations(context, bindings);
     parsed.Bind(node);
@@ -529,7 +535,7 @@ void owe::AssignNodeFieldAnimations(SceneParseContext& context, SceneNode& node,
     });
 }
 
-void owe::AssignCameraFieldAnimations(SceneParseContext& context, SceneNode& node,
+void owe::AssignCameraFieldAnimations(SceneLayerBuildContext& context, SceneNode& node,
                                       SceneCameraPath&              path,
                                       const wpscene::FieldBindings& bindings) {
     auto parsed = ResolveFieldAnimations(context, bindings);
@@ -544,7 +550,7 @@ void owe::AssignCameraFieldAnimations(SceneParseContext& context, SceneNode& nod
     assign(path.fov_track, "fov"_str);
 }
 
-void owe::LoadCameraObjectPath(SceneParseContext& context, const wpscene::CameraObject& object,
+void owe::LoadCameraObjectPath(SceneLayerBuildContext& context, const wpscene::CameraObject& object,
                                SceneCameraPath& path) {
     if (object.path.is_empty() || context.vfs == nullptr) return;
 
@@ -605,7 +611,8 @@ auto owe::ToSceneAnimationTrack(const wpscene::AnimCurve& authored) -> SceneAnim
     return SceneAnimationTrack { .curve = rstd::move(curve), .playback = rstd::move(playback) };
 }
 
-void owe::LoadRootCameraPaths(SceneParseContext& context, const wpscene::SceneMetadata& metadata) {
+void owe::LoadRootCameraPaths(SceneLayerBuildContext&       context,
+                              const wpscene::SceneMetadata& metadata) {
     if (metadata.general.isOrtho || metadata.camera.paths.is_empty() || context.vfs == nullptr)
         return;
 

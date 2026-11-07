@@ -196,22 +196,30 @@ struct LayerAssetReference {
     Option<ref<str>> workshop_id;
 };
 
-// One JsRuntime per Scene. Owns one JSRuntime and one JSContext. Compiled
-// modules are deduped by sha so duplicated sources across many bound fields
-// only allocate once. The runtime is not thread-safe; the renderer's frame
-// tick is the single owner.
+enum class FieldScriptInitialization
+{
+    Automatic,
+    Deferred
+};
+
+// One JsRuntime per Scene. Each field owns a separate module instance.
+// The renderer's frame tick is the single owner; the runtime is not thread-safe.
 class JsRuntime : NoCopy, NoMove {
 public:
     JsRuntime();
     ~JsRuntime();
 
-    // Returns nullptr on hard compile/init failure (logs once).
+    // Deferred scripts compile immediately but evaluate only on initialization.
+    // Returns nullptr on compile or immediate module evaluation failure.
     // `node` (nullable) is the SceneNode the script will see as `thisLayer`
     // inside init/update. When null, `thisLayer` falls back to a generic
     // stub (the JS-side default created at bootstrap).
-    FieldScript* MakeFieldScript(ref<str> source, ref<str> script_sha, FieldKind field_kind,
-                                 const Json& properties_config, const Json& initial_value,
-                                 ScriptBindingContext context = {});
+    FieldScript* MakeFieldScript(
+        ref<str> source, ref<str> script_sha, FieldKind field_kind, const Json& properties_config,
+        const Json& initial_value, ScriptBindingContext context = {},
+        FieldScriptInitialization initialization = FieldScriptInitialization::Automatic);
+
+    bool InitializeFieldScript(FieldScript& script);
 
     // Pending scripts initialize in ascending owner order when SetSceneRoot
     // completes scene assembly. Equal orders retain creation order.
@@ -225,6 +233,7 @@ public:
     // searches from this node. Call once per scene after parsing finishes.
     void SetScene(owe::Scene* scene);
     void SetSceneRoot(owe::SceneNode* root);
+    void InvalidateLayer(owe::SceneNode& node);
 
     // Wire localStorage to a JSON file. Existing keys load synchronously;
     // subsequent script writes flush back to the file. Pass an empty
@@ -293,7 +302,6 @@ public:
     using ImageAlignmentSetter = Arc<dyn<FnMut<void(owe::SceneNode*, ref<str>)>>>;
     void RegisterImageAlignmentSetter(owe::SceneNode* node, ref<str> alignment,
                                       ImageAlignmentSetter setter);
-    void CloneImageAlignmentBinding(owe::SceneNode* source, owe::SceneNode* clone);
 
     using LayerFactory =
         Arc<dyn<FnMut<Option<Arc<owe::SceneNode>>(owe::SceneNode*, LayerAssetReference)>>>;
@@ -303,6 +311,14 @@ public:
     void ClearLayerFactory();
     void ClearLayerConfigFactory();
 
+private:
+    friend class ScriptScene;
+    bool OwnsDeferredFieldScript(const FieldScript& script) const noexcept;
+    bool DiscardDeferredFieldScript(FieldScript& script);
+    void PruneInactiveFieldScripts();
+    void InvalidateLayerPointer(owe::SceneNode* node);
+
+public:
     // Same exposure rule as FieldScript::Impl above: opaque outside the
     // module, but visible to peer module impl files.
     struct Impl;
@@ -317,6 +333,7 @@ public:
     FieldKind          field_kind() const noexcept;
     const ScriptValue& last_value() const noexcept;
     bool               alive() const noexcept;
+    bool               initialization_deferred() const noexcept;
     ref<str>           script_sha() const noexcept;
     slice<String>      RegisteredAssets() const noexcept;
     Option<ref<str>>   WorkshopId() const noexcept;
@@ -377,6 +394,7 @@ public:
 
     JsRuntime& runtime() noexcept;
     void       AddActuator(Actuator a);
+    bool       DiscardDeferredFieldScript(FieldScript& script);
     bool       empty() const noexcept;
 
     // Push the host's per-frame state, drive every FieldScript, drain

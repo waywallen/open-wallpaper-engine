@@ -7,6 +7,7 @@ import :scene_context;
 import rstd;
 import rstd.log;
 import wescene.load_bench;
+import wescene.scene_user_property;
 
 using namespace rstd::prelude;
 using namespace rstd::literals;
@@ -50,13 +51,22 @@ auto owe::SceneParser::Parse(ref<str> scene_id, ref<wpscene::SceneDocument> docu
         }
     }
 
-    auto context_span = SceneLoadSpan(options.load_bench, &SceneLoadProbeIds::parse_context);
+    auto  context_span   = SceneLoadSpan(options.load_bench, &SceneLoadProbeIds::parse_context);
+    auto  scene          = Box<Scene>::make();
+    auto& property_state = EnsureSceneUserPropertyState(*scene);
+    if (options.user_properties.is_some()) {
+        (*options.user_properties)->iter().for_each([&](auto entry) {
+            auto [key, value] = entry;
+            property_state.Set(key->as_str(), *value);
+        });
+    }
     auto context =
-        BuildContext(vfs_owner,
+        BuildContext(*scene,
+                     vfs_owner,
                      scene_id,
                      metadata,
                      ResolveOrthoProjectionExtent(metadata, objects.as_slice()),
-                     options.user_properties,
+                     Some(property_state.Values()),
                      rstd::move(options.shader_cache_dir),
                      GeometryShaderLimits {
                          .max_output_vertices = options.capabilities.max_geometry_output_vertices,
@@ -68,10 +78,11 @@ auto owe::SceneParser::Parse(ref<str> scene_id, ref<wpscene::SceneDocument> docu
                      options.capabilities.geometry_shader_supported,
                      rstd::move(options.image_ready),
                      rstd::move(options.texture_memory));
-    context.load_bench             = options.load_bench;
-    auto runtime_input             = Arc<UniformRuntimeInput>::make(context.uniform_state.clone());
-    context.hidden_link_source_ids = rstd::move(expanded.hidden_link_source_ids);
-    context.linked_source_ids      = rstd::move(expanded.linked_source_ids);
+    context.load_bench = options.load_bench;
+    auto runtime_input =
+        Arc<UniformRuntimeInput>::make(context.layer_resources->uniform_state.clone());
+    context.layer_resources->hidden_link_source_ids = rstd::move(expanded.hidden_link_source_ids);
+    context.layer_resources->linked_source_ids      = rstd::move(expanded.linked_source_ids);
     IndexSceneDocument(context, document, objects.as_slice());
     ProcessContainers(context, objects.as_mut_slice().as_mut_ref());
     (void)context_span.finish();
@@ -87,8 +98,9 @@ auto owe::SceneParser::Parse(ref<str> scene_id, ref<wpscene::SceneDocument> docu
     }
 
     auto finalize_span = SceneLoadSpan(options.load_bench, &SceneLoadProbeIds::parse_finalize);
+    FinalizeScene(context);
     return Ok(ParsedScene {
-        .scene         = FinalizeScene(context),
+        .scene         = rstd::move(scene),
         .runtime_input = rstd::move(runtime_input),
     });
 }

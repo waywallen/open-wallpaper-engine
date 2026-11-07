@@ -32,6 +32,33 @@ TEST(SceneUserProperty, CanonicalizesHostSchemeColor) {
     EXPECT_EQ(owe::CanonicalSceneUserPropertyKey("custom"_str), "custom"_str);
 }
 
+TEST(SceneUserProperty, StoresCurrentDescriptorBeforeNotifyingBindings) {
+    owe::Scene scene;
+    bool       observed = false;
+    scene.RegisterUserPropertyBinding(
+        String::make("brightness"_str),
+        Box<dyn<FnMut<void(ref<owe::Json>)>>>::make([&](ref<owe::Json>) {
+            auto state = scene.Extension<owe::SceneUserPropertyState>();
+            if (state.is_none()) return;
+            auto stored = (**state).Values()->get("brightness"_str);
+            if (stored.is_none()) return;
+            auto value = (**stored).get("value"_str);
+            observed   = value.is_some() && (*value)->as_f64().unwrap_or(f64()) == f64(0.75);
+        }));
+
+    auto property = rstd::json::from_str(R"({"type":"slider","value":0.75})"_str).unwrap();
+    owe::SceneUserPropertyApplier::Apply(scene, "brightness"_str, property);
+    EXPECT_TRUE(observed);
+
+    auto state = scene.Extension<owe::SceneUserPropertyState>();
+    ASSERT_TRUE(state.is_some());
+    auto stored = (**state).Values()->get("brightness"_str);
+    ASSERT_TRUE(stored.is_some());
+    observed = false;
+    owe::SceneUserPropertyApplier::Apply(scene, "brightness"_str, **stored);
+    EXPECT_TRUE(observed);
+}
+
 TEST(SceneUserProperty, ResolvesClampedColorDescriptor) {
     auto property = rstd::json::from_str(R"({"type":"color","value":"-0.2 0.4 1.4"})"_str).unwrap();
     auto color    = owe::ResolveSceneUserPropertyColor(property);
@@ -114,6 +141,45 @@ TEST(SceneUserProperty, AppliesRegisteredShaderUniformBinding) {
     EXPECT_EQ(bindings[usize()].material.as_ptr().as_raw_ptr(), material.as_ptr().as_raw_ptr());
     EXPECT_EQ(bindings[usize()].uniform, "u_Brightness"_str);
     EXPECT_TRUE(material->customShader.constValues.contains_key("u_Brightness"_str));
+}
+
+TEST(SceneUserProperty, RemovesMaterialBindingsByOwnerAndKeepsSnapshotsAlive) {
+    owe::Scene scene;
+    auto       first     = Arc<owe::SceneNode>::make();
+    auto       second    = Arc<owe::SceneNode>::make();
+    auto       material  = Arc<owe::SceneMaterial>::make();
+    auto       first_id  = scene.RegisterNode(*first);
+    auto       second_id = scene.RegisterNode(*second);
+    scene.RegisterShaderUserBinding("brightness"_Str, material.clone(), "u_First"_Str, first_id);
+    scene.RegisterShaderUserBinding("brightness"_Str, material.clone(), "u_Second"_Str, second_id);
+    scene.RegisterShaderUserBinding("brightness"_Str, material.clone(), "u_Global"_Str);
+    scene.RegisterShaderComboUserBinding(
+        "quality"_Str,
+        owe::Scene::ShaderComboUserBinding {
+            .material = material.clone(), .combo = "QUALITY"_Str, .fallback = "0"_Str },
+        first_id);
+    scene.RegisterMaterialTextureUserBinding(
+        "texture"_Str,
+        owe::Scene::MaterialTextureUserBinding {
+            .material = material.clone(), .slot = u32(), .fallback = "fallback"_Str },
+        first_id);
+    rstd::array<Arc<owe::SceneMaterial>, 1> materials { material.clone() };
+    scene.RegisterImageColorUserBinding("color"_Str, first, materials.as_slice());
+    scene.RegisterImageAlphaUserBinding("alpha"_Str, first, materials.as_slice());
+    auto snapshot = scene.ShaderUserBindings("brightness"_str);
+    ASSERT_EQ(snapshot.len(), usize(3));
+    EXPECT_EQ(scene.RemoveNodeMaterialBindings(first_id), usize(5));
+    EXPECT_EQ(scene.RemoveNodeMaterialBindings(first_id), usize());
+    auto remaining = scene.ShaderUserBindings("brightness"_str);
+    ASSERT_EQ(remaining.len(), usize(2));
+    EXPECT_EQ(remaining[usize()].uniform, "u_Second"_str);
+    EXPECT_EQ(remaining[usize(1)].uniform, "u_Global"_str);
+    EXPECT_TRUE(scene.ShaderComboUserBindings("quality"_str).is_empty());
+    EXPECT_TRUE(scene.MaterialTextureUserBindings("texture"_str).is_empty());
+    EXPECT_TRUE(scene.ImageColorUserBindings("color"_str).is_empty());
+    EXPECT_TRUE(scene.ImageAlphaUserBindings("alpha"_str).is_empty());
+    EXPECT_EQ(snapshot[usize()].uniform, "u_First"_str);
+    EXPECT_EQ(snapshot[usize()].material.as_ptr().as_raw_ptr(), material.as_ptr().as_raw_ptr());
 }
 
 TEST(SceneUserProperty, RecompilesComboAndSkipsUnchangedValue) {
@@ -341,6 +407,33 @@ TEST(SceneUserProperty, AppliesRegisteredParticleOverrideBinding) {
     (void)owe::SceneUserPropertyApplier::Apply(scene, "rate"_str, property);
 
     EXPECT_FLOAT_EQ(observed, 2.5f);
+    EXPECT_EQ(scene.ParticleOverrideBindings("rate"_str).len(), usize(1));
+}
+
+TEST(SceneUserProperty, RemovesParticleOverrideBindingsByNodeOwner) {
+    owe::Scene scene;
+    auto       first        = Arc<owe::SceneNode>::make();
+    auto       second       = Arc<owe::SceneNode>::make();
+    auto       first_id     = scene.RegisterNode(*first);
+    auto       second_id    = scene.RegisterNode(*second);
+    float      first_value  = 0.0f;
+    float      second_value = 0.0f;
+    scene.RegisterParticleOverrideBinding(
+        "rate"_Str,
+        Arc<dyn<owe::SceneParticleOverrideControl>>::make(
+            FakeParticleOverrideControl { .observed = &first_value }),
+        first_id);
+    scene.RegisterParticleOverrideBinding(
+        "rate"_Str,
+        Arc<dyn<owe::SceneParticleOverrideControl>>::make(
+            FakeParticleOverrideControl { .observed = &second_value }),
+        second_id);
+    array<Arc<owe::SceneNode>, 1> removed { first.clone() };
+    ASSERT_TRUE(scene.RemoveDetachedNodeRegistrations(removed.as_slice()));
+    auto property = rstd::json::from_str(R"({"type":"slider","value":2.5})"_str).unwrap();
+    (void)owe::SceneUserPropertyApplier::Apply(scene, "rate"_str, property);
+    EXPECT_FLOAT_EQ(first_value, 0.0f);
+    EXPECT_FLOAT_EQ(second_value, 2.5f);
     EXPECT_EQ(scene.ParticleOverrideBindings("rate"_str).len(), usize(1));
 }
 

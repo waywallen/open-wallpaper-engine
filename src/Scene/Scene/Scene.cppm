@@ -1186,6 +1186,7 @@ public:
     void Update();
 
     void AttatchNode(SceneNode*);
+    void AttachOwnedNode(Arc<SceneNode>);
 
     bool   IsPerspective() const { return m_perspective; }
     double Aspect() const { return m_aspect; }
@@ -1246,6 +1247,7 @@ public:
         if (m_node == nullptr) return rstd::None();
         return rstd::Some<SceneNode*>(m_node);
     }
+    auto AttachedNodeHandle() const -> Option<Arc<SceneNode>> { return m_owned_node.clone(); }
 
     void Clone(const SceneCamera& cam) {
         m_width       = cam.m_width;
@@ -1260,6 +1262,7 @@ public:
         m_center      = cam.m_center;
         m_up          = cam.m_up;
         m_view_offset = cam.m_view_offset;
+        m_owned_node  = cam.m_owned_node.clone();
         m_node        = cam.m_node;
     }
 
@@ -1298,7 +1301,8 @@ private:
     vrento::CameraState<Eigen::Matrix4d> m_camera;
     vrento::CameraState<Eigen::Matrix4d> m_reflection_camera;
 
-    SceneNode* m_node { nullptr };
+    SceneNode*             m_node { nullptr };
+    Option<Arc<SceneNode>> m_owned_node;
 };
 
 struct SceneAnimationKey {
@@ -1645,7 +1649,6 @@ public:
 // SceneNode.h
 // ============================================================================
 
-// Published nodes stay alive for the Scene lifetime; destroyLayer hides/recycles them.
 // Script and camera references rely on this. Post-parse writes use the render thread.
 // vrento owns tree links and detaches surviving children during teardown.
 class SceneNode : NoCopy, NoMove {
@@ -2427,6 +2430,16 @@ public:
     slice<SceneMaterial*>    Materials() const { return m_materials.as_slice(); }
 
 private:
+    friend class Scene;
+    bool            Append(Scene& scene, SceneNode& node, u32 generation);
+    SceneNodeId     RegisterNode(Scene&, SceneNode&);
+    SceneMeshId     RegisterMesh(SceneMesh&);
+    SceneMaterialId RegisterMaterial(Scene&, SceneMaterial&);
+    void            RegisterDrawItems(Scene&, SceneNode&, SceneNodeId,
+                                      const HashMap<rstd::uint64_t, SceneDrawItemId>*);
+    void            CollectNodes(Scene&, SceneNode*, HashSet<SceneNode*>&, Vec<SceneNode*>*);
+    void            RebuildNamedResources();
+
     Scene* m_scene { nullptr };
     u32    m_generation { 0 };
 
@@ -2471,6 +2484,7 @@ struct SceneTextureAnimationView {
 class SceneTextureAnimationRegistry : NoCopy, NoMove {
 public:
     void Rebuild(const Scene&);
+    void Append(const Scene&, usize first_draw);
     void Advance(f64 delta);
     auto Frame(SceneDrawItemId, usize texture_index) const -> Option<SceneTextureFrameView>;
 
@@ -2490,6 +2504,9 @@ private:
         SceneNode*              node { nullptr };
         HashMap<usize, Binding> bindings;
     };
+
+    void RegisterDraw(const Scene&, const SceneDrawItemRecord&, HashMap<String, Animation>*,
+                      const Entry*);
 
     static u64 Key(SceneDrawItemId draw) {
         return (rstd::as_cast<u64>(draw.generation) << u64(32)) | rstd::as_cast<u64>(draw.index);
@@ -2768,11 +2785,211 @@ private:
 
 RenderSceneSnapshot ExtractRenderSceneSnapshot(Scene& scene);
 
+class SceneCameraRegistry : NoCopy, NoMove {
+    friend class Scene;
+
+    void Register(String name, Arc<SceneCamera> camera) {
+        if (! m_cameras.contains_key(name.as_str())) m_names.push(name.clone());
+        (void)m_cameras.insert(rstd::move(name), rstd::move(camera));
+    }
+    void Remove(slice<String> names) {
+        HashSet<String> removed;
+        for (const auto& name : names) {
+            if (m_cameras.remove(name.as_str()).is_some()) (void)removed.insert(name.clone());
+        }
+        if (! removed.is_empty())
+            m_names.retain([&](const String& name) {
+                return ! removed.contains(name.as_str());
+            });
+        if (m_active_name.is_some() && removed.contains((*m_active_name).as_str()))
+            m_active_name = None();
+    }
+    void SetActive(ref<str> name) { m_active_name = Some(String::make(name)); }
+
+public:
+    auto Camera(ref<str> name) const -> Option<ref<SceneCamera>> {
+        auto camera = m_cameras.get(name);
+        return camera.is_some() ? Some((**camera).deref()) : None();
+    }
+    auto CameraMut(ref<str> name) -> Option<mut_ref<SceneCamera>> {
+        auto camera = m_cameras.get_mut(name);
+        return camera.is_some() ? Some((**camera).deref_mut()) : None();
+    }
+    auto Handle(ref<str> name) const -> Option<Arc<SceneCamera>> {
+        auto camera = m_cameras.get(name);
+        return camera.is_some() ? Some((**camera).clone()) : None();
+    }
+    auto Names() const -> slice<String> { return m_names.as_slice(); }
+    auto ActiveName() const -> Option<ref<str>> {
+        return m_active_name.is_some() ? Some((*m_active_name).as_str()) : None();
+    }
+
+private:
+    HashMap<String, Arc<SceneCamera>> m_cameras;
+    Vec<String>                       m_names;
+    Option<String>                    m_active_name;
+};
+
 // ============================================================================
 // Scene.h
 // ============================================================================
 
 class Scene : NoCopy, NoMove {
+    template<typename T>
+    class UserBindingIndex {
+        struct Entry {
+            explicit Entry(Box<dyn<FnMut<void(T)>>> callback)
+                : callback(Some(rstd::move(callback))) {}
+            Option<Box<dyn<FnMut<void(T)>>>> callback;
+            bool                             active { true };
+        };
+        struct OwnerBinding {
+            String key;
+            u64    id;
+        };
+
+    public:
+        void Register(String key, Box<dyn<FnMut<void(T)>>> callback, SceneNodeId owner) {
+            auto bindings = m_by_key.get_mut(key.as_str());
+            if (bindings.is_none()) {
+                (void)m_by_key.insert(key.clone(), BTreeMap<u64, Arc<Entry>> {});
+                bindings = m_by_key.get_mut(key.as_str());
+            }
+            auto id   = m_next_id;
+            m_next_id = m_next_id.checked_add(u64(1)).unwrap();
+            (void)(*bindings)->insert(u64(id), Arc<Entry>::make(rstd::move(callback)));
+            if (! owner.Valid()) return;
+            auto owned = m_by_owner.get_mut(OwnerKey(owner));
+            if (owned.is_none()) {
+                (void)m_by_owner.insert(OwnerKey(owner), Vec<OwnerBinding> {});
+                owned = m_by_owner.get_mut(OwnerKey(owner));
+            }
+            (*owned)->push(OwnerBinding { rstd::move(key), id });
+        }
+
+        bool Apply(ref<str> key, T value) {
+            auto snapshot = [&] {
+                Vec<Arc<Entry>> result;
+                auto            bindings = m_by_key.get(key);
+                if (bindings.is_none()) return result;
+                for (auto [id, entry] : (*bindings)->iter()) {
+                    (void)id;
+                    result.push(entry->clone());
+                }
+                return result;
+            }();
+            if (snapshot.is_empty()) return false;
+            for (auto& entry : snapshot) {
+                if (! entry->active) continue;
+                auto callback = entry->callback.take();
+                if (callback.is_none()) continue;
+                (*callback)->operator()(value);
+                if (entry->active) entry->callback = callback.take();
+            }
+            return true;
+        }
+
+        usize Remove(SceneNodeId owner) {
+            auto owned = m_by_owner.remove(OwnerKey(owner));
+            if (owned.is_none()) return usize();
+            usize removed {};
+            for (const auto& item : *owned) {
+                auto bindings = m_by_key.get_mut(item.key.as_str());
+                if (bindings.is_none()) continue;
+                auto entry = (*bindings)->remove(item.id);
+                if (entry.is_some()) {
+                    (*entry)->active   = false;
+                    (*entry)->callback = None();
+                    ++removed;
+                }
+                if ((*bindings)->is_empty()) (void)m_by_key.remove(item.key.as_str());
+            }
+            return removed;
+        }
+
+    private:
+        static u64 OwnerKey(SceneNodeId owner) {
+            return (rstd::as_cast<u64>(owner.generation) << u64(32)) |
+                   rstd::as_cast<u64>(owner.index);
+        }
+        HashMap<String, BTreeMap<u64, Arc<Entry>>> m_by_key;
+        HashMap<u64, Vec<OwnerBinding>>            m_by_owner;
+        u64                                        m_next_id { 1 };
+    };
+
+    template<typename T>
+    class MaterialBindingIndex {
+        struct OwnerBinding {
+            String key;
+            u64    id;
+        };
+
+    public:
+        void Register(String key, T binding, SceneNodeId owner) {
+            auto bindings = m_by_key.get_mut(key.as_str());
+            if (bindings.is_none()) {
+                (void)m_by_key.insert(key.clone(), BTreeMap<u64, T> {});
+                bindings = m_by_key.get_mut(key.as_str());
+            }
+            auto id   = m_next_id;
+            m_next_id = m_next_id.checked_add(u64(1)).unwrap();
+            (void)(*bindings)->insert(u64(id), rstd::move(binding));
+            if (! owner.Valid()) return;
+            auto owned = m_by_owner.get_mut(OwnerKey(owner));
+            if (owned.is_none()) {
+                (void)m_by_owner.insert(OwnerKey(owner), Vec<OwnerBinding> {});
+                owned = m_by_owner.get_mut(OwnerKey(owner));
+            }
+            (*owned)->push(OwnerBinding { rstd::move(key), id });
+        }
+
+        auto Snapshot(ref<str> key) const -> Vec<T> {
+            Vec<T> result;
+            auto   bindings = m_by_key.get(key);
+            if (bindings.is_none()) return result;
+            for (auto [id, binding] : (*bindings)->iter()) {
+                (void)id;
+                result.push(binding->clone());
+            }
+            return result;
+        }
+
+        auto Snapshot(ref<str> key, SceneNodeId owner) const -> Vec<T> {
+            Vec<T> result;
+            auto   owned    = m_by_owner.get(OwnerKey(owner));
+            auto   bindings = m_by_key.get(key);
+            if (owned.is_none() || bindings.is_none()) return result;
+            for (const auto& item : **owned) {
+                if (item.key != key) continue;
+                auto binding = (*bindings)->get(item.id);
+                if (binding.is_some()) result.push((**binding).clone());
+            }
+            return result;
+        }
+
+        usize Remove(SceneNodeId owner) {
+            auto owned = m_by_owner.remove(OwnerKey(owner));
+            if (owned.is_none()) return usize();
+            usize removed {};
+            for (const auto& item : *owned) {
+                auto bindings = m_by_key.get_mut(item.key.as_str());
+                if (bindings.is_none()) continue;
+                if ((*bindings)->remove(item.id).is_some()) ++removed;
+                if ((*bindings)->is_empty()) (void)m_by_key.remove(item.key.as_str());
+            }
+            return removed;
+        }
+
+    private:
+        static u64 OwnerKey(SceneNodeId owner) {
+            return (rstd::as_cast<u64>(owner.generation) << u64(32)) |
+                   rstd::as_cast<u64>(owner.index);
+        }
+        HashMap<String, BTreeMap<u64, T>> m_by_key;
+        HashMap<u64, Vec<OwnerBinding>>   m_by_owner;
+        u64                               m_next_id { 1 };
+    };
+
 public:
     Scene();
     ~Scene();
@@ -2787,19 +3004,25 @@ public:
     struct ShaderUserBinding {
         Arc<SceneMaterial> material;
         String             uniform;
+        auto clone() const -> ShaderUserBinding { return { material.clone(), uniform.clone() }; }
     };
 
-    void RegisterShaderUserBinding(String key, Arc<SceneMaterial> material, String uniform);
-    auto ShaderUserBindings(ref<str> key) const -> slice<ShaderUserBinding>;
+    void RegisterShaderUserBinding(String key, Arc<SceneMaterial> material, String uniform,
+                                   SceneNodeId owner = {});
+    auto ShaderUserBindings(ref<str> key) const -> Vec<ShaderUserBinding>;
 
     struct ShaderComboUserBinding {
         Arc<SceneMaterial>      material;
         String                  combo;
         String                  fallback;
         HashMap<String, String> options;
+        auto                    clone() const -> ShaderComboUserBinding {
+            return { material.clone(), combo.clone(), fallback.clone(), options.clone() };
+        }
     };
-    void RegisterShaderComboUserBinding(String key, ShaderComboUserBinding binding);
-    auto ShaderComboUserBindings(ref<str> key) const -> slice<ShaderComboUserBinding>;
+    void RegisterShaderComboUserBinding(String key, ShaderComboUserBinding binding,
+                                        SceneNodeId owner = {});
+    auto ShaderComboUserBindings(ref<str> key) const -> Vec<ShaderComboUserBinding>;
 
     // Like the material bindings above, this index is scene-wide and outlives
     // the parse, but not every parsed node reaches the finalized scene: the
@@ -2810,27 +3033,43 @@ public:
     struct ImagePropertyBinding {
         Arc<SceneNode>          node;
         Vec<Arc<SceneMaterial>> materials;
+        auto                    clone() const -> ImagePropertyBinding {
+            ImagePropertyBinding result { .node = node.clone() };
+            result.materials.reserve(materials.len());
+            for (const auto& material : materials) result.materials.push(material.clone());
+            return result;
+        }
     };
     void RegisterImageColorUserBinding(String key, const Arc<SceneNode>& node,
                                        slice<Arc<SceneMaterial>> materials);
     void RegisterImageAlphaUserBinding(String key, const Arc<SceneNode>& node,
                                        slice<Arc<SceneMaterial>> materials);
-    auto ImageColorUserBindings(ref<str> key) const -> slice<ImagePropertyBinding>;
-    auto ImageAlphaUserBindings(ref<str> key) const -> slice<ImagePropertyBinding>;
+    auto ImageColorUserBindings(ref<str> key) const -> Vec<ImagePropertyBinding>;
+    auto ImageAlphaUserBindings(ref<str> key) const -> Vec<ImagePropertyBinding>;
+    auto ImageColorUserBindings(ref<str> key, SceneNodeId owner) const -> Vec<ImagePropertyBinding>;
+    auto ImageAlphaUserBindings(ref<str> key, SceneNodeId owner) const -> Vec<ImagePropertyBinding>;
 
-    void RegisterUserTextBinding(String key, Box<dyn<FnMut<void(ref<str>)>>> setter);
+    void RegisterUserTextBinding(String key, Box<dyn<FnMut<void(ref<str>)>>> setter,
+                                 SceneNodeId owner = {});
     bool ApplyUserTextBindings(ref<str> key, const Json& property);
 
-    void RegisterUserPropertyBinding(String key, Box<dyn<FnMut<void(ref<Json>)>>> setter);
-    bool ApplyUserPropertyBindings(ref<str> key, const Json& property);
+    void  RegisterUserPropertyBinding(String key, Box<dyn<FnMut<void(ref<Json>)>>> setter,
+                                      SceneNodeId owner = {});
+    bool  ApplyUserPropertyBindings(ref<str> key, const Json& property);
+    usize RemoveNodeUserBindings(SceneNodeId owner);
 
     struct MaterialTextureUserBinding {
         Arc<SceneMaterial> material;
         u32                slot { 0 };
         String             fallback;
+        auto               clone() const -> MaterialTextureUserBinding {
+            return { material.clone(), slot, fallback.clone() };
+        }
     };
-    void RegisterMaterialTextureUserBinding(String key, MaterialTextureUserBinding binding);
-    auto MaterialTextureUserBindings(ref<str> key) const -> slice<MaterialTextureUserBinding>;
+    void  RegisterMaterialTextureUserBinding(String key, MaterialTextureUserBinding binding,
+                                             SceneNodeId owner = {});
+    auto  MaterialTextureUserBindings(ref<str> key) const -> Vec<MaterialTextureUserBinding>;
+    usize RemoveNodeMaterialBindings(SceneNodeId owner);
 
     void RegisterCameraPath(Arc<SceneCameraPath>);
     void RegisterCameraPathUserBinding(String key, Arc<SceneCameraPath>);
@@ -2842,22 +3081,27 @@ public:
     auto TextureResource(SceneTextureId id) const -> Option<vrento::resource::TextureResourceRef>;
     auto TargetResource(SceneRenderTargetId id) const
         -> Option<vrento::resource::TextureResourceRef>;
-    auto TargetResource(ref<str>                             name,
-                        vrento::resource::TextureRequestKind kind =
-                            vrento::resource::TextureRequestKind::RenderTarget,
-                        u32 samples = u32(1)) -> Option<vrento::resource::TextureResourceRef>;
-    void PublishResourceDefinitions();
-    auto VideoControl(ref<str> name) const -> Option<Arc<VideoPlaybackState>>;
-    auto TextureNames() const -> slice<String> { return m_texture_names.as_slice(); }
-    void RegisterRenderTarget(String name, SceneRenderTarget target);
-    auto RenderTarget(ref<str> name) const -> Option<ref<SceneRenderTarget>>;
-    auto RenderTargetMut(ref<str> name) -> Option<mut_ref<SceneRenderTarget>>;
-    auto RenderTargetNames() const -> slice<String> { return m_render_target_names.as_slice(); }
-    void RegisterCamera(String name, Arc<SceneCamera> camera);
-    auto Camera(ref<str> name) const -> Option<ref<SceneCamera>>;
-    auto CameraMut(ref<str> name) -> Option<mut_ref<SceneCamera>>;
-    auto CameraHandle(ref<str> name) const -> Option<Arc<SceneCamera>>;
-    auto CameraNames() const -> slice<String> { return m_camera_names.as_slice(); }
+    auto  TargetResource(ref<str>                             name,
+                         vrento::resource::TextureRequestKind kind =
+                             vrento::resource::TextureRequestKind::RenderTarget,
+                         u32 samples = u32(1)) -> Option<vrento::resource::TextureResourceRef>;
+    void  PublishResourceDefinitions();
+    auto  VideoControl(ref<str> name) const -> Option<Arc<VideoPlaybackState>>;
+    auto  TextureNames() const -> slice<String> { return m_texture_names.as_slice(); }
+    void  RegisterRenderTarget(String name, SceneRenderTarget target);
+    bool  RegisterNodeRenderTarget(SceneNodeId owner, String name, SceneRenderTarget target);
+    usize RemoveNodeRenderTargets(slice<SceneNodeId> owners);
+    auto  RenderTarget(ref<str> name) const -> Option<ref<SceneRenderTarget>>;
+    auto  RenderTargetMut(ref<str> name) -> Option<mut_ref<SceneRenderTarget>>;
+    auto  RenderTargetNames() const -> slice<String> { return m_render_target_names.as_slice(); }
+    void  RegisterCamera(String name, Arc<SceneCamera> camera);
+    bool  RegisterNodeCamera(SceneNodeId owner, String name, Arc<SceneCamera> camera);
+    Vec<String> RemoveNodeCameras(slice<SceneNodeId> owners);
+    auto        Camera(ref<str> name) const -> Option<ref<SceneCamera>>;
+    auto        CameraMut(ref<str> name) -> Option<mut_ref<SceneCamera>>;
+    auto        CameraHandle(ref<str> name) const -> Option<Arc<SceneCamera>>;
+    auto        CameraNames() const -> slice<String> { return m_camera_registry->Names(); }
+    auto CameraRegistry() const -> Arc<SceneCameraRegistry> { return m_camera_registry.clone(); }
     bool SetActiveCamera(ref<str> name);
     auto ActiveCamera() const -> Option<ref<SceneCamera>>;
     auto ActiveCameraHandle() const -> Option<Arc<SceneCamera>>;
@@ -2879,35 +3123,20 @@ public:
     bool ApplyUserLightVisibilityBindings(ref<str> key, const Json& property);
     bool ApplyUserCameraPathVisibilityBindings(ref<str> key, const Json& property);
 
-    void RegisterSoundVolumeBinding(ref<str> key, Arc<dyn<SceneSoundControl>> control) {
-        auto controls = m_sound_volume_user_index.get_mut(key);
-        if (controls.is_none()) {
-            (void)m_sound_volume_user_index.insert(String::make(key),
-                                                   Vec<Arc<dyn<SceneSoundControl>>> {});
-            controls = m_sound_volume_user_index.get_mut(key);
-        }
-        (*controls)->push(rstd::move(control));
+    void RegisterSoundVolumeBinding(ref<str> key, Arc<dyn<SceneSoundControl>> control,
+                                    SceneNodeId owner = {}) {
+        m_sound_volume_user_index.Register(String::make(key), rstd::move(control), owner);
     }
-    auto SoundVolumeBindings(ref<str> key) const -> slice<Arc<dyn<SceneSoundControl>>> {
-        auto controls = m_sound_volume_user_index.get(key);
-        if (controls.is_none()) return {};
-        return (*controls)->as_slice();
+    auto SoundVolumeBindings(ref<str> key) const -> Vec<Arc<dyn<SceneSoundControl>>> {
+        return m_sound_volume_user_index.Snapshot(key);
     }
-    void RegisterParticleOverrideBinding(String                                 key,
-                                         Arc<dyn<SceneParticleOverrideControl>> control) {
-        auto controls = m_particle_override_user_index.get_mut(key.as_str());
-        if (controls.is_none()) {
-            (void)m_particle_override_user_index.insert(
-                key.clone(), Vec<Arc<dyn<SceneParticleOverrideControl>>> {});
-            controls = m_particle_override_user_index.get_mut(key.as_str());
-        }
-        (*controls)->push(rstd::move(control));
+    void RegisterParticleOverrideBinding(String key, Arc<dyn<SceneParticleOverrideControl>> control,
+                                         SceneNodeId owner = {}) {
+        m_particle_override_user_index.Register(rstd::move(key), rstd::move(control), owner);
     }
     auto ParticleOverrideBindings(ref<str> key) const
-        -> slice<Arc<dyn<SceneParticleOverrideControl>>> {
-        auto controls = m_particle_override_user_index.get(key);
-        if (controls.is_none()) return {};
-        return (*controls)->as_slice();
+        -> Vec<Arc<dyn<SceneParticleOverrideControl>>> {
+        return m_particle_override_user_index.Snapshot(key);
     }
 
     auto Root() const -> ref<SceneNode> { return m_scene_graph.deref(); }
@@ -2916,12 +3145,22 @@ public:
         RegisterNode(*root);
         m_scene_graph = rstd::move(root);
     }
-    SceneNodeId   RegisterNode(SceneNode& node, Option<WallpaperLayerId> wallpaper = None());
+    SceneNodeId RegisterNode(SceneNode& node, Option<WallpaperLayerId> wallpaper = None());
+    bool        RemoveDetachedNodeRegistrations(slice<Arc<SceneNode>> nodes);
+    bool        RequestLayerDeletion(SceneNode& node);
+    void        ProcessLayerDeletions();
+    void        RegisterLayerCompanions(SceneNode& node, slice<Arc<SceneNode>> companions);
+    void        SetLayerRemovalObserver(Box<dyn<FnMut<void(SceneNode&)>>> observer) {
+        m_layer_removal_observer = Some(rstd::move(observer));
+    }
+    void          ReleaseRetiredLayers() { m_retired_layer_nodes.clear(); }
     SceneEffectId RegisterEffect(SceneNodeId owner, SceneNodeLayer& layer,
                                  Arc<SceneImageEffect> effect);
-    void          AttachRuntimeNode(SceneNode& parent, Arc<SceneNode> node);
-    auto          LayerIndex(const SceneNode& node) const -> Option<usize>;
-    bool          SortLayer(SceneNode& node, usize index);
+    // Call after detaching the node and invalidating its script handles.
+    usize RemoveNodeImageEffects(SceneNodeId owner);
+    void  AttachRuntimeNode(SceneNode& parent, Arc<SceneNode> node);
+    auto  LayerIndex(const SceneNode& node) const -> Option<usize>;
+    bool  SortLayer(SceneNode& node, usize index);
     auto AudioDemand() const -> ref<AudioResponseDemand> { return m_audio_response_demand.deref(); }
     auto AudioDemandMut() -> mut_ref<AudioResponseDemand> {
         return m_audio_response_demand.deref_mut();
@@ -2990,6 +3229,12 @@ public:
     auto NodeSources(SceneNodeId node) const -> slice<UniformSourceAttachment> {
         return m_uniforms.NodeSources(node);
     }
+    // Sources still referenced by another attachment or block remain registered.
+    usize RemoveNodeUniformSources(SceneNodeId node) {
+        auto sources = m_uniforms.DetachNode(node);
+        for (const auto& attachment : sources) (void)m_uniforms.Unregister(attachment.source);
+        return sources.len();
+    }
     bool RegisterUniformBlock(UniformBlockDefinition definition) {
         return m_uniforms.RegisterBlock(rstd::move(definition));
     }
@@ -3040,7 +3285,7 @@ public:
     void PassFrameTime(double delta) { m_runtime.Advance(f64(delta)); }
     void TickNodeFieldAnimations();
     auto ConsumeAnimationEvents() -> Vec<SceneAnimationEventDispatch>;
-    void RegisterTransformUpdater(Box<dyn<FnMut<void(f64)>>> updater);
+    void RegisterTransformUpdater(Box<dyn<FnMut<void(f64)>>> updater, SceneNodeId owner = {});
     void TickTransformUpdaters();
 
     void RegisterLinkedCamera(String source, String linked);
@@ -3130,16 +3375,20 @@ private:
     Vec<Box<SceneLight>>          m_lights;
     Vec<Box<ScenePostProcess>>    m_post_processes;
     Vec<SceneShadowDefinition>    m_shadow_definitions;
-    HashMap<String, Vec<Box<dyn<FnMut<void(ref<str>)>>>>>        m_text_user_index;
-    HashMap<String, Vec<Box<dyn<FnMut<void(ref<Json>)>>>>>       m_user_property_index;
-    Vec<Box<dyn<FnMut<void(f64)>>>>                              m_transform_updaters;
-    HashMap<String, Vec<ShaderUserBinding>>                      m_shader_user_index;
-    HashMap<String, Vec<ShaderComboUserBinding>>                 m_shader_combo_user_index;
-    HashMap<String, Vec<MaterialTextureUserBinding>>             m_material_texture_user_index;
-    HashMap<String, Vec<ImagePropertyBinding>>                   m_image_color_user_index;
-    HashMap<String, Vec<ImagePropertyBinding>>                   m_image_alpha_user_index;
-    HashMap<String, Vec<Arc<dyn<SceneParticleOverrideControl>>>> m_particle_override_user_index;
-    HashMap<String, Vec<Arc<dyn<SceneSoundControl>>>>            m_sound_volume_user_index;
+    UserBindingIndex<ref<str>>    m_text_user_index;
+    UserBindingIndex<ref<Json>>   m_user_property_index;
+    struct TransformUpdater {
+        SceneNodeId                owner;
+        Box<dyn<FnMut<void(f64)>>> callback;
+    };
+    Vec<TransformUpdater>                                        m_transform_updaters;
+    MaterialBindingIndex<ShaderUserBinding>                      m_shader_user_index;
+    MaterialBindingIndex<ShaderComboUserBinding>                 m_shader_combo_user_index;
+    MaterialBindingIndex<MaterialTextureUserBinding>             m_material_texture_user_index;
+    MaterialBindingIndex<ImagePropertyBinding>                   m_image_color_user_index;
+    MaterialBindingIndex<ImagePropertyBinding>                   m_image_alpha_user_index;
+    MaterialBindingIndex<Arc<dyn<SceneParticleOverrideControl>>> m_particle_override_user_index;
+    MaterialBindingIndex<Arc<dyn<SceneSoundControl>>>            m_sound_volume_user_index;
     Option<Arc<dyn<IImageParser>>>                               m_image_parser;
     Vec<Box<dyn<Any>>>                                           m_extensions;
     HashMap<String, Arc<Image>>                                  m_runtime_images;
@@ -3148,24 +3397,30 @@ private:
         Arc<rstd::sync::Mutex<SceneImageSource::ParsedImages>>::make(
             SceneImageSource::ParsedImages {})
     };
-    HashMap<String, u64>                       m_texture_content_revisions;
-    HashMap<String, Arc<VideoPlaybackState>>   m_video_controls;
-    Vec<String>                                m_texture_names;
-    HashMap<String, SceneRenderTarget>         m_render_targets;
-    Vec<String>                                m_render_target_names;
-    HashMap<String, Arc<SceneCamera>>          m_cameras;
-    Vec<String>                                m_camera_names;
-    Option<String>                             m_active_camera;
-    Vec<Arc<SceneCameraPath>>                  m_camera_paths;
-    HashSet<String>                            m_active_camera_paths;
-    HashMap<String, Vec<Arc<SceneCameraPath>>> m_camera_path_user_index;
+    HashMap<String, u64>                     m_texture_content_revisions;
+    HashMap<String, Arc<VideoPlaybackState>> m_video_controls;
+    Vec<String>                              m_texture_names;
+    HashMap<String, SceneRenderTarget>       m_render_targets;
+    Vec<String>                              m_render_target_names;
+    HashMap<String, SceneNodeId>             m_render_target_owners;
+    HashMap<rstd::uint64_t, Vec<String>>     m_node_render_targets;
+    Arc<SceneCameraRegistry>                 m_camera_registry { Arc<SceneCameraRegistry>::make() };
+    HashMap<String, SceneNodeId>             m_camera_owners;
+    HashMap<rstd::uint64_t, Vec<String>>     m_node_cameras;
+    Vec<Arc<SceneCameraPath>>                m_camera_paths;
+    HashSet<String>                          m_active_camera_paths;
+    MaterialBindingIndex<Arc<SceneCameraPath>> m_camera_path_user_index;
 
-    void RebuildElidableLayerIds();
+    void        RebuildElidableLayerIds();
+    void        WriteRenderTarget(String name, SceneRenderTarget target);
+    usize       RemoveNodeRenderTargetsImpl(slice<SceneNodeId> owners, bool rebuild);
+    Vec<String> RemoveNodeCamerasImpl(slice<SceneNodeId> owners, bool rebuild);
 
     u32                                          m_resource_generation { 0 };
     u32                                          m_next_node_index { 0 };
     u32                                          m_next_effect_index { 0 };
     HashMap<rstd::uint64_t, ImageEffectRecord>   m_image_effects;
+    HashMap<rstd::uint64_t, Vec<SceneEffectId>>  m_node_image_effects;
     HashMap<i32, SceneNodeId>                    m_wallpaper_node_ids;
     SceneResourceIndex                           m_resource_index;
     bool                                         m_render_graph_dirty { false };
@@ -3179,6 +3434,10 @@ private:
     Vec<SceneUserPropertyDiagnostic>             m_user_property_diagnostics;
     HashMap<String, SceneRenderTargetDirtyEvent> m_render_target_dirty_events;
     Vec<SceneAnimationEventDispatch>             m_animation_events;
+    Vec<Arc<SceneNode>>                          m_pending_layer_deletions;
+    Vec<Arc<SceneNode>>                          m_retired_layer_nodes;
+    HashMap<rstd::uint64_t, Vec<Arc<SceneNode>>> m_layer_companions;
+    Option<Box<dyn<FnMut<void(SceneNode&)>>>>    m_layer_removal_observer;
 
     // User-hidden layers and static identity layers share the same graph-elision
     // result while retaining their independent reasons.

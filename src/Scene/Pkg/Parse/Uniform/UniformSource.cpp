@@ -147,41 +147,30 @@ void UniformNodeConfigDraft::SetParallaxContract(wpscene::ParallaxDepthBinding b
     propagate_parallax_to_children = propagate_to_children;
 }
 
-auto UniformNodeConfigDraft::Clone() const -> UniformNodeConfigDraft {
-    UniformNodeConfigDraft result {
-        .configured                     = configured,
-        .object_id                      = object_id,
-        .parallax                       = parallax,
-        .propagate_parallax_to_children = propagate_parallax_to_children,
-        .ride_parent_parallax           = ride_parent_parallax,
-        .use_camera_eye_position        = use_camera_eye_position,
-        .eye_position_override          = eye_position_override,
-        .vertices_in_world_space        = vertices_in_world_space,
-        .effect_projection_node =
-            effect_projection_node.is_some() ? Some((*effect_projection_node).clone()) : None(),
-        .effect_projection_size = effect_projection_size,
-    };
-    return result;
-}
-
-auto UniformNodeConfigDraft::CloneForRuntimeLayer(i32 owner) const -> UniformNodeConfigDraft {
-    auto result      = Clone();
-    result.object_id = owner;
-    return result;
-}
-
 void UniformCameraResolver::Add(String name, Arc<SceneCamera> camera) {
-    (void)m_cameras.insert(rstd::move(name), rstd::move(camera));
+    (void)m_local_cameras.insert(rstd::move(name), rstd::move(camera));
+}
+
+auto UniformCameraResolver::Active() const -> mut_ref<SceneCamera> {
+    if (m_cameras.is_some()) {
+        auto name = (*m_cameras)->ActiveName();
+        if (name.is_some()) {
+            auto active = (*m_cameras)->CameraMut(*name);
+            if (active.is_some()) return *active;
+        }
+    }
+    return m_active_camera.deref_mut();
 }
 
 auto UniformCameraResolver::Resolve(const SceneNode& node) const -> Option<mut_ref<SceneCamera>> {
     auto name = node.Camera();
     if (name.is_empty()) {
-        if (! node.Perspective()) return Some(m_active_camera.deref_mut());
+        if (! node.Perspective()) return Some(Active());
         name = "global_perspective"_str;
     }
-    auto camera = m_cameras.get(name);
-    return camera.is_some() ? Some((**camera).deref_mut()) : None();
+    auto local = m_local_cameras.get(name);
+    if (local.is_some()) return Some((**local).deref_mut());
+    return m_cameras.is_some() ? (*m_cameras)->CameraMut(name) : None();
 }
 
 void UniformSceneState::SetNodeState(SceneNodeId id, Arc<UniformNodeState> state) {
@@ -207,6 +196,17 @@ void UniformSceneState::SetNodeState(SceneNodeId id, Arc<UniformNodeState> state
 
 void UniformSceneState::RegisterNodeParallaxContract(const SceneNode& node, i32 object_id,
                                                      const wpscene::ParallaxDepthBinding& binding) {
+    auto previous = m_parallax_owners.get(rstd::addressof(node));
+    if (previous.is_none() || **previous != object_id) {
+        if (previous.is_some()) RemoveNodeParallaxContract(node);
+        if (object_id != i32()) {
+            auto count = m_parallax_owner_counts.get_mut(object_id);
+            if (count.is_none())
+                (void)m_parallax_owner_counts.insert(object_id, usize(1));
+            else
+                ++**count;
+        }
+    }
     (void)m_parallax_owners.insert(rstd::addressof(node), object_id);
     if (! binding.authored) return;
     const auto& depth = binding.depth;
@@ -217,6 +217,41 @@ void UniformSceneState::RegisterNodeParallaxContract(const SceneNode& node, i32 
     }
     if (! m_node_parallax_depths.contains_key(rstd::addressof(node)))
         (void)m_node_parallax_depths.insert(rstd::addressof(node), depth);
+}
+
+void UniformSceneState::RemoveNodeParallaxContract(const SceneNode& node) {
+    auto owner = m_parallax_owners.remove(rstd::addressof(node));
+    (void)m_node_parallax_depths.remove(rstd::addressof(node));
+    if (owner.is_none() || *owner == i32()) return;
+    auto count = m_parallax_owner_counts.get_mut(*owner);
+    if (count.is_none()) return;
+    if (**count > usize(1)) {
+        --**count;
+        return;
+    }
+    (void)m_parallax_owner_counts.remove(*owner);
+    (void)m_object_parallax_depths.remove(*owner);
+}
+
+bool UniformSceneState::RemoveNodeState(SceneNodeId id) {
+    auto state = m_nodes.remove(Key(id));
+    if (state.is_none()) return false;
+    auto* node    = (*state)->node.as_ptr().as_raw_ptr();
+    auto  current = m_nodes_by_address.get(node);
+    if (current.is_some() && (**current).as_ptr() == (*state).as_ptr()) {
+        (void)m_nodes_by_address.remove(node);
+        RemoveNodeParallaxContract(*node);
+    }
+    if ((*state)->object_id != i32()) {
+        auto states = m_nodes_by_object.get_mut((*state)->object_id);
+        if (states.is_some()) {
+            (*states)->retain([&](const Arc<UniformNodeState>& item) {
+                return item.as_ptr() != (*state).as_ptr();
+            });
+            if ((*states)->is_empty()) (void)m_nodes_by_object.remove((*state)->object_id);
+        }
+    }
+    return true;
 }
 
 bool UniformSceneState::SetEffectProjectionSize(SceneNodeId id, array<float, 2> size) {
@@ -858,7 +893,7 @@ auto LightUniformSource::Evaluate(ref<dyn<UniformUpdateContext>>,
     for (usize index {}; index < max_lights; ++index)
         directions_type[index * usize(4) + usize(3)] = -1.0f;
     usize index {};
-    for (const auto& light_ref : m_lights) {
+    for (const auto& light_ref : m_scene->Lights()) {
         const auto& light = *light_ref;
         if (light.node() == nullptr || ! light.runtimeVisible()) continue;
         bool visible = true;
@@ -935,7 +970,15 @@ auto ShadowUniformSource::Evaluate(ref<dyn<UniformUpdateContext>>,
     }
     forward.normalize();
 
-    auto* light_node = m_light->node();
+    const SceneLight* light = nullptr;
+    for (const auto& candidate : m_scene->Lights()) {
+        if (candidate->type() == SceneLightType::Directional && candidate->desc().cast_shadow) {
+            light = candidate.as_ptr().as_raw_ptr();
+            break;
+        }
+    }
+    if (! light) return writer.Finish();
+    auto* light_node = light->node();
     if (light_node == nullptr) return writer.Finish();
     light_node->UpdateTrans();
     const Matrix3d  light_frame = light_node->ModelTrans().block<3, 3>(0, 0);
@@ -954,7 +997,7 @@ auto ShadowUniformSource::Evaluate(ref<dyn<UniformUpdateContext>>,
     array<float, 96> matrix_values {};
     const double camera_far = rstd::cmp::max(0.001, f64(m_camera->FarClip()).abs().to_primitive());
     for (usize cascade {}; cascade < usize(3); ++cascade) {
-        const float     authored = m_light->desc().cascade_distances[cascade.to_primitive()];
+        const float     authored = light->desc().cascade_distances[cascade.to_primitive()];
         const double    distance = authored > 0.0f ? static_cast<double>(authored) : camera_far;
         const auto      center   = camera_transform.eye + forward * (distance * 0.5);
         Eigen::Matrix4d view     = Eigen::Matrix4d::Identity();

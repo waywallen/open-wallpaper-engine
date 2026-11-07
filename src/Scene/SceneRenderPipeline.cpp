@@ -160,6 +160,7 @@ auto SceneRenderPipeline::flushChanges(SceneLoadBenchRecorderView bench)
             auto span  = SceneLoadSpan(bench, &SceneLoadProbeIds::render_snapshot);
             m_snapshot = ExtractRenderSceneSnapshot(m_scene);
         }
+        m_scene.ReleaseRetiredLayers();
         auto input = [&] {
             auto build_span = SceneLoadSpan(bench, &SceneLoadProbeIds::render_graph_build);
             return BuildSceneRenderState(m_scene, m_snapshot, &m_stats.graph_analysis);

@@ -209,7 +209,7 @@ struct ParticleNodeControl {
     }
 };
 
-void LoadControlPoint(SceneParseContext& context, ParticleSubSystem& system,
+void LoadControlPoint(SceneLayerBuildContext& context, ParticleSubSystem& system,
                       const wpscene::Particle& particle, ParticleInstanceModifiers modifiers) {
     auto points = system.ControlpointsMut();
     auto count  = rstd::cmp::min(points.len(), particle.controlpoints.len());
@@ -363,12 +363,16 @@ void BuildParticleObjectNode(ParticleObjectParseServices& services,
         spNode->ID()   = wppartobj.id;
         if (! wppartobj.visible) {
             spNode->SetVisible(false);
-            services.scene->MarkLayerVisibilityElidable(WallpaperLayerId { .value = wppartobj.id });
+            if (wppartobj.id >= i32())
+                services.scene->MarkLayerVisibilityElidable(
+                    WallpaperLayerId { .value = wppartobj.id });
         }
         if (! wppartobj.visible_user.empty())
             spNode->SetVisibleUserBinding(ToSceneUserVisibilityBinding(wppartobj.visible_user));
     }
     auto& spNode = *spNodeOpt;
+    services.construction_context.TrackCreatedNode(spNode);
+    const auto node_owner = services.scene->RegisterNode(*spNode);
     spNode->SetReflected(wppartobj.reflected);
 
     // Effective world scale at this SceneNode: parent's world scale times
@@ -401,7 +405,7 @@ void BuildParticleObjectNode(ParticleObjectParseServices& services,
 
     if (rope_shader) particle_obj.material.shader = "genericropeparticle"_Str;
 
-    // wppartobj.origin[1] = context.ortho_h - wppartobj.origin[1];
+    // wppartobj.origin[1] = context.layer_resources->ortho_h - wppartobj.origin[1];
 
     if (particle_obj.flags[wpscene::Particle::FlagEnum::perspective]) {
         spNode->SetCamera("global_perspective"_str);
@@ -479,8 +483,7 @@ void BuildParticleObjectNode(ParticleObjectParseServices& services,
                           rstd::move(shaderInfo),
                           services.geometry_shader_supported ? GeometryStageRequirement::Required
                                                              : GeometryStageRequirement::Disabled,
-                          services.construction_context ? services.construction_context->load_bench
-                                                        : SceneLoadBenchRecorderView {});
+                          services.construction_context.load_bench);
         if (material_result.is_ok()) {
             auto material_build = rstd::move(material_result).unwrap_unchecked();
             material            = rstd::move(material_build.material);
@@ -494,7 +497,7 @@ void BuildParticleObjectNode(ParticleObjectParseServices& services,
         rstd_error("load particleobj '{}' material faild", wppartobj.name);
         return;
     }
-    LoadConstvalue(*services.construction_context, material, particle_obj.material, shaderInfo);
+    LoadConstvalue(services.construction_context, material, particle_obj.material, shaderInfo);
     auto  spMesh             = Arc<SceneMesh>::make(true);
     auto& mesh               = *spMesh;
     auto  sequencemultiplier = particle_obj.sequencemultiplier;
@@ -576,12 +579,10 @@ void BuildParticleObjectNode(ParticleObjectParseServices& services,
     LoadEmitter(*particleSub, particle_obj, modifiers);
     LoadInitializer(*particleSub, particle_obj, modifiers.Clone());
     LoadOperator(*particleSub, particle_obj, modifiers.Clone());
-    LoadControlPoint(*services.construction_context, *particleSub, particle_obj, modifiers.Clone());
+    LoadControlPoint(services.construction_context, *particleSub, particle_obj, modifiers.Clone());
     {
-        auto span =
-            SceneLoadSpan(services.construction_context ? services.construction_context->load_bench
-                                                        : SceneLoadBenchRecorderView {},
-                          &SceneLoadProbeIds::particle_finalize);
+        auto span = SceneLoadSpan(services.construction_context.load_bench,
+                                  &SceneLoadProbeIds::particle_finalize);
         particleSub->Finalize();
     }
 
@@ -595,7 +596,8 @@ void BuildParticleObjectNode(ParticleObjectParseServices& services,
                 Arc<dyn<SceneParticleOverrideControl>>::make(ParticleOverrideControl {
                     .state = override_state.clone(),
                     .field = field->clone(),
-                }));
+                }),
+                node_owner);
         });
     }
 
@@ -603,13 +605,17 @@ void BuildParticleObjectNode(ParticleObjectParseServices& services,
     RegisterMaterialBindings(*services.scene,
                              mesh.MaterialSlots().first_mut().unwrap().get_mut(),
                              particle_obj.material,
-                             shaderInfo);
-    if (services.construction_context != nullptr) {
-        WireMaterialShaderValueScripts(*services.construction_context,
+                             shaderInfo,
+                             None(),
+                             node_owner);
+    if (services.wire_scripts) {
+        WireMaterialShaderValueScripts(services.construction_context,
                                        spNode,
                                        mesh.MaterialSlots().last_mut().unwrap().get_mut(),
                                        particle_obj.material,
                                        shaderInfo);
+    } else {
+        mesh.MaterialSlots().last_mut().unwrap().get_mut()->RegisterAnimations(*spNode);
     }
     spNode->AddMesh(spMesh.clone());
     SetParticleUniformConfig(output, spNode, rstd::move(svData));
@@ -645,10 +651,10 @@ void BuildParticleObjectNode(ParticleObjectParseServices& services,
             .playback = playback_state.clone(),
         }));
         AssignNodeFieldAnimations(
-            *services.construction_context, *spNode.as_ptr(), wppartobj.field_bindings);
+            services.construction_context, *spNode.as_ptr(), wppartobj.field_bindings);
     }
-    if (services.construction_context != nullptr)
-        WireFieldScripts(*services.construction_context, spNode, wppartobj.field_bindings);
+    if (services.wire_scripts)
+        WireFieldScripts(services.construction_context, spNode, wppartobj.field_bindings);
     if (is_child)
         child_ptr.node_parent->AppendChild(spNode.clone());
     else
@@ -663,7 +669,7 @@ auto BuildParticleObjectImpl(ParticleObjectParseServices& services,
 }
 
 void ParseParticleObjImpl(SceneParseContext& context, wpscene::ParticleObject& particle) {
-    if (context.particle_runtime.is_none()) return;
+    if (context.layer_resources->particle_runtime.is_none()) return;
     if (! particle.particle.is_empty() &&
         ! context.dynamic_particle_prototypes.contains_key(particle.particle.as_str())) {
         (void)context.dynamic_particle_prototypes.insert(particle.particle.clone(),
@@ -671,26 +677,27 @@ void ParseParticleObjImpl(SceneParseContext& context, wpscene::ParticleObject& p
     }
 
     ParticleObjectParseServices services {
-        .scene                     = context.scene.get(),
+        .scene                     = context.scene,
         .vfs                       = context.vfs,
-        .shader_cache              = context.shader_cache.clone(),
-        .shader_environment        = context.shader_environment,
-        .geometry_shader_limits    = context.geometry_shader_limits,
-        .geometry_shader_supported = context.geometry_shader_supported,
-        .global_base_uniforms      = context.global_base_uniforms.clone(),
-        .particle_runtime          = (*context.particle_runtime).clone(),
-        .ortho_w                   = context.ortho_w,
-        .ortho_h                   = context.ortho_h,
-        .construction_context      = &context,
+        .shader_cache              = context.layer_resources->shader_cache.clone(),
+        .shader_environment        = context.layer_resources->shader_environment,
+        .geometry_shader_limits    = context.layer_resources->geometry_shader_limits,
+        .geometry_shader_supported = context.layer_resources->geometry_shader_supported,
+        .global_base_uniforms      = context.layer_resources->global_base_uniforms.clone(),
+        .particle_runtime          = (*context.layer_resources->particle_runtime).clone(),
+        .ortho_w                   = context.layer_resources->ortho_w,
+        .ortho_h                   = context.layer_resources->ortho_h,
+        .construction_context      = context,
     };
     auto output = BuildParticleObject(services, particle);
     if (output.root.is_none()) return;
-    for (auto& draft : output.uniform_configs) context.uniform_configs.push(rstd::move(draft));
+    for (auto& draft : output.uniform_configs)
+        context.layer_build.uniform_configs.push(rstd::move(draft));
     for (auto& draft : output.trail_uniform_configs)
-        context.particle_trail_uniform_configs.push(rstd::move(draft));
+        context.layer_build.particle_trail_uniform_configs.push(rstd::move(draft));
     RegisterNodeRef(context,
                     particle.id,
-                    SceneParseContext::NodeRef {
+                    SceneLayerNodeDraft {
                         particle.parent,
                         Some(rstd::move(*output.root)),
                         None(),

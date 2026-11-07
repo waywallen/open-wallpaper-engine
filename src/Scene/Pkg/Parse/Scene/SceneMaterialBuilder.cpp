@@ -636,16 +636,17 @@ bool HasShaderTextureMaterial(const ShaderInfo& info, ref<str> material_key) {
     return false;
 }
 
-bool HasSolidCompositeContext(const SceneParseContext& context, const wpscene::ImageObject& obj) {
-    if (obj.solid || context.solid_layer_ids.contains(obj.id)) return true;
+bool HasSolidCompositeContext(const SceneLayerBuildContext& context,
+                              const wpscene::ImageObject&   obj) {
+    if (obj.solid || context.layer_resources->solid_layer_ids.contains(obj.id)) return true;
 
     HashSet<i32> seen;
     u32          parent = obj.parent;
     while (parent != u32() && seen.insert(rstd::as_cast<i32>(parent))) {
         const auto parent_id = rstd::as_cast<i32>(parent);
-        if (context.solid_layer_ids.contains(parent_id)) return true;
+        if (context.layer_resources->solid_layer_ids.contains(parent_id)) return true;
 
-        auto found = context.object_parent_ids.get(parent_id);
+        auto found = context.layer_resources->object_parent_ids.get(parent_id);
         if (found.is_none()) break;
         parent = **found;
     }
@@ -684,7 +685,8 @@ void NormalizeEffectPositionCurve(SceneAnimationCurve& curve) {
 //   (3) Legacy material `usershadervalues` bindings: project key to shader
 //       material key.
 void RegisterShaderUserVarIndexImpl(Scene* pScene, const Arc<SceneMaterial>& stable_mat,
-                                    const wpscene::Material& wpmat, const ShaderInfo& info) {
+                                    const wpscene::Material& wpmat, const ShaderInfo& info,
+                                    SceneNodeId owner) {
     if (! pScene || ! stable_mat) return;
     for (const auto& combo : info.combo_defs) {
         if (combo.material.is_empty() || combo.combo.is_empty()) continue;
@@ -697,11 +699,11 @@ void RegisterShaderUserVarIndexImpl(Scene* pScene, const Arc<SceneMaterial>& sta
             auto [label, value] = entry;
             (void)binding.options.insert(label->clone(), rstd::format("{}", *value));
         });
-        pScene->RegisterShaderComboUserBinding(combo.material.clone(), rstd::move(binding));
+        pScene->RegisterShaderComboUserBinding(combo.material.clone(), rstd::move(binding), owner);
     }
     for (const auto& rec : info.user_var_staging) {
         pScene->RegisterShaderUserBinding(
-            rec.material.clone(), stable_mat.clone(), rec.name.clone());
+            rec.material.clone(), stable_mat.clone(), rec.name.clone(), owner);
     }
     for (const auto& field_binding : wpmat.constantshadervalues_bindings.Entries()) {
         if (field_binding.user.is_none()) continue;
@@ -718,7 +720,7 @@ void RegisterShaderUserVarIndexImpl(Scene* pScene, const Arc<SceneMaterial>& sta
             continue;
         }
         pScene->RegisterShaderUserBinding(
-            String::make(wallpaper_key), stable_mat.clone(), String::make(glname.as_str()));
+            String::make(wallpaper_key), stable_mat.clone(), String::make(glname.as_str()), owner);
     }
     for (auto [wallpaper_key, material_key] : wpmat.user_shader_values.iter()) {
         auto glname = ResolveShaderMaterialKey(info, wpmat, material_key->as_str());
@@ -729,7 +731,7 @@ void RegisterShaderUserVarIndexImpl(Scene* pScene, const Arc<SceneMaterial>& sta
             continue;
         }
         pScene->RegisterShaderUserBinding(
-            wallpaper_key->clone(), stable_mat.clone(), rstd::move(glname));
+            wallpaper_key->clone(), stable_mat.clone(), rstd::move(glname), owner);
     }
 }
 
@@ -776,7 +778,7 @@ String ResolveMaterialTextureFallback(Scene& scene, const wpscene::Material& fal
 
 void RegisterMaterialUserTextureIndex(Scene* pScene, const Arc<SceneMaterial>& stable_mat,
                                       const wpscene::Material& fallback_material,
-                                      const ShaderInfo&        shader_info) {
+                                      const ShaderInfo& shader_info, SceneNodeId owner) {
     if (! pScene || ! stable_mat) return;
     for (usize i {}; i < fallback_material.usertextures.len(); ++i) {
         auto key = UserTexturePropertyKey(fallback_material.usertextures[i]);
@@ -792,7 +794,8 @@ void RegisterMaterialUserTextureIndex(Scene* pScene, const Arc<SceneMaterial>& s
                                                        .material = stable_mat.clone(),
                                                        .slot     = rstd::as_cast<u32>(i),
                                                        .fallback = String::make(fallback.as_str()),
-                                                   });
+                                                   },
+                                                   owner);
     }
 }
 
@@ -826,7 +829,7 @@ void ApplyTextureBindsImpl(wpscene::Material& wpmat, slice<wpscene::MaterialPass
     }
 }
 
-String ResolveSceneTextureProperty(const SceneParseContext& context, ref<str> key) {
+String ResolveSceneTextureProperty(const SceneLayerBuildContext& context, ref<str> key) {
     if (context.user_properties.is_none()) return {};
     auto prop = (*context.user_properties)->get(key);
     if (prop.is_none()) return {};
@@ -850,13 +853,13 @@ String ResolveSceneTextureProperty(const SceneParseContext& context, ref<str> ke
     return string.is_none() ? String {} : rstd::into<String>(*string);
 }
 
-String ResolveUserTextureProperty(const SceneParseContext& context, const Json& binding) {
+String ResolveUserTextureProperty(const SceneLayerBuildContext& context, const Json& binding) {
     if (! binding.is_string()) return {};
     auto key = *binding.as_str();
     return ResolveSceneTextureProperty(context, key);
 }
 
-String ResolveMaterialTextureSlot(const SceneParseContext& context,
+String ResolveMaterialTextureSlot(const SceneLayerBuildContext& context,
                                   const wpscene::Material& material, usize slot) {
     String fallback;
     if (slot < material.textures.len()) {
@@ -876,7 +879,7 @@ bool CanUseImageAsSystemMediaFallback(const wpscene::ImageObject& image) {
     return image.effects.is_empty();
 }
 
-String ResolveLinkedImageFallback(const SceneParseContext& context, ref<str> texture) {
+String ResolveLinkedImageFallback(const SceneLayerBuildContext& context, ref<str> texture) {
     auto name      = texture;
     auto linked_id = ParseImageLayerCompositeId(name);
     if (! linked_id && IsSpecLinkTex(name)) {
@@ -884,17 +887,18 @@ String ResolveLinkedImageFallback(const SceneParseContext& context, ref<str> tex
     }
     if (! linked_id) return {};
 
-    auto fallback = context.system_media_image_fallbacks.get(rstd::as_cast<i32>(*linked_id));
+    auto fallback =
+        context.layer_resources->system_media_image_fallbacks.get(rstd::as_cast<i32>(*linked_id));
     return fallback.is_some() ? (**fallback).clone() : String {};
 }
 
-String ResolveSystemMediaFallback(const SceneParseContext& context,
+String ResolveSystemMediaFallback(const SceneLayerBuildContext& context,
                                   const wpscene::Material& material, usize slot) {
     if (slot >= material.textures.len()) return {};
     return ResolveLinkedImageFallback(context, material.textures[slot].as_str());
 }
 
-void ApplyUserTextureBindings(SceneParseContext& context, wpscene::Material& material) {
+void ApplyUserTextureBindings(SceneLayerBuildContext& context, wpscene::Material& material) {
     for (usize i {}; i < material.usertextures.len(); ++i) {
         const auto& binding = material.usertextures[i];
         if (binding.is_null()) continue;
@@ -912,8 +916,9 @@ void ApplyUserTextureBindings(SceneParseContext& context, wpscene::Material& mat
     }
 }
 
-void IndexSystemMediaImageFallbacks(SceneParseContext& context, slice<SceneObjectVar> scene_objs) {
-    context.system_media_image_fallbacks.clear();
+void IndexSystemMediaImageFallbacks(SceneLayerBuildContext& context,
+                                    slice<SceneObjectVar>   scene_objs) {
+    context.layer_resources->system_media_image_fallbacks.clear();
     for (usize index {}; index < scene_objs.len(); ++index) {
         const auto& object = scene_objs[index];
         if (! object.is_Image()) continue;
@@ -922,11 +927,12 @@ void IndexSystemMediaImageFallbacks(SceneParseContext& context, slice<SceneObjec
 
         auto texture = ResolveMaterialTextureSlot(context, image.material, usize(0));
         if (texture.is_empty() || IsSpecTex(texture.as_str())) continue;
-        (void)context.system_media_image_fallbacks.insert(image.id, String::make(texture.as_str()));
+        (void)context.layer_resources->system_media_image_fallbacks.insert(
+            image.id, String::make(texture.as_str()));
     }
 }
 
-void LoadConstvalueImpl(SceneParseContext& context, SceneMaterial& material,
+void LoadConstvalueImpl(SceneLayerBuildContext& context, SceneMaterial& material,
                         const wpscene::Material& wpmat, const ShaderInfo& info,
                         SceneShaderValueAnimationMap* final_quad_shader_values) {
     // load glname from alias and load to constvalue
@@ -1010,7 +1016,7 @@ auto ScriptValueAsShaderValue(const script::ScriptValue& value) -> Option<Shader
     return None();
 }
 
-void WireMaterialShaderValueScripts(SceneParseContext& context, const Arc<SceneNode>& owner,
+void WireMaterialShaderValueScripts(SceneLayerBuildContext& context, const Arc<SceneNode>& owner,
                                     const Arc<SceneMaterial>& material,
                                     const wpscene::Material& wpmat, const ShaderInfo& info) {
     if (! material) return;
@@ -1039,26 +1045,12 @@ void WireMaterialShaderValueScripts(SceneParseContext& context, const Arc<SceneN
             script::ScriptBindingContext::ForMaterial(owner.as_ptr(),
                                                       material.as_ptr().as_raw_ptr(),
                                                       field_binding.field.as_str(),
-                                                      rstd::move(animation)));
+                                                      rstd::move(animation)),
+            context.script_initialization);
         if (! field_script) continue;
         SetScriptInitializationOrder(context, *field_script, owner.as_ptr());
-        TrackRegisteredAssets(context, field_script);
-        if (context.capture_material_script_templates) {
-            if (! context.material_script_templates.contains_key(material.as_ptr().as_raw_ptr()))
-                (void)context.material_script_templates.insert(material.as_ptr().as_raw_ptr(), {});
-            auto templates =
-                context.material_script_templates.get_mut(material.as_ptr().as_raw_ptr()).unwrap();
-            templates->push(SceneParseContext::MaterialFieldScriptTemplate {
-                .source        = binding.source.clone(),
-                .sha           = String::make(sha.as_str()),
-                .kind          = kind,
-                .properties    = field_binding.ScriptProperties().clone(),
-                .initial_value = binding.initial_value.clone(),
-                .property      = field_binding.field.clone(),
-                .uniform_name  = String::make(uniform_name.as_str()),
-            });
-        }
-        auto* scene = context.scene.get();
+        TrackFieldScript(context, field_script);
+        auto* scene = context.scene;
         scripts.AddActuator({
             field_script,
             [scene, material = material.clone(), uniform_name = rstd::move(uniform_name)](
@@ -1073,10 +1065,12 @@ void WireMaterialShaderValueScripts(SceneParseContext& context, const Arc<SceneN
 
 void RegisterMaterialBindings(Scene& scene, const Arc<SceneMaterial>& material,
                               const wpscene::Material& authored, const ShaderInfo& shader_info,
-                              Option<ref<wpscene::Material>> user_texture_fallback) {
-    RegisterShaderUserVarIndexImpl(&scene, material, authored, shader_info);
+                              Option<ref<wpscene::Material>> user_texture_fallback,
+                              SceneNodeId                    owner) {
+    RegisterShaderUserVarIndexImpl(&scene, material, authored, shader_info, owner);
     if (user_texture_fallback.is_some()) {
-        RegisterMaterialUserTextureIndex(&scene, material, **user_texture_fallback, shader_info);
+        RegisterMaterialUserTextureIndex(
+            &scene, material, **user_texture_fallback, shader_info, owner);
     }
 }
 
@@ -1097,7 +1091,7 @@ void ApplyTextureBinds(wpscene::Material& material, slice<wpscene::MaterialPassB
     ApplyTextureBindsImpl(material, bindings, render_targets);
 }
 
-void LoadConstvalue(SceneParseContext& context, SceneMaterial& material,
+void LoadConstvalue(SceneLayerBuildContext& context, SceneMaterial& material,
                     const wpscene::Material& authored, const ShaderInfo& shader_info,
                     SceneShaderValueAnimationMap* final_quad_shader_values) {
     LoadConstvalueImpl(context, material, authored, shader_info, final_quad_shader_values);

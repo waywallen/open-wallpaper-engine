@@ -93,6 +93,7 @@ public:
     };
     bool                 FromJson(const owe::Json&, fs::VFS&);               // legacy
     bool                 FromJson(const owe::Json&, fs::VFS&, SceneVersion); // canonical
+    bool                 FromAsset(rstd::ref<rstd::str>, fs::VFS&, SceneVersion);
     bool                 FromAsset(rstd::ref<rstd::str>, array<float, 2>, fs::VFS&, SceneVersion);
     i32                  id { 0 };
     String               name;
@@ -100,6 +101,7 @@ public:
     array<float, 3>      scale { 1.0f, 1.0f, 1.0f };
     array<float, 3>      angles { 0.0f, 0.0f, 0.0f };
     array<float, 2>      size { 2.0f, 2.0f };
+    bool                 size_from_texture { false };
     ParallaxDepthBinding parallax;
     array<float, 3>      color { 1.0f, 1.0f, 1.0f };
     i32                  colorBlendMode { 0 };

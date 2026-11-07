@@ -27,15 +27,6 @@ auto UserPropertyValue(Option<ref<rstd::json::Map>> user_properties, ref<str> ke
     return Some(ref<Json>::from_raw_parts(rstd::addressof(payload)));
 }
 
-SceneUserVisibilityBinding
-ToSceneUserVisibilityBinding(const wpscene::VisibleUserBinding& binding) {
-    return SceneUserVisibilityBinding {
-        .key           = binding.name.clone(),
-        .condition     = binding.condition.clone(),
-        .has_condition = binding.has_condition,
-    };
-}
-
 void CollectLinkedSourceId(ref<str> value, HashSet<i32>& out, Option<i32> effect_owner = None()) {
     if (auto id = ParseImageLayerCompositeId(value);
         id.is_some() && (effect_owner.is_none() || rstd::as_cast<i32>(*id) != *effect_owner))
@@ -162,18 +153,6 @@ HashSet<i32> CollectLinkedSourceIds(slice<SceneObjectVar> objects) {
     return out;
 }
 
-bool ResolveVisibleUserBinding(bool& visible, const wpscene::VisibleUserBinding& binding,
-                               Option<ref<rstd::json::Map>> user_properties) {
-    if (binding.empty()) return false;
-    auto value = UserPropertyValue(user_properties, binding.name.as_str());
-    if (value.is_some()) {
-        if (auto resolved =
-                ResolveSceneUserVisibilityBinding(ToSceneUserVisibilityBinding(binding), **value))
-            visible = *resolved;
-    }
-    return true;
-}
-
 struct ObjectVisibilityInfo {
     u32  parent {};
     bool visible { true };
@@ -292,6 +271,18 @@ Vec<SceneObjectVar> FilterSceneObjects(Vec<SceneObjectVar>          decoded,
 
 namespace owe
 {
+
+bool ResolveVisibleUserBinding(bool& visible, const wpscene::VisibleUserBinding& binding,
+                               Option<ref<rstd::json::Map>> user_properties) {
+    if (binding.empty()) return false;
+    auto value = UserPropertyValue(user_properties, binding.name.as_str());
+    if (value.is_some()) {
+        if (auto resolved = ResolveSceneUserVisibilityBinding(
+                owe::ToSceneUserVisibilityBinding(binding), **value))
+            visible = *resolved;
+    }
+    return true;
+}
 
 auto ExpandSceneObjects(ref<wpscene::SceneDocument> document, mut_ref<fs::VFS> vfs,
                         Option<ref<rstd::json::Map>> user_properties) -> ExpandedSceneObjects {

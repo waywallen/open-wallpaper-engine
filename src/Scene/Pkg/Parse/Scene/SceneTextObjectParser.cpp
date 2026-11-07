@@ -152,8 +152,8 @@ auto UserPropertyValue(Option<ref<rstd::json::Map>> user_props, ref<str> key) ->
     return Some(ref<Json>::from_raw_parts(rstd::addressof(payload)));
 }
 
-void ParseTextObjImpl(SceneParseContext& context, wpscene::TextObject& obj) {
-    if (! obj.visible) {
+void ParseTextObjImpl(SceneLayerBuildContext& context, wpscene::TextObject& obj) {
+    if (obj.id >= i32() && ! obj.visible) {
         context.scene->MarkLayerVisibilityElidable(WallpaperLayerId { .value = obj.id });
     }
     MarkHiddenLinkSource(context, obj.id);
@@ -183,7 +183,8 @@ void ParseTextObjImpl(SceneParseContext& context, wpscene::TextObject& obj) {
     }
     const bool has_text_user = ! obj.text_user.empty();
     bool wants_dynamic_text = has_text_script || has_indirect_text_script || has_pointsize_script ||
-                              has_text_user || context.scene_layer_text_writes;
+                              has_text_user || context.runtime_created ||
+                              context.layer_resources->scene_layer_text_writes;
     bool has_text_effect    = ! obj.effects.is_empty();
     const bool linked_source        = context.IsLinkedSource(obj.id);
     const auto text_render_mode     = ResolveTextRenderMode(TextSurfaceRequirements {
@@ -216,10 +217,11 @@ void ParseTextObjImpl(SceneParseContext& context, wpscene::TextObject& obj) {
     }
     if (s_text.is_empty() && ! wants_dynamic_text) {
         // Empty text layers can still be transform parents for authored child layers.
-        auto node  = Arc<SceneNode>::make(Vector3f(obj.origin.data()),
-                                          Vector3f(obj.scale.data()),
-                                          Vector3f(obj.angles.data()),
-                                          obj.name.as_str());
+        auto node = Arc<SceneNode>::make(Vector3f(obj.origin.data()),
+                                         Vector3f(obj.scale.data()),
+                                         Vector3f(obj.angles.data()),
+                                         obj.name.as_str());
+        context.TrackCreatedNode(node);
         node->ID() = obj.id;
         node->SetSize({ obj.size[usize(0)], obj.size[usize(1)] });
         node->SetReflected(obj.reflected);
@@ -232,7 +234,7 @@ void ParseTextObjImpl(SceneParseContext& context, wpscene::TextObject& obj) {
         ApplyParallaxUniformConfig(context, node, obj.parallax, obj.id);
         RegisterNodeRef(context,
                         obj.id,
-                        SceneParseContext::NodeRef {
+                        SceneLayerNodeDraft {
                             obj.parent,
                             Some(node.clone()),
                             None(),
@@ -310,10 +312,11 @@ void ParseTextObjImpl(SceneParseContext& context, wpscene::TextObject& obj) {
         return;
     }
 
-    const bool has_bg                      = obj.opaquebackground;
-    const bool supports_runtime_text_write = wants_dynamic_text || context.scene_has_scripts;
-    const rstd::size_t peak_quads          = 16384;
-    auto               sp_mesh             = Arc<SceneMesh>::make(supports_runtime_text_write);
+    const bool has_bg = obj.opaquebackground;
+    const bool supports_runtime_text_write =
+        wants_dynamic_text || context.layer_resources->scene_has_scripts;
+    const rstd::size_t peak_quads = 16384;
+    auto               sp_mesh    = Arc<SceneMesh>::make(supports_runtime_text_write);
     {
         SceneMaterial material;
         material.name    = "text"_Str;
@@ -362,7 +365,7 @@ void ParseTextObjImpl(SceneParseContext& context, wpscene::TextObject& obj) {
                                                              sp_mesh.clone(),
                                                              rstd::move(style),
                                                              peak_quads,
-                                                             context.scene.get());
+                                                             context.scene);
     if (layouter->SetText(s_text).is_err()) {
         rstd_error("text '{}': initial layout failed", obj.name);
         return;
@@ -389,10 +392,11 @@ void ParseTextObjImpl(SceneParseContext& context, wpscene::TextObject& obj) {
     text_source_w = initial_metrics.source_width;
     text_source_h = initial_metrics.source_height;
 
-    auto        sp_node     = Arc<SceneNode>::make(Vector3f(obj.origin.data()),
-                                                   Vector3f(obj.scale.data()),
-                                                   Vector3f(obj.angles.data()),
-                                                   direct_text ? obj.name.as_str() : ""_str);
+    auto sp_node = Arc<SceneNode>::make(Vector3f(obj.origin.data()),
+                                        Vector3f(obj.scale.data()),
+                                        Vector3f(obj.angles.data()),
+                                        direct_text ? obj.name.as_str() : ""_str);
+    context.TrackCreatedNode(sp_node);
     const float text_bbox_w = text_w + 2.0f * text_padding;
     const float text_bbox_h = text_h + 2.0f * text_padding;
     sp_node->SetSize({ text_bbox_w, text_bbox_h });
@@ -415,6 +419,7 @@ void ParseTextObjImpl(SceneParseContext& context, wpscene::TextObject& obj) {
         direct_text ? sp_node.clone()
                     : Arc<SceneNode>::make(
                           Vector3f::Zero(), Vector3f::Ones(), Vector3f::Zero(), obj.name.as_str());
+    if (! direct_text) context.TrackCreatedNode(layer_node);
     if (direct_text) layer_node->SetBaseColor(Vector3f::Ones(), obj.alpha);
     layer_node->SetReflected(obj.reflected);
     layer_node->ID() = obj.id;
@@ -452,11 +457,13 @@ void ParseTextObjImpl(SceneParseContext& context, wpscene::TextObject& obj) {
         text_sv.SetParallaxContract(obj.parallax, obj.id);
         SetUniformConfig(context, sp_node, rstd::move(text_sv));
     } else {
-        context.text_uniform_configs.push(SceneParseContext::TextUniformConfigDraft {
+        context.layer_build.text_uniform_configs.push(TextUniformConfigDraft {
             .node = sp_node.clone(),
         });
-        runtime_targets         = Some(Arc<TextRuntimeTargets>::make(
-            scene, mut_ref<UniformSceneState>::from_raw_parts(context.uniform_state.as_ptr())));
+        runtime_targets = Some(
+            Arc<TextRuntimeTargets>::make(scene,
+                                          mut_ref<UniformSceneState>::from_raw_parts(
+                                              context.layer_resources->uniform_state.as_ptr())));
         const auto addr         = scene.NodeResourceKey(text_node_id, "text_camera"_str);
         const auto composite    = scene.NodeResourceKey(text_node_id, "text_composite"_str);
         const auto effect_final = scene.NodeResourceKey(text_node_id, "text_effect_final"_str);
@@ -475,8 +482,9 @@ void ParseTextObjImpl(SceneParseContext& context, wpscene::TextObject& obj) {
                                           rstd::as_cast<double>(initial_layer_h),
                                           -1.0,
                                           1.0));
-        text_camera->AttatchNode(sp_node.as_ptr());
-        scene.RegisterCamera(String::make(addr), text_camera.clone());
+        text_camera->AttachOwnedNode(sp_node.clone());
+        if (! scene.RegisterNodeCamera(text_node_id, String::make(addr), text_camera.clone()))
+            return;
 
         SceneRenderTarget text_target {
             .width                = initial_layer_w,
@@ -487,10 +495,13 @@ void ParseTextObjImpl(SceneParseContext& context, wpscene::TextObject& obj) {
             .preserve_on_write    = copy_background_seed,
         };
         if (has_text_effect) {
-            scene.RegisterRenderTarget(String::make(composite), text_target.clone());
-            scene.RegisterRenderTarget(String::make(effect_final), rstd::move(text_target));
+            (void)scene.RegisterNodeRenderTarget(
+                text_node_id, String::make(composite), text_target.clone());
+            (void)scene.RegisterNodeRenderTarget(
+                text_node_id, String::make(effect_final), rstd::move(text_target));
         } else {
-            scene.RegisterRenderTarget(String::make(composite), rstd::move(text_target));
+            (void)scene.RegisterNodeRenderTarget(
+                text_node_id, String::make(composite), rstd::move(text_target));
         }
 
         layer_node->CopyTrans(*sp_node.as_ptr());
@@ -515,6 +526,7 @@ void ParseTextObjImpl(SceneParseContext& context, wpscene::TextObject& obj) {
 
         if (copy_background_seed) {
             auto bg_node = Arc<SceneNode>::make();
+            context.TrackCreatedNode(bg_node);
             bg_node->SetCamera("effect"_str);
             auto bg_mesh = Arc<SceneMesh>::make();
             bg_mesh->ChangeMeshDataFrom(*scene.DefaultEffectMesh());
@@ -534,7 +546,7 @@ void ParseTextObjImpl(SceneParseContext& context, wpscene::TextObject& obj) {
                     .size = { initial_geometry.effect_frame_width,
                               initial_geometry.effect_frame_height },
                 });
-            context.text_uniform_configs.push(SceneParseContext::TextUniformConfigDraft {
+            context.layer_build.text_uniform_configs.push(TextUniformConfigDraft {
                 .node              = bg_node.clone(),
                 .effect_projection = Some(text_projection.clone()),
             });
@@ -551,7 +563,8 @@ void ParseTextObjImpl(SceneParseContext& context, wpscene::TextObject& obj) {
         UniformNodeConfigDraft compose_sv;
         compose_sv.SetParallaxContract(obj.parallax, obj.id);
 
-        ShaderValueMap effect_base = NeutralColorUniforms(context.global_base_uniforms.clone());
+        ShaderValueMap effect_base =
+            NeutralColorUniforms(context.layer_resources->global_base_uniforms.clone());
 
         struct LoadedTextMaterial {
             wpscene::Material      source;
@@ -584,8 +597,8 @@ void ParseTextObjImpl(SceneParseContext& context, wpscene::TextObject& obj) {
             ShaderInfo             si;
             si.baseConstSvs      = effect_base.clone();
             auto material_result = BuildMaterial(*context.vfs,
-                                                 *context.shader_cache,
-                                                 context.shader_environment,
+                                                 *context.layer_resources->shader_cache,
+                                                 context.layer_resources->shader_environment,
                                                  pt_mat,
                                                  scene,
                                                  rstd::move(si),
@@ -635,11 +648,13 @@ void ParseTextObjImpl(SceneParseContext& context, wpscene::TextObject& obj) {
                 for (const auto& wpfbo : wpeffobj.fbos) {
                     const auto rtname = scene.EffectResourceKey(effect_id, wpfbo.name.as_str());
                     auto fbo_size = TextEffectFboExtent(initial_geometry, wpfbo.scale, wpfbo.fit);
-                    scene.RegisterRenderTarget(String::make(rtname),
-                                               SceneRenderTarget { .width      = fbo_size[usize()],
-                                                                   .height     = fbo_size[usize(1)],
-                                                                   .allowReuse = ! wpfbo.unique,
-                                                                   .clear_on_first_write = true });
+                    (void)scene.RegisterNodeRenderTarget(
+                        text_node_id,
+                        String::make(rtname),
+                        SceneRenderTarget { .width                = fbo_size[usize()],
+                                            .height               = fbo_size[usize(1)],
+                                            .allowReuse           = ! wpfbo.unique,
+                                            .clear_on_first_write = true });
                     (void)render_targets.insert(String::make(wpfbo.name.as_str()),
                                                 String::make(rtname));
                     (*runtime_targets)
@@ -704,6 +719,7 @@ void ParseTextObjImpl(SceneParseContext& context, wpscene::TextObject& obj) {
                         wpmat.textures[usize(0)] = rstd::into(inRT);
 
                     auto effect_node = Arc<SceneNode>::make();
+                    context.TrackCreatedNode(effect_node);
                     scene.RegisterNode(*effect_node);
                     ShaderInfo shader_info;
                     shader_info.baseConstSvs = effect_base.clone();
@@ -721,14 +737,15 @@ void ParseTextObjImpl(SceneParseContext& context, wpscene::TextObject& obj) {
                     sv.effect_projection_size = { initial_geometry.effect_frame_width,
                                                   initial_geometry.effect_frame_height };
                     SceneShaderValueAnimationMap final_quad_shader_values;
-                    auto material_result = BuildMaterial(*context.vfs,
-                                                         *context.shader_cache,
-                                                         context.shader_environment,
-                                                         wpmat,
-                                                         scene,
-                                                         rstd::move(shader_info),
-                                                         GeometryStageRequirement::None,
-                                                         context.load_bench);
+                    auto                         material_result =
+                        BuildMaterial(*context.vfs,
+                                      *context.layer_resources->shader_cache,
+                                      context.layer_resources->shader_environment,
+                                      wpmat,
+                                      scene,
+                                      rstd::move(shader_info),
+                                      GeometryStageRequirement::None,
+                                      context.load_bench);
                     if (material_result.is_err()) {
                         effect_ok = false;
                         break;
@@ -749,7 +766,8 @@ void ParseTextObjImpl(SceneParseContext& context, wpscene::TextObject& obj) {
                                              mesh->MaterialSlots().first_mut().unwrap().get_mut(),
                                              wpmat,
                                              shader_info,
-                                             binding_fallback);
+                                             binding_fallback,
+                                             text_node_id);
                     RegisterLayerPreviousBindings(
                         scene, *mesh->Material(), wpmat, text_node_id, composite);
                     WireMaterialShaderValueScripts(
@@ -777,7 +795,8 @@ void ParseTextObjImpl(SceneParseContext& context, wpscene::TextObject& obj) {
             }
 
             auto resolve_node = Arc<SceneNode>::make();
-            auto resolved     = load_passthrough_material(composite);
+            context.TrackCreatedNode(resolve_node);
+            auto resolved = load_passthrough_material(composite);
             if (resolved.is_none()) return;
             auto resolve_mesh = Arc<SceneMesh>::make();
             resolve_mesh->AddMaterial(rstd::move(resolved->material));
@@ -799,14 +818,17 @@ void ParseTextObjImpl(SceneParseContext& context, wpscene::TextObject& obj) {
         if (linked_source) {
             const ref<str> input = has_text_effect ? effect_final.as_str() : composite.as_str();
             auto           publish_node = Arc<SceneNode>::make();
-            auto           published    = load_passthrough_material(input);
+            context.TrackCreatedNode(publish_node);
+            auto published = load_passthrough_material(input);
             if (published.is_none()) return;
             auto publish_mesh = Arc<SceneMesh>::make();
             publish_mesh->AddMaterial(rstd::move(published->material));
             RegisterMaterialBindings(scene,
                                      publish_mesh->MaterialSlots().first_mut().unwrap().get_mut(),
                                      published->source,
-                                     published->shader_info);
+                                     published->shader_info,
+                                     None(),
+                                     text_node_id);
             RegisterLayerPreviousBindings(
                 scene, *publish_mesh->Material(), published->source, text_node_id, composite);
             publish_node->AddMesh(rstd::move(publish_mesh));
@@ -836,7 +858,9 @@ void ParseTextObjImpl(SceneParseContext& context, wpscene::TextObject& obj) {
         RegisterMaterialBindings(scene,
                                  compose_mesh->MaterialSlots().first_mut().unwrap().get_mut(),
                                  loaded->source,
-                                 loaded->shader_info);
+                                 loaded->shader_info,
+                                 None(),
+                                 text_node_id);
         RegisterLayerPreviousBindings(
             scene, *compose_mesh->Material(), loaded->source, text_node_id, composite);
         layer_node->AddMesh(compose_mesh.clone());
@@ -995,7 +1019,8 @@ void ParseTextObjImpl(SceneParseContext& context, wpscene::TextObject& obj) {
             Box<dyn<FnMut<void(ref<str>)>>>::make(
                 [set_text = set_text.clone()](ref<str> value) mutable {
                     set_text->operator()(value);
-                }));
+                }),
+            text_node_id);
     }
     if (has_text_script) {
         const auto& binding = **text_binding;
@@ -1009,10 +1034,11 @@ void ParseTextObjImpl(SceneParseContext& context, wpscene::TextObject& obj) {
             binding.ScriptProperties(),
             sb.initial_value,
             script::ScriptBindingContext::ForLayer(
-                layer_node.as_ptr(), "text"_str, layer_node->FieldAnimation("text"_str)));
+                layer_node.as_ptr(), "text"_str, layer_node->FieldAnimation("text"_str)),
+            context.script_initialization);
         if (fs) {
             SetScriptInitializationOrder(context, *fs, layer_node.as_ptr());
-            TrackRegisteredAssets(context, fs);
+            TrackFieldScript(context, fs);
             ss.AddActuator({
                 fs,
                 [set_text = set_text.clone()](const script::ScriptValue& v) {
@@ -1034,10 +1060,11 @@ void ParseTextObjImpl(SceneParseContext& context, wpscene::TextObject& obj) {
             binding.ScriptProperties(),
             sb.initial_value,
             script::ScriptBindingContext::ForLayer(
-                layer_node.as_ptr(), "pointsize"_str, layer_node->FieldAnimation("pointsize"_str)));
+                layer_node.as_ptr(), "pointsize"_str, layer_node->FieldAnimation("pointsize"_str)),
+            context.script_initialization);
         if (fs) {
             SetScriptInitializationOrder(context, *fs, layer_node.as_ptr());
-            TrackRegisteredAssets(context, fs);
+            TrackFieldScript(context, fs);
             ss.AddActuator({
                 fs,
                 [set_pointsize = set_pointsize.clone()](const script::ScriptValue& v) {
@@ -1060,7 +1087,7 @@ void ParseTextObjImpl(SceneParseContext& context, wpscene::TextObject& obj) {
     if (! direct_text) text_before_nodes.push(sp_node.clone());
     RegisterNodeRef(context,
                     obj.id,
-                    SceneParseContext::NodeRef {
+                    SceneLayerNodeDraft {
                         obj.parent,
                         Some(layer_node.clone()),
                         None(),
@@ -1084,7 +1111,7 @@ void ParseTextObjImpl(SceneParseContext& context, wpscene::TextObject& obj) {
               font_name);
 }
 
-void ParseTextObj(SceneParseContext& context, wpscene::TextObject& text) {
+void ParseTextObj(SceneLayerBuildContext& context, wpscene::TextObject& text) {
     PrepareAnimationBindings(context, text);
     ParseTextObjImpl(context, text);
 }

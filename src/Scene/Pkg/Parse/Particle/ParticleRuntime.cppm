@@ -496,6 +496,7 @@ public:
         m_controlpoints[index].angle_track = Some(rstd::move(track));
     }
     void SetOwnerNode(SceneNode* node) noexcept { m_owner_node = node; }
+    auto OwnerNode() const noexcept -> const SceneNode* { return m_owner_node; }
     void SetPlaybackState(Arc<ParticlePlaybackState> state) {
         m_playback_state = Some(rstd::move(state));
     }
@@ -595,6 +596,11 @@ public:
     ParticleRuntime& operator=(ParticleRuntime&&) noexcept = default;
 
     void Add(Box<ParticleSubSystem> subsystem) { m_subsystems.push(rstd::move(subsystem)); }
+    void RemoveOwner(const SceneNode& owner) {
+        m_subsystems.retain([&](const Box<ParticleSubSystem>& subsystem) {
+            return subsystem->OwnerNode() != rstd::addressof(owner);
+        });
+    }
     void Update(ref<SceneFrame> frame);
 
 private:

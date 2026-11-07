@@ -196,7 +196,7 @@ SceneObjectKind object_kind(const owe::Json& obj) {
 SceneObjectMetadata parse_object_metadata(const owe::Json& obj, rstd::size_t raw_index) {
     SceneObjectMetadata metadata;
     metadata.raw_index = raw_index;
-    metadata.kind      = object_kind(obj);
+    metadata.kind      = ClassifySceneObject(obj);
     if (! obj.is_object()) return metadata;
 
     metadata.has_id = owe::GetJsonValue(obj, "id"_str, metadata.id, false);
@@ -312,6 +312,8 @@ bool SceneMetadata::FromJson(const owe::Json& json, SceneVersion v) {
 
 namespace owe::wpscene
 {
+
+SceneObjectKind ClassifySceneObject(const owe::Json& object) { return object_kind(object); }
 
 Vec<SceneObjectRecord> ParseSceneObjectRecords(const owe::Json& root, bool& objects_are_array) {
     return parse_object_records(root, objects_are_array);

@@ -17,6 +17,24 @@ using namespace rstd::literals;
 
 namespace owe
 {
+
+void SceneUserPropertyState::Set(ref<str> key, const Json& property) {
+    (void)m_values.insert(String::make(key), property.clone());
+}
+
+auto SceneUserPropertyState::Values() const -> ref<rstd::json::Map> {
+    return ref<rstd::json::Map>::from_raw_parts(rstd::addressof(m_values));
+}
+
+auto EnsureSceneUserPropertyState(Scene& scene) -> SceneUserPropertyState& {
+    auto state = scene.ExtensionMut<SceneUserPropertyState>();
+    if (state.is_some()) return **state;
+    auto  owned = Box<SceneUserPropertyState>::make();
+    auto* raw   = owned.get();
+    scene.InstallExtension(rstd::move(owned));
+    return *raw;
+}
+
 namespace
 {
 
@@ -341,8 +359,10 @@ bool MaterialHasUniform(const SceneMaterial& material, ref<str> uniform_name) {
            material.customShader.variant->Description().default_uniforms.contains_key(uniform_name);
 }
 
-void ApplyImageColor(Scene& scene, ref<str> key, const Json& property) {
-    auto bindings = scene.ImageColorUserBindings(key);
+void ApplyImageColor(Scene& scene, ref<str> key, const Json& property,
+                     const SceneNode* owner = nullptr) {
+    auto bindings = owner ? scene.ImageColorUserBindings(key, owner->Identity())
+                          : scene.ImageColorUserBindings(key);
     if (bindings.is_empty()) return;
     auto coerced = CoerceUserPropertyValue(property);
     if (! coerced.ok || coerced.value.size() < usize(3)) return;
@@ -369,8 +389,10 @@ void ApplyImageColor(Scene& scene, ref<str> key, const Json& property) {
     }
 }
 
-void ApplyImageAlpha(Scene& scene, ref<str> key, const Json& property) {
-    auto bindings = scene.ImageAlphaUserBindings(key);
+void ApplyImageAlpha(Scene& scene, ref<str> key, const Json& property,
+                     const SceneNode* owner = nullptr) {
+    auto bindings = owner ? scene.ImageAlphaUserBindings(key, owner->Identity())
+                          : scene.ImageAlphaUserBindings(key);
     if (bindings.is_empty()) return;
     auto coerced = CoerceUserPropertyValue(property);
     if (! coerced.ok || coerced.value.size() < usize(1)) return;
@@ -415,6 +437,12 @@ void ApplySoundVolume(Scene& scene, ref<str> key, const Json& property) {
 
 } // namespace
 
+void SceneUserPropertyApplier::ApplyImageBinding(Scene& scene, const SceneNode& owner, ref<str> key,
+                                                 const Json& property) {
+    ApplyImageColor(scene, key, property, rstd::addressof(owner));
+    ApplyImageAlpha(scene, key, property, rstd::addressof(owner));
+}
+
 ref<str> CanonicalSceneUserPropertyKey(ref<str> key) {
     return key == kWaywallenSchemeColorKey ? kSchemeColorKey : key;
 }
@@ -433,25 +461,27 @@ Option<array<float, 3>> ResolveSceneUserPropertyColor(const Json& property) {
 SceneUserPropertyMutation SceneUserPropertyApplier::Apply(Scene& scene, ref<str> raw_key,
                                                           const Json& property) {
     SceneUserPropertyMutation mutation;
-    auto                      key = CanonicalSceneUserPropertyKey(raw_key);
-    mutation.diagnostics_changed  = ! scene.ShaderComboUserBindings(key).is_empty();
+    auto                      key     = CanonicalSceneUserPropertyKey(raw_key);
+    auto                      payload = property.clone();
+    mutation.diagnostics_changed      = ! scene.ShaderComboUserBindings(key).is_empty();
 
-    script::SetSceneUserProperty(scene, key, property);
-    mutation.clear_color = ApplyClear(scene, key, property);
-    ApplyShaderUniforms(scene, key, property);
-    mutation.texture_materials = ApplyTextureProperty(scene, key, property);
-    mutation.graph_changed     = ApplyShaderCombos(scene, key, property);
-    ApplyImageColor(scene, key, property);
-    ApplyImageAlpha(scene, key, property);
-    scene.ApplyUserTextBindings(key, property);
-    ApplyParticles(scene, key, property);
-    ApplySoundVolume(scene, key, property);
-    scene.ApplyUserPropertyBindings(key, property);
-    scene.ApplyUserCameraPathVisibilityBindings(key, property);
+    EnsureSceneUserPropertyState(scene).Set(key, payload);
+    script::SetSceneUserProperty(scene, key, payload);
+    mutation.clear_color = ApplyClear(scene, key, payload);
+    ApplyShaderUniforms(scene, key, payload);
+    mutation.texture_materials = ApplyTextureProperty(scene, key, payload);
+    mutation.graph_changed     = ApplyShaderCombos(scene, key, payload);
+    ApplyImageColor(scene, key, payload);
+    ApplyImageAlpha(scene, key, payload);
+    scene.ApplyUserTextBindings(key, payload);
+    ApplyParticles(scene, key, payload);
+    ApplySoundVolume(scene, key, payload);
+    scene.ApplyUserPropertyBindings(key, payload);
+    scene.ApplyUserCameraPathVisibilityBindings(key, payload);
     mutation.graph_changed =
-        scene.ApplyUserNodeVisibilityBindings(key, property) || mutation.graph_changed;
+        scene.ApplyUserNodeVisibilityBindings(key, payload) || mutation.graph_changed;
     mutation.graph_changed =
-        scene.ApplyUserImageEffectVisibilityBindings(key, property) || mutation.graph_changed;
+        scene.ApplyUserImageEffectVisibilityBindings(key, payload) || mutation.graph_changed;
     return mutation;
 }
 

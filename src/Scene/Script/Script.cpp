@@ -5,10 +5,11 @@ module;
 #include "quickjs.h"
 
 module wescene.script;
+import :programs;
+import :conversion;
 import eigen;
 import owe.scene_audio_response;
 import rstd;
-import rstd.parse;
 import rstd.log;
 import rstd.cppstd;
 import wescene.types;
@@ -21,7 +22,6 @@ using namespace rstd::literals;
 using rstd::collections::HashMap;
 using rstd::collections::HashSet;
 using rstd::ffi::CString;
-using rstd::parse::regex::compile;
 using rstd::path::PathBuf;
 using rstd::slice_::sort_unstable_by;
 using rstd::sync::Arc;
@@ -29,429 +29,12 @@ using rstd::sync::Arc;
 namespace owe::script
 {
 
-// ---------------------------------------------------------------------------
-// Field-kind inference. The bound field's name is the only signal we have at
-// parse time; this table mirrors the empirical distribution from the corpus
-// (see docs/scripting/wallpaper_engine_api.md).
-// ---------------------------------------------------------------------------
-
-namespace
-{
-
-FieldKind GuessFieldKind(ref<str> field) {
-    // Visible/enabled-style fields: bool. Several scripts return numbers
-    // 0/1 here too; coercion table accepts both.
-    if (field == "visible"_str) return FieldKind::Bool;
-    // Vec3 (position-like) fields.
-    if (field == "origin"_str || field == "scale"_str || field == "angles"_str ||
-        field == "spriteoffset"_str)
-        return FieldKind::Vec3;
-    if (field == "parallaxDepth"_str) return FieldKind::Vec2;
-    // Color (rgb) fields.
-    if (field == "color"_str || field == "colorn"_str || field == "Bg color"_str ||
-        field == "Bar Color"_str || field == "Inner Color"_str || field == "Outer Color"_str ||
-        field == "Color 1"_str || field == "Color 2"_str || field == "Color filter"_str)
-        return FieldKind::Color;
-    // Strings (text content). Recognised here so the JS can run without
-    // erroring; the actuator side ignores the result for MVP scope.
-    if (field == "text"_str) return FieldKind::String;
-    // Everything else is a scalar: alpha, rate, intensity, fov, volume,
-    // percentage, brightness, saturation, ... .
-    return FieldKind::Scalar;
-}
-
-const char* KindName(FieldKind k) {
-    switch (k) {
-    case FieldKind::Unknown: return "unknown";
-    case FieldKind::Scalar: return "scalar";
-    case FieldKind::Bool: return "bool";
-    case FieldKind::Vec2: return "vec2";
-    case FieldKind::Vec3: return "vec3";
-    case FieldKind::Vec4: return "vec4";
-    case FieldKind::Color: return "color";
-    case FieldKind::String: return "string";
-    }
-    return "?";
-}
-
-bool IsFinite(double value) { return f64(value).is_finite(); }
-
-JSValue MakeVecValue(JSContext* ctx, double x, double y, double z, int n) {
-    JSValue global  = JS_GetGlobalObject(ctx);
-    JSValue ctor    = JS_GetPropertyStr(ctx, global, n == 2 ? "Vec2" : "Vec3");
-    JSValue argv[3] = { JS_NewFloat64(ctx, x), JS_NewFloat64(ctx, y), JS_NewFloat64(ctx, z) };
-    JSValue obj     = JS_CallConstructor(ctx, ctor, n, argv);
-    for (int i = 0; i < n; ++i) JS_FreeValue(ctx, argv[i]);
-    if (n < 3) JS_FreeValue(ctx, argv[2]);
-    JS_FreeValue(ctx, ctor);
-    JS_FreeValue(ctx, global);
-    return obj;
-}
-
-JSValue MakeVec4Value(JSContext* ctx, double x, double y, double z, double w) {
-    JSValue global  = JS_GetGlobalObject(ctx);
-    JSValue ctor    = JS_GetPropertyStr(ctx, global, "Vec4");
-    JSValue argv[4] = {
-        JS_NewFloat64(ctx, x), JS_NewFloat64(ctx, y), JS_NewFloat64(ctx, z), JS_NewFloat64(ctx, w)
-    };
-    JSValue obj = JS_CallConstructor(ctx, ctor, 4, argv);
-    for (auto& arg : argv) JS_FreeValue(ctx, arg);
-    JS_FreeValue(ctx, ctor);
-    JS_FreeValue(ctx, global);
-    return obj;
-}
-
-// JSValue→ScriptValue coercion. Mirrors the table in the API doc; never
-// throws, returns monostate for unrecognised shapes.
-ScriptValue CoerceReturn(JSContext* ctx, JSValue ret, FieldKind kind) {
-    if (JS_IsUndefined(ret) || JS_IsNull(ret)) return {};
-
-    auto read_field = [&](JSValue obj, const char* name, double& out) -> bool {
-        JSValue v = JS_GetPropertyStr(ctx, obj, name);
-        if (JS_IsUndefined(v)) {
-            JS_FreeValue(ctx, v);
-            return false;
-        }
-        double d  = 0.0;
-        int    rc = JS_ToFloat64(ctx, &d, v);
-        JS_FreeValue(ctx, v);
-        if (rc < 0 || ! IsFinite(d)) return false;
-        out = d;
-        return true;
-    };
-    auto read_index = [&](JSValue arr, rstd::uint32_t i, double& out) -> bool {
-        JSValue v = JS_GetPropertyUint32(ctx, arr, i);
-        if (JS_IsUndefined(v)) {
-            JS_FreeValue(ctx, v);
-            return false;
-        }
-        double d  = 0.0;
-        int    rc = JS_ToFloat64(ctx, &d, v);
-        JS_FreeValue(ctx, v);
-        if (rc < 0 || ! IsFinite(d)) return false;
-        out = d;
-        return true;
-    };
-
-    switch (kind) {
-    case FieldKind::Bool: {
-        int b = JS_ToBool(ctx, ret);
-        return BoolValue { b > 0 };
-    }
-    case FieldKind::Scalar: {
-        if (JS_IsBool(ret)) {
-            int b = JS_ToBool(ctx, ret);
-            return ScalarValue { b > 0 ? 1.0 : 0.0 };
-        }
-        double d = 0.0;
-        if (JS_ToFloat64(ctx, &d, ret) >= 0 && IsFinite(d)) return ScalarValue { d };
-        return {};
-    }
-    case FieldKind::Vec2: {
-        Vec2Value v;
-        if (JS_IsArray(ret)) {
-            read_index(ret, 0, v.x);
-            read_index(ret, 1, v.y);
-        } else if (JS_IsObject(ret)) {
-            read_field(ret, "x", v.x);
-            read_field(ret, "y", v.y);
-        } else if (JS_IsNumber(ret)) {
-            double scalar = 0.0;
-            if (JS_ToFloat64(ctx, &scalar, ret) < 0 || ! IsFinite(scalar)) return {};
-            v.x = scalar;
-            v.y = scalar;
-        } else {
-            return {};
-        }
-        return v;
-    }
-    case FieldKind::Vec3: {
-        Vec3Value v;
-        if (JS_IsArray(ret)) {
-            read_index(ret, 0, v.x);
-            read_index(ret, 1, v.y);
-            read_index(ret, 2, v.z);
-        } else if (JS_IsObject(ret)) {
-            read_field(ret, "x", v.x);
-            read_field(ret, "y", v.y);
-            read_field(ret, "z", v.z);
-        } else if (JS_IsNumber(ret)) {
-            // Many audio-response scripts return a *scalar* even when bound
-            // to scale (vec3). Splat into all three components.
-            double d = 0.0;
-            JS_ToFloat64(ctx, &d, ret);
-            if (! IsFinite(d)) return {};
-            return Vec3Value { d, d, d };
-        } else {
-            return {};
-        }
-        return v;
-    }
-    case FieldKind::Vec4: {
-        Vec4Value v;
-        if (JS_IsArray(ret)) {
-            read_index(ret, 0, v.x);
-            read_index(ret, 1, v.y);
-            read_index(ret, 2, v.z);
-            read_index(ret, 3, v.w);
-        } else if (JS_IsObject(ret)) {
-            read_field(ret, "x", v.x);
-            read_field(ret, "y", v.y);
-            read_field(ret, "z", v.z);
-            read_field(ret, "w", v.w);
-        } else if (JS_IsNumber(ret)) {
-            double d = 0.0;
-            JS_ToFloat64(ctx, &d, ret);
-            if (! IsFinite(d)) return {};
-            return Vec4Value { d, d, d, d };
-        } else {
-            return {};
-        }
-        return v;
-    }
-    case FieldKind::Color: {
-        ColorValue v;
-        if (JS_IsArray(ret)) {
-            read_index(ret, 0, v.r);
-            read_index(ret, 1, v.g);
-            read_index(ret, 2, v.b);
-        } else if (JS_IsObject(ret)) {
-            read_field(ret, "r", v.r);
-            read_field(ret, "g", v.g);
-            read_field(ret, "b", v.b);
-        } else {
-            return {};
-        }
-        return v;
-    }
-    case FieldKind::String: {
-        const char* s = JS_ToCString(ctx, ret);
-        if (! s) return {};
-        StringValue sv { rstd::into(rstd::cppstd::as_str(s).unwrap()) };
-        JS_FreeCString(ctx, s);
-        return rstd::move(sv);
-    }
-    case FieldKind::Unknown: return {};
-    }
-    return {};
-}
-
-JSValue ScriptValueToJs(JSContext* ctx, const ScriptValue& value) {
-    if (auto* p = (value.is_Scalar() ? &value.as_Scalar().value : nullptr))
-        return JS_NewFloat64(ctx, p->v);
-    if (auto* p = (value.is_Bool() ? &value.as_Bool().value : nullptr))
-        return JS_NewBool(ctx, p->v);
-    if (auto* p = (value.is_Vec2() ? &value.as_Vec2().value : nullptr))
-        return MakeVecValue(ctx, p->x, p->y, 0.0, 2);
-    if (auto* p = (value.is_Vec3() ? &value.as_Vec3().value : nullptr))
-        return MakeVecValue(ctx, p->x, p->y, p->z, 3);
-    if (auto* p = (value.is_Vec4() ? &value.as_Vec4().value : nullptr))
-        return MakeVec4Value(ctx, p->x, p->y, p->z, p->w);
-    if (auto* p = (value.is_Color() ? &value.as_Color().value : nullptr)) {
-        JSValue arr = JS_NewArray(ctx);
-        JS_DefinePropertyValueUint32(ctx, arr, 0, JS_NewFloat64(ctx, p->r), JS_PROP_C_W_E);
-        JS_DefinePropertyValueUint32(ctx, arr, 1, JS_NewFloat64(ctx, p->g), JS_PROP_C_W_E);
-        JS_DefinePropertyValueUint32(ctx, arr, 2, JS_NewFloat64(ctx, p->b), JS_PROP_C_W_E);
-        return arr;
-    }
-    if (auto* p = (value.is_String() ? &value.as_String().value : nullptr))
-        return JS_NewStringLen(
-            ctx, rstd::cppstd::as_string_view(p->s.as_str()).data(), p->s.len().to_primitive());
-    return JS_UNDEFINED;
-}
-
-// JSON → JSValue conversion for the initial-value seed. Recursive but
-// scenescript values are tiny (numbers, short strings, small objects).
-JSValue JsonToJs(JSContext* ctx, const Json& value) {
-    RSTD_MATCH(value) {
-        RSTD_CASE(Null) { return JS_NULL; }
-        RSTD_CASE(Bool, boolean) { return JS_NewBool(ctx, boolean); }
-        RSTD_CASE(Number, number) {
-            if (auto integer = number.as_i64(); integer.is_some())
-                return JS_NewInt64(ctx, integer->to_primitive());
-            if (auto integer = number.as_u64(); integer.is_some())
-                return JS_NewInt64(ctx, static_cast<rstd::int64_t>(integer->to_primitive()));
-            return JS_NewFloat64(ctx, number.as_f64()->to_primitive());
-        }
-        RSTD_CASE(String, string) {
-            const auto view = rstd::cppstd::as_string_view(string.as_str());
-            return JS_NewStringLen(ctx, view.data(), view.size());
-        }
-        RSTD_CASE(Array, values) {
-            JSValue        array = JS_NewArray(ctx);
-            rstd::uint32_t index = 0;
-            for (const auto& item : values) {
-                JS_DefinePropertyValueUint32(
-                    ctx, array, index++, JsonToJs(ctx, item), JS_PROP_C_W_E);
-            }
-            return array;
-        }
-        RSTD_CASE(Object, values) {
-            JSValue object = JS_NewObject(ctx);
-            values.iter().for_each([&](auto entry) {
-                auto [entry_key, entry_value] = entry;
-                auto owned_key                = Vec<u8>::from(entry_key->as_str().as_bytes());
-                owned_key.push(u8());
-                JS_DefinePropertyValueStr(ctx,
-                                          object,
-                                          reinterpret_cast<const char*>(
-                                              rstd::as_bytes(owned_key.as_slice()).as_raw_ptr()),
-                                          JsonToJs(ctx, *entry_value),
-                                          JS_PROP_C_W_E);
-            });
-            return object;
-        }
-    }
-    rstd::unreachable();
-}
-
-JSValue UserPropertyValueToJs(JSContext* ctx, const Json& property) {
-    if (auto value = property.get("value"_str); value.is_some()) return JsonToJs(ctx, **value);
-    return JsonToJs(ctx, property);
-}
-
-// Resolve a config value. {"user":"name","value":X} stays as-is — the
-// bootstrap getter resolves it lazily against engine.userProperties at
-// access time, so SetUserProperty calls after parse propagate.
-// Everything else passes through.
-JSValue ResolveConfigValue(JSContext* ctx, const Json& v) { return JsonToJs(ctx, v); }
-
-// Coerce a binding's initial-value JSON into the JS shape the script's
-// `init(value)` expects, given the bound field kind. Audio-response,
-// parallax, and color scripts all assume `value` is already a Vec2/Vec3,
-// not a raw string or array.
-//   - Numbers: passthrough for scalar; for Vec2/Vec3 we splat (matching WE's
-//     uniform vector behaviour observed in the corpus).
-//   - Strings: WE serialises vec values as space-separated floats —
-//     "1.0 2.0 3.0" → Vec3(1,2,3). Arrays accept the same shape.
-//   - Arrays / objects with x,y[,z]: construct a Vec2 / Vec3.
-//   - Color: returns an array — most "color" scripts use `[r,g,b]` access.
-//
-// Falls back to JsonToJs for unknown shapes; better to pass garbage than
-// to fail to call init().
-JSValue CoerceInitialValue(JSContext* ctx, const Json& v, FieldKind kind) {
-    auto parse_floats = [](ref<str> s) -> Vec<double> {
-        Vec<double>    out;
-        constexpr auto number = compile<
-            R"([+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)([eE][+-]?[0-9]+)?|[+-]?(infinity|inf|NaN))">;
-        while (! s.is_empty()) {
-            usize begin;
-            while (begin < s.len() && rstd::ascii::is_space(s[begin])) ++begin;
-            s          = s.get(begin, s.len()).unwrap();
-            auto token = number.prefix(s);
-            if (token.is_none()) break;
-            auto value = rstd::from_str<f64>(token->text());
-            if (value.is_err()) break;
-            out.push(value.unwrap().to_primitive());
-            s = s.get(token->end(), s.len()).unwrap();
-        }
-        return out;
-    };
-    switch (kind) {
-    case FieldKind::Vec2: {
-        if (v.is_string()) {
-            auto source = *v.as_str();
-            auto fs     = parse_floats(source);
-            return MakeVecValue(ctx,
-                                fs.len().to_primitive() > 0 ? fs[usize(0)] : 0.0,
-                                fs.len().to_primitive() > 1 ? fs[usize(1)] : 0.0,
-                                0.0,
-                                2);
-        }
-        if (auto values = v.as_array(); values.is_some() && (*values)->len() >= usize(2)) {
-            auto x = (**values)[usize(0)].as_f64();
-            auto y = (**values)[usize(1)].as_f64();
-            if (x.is_some() && y.is_some())
-                return MakeVecValue(ctx, x->to_primitive(), y->to_primitive(), 0.0, 2);
-        }
-        if (v.is_number()) {
-            auto number = v.as_f64();
-            if (number.is_some()) {
-                const auto scalar = number->to_primitive();
-                return MakeVecValue(ctx, scalar, scalar, 0.0, 2);
-            }
-        }
-        break;
-    }
-    case FieldKind::Vec3: {
-        if (v.is_string()) {
-            auto   source = *v.as_str();
-            auto   fs     = parse_floats(source);
-            double x      = fs.len().to_primitive() > 0 ? fs[usize(0)] : 0.0;
-            double y      = fs.len().to_primitive() > 1 ? fs[usize(1)] : x; // splat single scalar
-            double z      = fs.len().to_primitive() > 2 ? fs[usize(2)]
-                                                        : (fs.len().to_primitive() > 1 ? 0.0 : x);
-            return MakeVecValue(ctx, x, y, z, 3);
-        }
-        if (auto values = v.as_array(); values.is_some() && (*values)->len() >= usize(3)) {
-            auto x = (**values)[usize(0)].as_f64();
-            auto y = (**values)[usize(1)].as_f64();
-            auto z = (**values)[usize(2)].as_f64();
-            if (x.is_some() && y.is_some() && z.is_some())
-                return MakeVecValue(
-                    ctx, x->to_primitive(), y->to_primitive(), z->to_primitive(), 3);
-        }
-        if (v.is_number()) {
-            auto number = v.as_f64();
-            if (number.is_some()) {
-                const auto scalar = number->to_primitive();
-                return MakeVecValue(ctx, scalar, scalar, scalar, 3);
-            }
-        }
-        break;
-    }
-    case FieldKind::Vec4: {
-        if (v.is_string()) {
-            auto   source = *v.as_str();
-            auto   fs     = parse_floats(source);
-            double x      = fs.len().to_primitive() > 0 ? fs[usize(0)] : 0.0;
-            double y      = fs.len().to_primitive() > 1 ? fs[usize(1)] : x;
-            double z      = fs.len().to_primitive() > 2 ? fs[usize(2)] : x;
-            double w      = fs.len().to_primitive() > 3 ? fs[usize(3)] : x;
-            return MakeVec4Value(ctx, x, y, z, w);
-        }
-        if (auto values = v.as_array(); values.is_some() && (*values)->len() >= usize(4)) {
-            auto x = (**values)[usize(0)].as_f64();
-            auto y = (**values)[usize(1)].as_f64();
-            auto z = (**values)[usize(2)].as_f64();
-            auto w = (**values)[usize(3)].as_f64();
-            if (x.is_some() && y.is_some() && z.is_some() && w.is_some())
-                return MakeVec4Value(ctx,
-                                     x->to_primitive(),
-                                     y->to_primitive(),
-                                     z->to_primitive(),
-                                     w->to_primitive());
-        }
-        if (v.is_number()) {
-            auto number = v.as_f64();
-            if (number.is_some()) {
-                const auto scalar = number->to_primitive();
-                return MakeVec4Value(ctx, scalar, scalar, scalar, scalar);
-            }
-        }
-        break;
-    }
-    case FieldKind::Color: {
-        if (v.is_string()) {
-            auto    source = *v.as_str();
-            auto    fs     = parse_floats(source);
-            JSValue arr    = JS_NewArray(ctx);
-            for (rstd::uint32_t i = 0; i < fs.len().to_primitive() && i < 3; ++i)
-                JS_DefinePropertyValueUint32(
-                    ctx, arr, i, JS_NewFloat64(ctx, fs[usize(i)]), JS_PROP_C_W_E);
-            return arr;
-        }
-        break;
-    }
-    case FieldKind::Scalar:
-    case FieldKind::Bool:
-    case FieldKind::String:
-    case FieldKind::Unknown: break;
-    }
-    return JsonToJs(ctx, v);
-}
-
-} // namespace
+using conversion::CoerceInitialValue;
+using conversion::CoerceReturn;
+using conversion::JsonToJs;
+using conversion::ResolveConfigValue;
+using conversion::ScriptValueToJs;
+using conversion::UserPropertyValueToJs;
 
 // ---------------------------------------------------------------------------
 // FrameInputs storage. JSRuntime opaque data: a per-context FrameInputs
@@ -476,6 +59,10 @@ struct AudioBufferSlot {
     JSValue        object { JS_UNDEFINED };
 };
 
+struct ScriptLayerState {
+    owe::SceneNode* node { nullptr };
+};
+
 struct EngineHostState {
     FrameInputs                     inputs;
     MediaStatus                     media;
@@ -498,8 +85,9 @@ struct EngineHostState {
     JSValue default_layer { JS_UNDEFINED };
     JSValue default_scene { JS_UNDEFINED };
     // Keep layer identity stable for thisLayer/getLayer/enumerateLayers comparisons.
-    HashMap<owe::SceneNode*, JSValue> layer_objects;
-    HashSet<owe::SceneNode*>          script_layers;
+    HashMap<owe::SceneNode*, JSValue>               layer_objects;
+    HashMap<owe::SceneNode*, Arc<ScriptLayerState>> layer_states;
+    HashSet<owe::SceneNode*>                        script_layers;
     // Keep registered queries enabled even when the scene has no wallpaper layers.
     bool registered_layer_queries { false };
     // engine.setTimeout / setInterval queue. Swept once per frame in
@@ -621,8 +209,13 @@ struct FieldScript::Impl {
     JSValue          init_fn { JS_UNDEFINED };
     JSValue          update_fn { JS_UNDEFINED };
     JSValue          animation_event_fn { JS_UNDEFINED };
+    JSValue          deferred_module { JS_UNDEFINED };
+    Option<Json>     deferred_properties;
+    Option<Json>     deferred_initial_value;
     bool             update_takes_arg { false };
     bool             init_done { false };
+    bool             init_in_progress { false };
+    bool             init_deferred { false };
     rstd::uint64_t   initialization_order { 0 };
     JSValue          current_value {
         JS_UNDEFINED
@@ -643,8 +236,6 @@ struct FieldScript::Impl {
     bool                                     cursor_inside { false };
     Option<Arc<owe::SceneAnimationPlayback>> animation;
     Option<Arc<owe::SceneAnimationLayer>>    animation_layer;
-    HashMap<String, Vec<owe::SceneNode*>>    asset_clone_queues;
-    HashMap<owe::SceneNode*, String>         clone_asset_keys;
     Vec<String>                              registered_assets;
     String                                   workshop_id;
 };
@@ -701,8 +292,9 @@ FieldScript::~FieldScript() = default;
 FieldKind          FieldScript::field_kind() const noexcept { return m_impl->kind; }
 const ScriptValue& FieldScript::last_value() const noexcept { return m_impl->last_value; }
 bool               FieldScript::alive() const noexcept { return m_impl->alive; }
-ref<str>           FieldScript::script_sha() const noexcept { return m_impl->sha.as_str(); }
-slice<String>      FieldScript::RegisteredAssets() const noexcept {
+bool     FieldScript::initialization_deferred() const noexcept { return m_impl->init_deferred; }
+ref<str> FieldScript::script_sha() const noexcept { return m_impl->sha.as_str(); }
+slice<String> FieldScript::RegisteredAssets() const noexcept {
     return m_impl->registered_assets.as_slice();
 }
 Option<ref<str>> FieldScript::WorkshopId() const noexcept {
@@ -727,6 +319,7 @@ struct JsRuntime::Impl {
     HashMap<String, JSValue> ns_by_sha;
     rstd::uint64_t           next_module_serial { 0 };
     Vec<Box<FieldScript>>    scripts;
+    Vec<Box<FieldScript>>    deferred_scripts;
     // Set of error-logged shas to log once.
     HashSet<String> errored;
     // Scene root for `thisScene`. Wrapped lazily; freed in dtor.
@@ -1290,6 +883,8 @@ void SweepDeferred(JSContext* ctx, EngineHostState* host) {
     // Iterate by index; callbacks may push_back new entries.
     for (usize i {}; i < host->deferred.len(); ++i) {
         if (host->deferred[i].dead) continue;
+        auto* pending_owner = host->deferred[i].owner;
+        if (pending_owner != nullptr && pending_owner->m_impl->init_deferred) continue;
         while (! host->deferred[i].dead && host->deferred[i].fire_at <= now) {
             auto* previous = host->active_field_script;
             auto* owner    = host->deferred[i].owner;
@@ -1355,1832 +950,14 @@ JSValue EngineRegisterAsset(JSContext* ctx, JSValueConst /*this_val*/, int argc,
     return JS_NewObject(ctx);
 }
 
-// createScriptProperties() — the JS-side declarative builder. We implement
-// it as a thin C function that returns an object exposing addX / finish.
-// addX records the descriptor on the builder object's `__props` dict; the
-// host reads that dict after the module body runs to know what knobs the
-// script exposes. finish() returns a Proxy whose property reads return the
-// resolved current value (host fills it from scriptproperties config + the
-// schema default).
-//
-// Implementation: we let JS itself build the builder via a small bootstrap
-// snippet evaluated once into the global context. That keeps the C side
-// minimal and lets the dynamic property lookup use a JS Proxy.
-constexpr const char* kBootstrapJs = R"JS(
-(() => {
-  const nativeExec = RegExp.prototype.exec;
-  const defineRegExpStatic = (name, value) => {
-    Object.defineProperty(RegExp, name, {
-      value,
-      writable: true,
-      configurable: true,
-      enumerable: false,
-    });
-  };
-  for (let i = 1; i <= 9; ++i) defineRegExpStatic('$' + i, '');
-  defineRegExpStatic('$_', '');
-  defineRegExpStatic('input', '');
-  defineRegExpStatic('$&', '');
-  defineRegExpStatic('lastMatch', '');
-  defineRegExpStatic('$+', '');
-  defineRegExpStatic('lastParen', '');
-  defineRegExpStatic('$`', '');
-  defineRegExpStatic('leftContext', '');
-  defineRegExpStatic("$'", '');
-  defineRegExpStatic('rightContext', '');
-
-  const updateRegExpStatics = (match) => {
-    if (!match) return;
-    const input = String(match.input ?? '');
-    const index = match.index ?? 0;
-    const text = match[0] ?? '';
-    for (let i = 1; i <= 9; ++i) RegExp['$' + i] = match[i] ?? '';
-    RegExp.$_ = input;
-    RegExp.input = input;
-    RegExp['$&'] = text;
-    RegExp.lastMatch = text;
-    RegExp['$+'] = '';
-    RegExp.lastParen = '';
-    for (let i = match.length - 1; i >= 1; --i) {
-      if (match[i] !== undefined) {
-        RegExp['$+'] = match[i];
-        RegExp.lastParen = match[i];
-        break;
-      }
-    }
-    RegExp['$`'] = input.slice(0, index);
-    RegExp.leftContext = RegExp['$`'];
-    RegExp["$'"] = input.slice(index + text.length);
-    RegExp.rightContext = RegExp["$'"];
-  };
-
-  RegExp.prototype.exec = function(str) {
-    const match = nativeExec.call(this, str);
-    updateRegExpStatics(match);
-    return match;
-  };
-  RegExp.prototype.test = function(str) {
-    return this.exec(str) !== null;
-  };
-})();
-
-globalThis.createScriptProperties = function () {
-  const _props = [];
-  const _byName = new Map();
-  const builder = {
-    _byName,
-    _props,
-  };
-  const adder = (kind) => (opts) => {
-    const d = Object.assign({ kind }, opts);
-    _props.push(d);
-    if (d && d.name) _byName.set(d.name, d);
-    return builder;
-  };
-  builder.addSlider    = adder('Slider');
-  builder.addCheckbox  = adder('Checkbox');
-  builder.addText      = adder('Text');
-  builder.addCombo     = adder('Combo');
-  builder.addColor     = adder('Color');
-  builder.addDelimiter = adder('Delimiter');
-  // Stubs for the long tail surfaced by wpscriptdump (Animation,
-  // Interpolator, AniMapper, Task, ChangedUserProperty, Listener,
-  // SpaceToTimeDelimiter, SpaceToDateDelimiter, Value): no-op, returns
-  // builder so `.addX().addY().finish()` chains keep parsing.
-  for (const k of ['Animation','Interpolator','AniMapper','Task',
-                   'ChangedUserProperty','Listener',
-                   'SpaceToTimeDelimiter','SpaceToDateDelimiter','Value']) {
-    builder['add' + k] = adder(k);
-  }
-  // .finish() returns a Proxy. Property reads:
-  //   - scriptProperties.<name> : look up in _hostValues (filled by C++),
-  //                               else default value from descriptor.
-  //   When _hostValues[name] is a {user, value} pair, resolve at access
-  //   time against engine.userProperties so SetUserProperty calls made
-  //   after parse propagate.
-  builder.finish = function () {
-    const _hostValues = builder._hostValues || {};
-    const target = {};
-    const userValue = (u) => {
-      if (typeof u === 'object' && u !== null && 'value' in u) return u.value;
-      return u;
-    };
-    const sameScalar = (a, b) => String(a) === String(b);
-    const unwrapUserProp = (h) => {
-      if (h === undefined || h === null) return undefined;
-      if (typeof h !== 'object' || !('user' in h) || !('value' in h)) return h;
-      if (typeof h.user === 'object') {
-        const gate = h.user;
-        if (gate && typeof gate.name === 'string') {
-          const u = engine.userProperties[gate.name];
-          if (u !== undefined) return sameScalar(userValue(u), gate.condition);
-        }
-        return unwrapUserProp(h.value);
-      }
-      const u = engine.userProperties[h.user];
-      if (u !== undefined) {
-        // project.json stores user props as { type, value, ... }; pluck
-        // .value when present, else use the bare value directly.
-        return userValue(u);
-      }
-      return h.value;
-    };
-    const coerceDescriptorValue = (descriptor, value) => {
-      if (!descriptor || descriptor.kind !== 'Color') return value;
-      if (typeof value === 'string') {
-        const components = value.trim().split(/\s+/).map(Number);
-        return new globalThis.Vec3(components[0] ?? 0, components[1] ?? 0, components[2] ?? 0);
-      }
-      if (Array.isArray(value)) {
-        return new globalThis.Vec3(value[0] ?? 0, value[1] ?? 0, value[2] ?? 0);
-      }
-      return value;
-    };
-    // WE substitutes user-prop values verbatim, even when the user's
-    // slider range is wider than the script's declared range — corpus
-    // wallpapers (e.g. workshop 3327063360) wire `min:-1,max:1` sliders
-    // into scripts declaring `min:0,max:1` and rely on the negative
-    // values reaching the formula to shift origin off-parent.
-    for (const d of _props) {
-      if (d && d.name) {
-        Object.defineProperty(target, d.name, {
-          enumerable: true,
-          configurable: true,
-          get() {
-            if (Object.prototype.hasOwnProperty.call(_hostValues, d.name))
-              return coerceDescriptorValue(d, unwrapUserProp(_hostValues[d.name]));
-            return d.value;
-          },
-        });
-      }
-    }
-    target.__descriptors = _props;
-    target.__hostValues  = _hostValues;
-    return target;
-  };
-  // Host writes here before evaluating the script body (per FieldScript)
-  // to override defaults.
-  builder._hostValues = {};
-  return builder;
-};
-// WE editor exposes a real console; renderer scripts that log diagnostics
-// touch it from init/update. Provide a no-op shim so unguarded calls
-// don't throw ReferenceError mid module-body — that would leave the
-// remaining const/let declarations in TDZ and break unrelated callbacks.
-if (! globalThis.console) {
-    const __noop = function() {};
-    globalThis.console = {
-        log: __noop, info: __noop, warn: __noop, error: __noop,
-        debug: __noop, trace: __noop, dir: __noop, assert: __noop,
-        group: __noop, groupCollapsed: __noop, groupEnd: __noop,
-    };
-}
-
-// engine.userProperties is a plain object the host can mutate.
-if (! globalThis.engine) globalThis.engine = {};
-globalThis.engine.userProperties = {};
-globalThis.engine.AUDIO_RESOLUTION_16 = 16;
-globalThis.engine.AUDIO_RESOLUTION_32 = 32;
-globalThis.engine.AUDIO_RESOLUTION_64 = 64;
-// WE exposes these as zero-arg query functions; some scripts call them
-// (`engine.isRunningInEditor()`), others read as boolean. Provide a
-// callable that also coerces to false when accessed as a value (the
-// function object is truthy, but scripts that use `if (engine.isRunningInEditor)`
-// still see truthy → they branch into the "running in editor" path. The
-// corpus only ever calls it, so callable-form is the safer default).
-globalThis.engine.isRunningInEditor = function() { return false; };
-globalThis.engine.isScreensaver     = function() { return false; };
-
-// --- SceneScript Core Foundational Math Classes & Host State ---
-const _Epsilon = 0.00001;
-const deg2rad = Math.PI / 180;
-const rad2deg = 180 / Math.PI;
-
-class Vec2 {
-	constructor(x,y){
-		if(typeof x === 'string'){
-			x=x.split(' ');
-			this.x=parseFloat(x[0]);
-			this.y=parseFloat(x[1]);
-		}else if(x instanceof Vec3){
-			this.x=x.x;
-			this.y=x.y;
-		}else if(x instanceof Vec2){
-			this.x=x.x;
-			this.y=x.y;
-		}else if(typeof x === 'object' && x !== null){
-			this.x=Number(x.x ?? 0);
-			this.y=Number(x.y ?? 0);
-		}else if(typeof x!=='undefined'){
-			this.x=x;
-			this.y=(typeof y==='number')?y:x;
-		}else{
-			this.x = 0;
-			this.y = 0;
-		}
-	}
-	length(){
-		return Math.sqrt(this.x*this.x+this.y*this.y);
-	}
-	lengthSqr(){
-		return this.x*this.x+this.y*this.y;
-	}
-	distance(v){
-		const dx = this.x-v.x, dy = this.y-v.y;
-		return Math.sqrt(dx*dx+dy*dy);
-	}
-	distanceSqr(v){
-		const dx = this.x-v.x, dy = this.y-v.y;
-		return dx*dx+dy*dy;
-	}
-	normalize(){
-		return this.divide(this.length() || 1);
-	}
-	copy(){
-		return new Vec2(
-			this.x,
-			this.y
-		);
-	}
-	clone(){
-		return this.copy();
-	}
-	equals(f){
-		if(!(f instanceof Vec2)){ return false; }
-		return Math.abs(this.x-f.x) < _Epsilon &&
-			Math.abs(this.y-f.y) < _Epsilon;
-	}
-	isFinite(){
-		return Number.isFinite(this.x) && Number.isFinite(this.y);
-	}
-	negate(){
-		return new Vec2(-this.x, -this.y);
-	}
-	add(f){
-		if(typeof f === 'number'){
-			return new Vec2(
-				this.x+f,
-				this.y+f
-			);
-		}else{
-			return new Vec2(
-				this.x+(f.x ?? f),
-				this.y+(f.y ?? f)
-			);
-		}
-	}
-	subtract(f){
-		if(typeof f === 'number'){
-			return new Vec2(
-				this.x-f,
-				this.y-f
-			);
-		}else{
-			return new Vec2(
-				this.x-(f.x ?? f),
-				this.y-(f.y ?? f)
-			);
-		}
-	}
-	multiply(f){
-		if(typeof f === 'number'){
-			return new Vec2(
-				this.x*f,
-				this.y*f
-			);
-		}else{
-			return new Vec2(
-				this.x*(f.x ?? f),
-				this.y*(f.y ?? f)
-			);
-		}
-	}
-	divide(f){
-		if(typeof f === 'number'){
-			return new Vec2(
-				this.x/f,
-				this.y/f
-			);
-		}else{
-			return new Vec2(
-				this.x/(f.x ?? f),
-				this.y/(f.y ?? f)
-			);
-		}
-	}
-	dot(f){
-		return this.x*f.x+this.y*f.y;
-	}
-	reflect(f){
-		return this.subtract(f.multiply(2*this.dot(f)));
-	}
-	perpendicular(){
-		return new Vec2(this.y, -this.x);
-	}
-	project(v){
-		const d = v.lengthSqr();
-		if(d === 0){ return new Vec2(0, 0); }
-		return v.multiply(this.dot(v)/d);
-	}
-	angle(){
-		return Math.atan2(this.y, this.x) * rad2deg;
-	}
-	angleBetween(v){
-		return Math.atan2(this.x*v.y - this.y*v.x, this.x*v.x + this.y*v.y) * rad2deg;
-	}
-	rotate(angle){
-		const r = angle * deg2rad;
-		const c = Math.cos(r), s = Math.sin(r);
-		return new Vec2(c*this.x - s*this.y, s*this.x + c*this.y);
-	}
-	mix(v, a){
-		if(typeof a === 'number'){
-			return new Vec2(
-				this.x+((v.x ?? v)-this.x)*a,
-				this.y+((v.y ?? v)-this.y)*a
-			);
-		}else{
-			return new Vec2(
-				this.x+(v.x-this.x)*a.x,
-				this.y+(v.y-this.y)*a.y
-			);
-		}
-	}
-	min(v){
-		if(typeof v === 'number'){
-			return new Vec2(
-				Math.min(this.x, v),
-				Math.min(this.y, v)
-			);
-		}else{
-			return new Vec2(
-				Math.min(this.x, v.x),
-				Math.min(this.y, v.y)
-			);
-		}
-	}
-	max(v){
-		if(typeof v === 'number'){
-			return new Vec2(
-				Math.max(this.x, v),
-				Math.max(this.y, v)
-			);
-		}else{
-			return new Vec2(
-				Math.max(this.x, v.x),
-				Math.max(this.y, v.y)
-			);
-		}
-	}
-	clamp(min, max){
-		const minX = (typeof min === 'number') ? min : min.x;
-		const minY = (typeof min === 'number') ? min : min.y;
-		const maxX = (typeof max === 'number') ? max : max.x;
-		const maxY = (typeof max === 'number') ? max : max.y;
-		return new Vec2(
-			Math.max(minX, Math.min(maxX, this.x)),
-			Math.max(minY, Math.min(maxY, this.y))
-		);
-	}
-	abs(){
-		return new Vec2(Math.abs(this.x), Math.abs(this.y));
-	}
-	sign(){
-		return new Vec2(Math.sign(this.x), Math.sign(this.y));
-	}
-	round(){
-		return new Vec2(Math.round(this.x), Math.round(this.y));
-	}
-	floor(){
-		return new Vec2(Math.floor(this.x), Math.floor(this.y));
-	}
-	ceil(){
-		return new Vec2(Math.ceil(this.x), Math.ceil(this.y));
-	}
-	fract(){
-		return new Vec2(this.x - Math.floor(this.x), this.y - Math.floor(this.y));
-	}
-	mod(v){
-		if(typeof v === 'number'){
-			return new Vec2(
-				this.x - v*Math.floor(this.x/v),
-				this.y - v*Math.floor(this.y/v)
-			);
-		}else{
-			return new Vec2(
-				this.x - v.x*Math.floor(this.x/v.x),
-				this.y - v.y*Math.floor(this.y/v.y)
-			);
-		}
-	}
-	step(edge){
-		const ex = (typeof edge === 'number') ? edge : edge.x;
-		const ey = (typeof edge === 'number') ? edge : edge.y;
-		return new Vec2(this.x < ex ? 0 : 1, this.y < ey ? 0 : 1);
-	}
-	smoothStep(min, max){
-		const e0x = (typeof min === 'number') ? min : min.x;
-		const e0y = (typeof min === 'number') ? min : min.y;
-		const e1x = (typeof max === 'number') ? max : max.x;
-		const e1y = (typeof max === 'number') ? max : max.y;
-		let tx = Math.max(0, Math.min(1, (this.x - e0x) / (e1x - e0x)));
-		let ty = Math.max(0, Math.min(1, (this.y - e0y) / (e1y - e0y)));
-		tx = tx*tx*(3 - 2*tx);
-		ty = ty*ty*(3 - 2*ty);
-		return new Vec2(tx, ty);
-	}
-	toString(){
-		return this.x+' '+this.y;
-	}
-	toConfigString(){
-		return this.toString();
-	}
-}
-
-class Vec3{
-	constructor(x,y,z){
-		if(typeof x === 'string'){
-			x=x.split(' ');
-			this.x=parseFloat(x[0]);
-			this.y=parseFloat(x[1]);
-			this.z=parseFloat(x[2]);
-		}else if(x instanceof Vec3){
-			this.x=x.x;
-			this.y=x.y;
-			this.z=x.z;
-		}else if(x instanceof Vec2){
-			this.x=x.x;
-			this.y=x.y;
-			this.z=0;
-		}else if(typeof x === 'object' && x !== null){
-			this.x=Number(x.x ?? 0);
-			this.y=Number(x.y ?? 0);
-			this.z=Number(x.z ?? 0);
-		}else if(typeof x!=='undefined'){
-			this.x=x;
-			this.y=(typeof y==='number')?y:x;
-			this.z=(typeof z==='number')?z:((typeof y==='number')?0:x);
-		}else{
-			this.x = 0;
-			this.y = 0;
-			this.z = 0;
-		}
-	}
-	static fromSpherical(r, theta, phi){
-		const t = theta * deg2rad;
-		const p = phi * deg2rad;
-		const st = Math.sin(t);
-		return new Vec3(
-			r*st*Math.cos(p),
-			r*Math.cos(t),
-			r*st*Math.sin(p)
-		);
-	}
-	length(){
-		return Math.sqrt(this.x*this.x+this.y*this.y+this.z*this.z);
-	}
-	lengthSqr(){
-		return this.x*this.x+this.y*this.y+this.z*this.z;
-	}
-	distance(v){
-		const dx = this.x-v.x, dy = this.y-v.y, dz = this.z-v.z;
-		return Math.sqrt(dx*dx+dy*dy+dz*dz);
-	}
-	distanceSqr(v){
-		const dx = this.x-v.x, dy = this.y-v.y, dz = this.z-v.z;
-		return dx*dx+dy*dy+dz*dz;
-	}
-	normalize(){
-		return this.divide(this.length() || 1);
-	}
-	copy(){
-		return new Vec3(
-			this.x,
-			this.y,
-			this.z
-		);
-	}
-	clone(){
-		return this.copy();
-	}
-	equals(f){
-		if(!(f instanceof Vec3)){ return false; }
-		return Math.abs(this.x-f.x) < _Epsilon &&
-			Math.abs(this.y-f.y) < _Epsilon &&
-			Math.abs(this.z-f.z) < _Epsilon;
-	}
-	isFinite(){
-		return Number.isFinite(this.x) && Number.isFinite(this.y) && Number.isFinite(this.z);
-	}
-	negate(){
-		return new Vec3(-this.x, -this.y, -this.z);
-	}
-	add(f){
-		if(typeof f === 'number'){
-			return new Vec3(
-				this.x+f,
-				this.y+f,
-				this.z+f
-			);
-		}else if(f instanceof Vec2){
-			return new Vec3(
-				this.x+f.x,
-				this.y+f.y,
-				this.z
-			);
-		}else{
-			return new Vec3(
-				this.x+(f.x ?? f),
-				this.y+(f.y ?? f),
-				this.z+(f.z ?? f)
-			);
-		}
-	}
-	subtract(f){
-		if(typeof f === 'number'){
-			return new Vec3(
-				this.x-f,
-				this.y-f,
-				this.z-f
-			);
-		}else if(f instanceof Vec2){
-			return new Vec3(
-				this.x-f.x,
-				this.y-f.y,
-				this.z
-			);
-		}else{
-			return new Vec3(
-				this.x-(f.x ?? f),
-				this.y-(f.y ?? f),
-				this.z-(f.z ?? f)
-			);
-		}
-	}
-	multiply(f){
-		if(typeof f === 'number'){
-			return new Vec3(
-				this.x*f,
-				this.y*f,
-				this.z*f
-			);
-		}else if(f instanceof Vec2){
-			return new Vec3(
-				this.x*f.x,
-				this.y*f.y,
-				this.z
-			);
-		}else{
-			return new Vec3(
-				this.x*(f.x ?? f),
-				this.y*(f.y ?? f),
-				this.z*(f.z ?? f)
-			);
-		}
-	}
-	divide(f){
-		if(typeof f === 'number'){
-			return new Vec3(
-				this.x/f,
-				this.y/f,
-				this.z/f
-			);
-		}else if(f instanceof Vec2){
-			return new Vec3(
-				this.x/f.x,
-				this.y/f.y,
-				this.z
-			);
-		}else{
-			return new Vec3(
-				this.x/(f.x ?? f),
-				this.y/(f.y ?? f),
-				this.z/(f.z ?? f)
-			);
-		}
-	}
-	cross(f){
-		return new Vec3(
-			this.y*f.z-this.z*f.y,
-			this.z*f.x-this.x*f.z,
-			this.x*f.y-this.y*f.x
-		);
-	}
-	dot(f){
-		return this.x*f.x+this.y*f.y+this.z*f.z;
-	}
-	reflect(f){
-		return this.subtract(f.multiply(2*this.dot(f)));
-	}
-	refract(normal, eta){
-		const NdotI = normal.dot(this);
-		const k = 1 - eta*eta * (1 - NdotI*NdotI);
-		if(k < 0){ return new Vec3(0, 0, 0); }
-		return this.multiply(eta).subtract(normal.multiply(eta*NdotI + Math.sqrt(k)));
-	}
-	project(v){
-		const d = v.lengthSqr();
-		if(d === 0){ return new Vec3(0, 0, 0); }
-		return v.multiply(this.dot(v)/d);
-	}
-	angleBetween(v){
-		const denom = Math.sqrt(this.lengthSqr() * v.lengthSqr());
-		if(denom === 0){ return 0; }
-		return Math.acos(Math.max(-1, Math.min(1, this.dot(v) / denom))) * rad2deg;
-	}
-	toSpherical(){
-		const r = this.length();
-		if(r === 0){ return new Vec3(0, 0, 0); }
-		return new Vec3(r, Math.acos(this.y / r) * rad2deg, Math.atan2(this.z, this.x) * rad2deg);
-	}
-	mix(v, a){
-		if(typeof a === 'number'){
-			return new Vec3(
-				this.x+((v.x ?? v)-this.x)*a,
-				this.y+((v.y ?? v)-this.y)*a,
-				this.z+((v.z ?? v)-this.z)*a
-			);
-		}else{
-			return new Vec3(
-				this.x+(v.x-this.x)*a.x,
-				this.y+(v.y-this.y)*a.y,
-				this.z+(v.z-this.z)*a.z
-			);
-		}
-	}
-	min(v){
-		if(typeof v === 'number'){
-			return new Vec3(
-				Math.min(this.x, v),
-				Math.min(this.y, v),
-				Math.min(this.z, v)
-			);
-		}else{
-			return new Vec3(
-				Math.min(this.x, v.x),
-				Math.min(this.y, v.y),
-				Math.min(this.z, v.z)
-			);
-		}
-	}
-	max(v){
-		if(typeof v === 'number'){
-			return new Vec3(
-				Math.max(this.x, v),
-				Math.max(this.y, v),
-				Math.max(this.z, v)
-			);
-		}else{
-			return new Vec3(
-				Math.max(this.x, v.x),
-				Math.max(this.y, v.y),
-				Math.max(this.z, v.z)
-			);
-		}
-	}
-	clamp(min, max){
-		const minX = (typeof min === 'number') ? min : min.x;
-		const minY = (typeof min === 'number') ? min : min.y;
-		const minZ = (typeof min === 'number') ? min : min.z;
-		const maxX = (typeof max === 'number') ? max : max.x;
-		const maxY = (typeof max === 'number') ? max : max.y;
-		const maxZ = (typeof max === 'number') ? max : max.z;
-		return new Vec3(
-			Math.max(minX, Math.min(maxX, this.x)),
-			Math.max(minY, Math.min(maxY, this.y)),
-			Math.max(minZ, Math.min(maxZ, this.z))
-		);
-	}
-	abs(){
-		return new Vec3(Math.abs(this.x), Math.abs(this.y), Math.abs(this.z));
-	}
-	sign(){
-		return new Vec3(Math.sign(this.x), Math.sign(this.y), Math.sign(this.z));
-	}
-	round(){
-		return new Vec3(Math.round(this.x), Math.round(this.y), Math.round(this.z));
-	}
-	floor(){
-		return new Vec3(Math.floor(this.x), Math.floor(this.y), Math.floor(this.z));
-	}
-	ceil(){
-		return new Vec3(Math.ceil(this.x), Math.ceil(this.y), Math.ceil(this.z));
-	}
-	fract(){
-		return new Vec3(
-			this.x - Math.floor(this.x),
-			this.y - Math.floor(this.y),
-			this.z - Math.floor(this.z)
-		);
-	}
-	mod(v){
-		if(typeof v === 'number'){
-			return new Vec3(
-				this.x - v*Math.floor(this.x/v),
-				this.y - v*Math.floor(this.y/v),
-				this.z - v*Math.floor(this.z/v)
-			);
-		}else{
-			return new Vec3(
-				this.x - v.x*Math.floor(this.x/v.x),
-				this.y - v.y*Math.floor(this.y/v.y),
-				this.z - v.z*Math.floor(this.z/v.z)
-			);
-		}
-	}
-	step(edge){
-		const ex = (typeof edge === 'number') ? edge : edge.x;
-		const ey = (typeof edge === 'number') ? edge : edge.y;
-		const ez = (typeof edge === 'number') ? edge : edge.z;
-		return new Vec3(this.x < ex ? 0 : 1, this.y < ey ? 0 : 1, this.z < ez ? 0 : 1);
-	}
-	smoothStep(min, max){
-		const e0x = (typeof min === 'number') ? min : min.x;
-		const e0y = (typeof min === 'number') ? min : min.y;
-		const e0z = (typeof min === 'number') ? min : min.z;
-		const e1x = (typeof max === 'number') ? max : max.x;
-		const e1y = (typeof max === 'number') ? max : max.y;
-		const e1z = (typeof max === 'number') ? max : max.z;
-		let tx = Math.max(0, Math.min(1, (this.x - e0x) / (e1x - e0x)));
-		let ty = Math.max(0, Math.min(1, (this.y - e0y) / (e1y - e0y)));
-		let tz = Math.max(0, Math.min(1, (this.z - e0z) / (e1z - e0z)));
-		tx = tx*tx*(3 - 2*tx);
-		ty = ty*ty*(3 - 2*ty);
-		tz = tz*tz*(3 - 2*tz);
-		return new Vec3(tx, ty, tz);
-	}
-	toString(){
-		return this.x+' '+this.y+' '+this.z;
-	}
-	toConfigString(){
-		return this.toString();
-	}
-}
-
-class Vec4 {
-	constructor(x,y,z,w){
-		if(typeof x === 'string'){
-			x=x.split(' ');
-			this.x=parseFloat(x[0]);
-			this.y=parseFloat(x[1]);
-			this.z=parseFloat(x[2]);
-			this.w=parseFloat(x[3]);
-		}else if(x instanceof Vec4){
-			this.x=x.x; this.y=x.y; this.z=x.z; this.w=x.w;
-		}else if(x instanceof Vec3){
-			this.x=x.x; this.y=x.y; this.z=x.z; this.w=0;
-		}else if(x instanceof Vec2){
-			this.x=x.x; this.y=x.y; this.z=0; this.w=0;
-		}else if(typeof x === 'object' && x !== null){
-			this.x=Number(x.x ?? 0);
-			this.y=Number(x.y ?? 0);
-			this.z=Number(x.z ?? 0);
-			this.w=Number(x.w ?? 0);
-		}else if(typeof x!=='undefined'){
-			this.x=x;
-			this.y=(typeof y==='number')?y:x;
-			this.z=(typeof z==='number')?z:((typeof y==='number')?0:x);
-			this.w=(typeof w==='number')?w:((typeof z==='number')?z:((typeof y==='number')?0:x));
-		}else{
-			this.x = 0;
-			this.y = 0;
-			this.z = 0;
-			this.w = 0;
-		}
-	}
-	length(){
-		return Math.sqrt(this.x*this.x+this.y*this.y+this.z*this.z+this.w*this.w);
-	}
-	lengthSqr(){
-		return this.x*this.x+this.y*this.y+this.z*this.z+this.w*this.w;
-	}
-	distance(v){
-		const dx = this.x-v.x, dy = this.y-v.y, dz = this.z-v.z, dw = this.w-v.w;
-		return Math.sqrt(dx*dx+dy*dy+dz*dz+dw*dw);
-	}
-	distanceSqr(v){
-		const dx = this.x-v.x, dy = this.y-v.y, dz = this.z-v.z, dw = this.w-v.w;
-		return dx*dx+dy*dy+dz*dz+dw*dw;
-	}
-	normalize(){
-		return this.divide(this.length() || 1);
-	}
-	copy(){
-		return new Vec4(this.x, this.y, this.z, this.w);
-	}
-	clone(){
-		return this.copy();
-	}
-	equals(f){
-		if(!(f instanceof Vec4)){ return false; }
-		return Math.abs(this.x-f.x) < _Epsilon &&
-			Math.abs(this.y-f.y) < _Epsilon &&
-			Math.abs(this.z-f.z) < _Epsilon &&
-			Math.abs(this.w-f.w) < _Epsilon;
-	}
-	isFinite(){
-		return Number.isFinite(this.x) && Number.isFinite(this.y) &&
-			Number.isFinite(this.z) && Number.isFinite(this.w);
-	}
-	negate(){
-		return new Vec4(-this.x, -this.y, -this.z, -this.w);
-	}
-	add(f){
-		if(typeof f === 'number'){
-			return new Vec4(this.x+f, this.y+f, this.z+f, this.w+f);
-		}else{
-			return new Vec4(this.x+(f.x ?? f), this.y+(f.y ?? f), this.z+(f.z ?? f), this.w+(f.w ?? f));
-		}
-	}
-	subtract(f){
-		if(typeof f === 'number'){
-			return new Vec4(this.x-f, this.y-f, this.z-f, this.w-f);
-		}else{
-			return new Vec4(this.x-(f.x ?? f), this.y-(f.y ?? f), this.z-(f.z ?? f), this.w-(f.w ?? f));
-		}
-	}
-	multiply(f){
-		if(typeof f === 'number'){
-			return new Vec4(this.x*f, this.y*f, this.z*f, this.w*f);
-		}else{
-			return new Vec4(this.x*(f.x ?? f), this.y*(f.y ?? f), this.z*(f.z ?? f), this.w*(f.w ?? f));
-		}
-	}
-	divide(f){
-		if(typeof f === 'number'){
-			return new Vec4(this.x/f, this.y/f, this.z/f, this.w/f);
-		}else{
-			return new Vec4(this.x/(f.x ?? f), this.y/(f.y ?? f), this.z/(f.z ?? f), this.w/(f.w ?? f));
-		}
-	}
-	dot(f){
-		return this.x*f.x + this.y*f.y + this.z*f.z + this.w*f.w;
-	}
-	reflect(f){
-		return this.subtract(f.multiply(2*this.dot(f)));
-	}
-	project(v){
-		const d = v.lengthSqr();
-		if(d === 0){ return new Vec4(0, 0, 0, 0); }
-		return v.multiply(this.dot(v)/d);
-	}
-	mix(v, a){
-		if(typeof a === 'number'){
-			return new Vec4(
-				this.x+((v.x ?? v)-this.x)*a,
-				this.y+((v.y ?? v)-this.y)*a,
-				this.z+((v.z ?? v)-this.z)*a,
-				this.w+((v.w ?? v)-this.w)*a
-			);
-		}else{
-			return new Vec4(
-				this.x+(v.x-this.x)*a.x,
-				this.y+(v.y-this.y)*a.y,
-				this.z+(v.z-this.z)*a.z,
-				this.w+(v.w-this.w)*a.w
-			);
-		}
-	}
-	min(v){
-		if(typeof v === 'number'){
-			return new Vec4(
-				Math.min(this.x, v), Math.min(this.y, v),
-				Math.min(this.z, v), Math.min(this.w, v)
-			);
-		}else{
-			return new Vec4(
-				Math.min(this.x, v.x), Math.min(this.y, v.y),
-				Math.min(this.z, v.z), Math.min(this.w, v.w)
-			);
-		}
-	}
-	max(v){
-		if(typeof v === 'number'){
-			return new Vec4(
-				Math.max(this.x, v), Math.max(this.y, v),
-				Math.max(this.z, v), Math.max(this.w, v)
-			);
-		}else{
-			return new Vec4(
-				Math.max(this.x, v.x), Math.max(this.y, v.y),
-				Math.max(this.z, v.z), Math.max(this.w, v.w)
-			);
-		}
-	}
-	clamp(min, max){
-		const minX = (typeof min === 'number') ? min : min.x;
-		const minY = (typeof min === 'number') ? min : min.y;
-		const minZ = (typeof min === 'number') ? min : min.z;
-		const minW = (typeof min === 'number') ? min : min.w;
-		const maxX = (typeof max === 'number') ? max : max.x;
-		const maxY = (typeof max === 'number') ? max : max.y;
-		const maxZ = (typeof max === 'number') ? max : max.z;
-		const maxW = (typeof max === 'number') ? max : max.w;
-		return new Vec4(
-			Math.max(minX, Math.min(maxX, this.x)),
-			Math.max(minY, Math.min(maxY, this.y)),
-			Math.max(minZ, Math.min(maxZ, this.z)),
-			Math.max(minW, Math.min(maxW, this.w))
-		);
-	}
-	abs(){
-		return new Vec4(Math.abs(this.x), Math.abs(this.y), Math.abs(this.z), Math.abs(this.w));
-	}
-	sign(){
-		return new Vec4(Math.sign(this.x), Math.sign(this.y), Math.sign(this.z), Math.sign(this.w));
-	}
-	round(){
-		return new Vec4(Math.round(this.x), Math.round(this.y), Math.round(this.z), Math.round(this.w));
-	}
-	floor(){
-		return new Vec4(Math.floor(this.x), Math.floor(this.y), Math.floor(this.z), Math.floor(this.w));
-	}
-	ceil(){
-		return new Vec4(Math.ceil(this.x), Math.ceil(this.y), Math.ceil(this.z), Math.ceil(this.w));
-	}
-	fract(){
-		return new Vec4(
-			this.x - Math.floor(this.x),
-			this.y - Math.floor(this.y),
-			this.z - Math.floor(this.z),
-			this.w - Math.floor(this.w)
-		);
-	}
-	mod(v){
-		if(typeof v === 'number'){
-			return new Vec4(
-				this.x - v*Math.floor(this.x/v),
-				this.y - v*Math.floor(this.y/v),
-				this.z - v*Math.floor(this.z/v),
-				this.w - v*Math.floor(this.w/v)
-			);
-		}else{
-			return new Vec4(
-				this.x - v.x*Math.floor(this.x/v.x),
-				this.y - v.y*Math.floor(this.y/v.y),
-				this.z - v.z*Math.floor(this.z/v.z),
-				this.w - v.w*Math.floor(this.w/v.w)
-			);
-		}
-	}
-	step(edge){
-		const ex = (typeof edge === 'number') ? edge : edge.x;
-		const ey = (typeof edge === 'number') ? edge : edge.y;
-		const ez = (typeof edge === 'number') ? edge : edge.z;
-		const ew = (typeof edge === 'number') ? edge : edge.w;
-		return new Vec4(
-			this.x < ex ? 0 : 1,
-			this.y < ey ? 0 : 1,
-			this.z < ez ? 0 : 1,
-			this.w < ew ? 0 : 1
-		);
-	}
-	smoothStep(min, max){
-		const e0x = (typeof min === 'number') ? min : min.x;
-		const e0y = (typeof min === 'number') ? min : min.y;
-		const e0z = (typeof min === 'number') ? min : min.z;
-		const e0w = (typeof min === 'number') ? min : min.w;
-		const e1x = (typeof max === 'number') ? max : max.x;
-		const e1y = (typeof max === 'number') ? max : max.y;
-		const e1z = (typeof max === 'number') ? max : max.z;
-		const e1w = (typeof max === 'number') ? max : max.w;
-		let tx = Math.max(0, Math.min(1, (this.x - e0x) / (e1x - e0x)));
-		let ty = Math.max(0, Math.min(1, (this.y - e0y) / (e1y - e0y)));
-		let tz = Math.max(0, Math.min(1, (this.z - e0z) / (e1z - e0z)));
-		let tw = Math.max(0, Math.min(1, (this.w - e0w) / (e1w - e0w)));
-		tx = tx*tx*(3 - 2*tx);
-		ty = ty*ty*(3 - 2*ty);
-		tz = tz*tz*(3 - 2*tz);
-		tw = tw*tw*(3 - 2*tw);
-		return new Vec4(tx, ty, tz, tw);
-	}
-	toString(){
-		return this.x+' '+this.y+' '+this.z+' '+this.w;
-	}
-	toConfigString(){
-		return this.toString();
-	}
-}
-
-class Mat3 {
-	constructor(arg){
-		if(arg instanceof Mat3){
-			this.m = arg.m.slice();
-		}else if(Array.isArray(arg) && arg.length === 9){
-			this.m = arg.slice();
-		}else if(typeof arg === 'string'){
-			const p = arg.split(' ').map(parseFloat);
-			this.m = (p.length === 9) ? p : [1,0,0, 0,1,0, 0,0,1];
-		}else{
-			this.m = [1, 0, 0,
-					0, 1, 0,
-					0, 0, 1];
-		}
-	}
-	static identity(){
-		return new Mat3();
-	}
-	static fromTranslation(v){
-		const r = new Mat3();
-		r.m[6] = v.x;
-		r.m[7] = v.y;
-		return r;
-	}
-	static fromScale(v){
-		const r = new Mat3();
-		if(typeof v === 'number'){
-			r.m[0] = v; r.m[4] = v;
-		}else{
-			r.m[0] = v.x; r.m[4] = v.y;
-		}
-		return r;
-	}
-	static fromRotation(angle){
-		const a = angle * deg2rad;
-		const c = Math.cos(a), s = Math.sin(a);
-		const r = new Mat3();
-		r.m[0] = c; r.m[1] = s;
-		r.m[3] = -s; r.m[4] = c;
-		return r;
-	}
-	static fromBasis(right, up){
-		const r = new Mat3();
-		r.m[0] = right.x; r.m[1] = right.y; r.m[2] = 0;
-		r.m[3] = up.x;    r.m[4] = up.y;    r.m[5] = 0;
-		r.m[6] = 0;       r.m[7] = 0;       r.m[8] = 1;
-		return r;
-	}
-	static fromMat4(m){
-		const a = m.m;
-		const r = new Mat3();
-		r.m[0] = a[0]; r.m[1] = a[1]; r.m[2] = a[2];
-		r.m[3] = a[4]; r.m[4] = a[5]; r.m[5] = a[6];
-		r.m[6] = a[8]; r.m[7] = a[9]; r.m[8] = a[10];
-		return r;
-	}
-	static compose(translation, rotation, scale){
-		return Mat3.fromTranslation(translation).rotate(rotation).scale(scale);
-	}
-	right(){
-		return new Vec3(this.m[0], this.m[1], this.m[2]);
-	}
-	up(){
-		return new Vec3(this.m[3], this.m[4], this.m[5]);
-	}
-	forward(){
-		return new Vec3(this.m[6], this.m[7], this.m[8]);
-	}
-	translation(v){
-		if(v instanceof Vec2){
-			this.m[6]=v.x;
-			this.m[7]=v.y;
-			return this;
-		}else{
-			return new Vec2(this.m[6], this.m[7]);
-		}
-	}
-	angle(){
-		return Math.atan2(this.m[0], -this.m[1]) * rad2deg;
-	}
-	add(f){
-		const r = new Mat3();
-		for(let i = 0; i < 9; i++){ r.m[i] = this.m[i] + f.m[i]; }
-		return r;
-	}
-	subtract(f){
-		const r = new Mat3();
-		for(let i = 0; i < 9; i++){ r.m[i] = this.m[i] - f.m[i]; }
-		return r;
-	}
-	multiply(f){
-		if(f instanceof Mat3){
-			const a = this.m, b = f.m;
-			const r = new Mat3();
-			for(let col = 0; col < 3; col++){
-				for(let row = 0; row < 3; row++){
-					let s = 0;
-					for(let k = 0; k < 3; k++){
-						s += a[k*3 + row] * b[col*3 + k];
-					}
-					r.m[col*3 + row] = s;
-				}
-			}
-			return r;
-		}else if(f instanceof Vec3){
-			const m = this.m;
-			return new Vec3(
-				m[0]*f.x + m[3]*f.y + m[6]*f.z,
-				m[1]*f.x + m[4]*f.y + m[7]*f.z,
-				m[2]*f.x + m[5]*f.y + m[8]*f.z
-			);
-		}else if(typeof f === 'number'){
-			const r = new Mat3();
-			for(let i = 0; i < 9; i++){ r.m[i] = this.m[i] * f; }
-			return r;
-		}
-	}
-	translate(v){
-		const m = this.m;
-		const r = new Mat3();
-		r.m[0] = m[0]; r.m[1] = m[1]; r.m[2] = m[2];
-		r.m[3] = m[3]; r.m[4] = m[4]; r.m[5] = m[5];
-		r.m[6] = m[0]*v.x + m[3]*v.y + m[6];
-		r.m[7] = m[1]*v.x + m[4]*v.y + m[7];
-		r.m[8] = m[2]*v.x + m[5]*v.y + m[8];
-		return r;
-	}
-	rotate(angle){
-		const a = angle * deg2rad;
-		const c = Math.cos(a), s = Math.sin(a);
-		const m = this.m;
-		const r = new Mat3();
-		r.m[0] =  c*m[0] + s*m[3];
-		r.m[1] =  c*m[1] + s*m[4];
-		r.m[2] =  c*m[2] + s*m[5];
-		r.m[3] = -s*m[0] + c*m[3];
-		r.m[4] = -s*m[1] + c*m[4];
-		r.m[5] = -s*m[2] + c*m[5];
-		r.m[6] = m[6]; r.m[7] = m[7]; r.m[8] = m[8];
-		return r;
-	}
-	scale(v){
-		const m = this.m;
-		const sx = (typeof v === 'number') ? v : v.x;
-		const sy = (typeof v === 'number') ? v : v.y;
-		const r = new Mat3();
-		r.m[0] = m[0]*sx; r.m[1] = m[1]*sx; r.m[2] = m[2]*sx;
-		r.m[3] = m[3]*sy; r.m[4] = m[4]*sy; r.m[5] = m[5]*sy;
-		r.m[6] = m[6];    r.m[7] = m[7];    r.m[8] = m[8];
-		return r;
-	}
-	transformPoint(v){
-		const m = this.m;
-		return new Vec2(
-			m[0]*v.x + m[3]*v.y + m[6],
-			m[1]*v.x + m[4]*v.y + m[7]
-		);
-	}
-	transformDirection(v){
-		const m = this.m;
-		return new Vec2(
-			m[0]*v.x + m[3]*v.y,
-			m[1]*v.x + m[4]*v.y
-		);
-	}
-	transpose(){
-		const m = this.m;
-		const r = new Mat3();
-		r.m[0] = m[0]; r.m[1] = m[3]; r.m[2] = m[6];
-		r.m[3] = m[1]; r.m[4] = m[4]; r.m[5] = m[7];
-		r.m[6] = m[2]; r.m[7] = m[5]; r.m[8] = m[8];
-		return r;
-	}
-	determinant(){
-		const m = this.m;
-		return m[0] * (m[4]*m[8] - m[7]*m[5])
-			- m[3] * (m[1]*m[8] - m[7]*m[2])
-			+ m[6] * (m[1]*m[5] - m[4]*m[2]);
-	}
-	inverse(){
-		const m = this.m;
-		const c00 =  (m[4]*m[8] - m[7]*m[5]);
-		const c01 = -(m[1]*m[8] - m[7]*m[2]);
-		const c02 =  (m[1]*m[5] - m[4]*m[2]);
-		const c10 = -(m[3]*m[8] - m[6]*m[5]);
-		const c11 =  (m[0]*m[8] - m[6]*m[2]);
-		const c12 = -(m[0]*m[5] - m[3]*m[2]);
-		const c20 =  (m[3]*m[7] - m[6]*m[4]);
-		const c21 = -(m[0]*m[7] - m[6]*m[1]);
-		const c22 =  (m[0]*m[4] - m[3]*m[1]);
-		const det = m[0]*c00 + m[3]*c01 + m[6]*c02;
-		const inv = 1 / det;
-		const r = new Mat3();
-		r.m[0] = c00*inv; r.m[1] = c01*inv; r.m[2] = c02*inv;
-		r.m[3] = c10*inv; r.m[4] = c11*inv; r.m[5] = c12*inv;
-		r.m[6] = c20*inv; r.m[7] = c21*inv; r.m[8] = c22*inv;
-		return r;
-	}
-	decompose(){
-		const m = this.m;
-		const translation = new Vec2(m[6], m[7]);
-		const sx = Math.sqrt(m[0]*m[0] + m[1]*m[1]);
-		const sy = Math.sqrt(m[3]*m[3] + m[4]*m[4]);
-		const det2 = m[0]*m[4] - m[3]*m[1];
-		const sxSigned = (det2 < 0) ? -sx : sx;
-		const rotation = (sxSigned !== 0) ? Math.atan2(m[1]/sxSigned, m[0]/sxSigned) * rad2deg : 0;
-		return { translation: translation, rotation: rotation, scale: new Vec2(sxSigned, sy) };
-	}
-	copy(){
-		return new Mat3(this);
-	}
-	clone(){
-		return this.copy();
-	}
-	equals(f){
-		if(!(f instanceof Mat3)){ return false; }
-		for(let i = 0; i < 9; i++){
-			if(Math.abs(this.m[i] - f.m[i]) >= _Epsilon){ return false; }
-		}
-		return true;
-	}
-	toString(){
-		return this.m[0]+' '+this.m[1]+' '+this.m[2]+' '+
-			this.m[3]+' '+this.m[4]+' '+this.m[5]+' '+
-			this.m[6]+' '+this.m[7]+' '+this.m[8];
-	}
-	toConfigString(){
-		return this.toString();
-	}
-}
-
-class Mat4 {
-	constructor(arg){
-		if(arg instanceof Mat4){
-			this.m = arg.m.slice();
-		}else if(Array.isArray(arg) && arg.length === 16){
-			this.m = arg.slice();
-		}else if(typeof arg === 'string'){
-			const p = arg.split(' ').map(parseFloat);
-			this.m = (p.length === 16) ? p : [
-				1, 0, 0, 0,
-				0, 1, 0, 0,
-				0, 0, 1, 0,
-				0, 0, 0, 1
-			];
-		}else{
-			this.m = [1, 0, 0, 0,
-					0, 1, 0, 0,
-					0, 0, 1, 0,
-					0, 0, 0, 1];
-		}
-	}
-	static identity(){
-		return new Mat4();
-	}
-	static fromTranslation(v){
-		const r = new Mat4();
-		if(v instanceof Vec3){
-			r.m[12] = v.x; r.m[13] = v.y; r.m[14] = v.z;
-		}else if(v instanceof Vec2){
-			r.m[12] = v.x; r.m[13] = v.y;
-		}
-		return r;
-	}
-	static fromScale(v){
-		const r = new Mat4();
-		if(typeof v === 'number'){
-			r.m[0] = v; r.m[5] = v; r.m[10] = v;
-		}else{
-			r.m[0] = v.x; r.m[5] = v.y; r.m[10] = v.z;
-		}
-		return r;
-	}
-	static fromRotation(angle, axis){
-		const ang = angle * deg2rad;
-		const a = axis.normalize();
-		const c = Math.cos(ang);
-		const s = Math.sin(ang);
-		const t = 1 - c;
-		const x = a.x, y = a.y, z = a.z;
-		const r = new Mat4();
-		r.m[0] = c + x*x*t;
-		r.m[1] = x*y*t + z*s;
-		r.m[2] = x*z*t - y*s;
-		r.m[3] = 0;
-		r.m[4] = y*x*t - z*s;
-		r.m[5] = c + y*y*t;
-		r.m[6] = y*z*t + x*s;
-		r.m[7] = 0;
-		r.m[8] = z*x*t + y*s;
-		r.m[9] = z*y*t - x*s;
-		r.m[10] = c + z*z*t;
-		r.m[11] = 0;
-		r.m[12] = 0; r.m[13] = 0; r.m[14] = 0; r.m[15] = 1;
-		return r;
-	}
-	static fromEuler(x, y, z){
-		if(x instanceof Vec3){
-			z = x.z; y = x.y; x = x.x;
-		}
-		const rx = x * deg2rad;
-		const ry = y * deg2rad;
-		const rz = z * deg2rad;
-		const c1 = Math.cos(-rz), s1 = Math.sin(-rz);
-		const c2 = Math.cos(-ry), s2 = Math.sin(-ry);
-		const c3 = Math.cos(-rx), s3 = Math.sin(-rx);
-		const r = new Mat4();
-		r.m[0] = c1*c2;
-		r.m[1] = -c2*s1;
-		r.m[2] = s2;
-		r.m[3] = 0;
-		r.m[4] = c3*s1 + c1*s2*s3;
-		r.m[5] = c1*c3 - s1*s2*s3;
-		r.m[6] = -c2*s3;
-		r.m[7] = 0;
-		r.m[8] = s1*s3 - c1*c3*s2;
-		r.m[9] = c1*s3 + c3*s1*s2;
-		r.m[10] = c2*c3;
-		r.m[11] = 0;
-		r.m[12] = 0; r.m[13] = 0; r.m[14] = 0; r.m[15] = 1;
-		return r;
-	}
-	static fromBasis(right, up, forward){
-		const r = new Mat4();
-		r.m[0] = right.x;   r.m[1] = right.y;   r.m[2] = right.z;   r.m[3] = 0;
-		r.m[4] = up.x;      r.m[5] = up.y;      r.m[6] = up.z;      r.m[7] = 0;
-		r.m[8] = forward.x; r.m[9] = forward.y; r.m[10] = forward.z; r.m[11] = 0;
-		r.m[12] = 0; r.m[13] = 0; r.m[14] = 0; r.m[15] = 1;
-		return r;
-	}
-	static lookAt(eye, center, up){
-		const f = center.subtract(eye).normalize();
-		const s = f.cross(up).normalize();
-		const u = s.cross(f);
-		const r = new Mat4();
-		r.m[0] = s.x;  r.m[1] = u.x;  r.m[2] = -f.x;  r.m[3] = 0;
-		r.m[4] = s.y;  r.m[5] = u.y;  r.m[6] = -f.y;  r.m[7] = 0;
-		r.m[8] = s.z;  r.m[9] = u.z;  r.m[10] = -f.z; r.m[11] = 0;
-		r.m[12] = -s.dot(eye);
-		r.m[13] = -u.dot(eye);
-		r.m[14] = f.dot(eye);
-		r.m[15] = 1;
-		return r;
-	}
-	static compose(translation, rotation, scale){
-		return Mat4.fromTranslation(translation).multiply(Mat4.fromEuler(rotation)).scale(scale);
-	}
-	translation(v){
-		if(v instanceof Vec3){
-			this.m[12]=v.x;
-			this.m[13]=v.y;
-			this.m[14]=v.z;
-			return this;
-		}else if(v instanceof Vec2){
-			this.m[12]=v.x;
-			this.m[13]=v.y;
-			this.m[14]=0;
-			return this;
-		}else{
-			return new Vec3(this.m[12], this.m[13], this.m[14]);
-		}
-	}
-	right(){
-		return new Vec3(this.m[0], this.m[1], this.m[2]);
-	}
-	up(){
-		return new Vec3(this.m[4], this.m[5], this.m[6]);
-	}
-	forward(){
-		return new Vec3(this.m[8], this.m[9], this.m[10]);
-	}
-	add(f){
-		const r = new Mat4();
-		for(let i = 0; i < 16; i++){ r.m[i] = this.m[i] + f.m[i]; }
-		return r;
-	}
-	subtract(f){
-		const r = new Mat4();
-		for(let i = 0; i < 16; i++){ r.m[i] = this.m[i] - f.m[i]; }
-		return r;
-	}
-	multiply(f){
-		if(f instanceof Mat4){
-			const a = this.m, b = f.m;
-			const r = new Mat4();
-			for(let col = 0; col < 4; col++){
-				for(let row = 0; row < 4; row++){
-					let s = 0;
-					for(let k = 0; k < 4; k++){
-						s += a[k*4 + row] * b[col*4 + k];
-					}
-					r.m[col*4 + row] = s;
-				}
-			}
-			return r;
-		}else if(f instanceof Vec4){
-			const m = this.m;
-			return new Vec4(
-				m[0]*f.x + m[4]*f.y + m[8]*f.z + m[12]*f.w,
-				m[1]*f.x + m[5]*f.y + m[9]*f.z + m[13]*f.w,
-				m[2]*f.x + m[6]*f.y + m[10]*f.z + m[14]*f.w,
-				m[3]*f.x + m[7]*f.y + m[11]*f.z + m[15]*f.w
-			);
-		}else if(typeof f === 'number'){
-			const r = new Mat4();
-			for(let i = 0; i < 16; i++){ r.m[i] = this.m[i] * f; }
-			return r;
-		}
-	}
-	translate(v){
-		const m = this.m;
-		const x = (v instanceof Vec2) ? v.x : v.x;
-		const y = (v instanceof Vec2) ? v.y : v.y;
-		const z = (v instanceof Vec2) ? 0   : v.z;
-		const r = new Mat4(this);
-		r.m[12] = m[0]*x + m[4]*y + m[8]*z  + m[12];
-		r.m[13] = m[1]*x + m[5]*y + m[9]*z  + m[13];
-		r.m[14] = m[2]*x + m[6]*y + m[10]*z + m[14];
-		r.m[15] = m[3]*x + m[7]*y + m[11]*z + m[15];
-		return r;
-	}
-	rotate(angle, axis){
-		return this.multiply(Mat4.fromRotation(angle, axis));
-	}
-	scale(v){
-		const m = this.m;
-		const sx = (typeof v === 'number') ? v : v.x;
-		const sy = (typeof v === 'number') ? v : v.y;
-		const sz = (typeof v === 'number') ? v : v.z;
-		const r = new Mat4();
-		r.m[0]  = m[0]*sx;  r.m[1]  = m[1]*sx;  r.m[2]  = m[2]*sx;  r.m[3]  = m[3]*sx;
-		r.m[4]  = m[4]*sy;  r.m[5]  = m[5]*sy;  r.m[6]  = m[6]*sy;  r.m[7]  = m[7]*sy;
-		r.m[8]  = m[8]*sz;  r.m[9]  = m[9]*sz;  r.m[10] = m[10]*sz; r.m[11] = m[11]*sz;
-		r.m[12] = m[12];    r.m[13] = m[13];    r.m[14] = m[14];    r.m[15] = m[15];
-		return r;
-	}
-	transformPoint(v){
-		const m = this.m;
-		return new Vec3(
-			m[0]*v.x + m[4]*v.y + m[8]*v.z  + m[12],
-			m[1]*v.x + m[5]*v.y + m[9]*v.z  + m[13],
-			m[2]*v.x + m[6]*v.y + m[10]*v.z + m[14]
-		);
-	}
-	transformDirection(v){
-		const m = this.m;
-		return new Vec3(
-			m[0]*v.x + m[4]*v.y + m[8]*v.z,
-			m[1]*v.x + m[5]*v.y + m[9]*v.z,
-			m[2]*v.x + m[6]*v.y + m[10]*v.z
-		);
-	}
-	transpose(){
-		const m = this.m;
-		const r = new Mat4();
-		for(let i = 0; i < 4; i++){
-			for(let j = 0; j < 4; j++){
-				r.m[i*4 + j] = m[j*4 + i];
-			}
-		}
-		return r;
-	}
-	inverse(){
-		const m = this.m;
-		const c00 = m[10]*m[15] - m[14]*m[11];
-		const c02 = m[6]*m[15]  - m[14]*m[7];
-		const c03 = m[6]*m[11]  - m[10]*m[7];
- 
-		const c04 = m[9]*m[15]  - m[13]*m[11];
-		const c06 = m[5]*m[15]  - m[13]*m[7];
-		const c07 = m[5]*m[11]  - m[9]*m[7];
- 
-		const c08 = m[9]*m[14]  - m[13]*m[10];
-		const c10 = m[5]*m[14]  - m[13]*m[6];
-		const c11 = m[5]*m[10]  - m[9]*m[6];
- 
-		const c12 = m[8]*m[15]  - m[12]*m[11];
-		const c14 = m[4]*m[15]  - m[12]*m[7];
-		const c15 = m[4]*m[11]  - m[8]*m[7];
- 
-		const c16 = m[8]*m[14]  - m[12]*m[10];
-		const c18 = m[4]*m[14]  - m[12]*m[6];
-		const c19 = m[4]*m[10]  - m[8]*m[6];
- 
-		const c20 = m[8]*m[13]  - m[12]*m[9];
-		const c22 = m[4]*m[13]  - m[12]*m[5];
-		const c23 = m[4]*m[9]   - m[8]*m[5];
- 
-		const r = new Mat4();
-		r.m[0]  =  (m[5]*c00 - m[6]*c04 + m[7]*c08);
-		r.m[1]  = -(m[1]*c00 - m[2]*c04 + m[3]*c08);
-		r.m[2]  =  (m[1]*c02 - m[2]*c06 + m[3]*c10);
-		r.m[3]  = -(m[1]*c03 - m[2]*c07 + m[3]*c11);
- 
-		r.m[4]  = -(m[4]*c00 - m[6]*c12 + m[7]*c16);
-		r.m[5]  =  (m[0]*c00 - m[2]*c12 + m[3]*c16);
-		r.m[6]  = -(m[0]*c02 - m[2]*c14 + m[3]*c18);
-		r.m[7]  =  (m[0]*c03 - m[2]*c15 + m[3]*c19);
- 
-		r.m[8]  =  (m[4]*c04 - m[5]*c12 + m[7]*c20);
-		r.m[9]  = -(m[0]*c04 - m[1]*c12 + m[3]*c20);
-		r.m[10] =  (m[0]*c06 - m[1]*c14 + m[3]*c22);
-		r.m[11] = -(m[0]*c07 - m[1]*c15 + m[3]*c23);
- 
-		r.m[12] = -(m[4]*c08 - m[5]*c16 + m[6]*c20);
-		r.m[13] =  (m[0]*c08 - m[1]*c16 + m[2]*c20);
-		r.m[14] = -(m[0]*c10 - m[1]*c18 + m[2]*c22);
-		r.m[15] =  (m[0]*c11 - m[1]*c19 + m[2]*c23);
- 
-		const det = m[0]*r.m[0] + m[1]*r.m[4] + m[2]*r.m[8] + m[3]*r.m[12];
-		const inv = 1 / det;
-		for(let i = 0; i < 16; i++){ r.m[i] *= inv; }
-		return r;
-	}
-	determinant(){
-		const m = this.m;
-		const c00 = m[10]*m[15] - m[14]*m[11];
-		const c04 = m[9]*m[15]  - m[13]*m[11];
-		const c08 = m[9]*m[14]  - m[13]*m[10];
-		const c12 = m[8]*m[15]  - m[12]*m[11];
-		const c16 = m[8]*m[14]  - m[12]*m[10];
-		const c20 = m[8]*m[13]  - m[12]*m[9];
-		const i0 =  (m[5]*c00 - m[6]*c04 + m[7]*c08);
-		const i1 = -(m[4]*c00 - m[6]*c12 + m[7]*c16);
-		const i2 =  (m[4]*c04 - m[5]*c12 + m[7]*c20);
-		const i3 = -(m[4]*c08 - m[5]*c16 + m[6]*c20);
-		return m[0]*i0 + m[1]*i1 + m[2]*i2 + m[3]*i3;
-	}
-	extractEuler(){
-		const m = this.m;
-		const z = Math.atan2(m[1], m[0]);
-		const c2 = Math.sqrt(m[6]*m[6] + m[10]*m[10]);
-		const y = Math.atan2(-m[2], c2);
-		const s1 = Math.sin(z), c1 = Math.cos(z);
-		const x = Math.atan2(s1*m[8] - c1*m[9], c1*m[5] - s1*m[4]);
-		return new Vec3(x * rad2deg, y * rad2deg, z * rad2deg);
-	}
-	normalMatrix(){
-		return Mat3.fromMat4(this).inverse().transpose();
-	}
-	decompose(){
-		const m = this.m;
-		const translation = new Vec3(m[12], m[13], m[14]);
-		let sx = Math.sqrt(m[0]*m[0] + m[1]*m[1] + m[2]*m[2]);
-		const sy = Math.sqrt(m[4]*m[4] + m[5]*m[5] + m[6]*m[6]);
-		const sz = Math.sqrt(m[8]*m[8] + m[9]*m[9] + m[10]*m[10]);
-		const det3 =
-			m[0]*(m[5]*m[10] - m[9]*m[6]) -
-			m[4]*(m[1]*m[10] - m[9]*m[2]) +
-			m[8]*(m[1]*m[6]  - m[5]*m[2]);
-		if(det3 < 0){ sx = -sx; }
-		const scale = new Vec3(sx, sy, sz);
-		const rot = new Mat4(this);
-		if(sx !== 0){ rot.m[0] /= sx; rot.m[1] /= sx; rot.m[2] /= sx; }
-		if(sy !== 0){ rot.m[4] /= sy; rot.m[5] /= sy; rot.m[6] /= sy; }
-		if(sz !== 0){ rot.m[8] /= sz; rot.m[9] /= sz; rot.m[10] /= sz; }
-		rot.m[12] = 0; rot.m[13] = 0; rot.m[14] = 0;
-		const rotation = rot.extractEuler();
-		return { translation: translation, rotation: rotation, scale: scale };
-	}
-	copy(){
-		return new Mat4(this);
-	}
-	clone(){
-		return this.copy();
-	}
-	equals(f){
-		if(!(f instanceof Mat4)){ return false; }
-		for(let i = 0; i < 16; i++){
-			if(Math.abs(this.m[i] - f.m[i]) >= _Epsilon){ return false; }
-		}
-		return true;
-	}
-	toString(){
-		return this.m[0]+' '+this.m[1]+' '+this.m[2]+' '+this.m[3]+' '+
-				this.m[4]+' '+this.m[5]+' '+this.m[6]+' '+this.m[7]+' '+
-				this.m[8]+' '+this.m[9]+' '+this.m[10]+' '+this.m[11]+' '+
-				this.m[12]+' '+this.m[13]+' '+this.m[14]+' '+this.m[15];
-	}
-	toConfigString(){
-		return this.toString();
-	}
-}
-
-class MediaPlaybackEvent {
-	static PLAYBACK_STOPPED = 0;
-	static PLAYBACK_PLAYING = 1;
-	static PLAYBACK_PAUSED = 2;
-}
-MediaPlaybackEvent.PLAYBACK_STOPPED = 0;
-MediaPlaybackEvent.PLAYBACK_PLAYING = 1;
-MediaPlaybackEvent.PLAYBACK_PAUSED = 2;
-
-function stringifyAdapter(key, value){
-	if (value && typeof value.toConfigString === 'function'){
-		return value.toConfigString();
-	}
-	return value;
-}
-
-class IModelData {
-	static POSITION = 'position';
-	static NORMAL = 'normal';
-	static UV = 'uv';
-	static TANGENT_SIGNED = 'tangentSigned';
-	static COLOR = 'color';
-	toConfigString() { return this.__modelDataToken; }
-}
-IModelData.POSITION = 'position';
-IModelData.NORMAL = 'normal';
-IModelData.UV = 'uv';
-IModelData.TANGENT_SIGNED = 'tangentSigned';
-IModelData.COLOR = 'color';
-
-const _Internal = {
-	updateScriptProperties(script, vars) {
-		vars = JSON.parse(vars);
-		Object.keys(vars).forEach((key) => {
-			if (script.scriptProperties && script.scriptProperties.hasOwnProperty(key)) {
-				if (script.scriptProperties[key] instanceof Vec3){
-					script.scriptProperties[key] = new Vec3(vars[key]);
-				} else {
-					script.scriptProperties[key] = vars[key];
-				}
-			}
-		});
-	},
-	convertUserProperties(p) {
-		p = JSON.parse(p);
-		let r = {};
-		for (var k in p) {
-			switch (p[k].type){
-			default:
-				r[k] = p[k].value;
-				break;
-			case 'usershortcut':
-				r[k] = {isbound: p[k].isbound, commandtype: p[k].commandtype, file:p[k].file};
-				break;
-			case 'color':
-				r[k] = new Vec3(p[k].value);
-				break;
-			}
-		}
-		return r;
-	},
-	stringifyConfig(obj) {
-		return JSON.stringify(obj, stringifyAdapter);
-	}
-};
-
-globalThis._Vec2 = Vec2.prototype;
-globalThis._Vec3 = Vec3.prototype;
-globalThis._Vec4 = Vec4.prototype;
-globalThis._Mat4 = Mat4.prototype;
-globalThis._Mat3 = Mat3.prototype;
-globalThis.Vec2 = Vec2;
-globalThis.Vec3 = Vec3;
-globalThis.Vec4 = Vec4;
-globalThis.Mat3 = Mat3;
-globalThis.Mat4 = Mat4;
-globalThis.IModelData = IModelData;
-globalThis._Internal = _Internal;
-globalThis.MediaPlaybackEvent = MediaPlaybackEvent;
-
-globalThis.__wwSerializeLayerConfig = function(config) {
-  return JSON.stringify(config, function(_key, value) {
-    if (value && typeof value.toConfigString === 'function')
-      return value.toConfigString();
-    if (value instanceof Vec2 || value instanceof Vec3 || value instanceof Vec4 || value instanceof Mat3 || value instanceof Mat4)
-      return value.toString();
-    return value;
-  });
-};
-
-// --- thisLayer / thisScene stub ---------------------------------------------
-function __wwGetStubLayer(name) {
-    if (typeof name === 'number') return null;
-    return __wwCreateNodeStub();
-}
-
-// Stand-in for the per-script SceneNode binding. Property reads return
-// sensible defaults; writes are silently accepted. getTransformMatrix returns
-// a shaped value so matrix accesses don't TypeError.
-function __wwCreateNodeStub() {
-    const props = {
-        origin:         new Vec3(0, 0, 0),
-        scale:          new Vec3(1, 1, 1),
-        angles:         new Vec3(0, 0, 0),
-        size:           new Vec3(100, 100, 0),
-        perspective:    false,
-        visible:        true,
-        verticalalign:  'center',
-        horizontalalign:'center',
-        alpha:          1,
-        brightness:     1,
-        color:          new Vec3(1, 1, 1),
-        text:           '',
-        pointsize:      1,
-        font:           '',
-    };
-    // Identity 4x4 column-major matrix. m[13] is the y-translation slot
-    // some clock scripts read.
-    const identity = [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1];
-    const handler = {
-        get(target, key) {
-            if (key === 'getParent')           return () => undefined;
-            if (key === 'getTransformMatrix')  return () => ({ m: identity.slice() });
-            if (key === 'getChildren')         return () => [];
-            if (key === 'getName')             return () => '';
-            if (key === 'getLayer')            return (_n) => __wwGetStubLayer(_n);
-            if (key === 'getLayerCount')       return () => 0;
-            if (key === 'enumerateLayers')     return () => [];
-            if (key === 'getEffect')           return (_n) => __wwCreateEffectStub();
-            if (key === 'getTextureAnimation') return () => __wwCreateTexAnimStub();
-            if (key === 'getVideoTexture')     return () => __wwCreateVideoTextureStub();
-            if (key === 'getAnimation')        return ()   => __wwCreateAnimationStub();
-            if (key === 'getAnimationLayer')   return (_n) => __wwCreateAnimationStub();
-            if (key === 'getBoneTransform')    return (_b) => new Mat4();
-            if (key === 'setBoneTransform')    return (_b, _m) => undefined;
-            if (key === 'destroyLayer')        return (_layer) => undefined;
-            if (key in target) return target[key];
-            return undefined;
-        },
-        set(target, key, value) { target[key] = value; return true; },
-        has(target, key) { return key in target; },
-    };
-    return new Proxy(props, handler);
-}
-
-function __wwCreateEffectStub() {
-    return { visible: true };
-}
-
-function __wwCreateTexAnimStub() {
-    let frame = 0, playing = false;
-    return {
-        play()     { playing = true;  },
-        stop()     { playing = false; },
-        pause()    { playing = false; },
-        setFrame(n){ frame = n | 0;   },
-        getFrame() { return frame;    },
-        isPlaying(){ return playing;  },
-    };
-}
-
-function __wwCreateVideoTextureStub() {
-    let current = 0, playing = false;
-    return {
-        duration: 0,
-        rate: 1,
-        volume: 1,
-        play()     { playing = true;  },
-        stop()     { playing = false; current = 0; },
-        pause()    { playing = false; },
-        setCurrentTime(t) {
-            t = Number(t);
-            current = Number.isFinite(t) && t > 0 ? t : 0;
-        },
-        getCurrentTime() { return current; },
-        isPlaying()     { return playing; },
-    };
-}
-
-// Sprite-image / puppet-bone animation handle. Scripts commonly adjust
-// playback rate and manually drive the current frame from init/update.
-function __wwCreateAnimationStub() {
-    let frame = 0, playing = false;
-    const o = {
-        rate: 1,
-        frameCount: 1,
-        play()     { playing = true;  },
-        stop()     { playing = false; },
-        pause()    { playing = false; },
-        setFrame(n){ frame = Math.max(0, n | 0); },
-        getFrame() { return frame;    },
-        isPlaying(){ return playing;  },
-    };
-    return o;
-}
-globalThis.__wwCreateAnimationStub = __wwCreateAnimationStub;
-globalThis.__wwCreateVideoTextureStub = __wwCreateVideoTextureStub;
-globalThis.thisLayer = __wwCreateNodeStub();
-globalThis.thisObject = globalThis.thisLayer;
-globalThis.thisScene = __wwCreateNodeStub();
-
-// `input` is the WE-global cursor / input state. Scripts often guard with
-// `if (input && input.cursorWorldPosition)` so a populated stub is fine;
-// values stay at zero until the host wires real cursor data.
-globalThis.input = {
-    cursorWorldPosition:  new Vec3(0, 0, 0),
-    cursorLocalPosition:  new Vec3(0, 0, 0),
-    cursorScreenPosition: new Vec2(0, 0),
-    mouseButtonsDown:     0,
-    mouseButtonsPressed:  0,
-    mouseButtonsReleased: 0,
-    cursorLeftDown:       false,
-    cursorRightDown:      false,
-    cursorMiddleDown:     false,
-    inWindow:             false,
-};
-
-// Hook used by the C++ side to swap the stub for a real per-script binding.
-globalThis.__wwBindLayer = function(obj) { globalThis.thisLayer = obj; globalThis.thisObject = obj; };
-globalThis.__wwBindScene = function(obj) { globalThis.thisScene = obj; };
-
-// --- shared --- cross-script object scripts mutate freely.
-if (! globalThis.shared) globalThis.shared = {};
-
-// localStorage is installed from C++ in InstallEngineGlobal so it can
-// optionally persist to a JSON file under cache_path keyed by scene_id.
-)JS";
-
 void InstallEngineGlobal(JSContext* ctx) {
     // Run the bootstrap to create createScriptProperties + skeleton engine.
-    JSValue r = JS_Eval(ctx,
-                        kBootstrapJs,
-                        CStr::from_ptr(kBootstrapJs).to_bytes().len().to_primitive(),
-                        "<wescene-bootstrap>",
-                        JS_EVAL_TYPE_GLOBAL);
+    const char* bootstrap = programs::BootstrapSource();
+    JSValue     r         = JS_Eval(ctx,
+                                    bootstrap,
+                                    CStr::from_ptr(bootstrap).to_bytes().len().to_primitive(),
+                                    "<wescene-bootstrap>",
+                                    JS_EVAL_TYPE_GLOBAL);
     if (JS_IsException(r)) {
         JSValue     exc = JS_GetException(ctx);
         const char* msg = JS_ToCString(ctx, exc);
@@ -3239,162 +1016,8 @@ void InstallEngineGlobal(JSContext* ctx) {
     InstallLocalStorage(ctx);
 }
 
-// --- Built-in ES modules ----------------------------------------------------
-// Scripts `import * as M from 'M'`. QuickJS calls our loader with the
-// bare name; we return a precompiled JSModuleDef built from the source
-// below. Add an entry to extend (e.g. WEEasing) once needed.
-struct BuiltinModule {
-    const char* name;
-    const char* source;
-};
-
-static constexpr const char* kWEMathSrc = R"JS(
-export function mix(a, b, t) { return a + (b - a) * t; }
-export function lerp(a, b, t) { return a + (b - a) * t; }
-export function clamp(x, lo, hi) {
-    return Math.max(lo, Math.min(hi, x));
-}
-export function saturate(x) { return Math.max(0, Math.min(1, x)); }
-function smoothstep_impl(edge0, edge1, x) {
-    const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
-    return t * t * (3 - 2 * t);
-}
-// Corpus uses both casings; smoothStep (camelCase) is by far the more
-// common form (~165 callsites vs lowercase).
-export const smoothstep = smoothstep_impl;
-export const smoothStep = smoothstep_impl;
-export function step(edge, x) { return x < edge ? 0 : 1; }
-export function sign(x) { return Math.sign(x); }
-export function fract(x) { return x - Math.floor(x); }
-export function deg2rad(d) { return d * (Math.PI / 180); }
-export function rad2deg(r) { return r * (180 / Math.PI); }
-deg2rad.valueOf = () => Math.PI / 180;
-rad2deg.valueOf = () => 180 / Math.PI;
-)JS";
-
-// WE's `WEVector` module. angleVector2 and vectorAngle2 use degrees and the
-// standard x = cos, y = sin axes. Other helpers are unambiguous vector math.
-static constexpr const char* kWEVectorSrc = R"JS(
-function v2(x, y) { return new globalThis.Vec2(x, y); }
-export function angleVector2(angle) {
-    const r = angle * Math.PI / 180;
-    return v2(Math.cos(r), Math.sin(r));
-}
-export function vectorAngle2(v) {
-    return Math.atan2(v.y, v.x) * 180 / Math.PI;
-}
-export function magnitude(v) { return Math.sqrt(v.x*v.x + v.y*v.y); }
-export function normalize(v) {
-    const m = Math.sqrt(v.x*v.x + v.y*v.y) || 1;
-    return v2(v.x / m, v.y / m);
-}
-export function dot(a, b) { return a.x*b.x + a.y*b.y; }
-export function distance(a, b) {
-    const dx = a.x - b.x, dy = a.y - b.y;
-    return Math.sqrt(dx*dx + dy*dy);
-}
-)JS";
-
-static constexpr const char* kWEColorSrc = R"JS(
-function v3(x, y, z) { return new globalThis.Vec3(x, y, z); }
-function c(v, k, i) {
-    if (v && typeof v === 'object') return Number(v[k] ?? v[i] ?? 0);
-    return Number(v ?? 0);
-}
-function clamp01(x) { return Math.max(0, Math.min(1, x)); }
-export function normalizeColor(rgb) {
-    return v3(c(rgb, 'x', 0) / 255, c(rgb, 'y', 1) / 255, c(rgb, 'z', 2) / 255);
-}
-export function expandColor(rgb) {
-    return v3(c(rgb, 'x', 0) * 255, c(rgb, 'y', 1) * 255, c(rgb, 'z', 2) * 255);
-}
-export function rgb2hsv(rgb) {
-    const r = clamp01(c(rgb, 'x', 0));
-    const g = clamp01(c(rgb, 'y', 1));
-    const b = clamp01(c(rgb, 'z', 2));
-    const max = Math.max(r, g, b);
-    const min = Math.min(r, g, b);
-    const d = max - min;
-    let h = 0;
-    if (d !== 0) {
-        if (max === r) h = ((g - b) / d) % 6;
-        else if (max === g) h = (b - r) / d + 2;
-        else h = (r - g) / d + 4;
-        h /= 6;
-        if (h < 0) h += 1;
-    }
-    const s = max === 0 ? 0 : d / max;
-    return v3(h, s, max);
-}
-export function hsv2rgb(hsv) {
-    let h = c(hsv, 'x', 0) % 1;
-    if (h < 0) h += 1;
-    const s = clamp01(c(hsv, 'y', 1));
-    const v = clamp01(c(hsv, 'z', 2));
-    const i = Math.floor(h * 6);
-    const f = h * 6 - i;
-    const p = v * (1 - s);
-    const q = v * (1 - f * s);
-    const t = v * (1 - (1 - f) * s);
-    switch (i % 6) {
-    case 0: return v3(v, t, p);
-    case 1: return v3(q, v, p);
-    case 2: return v3(p, v, t);
-    case 3: return v3(p, q, v);
-    case 4: return v3(t, p, v);
-    default: return v3(v, p, q);
-    }
-}
-)JS";
-
-static constexpr BuiltinModule kBuiltinModules[] = {
-    { "WEMath", kWEMathSrc },
-    { "WEVector", kWEVectorSrc },
-    { "WEColor", kWEColorSrc },
-};
-
-JSModuleDef* BuiltinModuleLoader(JSContext* ctx, const char* module_name, void*) {
-    if (! module_name) return nullptr;
-    auto name = rstd::cppstd::as_str(module_name).unwrap();
-    if (name.ends_with(".js"_str)) {
-        name = name.get(usize(0), name.len() - usize(3)).unwrap();
-    }
-    for (const auto& m : kBuiltinModules) {
-        auto m_name = rstd::cppstd::as_str(m.name).unwrap();
-        bool match  = false;
-        if (name.len() == m_name.len()) {
-            match = true;
-            for (usize i(0); i < name.len(); ++i) {
-                if (std::tolower(static_cast<unsigned char>(name[i].to_primitive())) !=
-                    std::tolower(static_cast<unsigned char>(m_name[i].to_primitive()))) {
-                    match = false;
-                    break;
-                }
-            }
-        }
-        if (match) {
-            JSValue compiled = JS_Eval(ctx,
-                                       m.source,
-                                       CStr::from_ptr(m.source).to_bytes().len().to_primitive(),
-                                       module_name,
-                                       JS_EVAL_TYPE_MODULE | JS_EVAL_FLAG_COMPILE_ONLY);
-            if (JS_IsException(compiled)) {
-                // JS_Eval already set the pending exception; QuickJS propagates.
-                return nullptr;
-            }
-            JSModuleDef* def = static_cast<JSModuleDef*>(JS_VALUE_GET_PTR(compiled));
-            // Don't free `compiled` — the pointer is the live module def.
-            return def;
-        }
-    }
-    JS_ThrowReferenceError(ctx, "could not load module '%s'", module_name);
-    return nullptr;
-}
-
 // --- Layer-B: SceneNode wrapper class ---------------------------------------
-// `thisLayer` / `thisScene` resolve to instances of WWLayer. The class holds
-// the SceneNode pointer in JS_GetOpaque; lifetime is owned by Scene, the
-// finalizer is a no-op (we don't dereference on free, just drop the ref).
+// WWLayer instances share an invalidatable handle to their SceneNode.
 
 static JSClassID s_layer_class_id             = 0;
 static JSClassID s_effect_class_id            = 0;
@@ -3402,15 +1025,19 @@ static JSClassID s_material_class_id          = 0;
 static JSClassID s_particle_instance_class_id = 0;
 
 struct LayerHandle {
-    EngineHostState* host { nullptr };
-    owe::SceneNode*  node { nullptr };
-    String           name;
-    bool             property_object { false };
+    EngineHostState*              host { nullptr };
+    Option<Arc<ScriptLayerState>> state;
+    String                        name;
+    bool                          property_object { false };
+};
+
+struct ParticleInstanceHandle {
+    Option<Arc<ScriptLayerState>> state;
 };
 
 owe::SceneNode* ResolveLayerNode(LayerHandle* h) {
     if (! h) return nullptr;
-    if (h->node) return h->node;
+    if (h->state.is_some()) return (*h->state)->node;
     if (! h->host || ! h->host->scene_root || h->name.is_empty()) return nullptr;
     return h->host->scene_root->FindByName(h->name.as_str());
 }
@@ -3425,14 +1052,16 @@ JSClassDef s_layer_class_def {
 };
 
 struct EffectHandle {
-    EngineHostState*            host { nullptr };
-    Option<SceneImageEffectRef> ref;
-    bool                        fallback_visible { true };
+    EngineHostState*              host { nullptr };
+    Option<SceneImageEffectRef>   ref;
+    Option<Arc<ScriptLayerState>> owner;
+    bool                          fallback_visible { true };
 };
 
 struct MaterialHandle {
-    EngineHostState* host { nullptr };
-    SceneMaterial*   material { nullptr };
+    EngineHostState*              host { nullptr };
+    SceneMaterial*                material { nullptr };
+    Option<Arc<ScriptLayerState>> owner;
 };
 
 int MaterialSetProperty(JSContext* ctx, JSValueConst obj, JSAtom atom, JSValueConst value,
@@ -3455,6 +1084,10 @@ void MaterialFinalizer(JSRuntime*, JSValue v) {
     delete static_cast<MaterialHandle*>(JS_GetOpaque(v, s_material_class_id));
 }
 
+void ParticleInstanceFinalizer(JSRuntime*, JSValue v) {
+    delete static_cast<ParticleInstanceHandle*>(JS_GetOpaque(v, s_particle_instance_class_id));
+}
+
 JSClassDef s_material_class_def {
     .class_name = "WWMaterial",
     .finalizer  = MaterialFinalizer,
@@ -3463,6 +1096,7 @@ JSClassDef s_material_class_def {
 
 JSClassDef s_particle_instance_class_def {
     .class_name = "WWParticleInstance",
+    .finalizer  = ParticleInstanceFinalizer,
 };
 
 inline LayerHandle* GetLayerHandle(JSValueConst value) {
@@ -3473,6 +1107,22 @@ inline owe::SceneNode* GetLayerNode(JSValueConst value) {
     return ResolveLayerNode(GetLayerHandle(value));
 }
 
+auto LayerStateForNode(EngineHostState* host, owe::SceneNode* node)
+    -> Option<Arc<ScriptLayerState>> {
+    Option<Arc<ScriptLayerState>> state;
+    if (host && node) {
+        auto existing = host->layer_states.get(node);
+        if (existing.is_some()) {
+            state = Some((**existing).clone());
+        } else {
+            auto created = Arc<ScriptLayerState>::make(ScriptLayerState { .node = node });
+            state        = Some(created.clone());
+            (void)host->layer_states.insert(node, rstd::move(created));
+        }
+    }
+    return state;
+}
+
 JSValue WrapLayerNode(JSContext* ctx, owe::SceneNode* node, bool property_object = false) {
     auto* host = static_cast<EngineHostState*>(JS_GetContextOpaque(ctx));
     if (host && ! property_object) {
@@ -3481,8 +1131,10 @@ JSValue WrapLayerNode(JSContext* ctx, owe::SceneNode* node, bool property_object
     }
     JSValue obj = JS_NewObjectClass(ctx, s_layer_class_id);
     if (JS_IsException(obj)) return obj;
-    JS_SetOpaque(
-        obj, new LayerHandle { .host = host, .node = node, .property_object = property_object });
+    JS_SetOpaque(obj,
+                 new LayerHandle { .host            = host,
+                                   .state           = LayerStateForNode(host, node),
+                                   .property_object = property_object });
     if (host && ! property_object) (void)host->layer_objects.insert(node, JS_DupValue(ctx, obj));
     return obj;
 }
@@ -3491,14 +1143,15 @@ JSValue WrapLayerName(JSContext* ctx, String name) {
     JSValue obj = JS_NewObjectClass(ctx, s_layer_class_id);
     if (JS_IsException(obj)) return obj;
     auto* host = static_cast<EngineHostState*>(JS_GetContextOpaque(ctx));
-    JS_SetOpaque(obj, new LayerHandle { .host = host, .node = nullptr, .name = rstd::move(name) });
+    JS_SetOpaque(obj, new LayerHandle { .host = host, .name = rstd::move(name) });
     return obj;
 }
 
 JSValue WrapParticleInstance(JSContext* ctx, owe::SceneNode* node) {
     JSValue obj = JS_NewObjectClass(ctx, s_particle_instance_class_id);
     if (JS_IsException(obj)) return obj;
-    JS_SetOpaque(obj, node);
+    auto* host = static_cast<EngineHostState*>(JS_GetContextOpaque(ctx));
+    JS_SetOpaque(obj, new ParticleInstanceHandle { LayerStateForNode(host, node) });
     return obj;
 }
 
@@ -3506,29 +1159,34 @@ EffectHandle* GetEffectHandle(JSValueConst v) {
     return static_cast<EffectHandle*>(JS_GetOpaque(v, s_effect_class_id));
 }
 
-JSValue WrapEffect(JSContext* ctx, Option<SceneImageEffectRef> ref) {
+JSValue WrapEffect(JSContext* ctx, Option<SceneImageEffectRef> ref,
+                   owe::SceneNode* owner = nullptr) {
     JSValue obj = JS_NewObjectClass(ctx, s_effect_class_id);
     if (JS_IsException(obj)) return obj;
     auto* host   = static_cast<EngineHostState*>(JS_GetContextOpaque(ctx));
     bool visible = host && host->scene && ref ? host->scene->ImageEffectRuntimeVisible(*ref) : true;
-    JS_SetOpaque(
-        obj,
-        new EffectHandle { .host = host, .ref = rstd::move(ref), .fallback_visible = visible });
+    JS_SetOpaque(obj,
+                 new EffectHandle { .host             = host,
+                                    .ref              = rstd::move(ref),
+                                    .owner            = LayerStateForNode(host, owner),
+                                    .fallback_visible = visible });
     return obj;
 }
 
-JSValue WrapMaterial(JSContext* ctx, SceneMaterial* material) {
+JSValue WrapMaterial(JSContext* ctx, SceneMaterial* material, owe::SceneNode* owner = nullptr) {
     JSValue obj = JS_NewObjectClass(ctx, s_material_class_id);
     if (JS_IsException(obj)) return obj;
     auto* host = static_cast<EngineHostState*>(JS_GetContextOpaque(ctx));
-    JS_SetOpaque(obj, new MaterialHandle { .host = host, .material = material });
+    JS_SetOpaque(obj,
+                 new MaterialHandle {
+                     .host = host, .material = material, .owner = LayerStateForNode(host, owner) });
     return obj;
 }
 
 JSValue EffectGetVisible(JSContext* ctx, JSValueConst this_val) {
     auto* h = GetEffectHandle(this_val);
     if (! h) return JS_NewBool(ctx, true);
-    if (h->host && h->host->scene && h->ref)
+    if (h->host && h->host->scene && h->ref && (h->owner.is_none() || (*h->owner)->node))
         return JS_NewBool(ctx, h->host->scene->ImageEffectRuntimeVisible(*h->ref));
     return JS_NewBool(ctx, h->fallback_visible);
 }
@@ -3538,7 +1196,7 @@ JSValue EffectSetVisible(JSContext* ctx, JSValueConst this_val, JSValueConst val
     bool  visible = JS_ToBool(ctx, val) != 0;
     if (! h) return JS_UNDEFINED;
     h->fallback_visible = visible;
-    if (h->host && h->host->scene && h->ref) {
+    if (h->host && h->host->scene && h->ref && (h->owner.is_none() || (*h->owner)->node)) {
         h->host->scene->SetImageEffectRuntimeVisible(*h->ref, visible);
     }
     return JS_UNDEFINED;
@@ -3617,7 +1275,9 @@ Option<ShaderValue> ReadShaderValue(JSContext* ctx, JSValueConst value) {
 int MaterialSetProperty(JSContext* ctx, JSValueConst obj, JSAtom atom, JSValueConst value,
                         JSValueConst, int) {
     auto* handle = static_cast<MaterialHandle*>(JS_GetOpaque(obj, s_material_class_id));
-    if (! handle || ! handle->host || ! handle->host->scene || ! handle->material) return 1;
+    if (! handle || ! handle->host || ! handle->host->scene || ! handle->material ||
+        (handle->owner.is_some() && ! (*handle->owner)->node))
+        return 1;
 
     const char* key = JS_AtomToCString(ctx, atom);
     if (! key) return -1;
@@ -3792,7 +1452,9 @@ JSValue NodeSetVolume(JSContext* ctx, JSValueConst this_val, JSValueConst val) {
 }
 
 JSValue ParticleGet(JSContext* ctx, JSValueConst this_val, ref<str> field, bool vector) {
-    auto* node = static_cast<owe::SceneNode*>(JS_GetOpaque(this_val, s_particle_instance_class_id));
+    auto* handle =
+        static_cast<ParticleInstanceHandle*>(JS_GetOpaque(this_val, s_particle_instance_class_id));
+    auto* node = handle && handle->state.is_some() ? (*handle->state)->node : nullptr;
     if (! node) return JS_UNDEFINED;
     auto control = node->ParticleControlHandle();
     if (control.is_none()) return JS_UNDEFINED;
@@ -3806,7 +1468,9 @@ JSValue ParticleGet(JSContext* ctx, JSValueConst this_val, ref<str> field, bool 
 
 JSValue ParticleSet(JSContext* ctx, JSValueConst this_val, JSValueConst value, ref<str> field,
                     bool vector) {
-    auto* node = static_cast<owe::SceneNode*>(JS_GetOpaque(this_val, s_particle_instance_class_id));
+    auto* handle =
+        static_cast<ParticleInstanceHandle*>(JS_GetOpaque(this_val, s_particle_instance_class_id));
+    auto* node = handle && handle->state.is_some() ? (*handle->state)->node : nullptr;
     if (! node) return JS_UNDEFINED;
     auto control = node->ParticleControlHandle();
     if (control.is_none()) return JS_UNDEFINED;
@@ -4221,14 +1885,14 @@ JSValue NodeGetEffect(JSContext* ctx, JSValueConst this_val, int argc, JSValueCo
     if (JS_IsNumber(argv[0])) {
         rstd::int64_t index {};
         if (JS_ToInt64(ctx, &index, argv[0]) != 0 || index < 0) return WrapEffect(ctx, None());
-        return WrapEffect(ctx, host->scene->FindNodeImageEffect(*n, usize(index)));
+        return WrapEffect(ctx, host->scene->FindNodeImageEffect(*n, usize(index)), n);
     }
 
     const char* name = JS_ToCString(ctx, argv[0]);
     if (! name) return WrapEffect(ctx, None());
     auto effect = host->scene->FindNodeImageEffect(*n, rstd::cppstd::as_str(name).unwrap());
     JS_FreeCString(ctx, name);
-    return WrapEffect(ctx, rstd::move(effect));
+    return WrapEffect(ctx, rstd::move(effect), n);
 }
 
 JSValue NodeGetEffectCount(JSContext* ctx, JSValueConst this_val, int, JSValueConst*) {
@@ -4241,7 +1905,8 @@ JSValue NodeGetEffectCount(JSContext* ctx, JSValueConst this_val, int, JSValueCo
 
 JSValue EffectGetName(JSContext* ctx, JSValueConst this_val) {
     auto* handle = GetEffectHandle(this_val);
-    if (! handle || ! handle->host || ! handle->host->scene || ! handle->ref)
+    if (! handle || ! handle->host || ! handle->host->scene || ! handle->ref ||
+        (handle->owner.is_some() && ! (*handle->owner)->node))
         return JS_NewString(ctx, "");
     auto name = handle->host->scene->ImageEffectName(*handle->ref);
     auto view = rstd::cppstd::as_string_view(name);
@@ -4250,11 +1915,14 @@ JSValue EffectGetName(JSContext* ctx, JSValueConst this_val) {
 
 JSValue EffectGetMaterial(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
     auto* handle = GetEffectHandle(this_val);
-    if (! handle || ! handle->host || ! handle->host->scene || ! handle->ref || argc < 1)
+    if (! handle || ! handle->host || ! handle->host->scene || ! handle->ref || argc < 1 ||
+        (handle->owner.is_some() && ! (*handle->owner)->node))
         return WrapMaterial(ctx, nullptr);
     rstd::int64_t index {};
     if (JS_ToInt64(ctx, &index, argv[0]) != 0 || index < 0) return WrapMaterial(ctx, nullptr);
-    return WrapMaterial(ctx, handle->host->scene->ImageEffectMaterial(*handle->ref, usize(index)));
+    auto* owner = handle->owner.is_some() ? (*handle->owner)->node : nullptr;
+    return WrapMaterial(
+        ctx, handle->host->scene->ImageEffectMaterial(*handle->ref, usize(index)), owner);
 }
 
 bool TreeContains(owe::SceneNode* root, owe::SceneNode* needle) {
@@ -4267,12 +1935,35 @@ bool TreeContains(owe::SceneNode* root, owe::SceneNode* needle) {
 }
 
 void PruneSceneLayerBindings(JSContext* ctx, EngineHostState& host, owe::SceneNode* root) {
+    host.layer_states.retain([&](owe::SceneNode* node, Arc<ScriptLayerState>& state) {
+        if (TreeContains(root, node)) return true;
+        state->node = nullptr;
+        return false;
+    });
     host.layer_objects.retain([&](owe::SceneNode* node, JSValue& object) {
         if (TreeContains(root, node)) return true;
         JS_FreeValue(ctx, object);
         return false;
     });
     host.script_layers.retain([&](owe::SceneNode* node) {
+        return TreeContains(root, node);
+    });
+    host.text_setters.retain([&](owe::SceneNode* node, auto&) {
+        return TreeContains(root, node);
+    });
+    host.current_text_strings.retain([&](owe::SceneNode* node, auto&) {
+        return TreeContains(root, node);
+    });
+    host.text_align_hooks.retain([&](owe::SceneNode* node, auto&) {
+        return TreeContains(root, node);
+    });
+    host.node_origin_hooks.retain([&](owe::SceneNode* node, auto&) {
+        return TreeContains(root, node);
+    });
+    host.image_alignment_hooks.retain([&](owe::SceneNode* node, auto&) {
+        return TreeContains(root, node);
+    });
+    host.initial_layer_configs.retain([&](owe::SceneNode* node, auto&) {
         return TreeContains(root, node);
     });
 }
@@ -4396,20 +2087,12 @@ JSValue NodeSceneCreateLayer(JSContext* ctx, JSValueConst /*this_val*/, int argc
     if (argc > 0 && ! JS_IsObject(argv[0])) {
         const char* asset = JS_ToCString(ctx, argv[0]);
         if (asset) {
-            auto it = fs->m_impl->asset_clone_queues.get_mut(rstd::cppstd::as_str(asset).unwrap());
-            if (it.is_some() && ! (*it)->is_empty()) {
-                node = (*it)->remove(usize());
-            }
-            if (! node && host->layer_factory.is_some()) {
+            if (host->layer_factory.is_some()) {
                 auto created = (**host->layer_factory)(
                     fs->m_impl->node,
                     LayerAssetReference { .path        = rstd::cppstd::as_str(asset).unwrap(),
                                           .workshop_id = fs->WorkshopId() });
-                if (created.is_some()) {
-                    node = (*created).as_ptr();
-                    (void)fs->m_impl->clone_asset_keys.insert(
-                        node, rstd::into(rstd::cppstd::as_str(asset).unwrap()));
-                }
+                if (created.is_some()) node = (*created).as_ptr();
             }
             JS_FreeCString(ctx, asset);
         }
@@ -4449,47 +2132,32 @@ JSValue NodeSceneCreateLayer(JSContext* ctx, JSValueConst /*this_val*/, int argc
     }
     if (! node) return JS_ThrowReferenceError(ctx, "createLayer asset is unavailable");
     (void)host->script_layers.insert(node);
-    if (host->scene)
-        (void)host->scene->SetNodeVisible(*node, true);
-    else
-        node->SetVisible(true);
-    node->Play();
-    if (argc > 0 && JS_IsObject(argv[0])) {
-        JSValue perspective = JS_GetPropertyStr(ctx, argv[0], "perspective");
-        if (! JS_IsUndefined(perspective)) node->SetPerspective(JS_ToBool(ctx, perspective) != 0);
-        JS_FreeValue(ctx, perspective);
+    if (argc == 0 || ! JS_IsObject(argv[0])) {
+        if (host->scene)
+            (void)host->scene->SetNodeVisible(*node, true);
+        else
+            node->SetVisible(true);
     }
+    node->Play();
     return WrapLayerNode(ctx, node);
 }
 
 JSValue NodeSceneDestroyLayer(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv) {
-    if (argc < 1) return JS_UNDEFINED;
-    if (auto* n = GetLayerNode(argv[0])) {
-        auto* host = static_cast<EngineHostState*>(JS_GetContextOpaque(ctx));
-        if (host && host->scene)
-            (void)host->scene->SetNodeVisible(*n, false);
-        else
-            n->SetVisible(false);
-        n->Stop();
-        auto* fs = host ? host->active_field_script : nullptr;
-        if (fs) {
-            auto key_it = fs->m_impl->clone_asset_keys.get(n);
-            if (key_it.is_some()) {
-                auto key   = (*key_it)->as_str();
-                auto queue = fs->m_impl->asset_clone_queues.get_mut(key);
-                if (queue.is_none()) {
-                    (void)fs->m_impl->asset_clone_queues.insert((*key_it)->clone(),
-                                                                Vec<owe::SceneNode*>::make());
-                    queue = fs->m_impl->asset_clone_queues.get_mut(key);
-                }
-                bool present = false;
-                for (auto* queued : **queue)
-                    if (queued == n) present = true;
-                if (! present) (*queue)->emplace_back(n);
-            }
-        }
+    auto* host = static_cast<EngineHostState*>(JS_GetContextOpaque(ctx));
+    if (! host || ! host->scene || ! host->scene_root || argc < 1) return JS_NewBool(ctx, false);
+    owe::SceneNode* node = nullptr;
+    if (JS_IsNumber(argv[0])) {
+        node = SceneLayerAt(ctx, host->scene_root, argv[0]);
+    } else if (JS_IsString(argv[0])) {
+        const char* name = JS_ToCString(ctx, argv[0]);
+        if (! name) return JS_EXCEPTION;
+        node = host->scene_root->FindByName(rstd::cppstd::as_str(name).unwrap());
+        JS_FreeCString(ctx, name);
+    } else if (JS_IsObject(argv[0])) {
+        node = GetLayerNode(argv[0]);
     }
-    return JS_UNDEFINED;
+    return JS_NewBool(
+        ctx, node && IsScriptSceneLayer(host, node) && host->scene->RequestLayerDeletion(*node));
 }
 
 owe::SceneNode* ResolveSceneLayerArgument(JSContext* ctx, JSValueConst this_val,
@@ -5375,7 +3043,7 @@ JsRuntime::JsRuntime(): m_impl(Box<Impl>::make()) {
     // against the kBuiltinModules table; unknown names raise
     // ReferenceError via the loader.
     JS_SetModuleLoaderFunc(
-        m_impl->rt, /*normalize=*/nullptr, BuiltinModuleLoader, /*opaque=*/nullptr);
+        m_impl->rt, /*normalize=*/nullptr, programs::LoadBuiltinModule, /*opaque=*/nullptr);
     InitLayerClass(m_impl->ctx, m_impl->rt);
     InitParticleInstanceClass(m_impl->ctx, m_impl->rt);
     InitEffectClass(m_impl->ctx, m_impl->rt);
@@ -5391,23 +3059,23 @@ JsRuntime::JsRuntime(): m_impl(Box<Impl>::make()) {
     CaptureDefaultBindings(m_impl->ctx);
 }
 
+void ReleaseFieldScriptValues(JSContext* ctx, FieldScript& script) {
+    auto& field = *script.m_impl;
+    JS_FreeValue(ctx, field.update_fn);
+    JS_FreeValue(ctx, field.animation_event_fn);
+    JS_FreeValue(ctx, field.init_fn);
+    JS_FreeValue(ctx, field.module_ns);
+    JS_FreeValue(ctx, field.deferred_module);
+    JS_FreeValue(ctx, field.current_value);
+    if (! JS_IsUndefined(field.wrapped_layer)) JS_FreeValue(ctx, field.wrapped_layer);
+    if (! JS_IsUndefined(field.wrapped_object)) JS_FreeValue(ctx, field.wrapped_object);
+}
+
 JsRuntime::~JsRuntime() {
-    // Drop FieldScripts before tearing down the runtime so their JSValues
-    // go through JS_FreeValue while the context is still alive.
-    for (auto& fs : m_impl->scripts) {
-        {
-            JS_FreeValue(m_impl->ctx, fs->m_impl->update_fn);
-            JS_FreeValue(m_impl->ctx, fs->m_impl->animation_event_fn);
-            JS_FreeValue(m_impl->ctx, fs->m_impl->init_fn);
-            JS_FreeValue(m_impl->ctx, fs->m_impl->module_ns);
-            JS_FreeValue(m_impl->ctx, fs->m_impl->current_value);
-            if (! JS_IsUndefined(fs->m_impl->wrapped_layer))
-                JS_FreeValue(m_impl->ctx, fs->m_impl->wrapped_layer);
-            if (! JS_IsUndefined(fs->m_impl->wrapped_object))
-                JS_FreeValue(m_impl->ctx, fs->m_impl->wrapped_object);
-        }
-    }
+    for (auto& fs : m_impl->scripts) ReleaseFieldScriptValues(m_impl->ctx, *fs);
+    for (auto& fs : m_impl->deferred_scripts) ReleaseFieldScriptValues(m_impl->ctx, *fs);
     m_impl->scripts.clear();
+    m_impl->deferred_scripts.clear();
     for (auto ns : m_impl->ns_by_sha.values()) JS_FreeValue(m_impl->ctx, *ns);
     m_impl->ns_by_sha.clear();
     if (! JS_IsUndefined(m_impl->wrapped_scene)) JS_FreeValue(m_impl->ctx, m_impl->wrapped_scene);
@@ -5471,7 +3139,7 @@ void JsRuntime::SetUserProperty(ref<str> key, const Json& property) {
     for (usize index {}; index < script_count; ++index) {
         auto* fs = m_impl->scripts[index].get();
         auto* I  = fs->m_impl.get();
-        if (! I->alive) continue;
+        if (! I->alive || I->init_deferred) continue;
         JSValue fn = JS_GetPropertyStr(ctx, I->module_ns, "applyUserProperties");
         if (JS_IsFunction(ctx, fn)) {
             BindFieldScriptContext(ctx, *I, m_impl->host.default_layer);
@@ -5514,7 +3182,7 @@ void JsRuntime::SetMediaStatus(const MediaStatus& status) {
     for (usize index {}; index < script_count; ++index) {
         auto* fs = m_impl->scripts[index].get();
         auto* I  = fs->m_impl.get();
-        if (! I->alive) continue;
+        if (! I->alive || I->init_deferred) continue;
         BindFieldScriptContext(ctx, *I, m_impl->host.default_layer);
         m_impl->host.active_field_script = fs;
         if (playback_changed) {
@@ -5565,6 +3233,41 @@ void JsRuntime::SetScene(owe::Scene* scene) {
     if (scene) m_impl->host.registered_layer_queries = true;
 }
 
+void JsRuntime::InvalidateLayer(owe::SceneNode& node) {
+    InvalidateLayerPointer(rstd::addressof(node));
+}
+
+void JsRuntime::InvalidateLayerPointer(owe::SceneNode* pointer) {
+    auto& host = m_impl->host;
+    for (auto& timer : host.deferred) {
+        if (timer.dead || ! timer.owner || timer.owner->m_impl->node != pointer) continue;
+        timer.dead  = true;
+        timer.owner = nullptr;
+    }
+    auto invalidate_scripts = [&](Vec<Box<FieldScript>>& scripts) {
+        for (auto& script : scripts) {
+            auto& field = *script->m_impl;
+            if (field.node == pointer) {
+                field.node  = nullptr;
+                field.alive = false;
+            }
+        }
+    };
+    invalidate_scripts(m_impl->scripts);
+    invalidate_scripts(m_impl->deferred_scripts);
+    auto state = host.layer_states.remove(pointer);
+    if (state.is_some()) (*state)->node = nullptr;
+    auto object = host.layer_objects.remove(pointer);
+    if (object.is_some()) JS_FreeValue(m_impl->ctx, *object);
+    (void)host.script_layers.remove(pointer);
+    (void)host.text_setters.remove(pointer);
+    (void)host.current_text_strings.remove(pointer);
+    (void)host.text_align_hooks.remove(pointer);
+    (void)host.node_origin_hooks.remove(pointer);
+    (void)host.image_alignment_hooks.remove(pointer);
+    (void)host.initial_layer_configs.remove(pointer);
+}
+
 void JsRuntime::SetInitializationOrder(FieldScript& script, rstd::uint64_t order) {
     if (script.m_impl->rt != m_impl.get() || script.m_impl->init_done) return;
     script.m_impl->initialization_order = order;
@@ -5579,8 +3282,17 @@ void JsRuntime::RegisterInitialLayerConfig(owe::SceneNode* node, Json config) {
 
 void JsRuntime::SetSceneRoot(owe::SceneNode* root) {
     if (! m_impl->ctx) return;
-    if (m_impl->scene_root && m_impl->scene_root != root)
+    if (m_impl->scene_root && m_impl->scene_root != root) {
+        auto invalidate_removed = [&](Vec<Box<FieldScript>>& scripts) {
+            for (auto& script : scripts) {
+                auto* node = script->m_impl->node;
+                if (node && ! TreeContains(root, node)) InvalidateLayerPointer(node);
+            }
+        };
+        invalidate_removed(m_impl->scripts);
+        invalidate_removed(m_impl->deferred_scripts);
         PruneSceneLayerBindings(m_impl->ctx, m_impl->host, root);
+    }
     if (! JS_IsUndefined(m_impl->wrapped_scene)) JS_FreeValue(m_impl->ctx, m_impl->wrapped_scene);
     m_impl->scene_root      = root;
     m_impl->host.scene_root = root;
@@ -5594,7 +3306,8 @@ void JsRuntime::SetSceneRoot(owe::SceneNode* root) {
     pending.reserve(m_impl->scripts.len());
     for (usize i; i < m_impl->scripts.len(); ++i) {
         auto* script = m_impl->scripts[i].get();
-        if (! script->m_impl->init_done) pending.push({ script, i });
+        if (! script->m_impl->init_done && ! script->m_impl->init_deferred)
+            pending.push({ script, i });
     }
     sort_unstable_by(pending.deref_mut(), [](const auto& left, const auto& right) {
         const auto a = left.script->m_impl->initialization_order;
@@ -5612,7 +3325,8 @@ void JsRuntime::TickAll(slice<owe::SceneAnimationEventDispatch> animation_events
     // Node animations run before scripts; cached script returns must not erase their values.
     for (usize index {}; index < script_count; ++index) {
         auto* script = m_impl->scripts[index]->m_impl.get();
-        if (script->alive && script->object_kind == ScriptPropertyObjectKind::AnimationLayer &&
+        if (script->alive && ! script->init_deferred &&
+            script->object_kind == ScriptPropertyObjectKind::AnimationLayer &&
             script->animation_layer.is_some() &&
             (*script->animation_layer)->FieldAnimation(script->property.as_str()).is_some()) {
             auto&   layer   = **script->animation_layer;
@@ -5629,7 +3343,7 @@ void JsRuntime::TickAll(slice<owe::SceneAnimationEventDispatch> animation_events
             }
             continue;
         }
-        if (! script->alive || script->node == nullptr ||
+        if (! script->alive || script->init_deferred || script->node == nullptr ||
             script->object_kind != ScriptPropertyObjectKind::Layer ||
             ! script->node->HasFieldAnimationTrack(script->property.as_str()))
             continue;
@@ -5674,7 +3388,7 @@ void JsRuntime::TickAll(slice<owe::SceneAnimationEventDispatch> animation_events
     for (usize script_index {}; script_index < script_count; ++script_index) {
         auto* fs = m_impl->scripts[script_index].get();
         auto* I  = fs->m_impl.get();
-        if (! I->alive || ! I->node) continue;
+        if (! I->alive || I->init_deferred || ! I->node) continue;
         const bool now_inside = in_window && HitTestNode(I->node, cursor);
         BindFieldScriptContext(ctx, *I, m_impl->host.default_layer);
         m_impl->host.active_field_script = fs;
@@ -5725,7 +3439,8 @@ void JsRuntime::TickAll(slice<owe::SceneAnimationEventDispatch> animation_events
         for (usize script_index {}; script_index < script_count; ++script_index) {
             auto* fs = m_impl->scripts[script_index].get();
             auto* I  = fs->m_impl.get();
-            if (! I->alive || I->node != dispatch.node || JS_IsUndefined(I->animation_event_fn))
+            if (! I->alive || I->init_deferred || I->node != dispatch.node ||
+                JS_IsUndefined(I->animation_event_fn))
                 continue;
             BindFieldScriptContext(ctx, *I, m_impl->host.default_layer);
             m_impl->host.active_field_script = fs;
@@ -5756,7 +3471,7 @@ void JsRuntime::TickAll(slice<owe::SceneAnimationEventDispatch> animation_events
     for (usize script_index {}; script_index < script_count; ++script_index) {
         auto* fs = m_impl->scripts[script_index].get();
         auto* I  = fs->m_impl.get();
-        if (! I->alive) continue;
+        if (! I->alive || I->init_deferred) continue;
         if (JS_IsUndefined(I->update_fn)) continue;
         // Swap `thisLayer` to this script's bound node before update. When
         // unbound, restore the original stub captured at bootstrap.
@@ -5788,7 +3503,9 @@ void JsRuntime::TickAll(slice<owe::SceneAnimationEventDispatch> animation_events
     m_impl->host.active_field_script = nullptr;
 }
 
-bool JsRuntime::Empty() const noexcept { return m_impl->scripts.is_empty(); }
+bool JsRuntime::Empty() const noexcept {
+    return m_impl->scripts.is_empty() && m_impl->deferred_scripts.is_empty();
+}
 
 void JsRuntime::ForEachScript(EachFn fn, void* user) {
     const auto count = m_impl->scripts.len();
@@ -5846,16 +3563,6 @@ void JsRuntime::RegisterImageAlignmentSetter(owe::SceneNode* node, ref<str> alig
                                                     });
 }
 
-void JsRuntime::CloneImageAlignmentBinding(owe::SceneNode* source, owe::SceneNode* clone) {
-    if (source == nullptr || clone == nullptr) return;
-    auto hook = m_impl->host.image_alignment_hooks.get(source);
-    if (hook.is_none()) return;
-    (void)m_impl->host.image_alignment_hooks.insert(
-        clone,
-        EngineHostState::ImageAlignmentHook { .alignment = (**hook).alignment.clone(),
-                                              .setter    = (**hook).setter.clone() });
-}
-
 void JsRuntime::SetLayerFactory(LayerFactory factory) {
     m_impl->host.layer_factory = Some(rstd::move(factory));
 }
@@ -5884,13 +3591,16 @@ bool FunctionTakesArg(JSContext* ctx, JSValue fn) {
 }
 
 void RunFieldScriptInit(JSContext* ctx, JsRuntime::Impl* rt, FieldScript* fs) {
-    if (! fs || fs->m_impl->init_done) return;
+    if (! fs || ! fs->m_impl->alive || fs->m_impl->init_done || fs->m_impl->init_in_progress)
+        return;
     auto* I = fs->m_impl.get();
     if (! JS_IsFunction(ctx, I->init_fn)) {
         I->init_done = true;
         return;
     }
 
+    EngineBindingGuard binding_guard(ctx, rt->host);
+    I->init_in_progress = true;
     BindFieldScriptContext(ctx, *I, rt->host.default_layer);
     if (! JS_IsUndefined(rt->wrapped_scene)) BindThisScene(ctx, rt->wrapped_scene);
     rt->host.active_field_script = fs;
@@ -5899,8 +3609,8 @@ void RunFieldScriptInit(JSContext* ctx, JsRuntime::Impl* rt, FieldScript* fs) {
     JS_FreeValue(ctx, arg);
     if (JS_IsException(r)) rt->LogError(ctx, I->sha.as_str(), "init threw");
     JS_FreeValue(ctx, r);
-    rt->host.active_field_script = nullptr;
-    I->init_done                 = true;
+    I->init_in_progress = false;
+    I->init_done        = true;
 }
 
 JSValue AwaitModuleEvaluation(JSContext* ctx, JSValue value) {
@@ -5932,106 +3642,32 @@ JSValue AwaitModuleEvaluation(JSContext* ctx, JSValue value) {
     }
 }
 
-} // namespace
-
-FieldScript* JsRuntime::MakeFieldScript(ref<str> source, ref<str> script_sha,
-                                        FieldKind field_kind_in, const Json& properties_config,
-                                        const Json& initial_value, ScriptBindingContext context) {
-    JSContext* ctx = m_impl->ctx;
-    if (! ctx) return nullptr;
-    m_impl->host.pending_registered_assets.clear();
-
-    auto* node = context.layer;
-    // Factories can initialize scripts before createLayer returns. Register the
-    // owning layer before its module or init function can query the scene.
-    if (node) (void)m_impl->host.script_layers.insert(node);
-    JSValue wrapped_layer = node ? WrapLayerNode(ctx, node) : JS_UNDEFINED;
-    JSValue wrapped_object { JS_UNDEFINED };
-    switch (context.object_kind) {
-    case ScriptPropertyObjectKind::Layer: wrapped_object = WrapLayerNode(ctx, node, true); break;
-    case ScriptPropertyObjectKind::Effect:
-        wrapped_object = WrapEffect(ctx, rstd::move(context.effect));
-        break;
-    case ScriptPropertyObjectKind::Material:
-        wrapped_object = WrapMaterial(ctx, context.material);
-        break;
-    case ScriptPropertyObjectKind::AnimationLayer:
-        wrapped_object = context.animation_layer.is_some()
-                             ? WrapNamedAnimationLayer(ctx, (*context.animation_layer).clone())
-                             : WrapAnimationLayer(ctx,
-                                                  context.animation.is_some()
-                                                      ? Some((*context.animation).clone())
-                                                      : None<Arc<owe::SceneAnimationPlayback>>());
-        break;
-    }
-    JSValueConst layer_value =
-        JS_IsUndefined(wrapped_layer) ? m_impl->host.default_layer : wrapped_layer;
-    JSValueConst object_value = JS_IsUndefined(wrapped_object) ? layer_value : wrapped_object;
-    BindThisContext(ctx, layer_value, object_value);
-    m_impl->host.active_animation = context.animation.is_some()
-                                        ? Some((*context.animation).clone())
-                                        : None<Arc<owe::SceneAnimationPlayback>>();
-
-    // 1. Compile + evaluate the module fresh per FieldScript. Caching by
-    //    source-sha would share `scriptProperties._hostValues` across all
-    //    instances using the same source — workshop wallpapers commonly
-    //    reuse the position-template script across many layers (each with
-    //    distinct {user, value} bindings), so a shared _hostValues makes
-    //    every instance read whichever binding was wired last.
-    JSValue        ns;
-    String         sha_str  = rstd::into(script_sha);
-    rstd::uint64_t uniq     = m_impl->next_module_serial++;
-    auto           filename = rstd::format("scripts/{}-{}.js", sha_str.as_str(), uniq);
-    auto           fname    = CString::make(Vec<u8>::from(filename.as_str().as_bytes())).unwrap();
-    {
-        auto bytes = Vec<u8>::from(source.as_bytes());
-        bytes.push(u8());
-        JSValue compiled =
-            JS_Eval(ctx,
-                    reinterpret_cast<const char*>(rstd::as_bytes(bytes.as_slice()).as_raw_ptr()),
-                    source.len().to_primitive(),
-                    fname.as_ptr(),
-                    JS_EVAL_TYPE_MODULE | JS_EVAL_FLAG_COMPILE_ONLY);
-        if (JS_IsException(compiled)) {
-            m_impl->LogError(ctx, script_sha, "compile failed");
-            JS_FreeValue(ctx, compiled);
-            if (! JS_IsUndefined(wrapped_layer)) JS_FreeValue(ctx, wrapped_layer);
-            if (! JS_IsUndefined(wrapped_object)) JS_FreeValue(ctx, wrapped_object);
-            m_impl->host.active_animation = None();
-            return nullptr;
+bool EvaluateFieldScriptModule(JSContext* ctx, JsRuntime::Impl* rt, FieldScript& script,
+                               JSValue compiled, const Json& properties_config,
+                               const Json& initial_value) {
+    auto*              I = script.m_impl.get();
+    EngineBindingGuard binding_guard(ctx, rt->host);
+    BindFieldScriptContext(ctx, *I, rt->host.default_layer);
+    if (! JS_IsUndefined(rt->wrapped_scene)) BindThisScene(ctx, rt->wrapped_scene);
+    rt->host.active_field_script = &script;
+    rt->host.active_animation = I->animation.is_some() ? Some((*I->animation).clone())
+                                                       : None<Arc<owe::SceneAnimationPlayback>>();
+    JSModuleDef* module       = static_cast<JSModuleDef*>(JS_VALUE_GET_PTR(compiled));
+    JSValue      result       = AwaitModuleEvaluation(ctx, JS_EvalFunction(ctx, compiled));
+    if (JS_IsException(result)) {
+        rt->LogError(ctx, I->sha.as_str(), "module eval failed");
+        JS_FreeValue(ctx, result);
+        for (auto& timer : rt->host.deferred) {
+            if (timer.owner != &script) continue;
+            timer.dead  = true;
+            timer.owner = nullptr;
         }
-        JSModuleDef* m  = static_cast<JSModuleDef*>(JS_VALUE_GET_PTR(compiled));
-        JSValue      ev = AwaitModuleEvaluation(ctx, JS_EvalFunction(ctx, compiled));
-        if (JS_IsException(ev)) {
-            m_impl->LogError(ctx, script_sha, "module eval failed");
-            JS_FreeValue(ctx, ev);
-            if (! JS_IsUndefined(wrapped_layer)) JS_FreeValue(ctx, wrapped_layer);
-            if (! JS_IsUndefined(wrapped_object)) JS_FreeValue(ctx, wrapped_object);
-            m_impl->host.active_animation = None();
-            return nullptr;
-        }
-        JS_FreeValue(ctx, ev);
-        ns = JS_GetModuleNamespace(ctx, m);
+        return false;
     }
-    m_impl->host.active_animation = None();
-
-    // 2. Build the FieldScript handle.
-    auto  fs           = Box<FieldScript>::make();
-    auto* I            = fs->m_impl.get();
-    I->rt              = m_impl.get();
-    I->ctx             = ctx;
-    I->sha             = rstd::move(sha_str);
-    I->kind            = (field_kind_in == FieldKind::Unknown) ? FieldKind::Scalar : field_kind_in;
-    I->module_ns       = ns; // owns one ref now
-    I->node            = node;
-    I->property        = rstd::move(context.property);
-    I->object_kind     = context.object_kind;
-    I->animation       = rstd::move(context.animation);
-    I->animation_layer = rstd::move(context.animation_layer);
-    I->wrapped_layer   = wrapped_layer;
-    I->wrapped_object  = wrapped_object;
-    I->registered_assets = rstd::move(m_impl->host.pending_registered_assets);
-    JSValue workshop_id  = JS_GetPropertyStr(ctx, ns, "__workshopId");
+    JS_FreeValue(ctx, result);
+    JSValue ns          = JS_GetModuleNamespace(ctx, module);
+    I->module_ns        = ns;
+    JSValue workshop_id = JS_GetPropertyStr(ctx, ns, "__workshopId");
     if (JS_IsString(workshop_id)) {
         const char* value = JS_ToCString(ctx, workshop_id);
         if (value != nullptr) {
@@ -6095,167 +3731,172 @@ FieldScript* JsRuntime::MakeFieldScript(ref<str> source, ref<str> script_sha,
     // updates so the first frame's `update(value)` sees a Vec3, not a
     // raw string.
     I->current_value = init_arg;
+    return true;
+}
+
+} // namespace
+
+FieldScript* JsRuntime::MakeFieldScript(ref<str> source, ref<str> script_sha,
+                                        FieldKind field_kind_in, const Json& properties_config,
+                                        const Json& initial_value, ScriptBindingContext context,
+                                        FieldScriptInitialization initialization) {
+    JSContext* ctx = m_impl->ctx;
+    if (! ctx) return nullptr;
+    EngineBindingGuard binding_guard(ctx, m_impl->host);
+
+    auto* node       = context.layer;
+    auto  fs         = Box<FieldScript>::make();
+    auto* I          = fs->m_impl.get();
+    I->rt            = m_impl.get();
+    I->ctx           = ctx;
+    I->kind          = (field_kind_in == FieldKind::Unknown) ? FieldKind::Scalar : field_kind_in;
+    I->node          = node;
+    I->init_deferred = initialization == FieldScriptInitialization::Deferred;
+    m_impl->host.active_field_script = fs.get();
+    auto discard_pending_timers      = [&] {
+        for (auto& timer : m_impl->host.deferred)
+            if (timer.owner == fs.get()) timer.dead = true;
+    };
+    // Factories can initialize scripts before createLayer returns. Register the
+    // owning layer before its module or init function can query the scene.
+    if (node) (void)m_impl->host.script_layers.insert(node);
+    JSValue wrapped_layer = node ? WrapLayerNode(ctx, node) : JS_UNDEFINED;
+    JSValue wrapped_object { JS_UNDEFINED };
+    switch (context.object_kind) {
+    case ScriptPropertyObjectKind::Layer: wrapped_object = WrapLayerNode(ctx, node, true); break;
+    case ScriptPropertyObjectKind::Effect:
+        wrapped_object = WrapEffect(ctx, rstd::move(context.effect), node);
+        break;
+    case ScriptPropertyObjectKind::Material:
+        wrapped_object = WrapMaterial(ctx, context.material, node);
+        break;
+    case ScriptPropertyObjectKind::AnimationLayer:
+        wrapped_object = context.animation_layer.is_some()
+                             ? WrapNamedAnimationLayer(ctx, (*context.animation_layer).clone())
+                             : WrapAnimationLayer(ctx,
+                                                  context.animation.is_some()
+                                                      ? Some((*context.animation).clone())
+                                                      : None<Arc<owe::SceneAnimationPlayback>>());
+        break;
+    }
+    JSValueConst layer_value =
+        JS_IsUndefined(wrapped_layer) ? m_impl->host.default_layer : wrapped_layer;
+    JSValueConst object_value = JS_IsUndefined(wrapped_object) ? layer_value : wrapped_object;
+    BindThisContext(ctx, layer_value, object_value);
+    m_impl->host.active_animation = context.animation.is_some()
+                                        ? Some((*context.animation).clone())
+                                        : None<Arc<owe::SceneAnimationPlayback>>();
+    I->property                   = rstd::move(context.property);
+    I->object_kind                = context.object_kind;
+    I->animation                  = rstd::move(context.animation);
+    I->animation_layer            = rstd::move(context.animation_layer);
+    I->wrapped_layer              = wrapped_layer;
+    I->wrapped_object             = wrapped_object;
+
+    // Each field script needs its own module and scriptProperties state.
+    I->sha        = rstd::into(script_sha);
+    auto filename = rstd::format("scripts/{}-{}.js", I->sha.as_str(), m_impl->next_module_serial++);
+    auto fname    = CString::make(Vec<u8>::from(filename.as_str().as_bytes())).unwrap();
+    auto bytes    = Vec<u8>::from(source.as_bytes());
+    bytes.push(u8());
+    JSValue compiled =
+        JS_Eval(ctx,
+                reinterpret_cast<const char*>(rstd::as_bytes(bytes.as_slice()).as_raw_ptr()),
+                source.len().to_primitive(),
+                fname.as_ptr(),
+                JS_EVAL_TYPE_MODULE | JS_EVAL_FLAG_COMPILE_ONLY);
+    if (JS_IsException(compiled)) {
+        m_impl->LogError(ctx, script_sha, "compile failed");
+        JS_FreeValue(ctx, compiled);
+        ReleaseFieldScriptValues(ctx, *fs);
+        discard_pending_timers();
+        return nullptr;
+    }
+    if (I->init_deferred) {
+        I->deferred_module        = compiled;
+        I->deferred_properties    = Some(properties_config.clone());
+        I->deferred_initial_value = Some(initial_value.clone());
+    } else if (! EvaluateFieldScriptModule(
+                   ctx, m_impl.get(), *fs, compiled, properties_config, initial_value)) {
+        ReleaseFieldScriptValues(ctx, *fs);
+        return nullptr;
+    }
 
     auto* raw = fs.get();
-    m_impl->scripts.push(rstd::move(fs));
-    if (m_impl->scene_root) RunFieldScriptInit(ctx, m_impl.get(), raw);
+    if (I->init_deferred) {
+        m_impl->deferred_scripts.push(rstd::move(fs));
+    } else {
+        m_impl->scripts.push(rstd::move(fs));
+        if (m_impl->scene_root) RunFieldScriptInit(ctx, m_impl.get(), raw);
+    }
     return raw;
 }
 
-// ---------------------------------------------------------------------------
-// ScriptScene — per-Scene runtime + actuator drain.
-// ---------------------------------------------------------------------------
-
-struct ScriptScene::Impl {
-    JsRuntime     rt;
-    Vec<Actuator> actuators;
-};
-
-ScriptScene::ScriptScene(Option<Arc<AudioResponseDemand>> demand): m_impl(Box<Impl>::make()) {
-    m_impl->rt.SetAudioResponseDemand(rstd::move(demand));
-}
-ScriptScene::~ScriptScene() = default;
-
-JsRuntime& ScriptScene::runtime() noexcept { return m_impl->rt; }
-void       ScriptScene::AddActuator(Actuator a) { m_impl->actuators.push(rstd::move(a)); }
-// Empty = no scripts AND no actuators. Visibility-bound side-effect-only
-// scripts (audio bar fanout) don't register an actuator but still need
-// their TickAll to run, so emptiness must also consult the runtime.
-bool ScriptScene::empty() const noexcept {
-    if (! m_impl->actuators.is_empty()) return false;
-    return m_impl->rt.Empty();
-}
-
-ScriptApply MakeNodeTransformApply(Arc<owe::SceneNode> node, NodeTransformTarget target) {
-    return ScriptApply::make([node = rstd::move(node), target](const ScriptValue& v) {
-        if (v.is_Empty()) return;
-
-        // Script angle values are degrees; node rotation is radians. Read the
-        // current rotation back as degrees so partial (Vec2 / scalar) updates
-        // compose in the same unit the script works in.
-        Eigen::Vector3f current = [&] {
-            switch (target) {
-            case NodeTransformTarget::Translate: return node->Translate();
-            case NodeTransformTarget::Scale: return node->Scale();
-            case NodeTransformTarget::Rotation:
-                return Eigen::Vector3f { node->Rotation() * float(kRadToDeg) };
-            }
-            return Eigen::Vector3f { 0.0f, 0.0f, 0.0f };
-        }();
-
-        Eigen::Vector3f next = current;
-        if (auto* p = (v.is_Vec3() ? &v.as_Vec3().value : nullptr)) {
-            next = Eigen::Vector3f { static_cast<float>(p->x),
-                                     static_cast<float>(p->y),
-                                     static_cast<float>(p->z) };
-        } else if (auto* p = (v.is_Vec2() ? &v.as_Vec2().value : nullptr)) {
-            next =
-                Eigen::Vector3f { static_cast<float>(p->x), static_cast<float>(p->y), current.z() };
-        } else if (auto* p = (v.is_Scalar() ? &v.as_Scalar().value : nullptr)) {
-            // Scalar splats across all three axes for scale; falls back to
-            // current.x for translate/rotation (rare but seen in the corpus
-            // when scripts mistakenly bind to the wrong field kind).
-            if (target == NodeTransformTarget::Scale) {
-                float s = static_cast<float>(p->v);
-                next    = Eigen::Vector3f { s, s, s };
-            } else {
-                next.x() = static_cast<float>(p->v);
-            }
-        } else {
-            return;
-        }
-
-        switch (target) {
-        case NodeTransformTarget::Translate: node->SetTranslate(next); break;
-        case NodeTransformTarget::Scale: node->SetScale(next); break;
-        case NodeTransformTarget::Rotation: node->SetRotation(next * float(kDegToRad)); break;
-        }
-    });
-}
-
-ScriptApply MakeNodeAlphaApply(Arc<owe::SceneNode> node) {
-    return ScriptApply::make([node = rstd::move(node)](const ScriptValue& v) {
-        if (v.is_Empty()) return;
-
-        if (auto* p = (v.is_Scalar() ? &v.as_Scalar().value : nullptr)) {
-            node->SetUserAlpha(static_cast<float>(p->v));
-        } else if (auto* p = (v.is_Bool() ? &v.as_Bool().value : nullptr)) {
-            node->SetUserAlpha(p->v ? 1.0f : 0.0f);
-        } else if (auto* p = (v.is_Vec2() ? &v.as_Vec2().value : nullptr)) {
-            node->SetUserAlpha(static_cast<float>(p->x));
-        } else if (auto* p = (v.is_Vec3() ? &v.as_Vec3().value : nullptr)) {
-            node->SetUserAlpha(static_cast<float>(p->x));
-        }
-    });
-}
-
-ScriptApply MakeNodeVolumeApply(Arc<owe::SceneNode> node) {
-    return ScriptApply::make([node = rstd::move(node)](const ScriptValue& value) {
-        if (auto* volume = (value.is_Scalar() ? &value.as_Scalar().value : nullptr)) {
-            node->SetVolume(static_cast<float>(volume->v));
-        } else if (auto* volume = (value.is_Bool() ? &value.as_Bool().value : nullptr)) {
-            node->SetVolume(volume->v ? 1.0f : 0.0f);
-        } else if (auto* volume = (value.is_Vec2() ? &value.as_Vec2().value : nullptr)) {
-            node->SetVolume(static_cast<float>(volume->x));
-        } else if (auto* volume = (value.is_Vec3() ? &value.as_Vec3().value : nullptr)) {
-            node->SetVolume(static_cast<float>(volume->x));
-        }
-    });
-}
-
-ScriptApply MakeNodeColorApply(Arc<owe::SceneNode> node) {
-    return ScriptApply::make([node = rstd::move(node)](const ScriptValue& value) {
-        auto& current = node->Color();
-        if (auto* color = (value.is_Vec3() ? &value.as_Vec3().value : nullptr)) {
-            node->SetColor({ static_cast<float>(color->x),
-                             static_cast<float>(color->y),
-                             static_cast<float>(color->z) });
-        } else if (auto* color = (value.is_Vec2() ? &value.as_Vec2().value : nullptr)) {
-            node->SetColor(
-                { static_cast<float>(color->x), static_cast<float>(color->y), current.z() });
-        } else if (auto* color = (value.is_Scalar() ? &value.as_Scalar().value : nullptr)) {
-            const auto component = static_cast<float>(color->v);
-            node->SetColor({ component, component, component });
-        }
-    });
-}
-
-void ScriptScene::Tick(const FrameInputs&                      fi,
-                       slice<owe::SceneAnimationEventDispatch> animation_events) {
-    m_impl->rt.SetFrameInputs(fi);
-    m_impl->rt.TickAll(animation_events);
-    for (auto& a : m_impl->actuators) {
-        if (! a.script) continue;
-        a.apply->operator()(a.script->last_value());
+bool JsRuntime::InitializeFieldScript(FieldScript& script) {
+    if (! m_impl->ctx || ! m_impl->scene_root || script.m_impl->rt != m_impl.get() ||
+        ! script.m_impl->alive || ! script.m_impl->init_deferred ||
+        script.m_impl->init_in_progress || JS_IsUndefined(script.m_impl->deferred_module))
+        return false;
+    for (usize index {}; index < m_impl->deferred_scripts.len(); ++index) {
+        if (m_impl->deferred_scripts[index].get() != &script) continue;
+        auto* field                   = script.m_impl.get();
+        auto  module                  = field->deferred_module;
+        field->deferred_module        = JS_UNDEFINED;
+        field->init_in_progress       = true;
+        const bool evaluated          = EvaluateFieldScriptModule(m_impl->ctx,
+                                                                  m_impl.get(),
+                                                                  script,
+                                                                  module,
+                                                                  *field->deferred_properties,
+                                                                  *field->deferred_initial_value);
+        field->init_in_progress       = false;
+        field->deferred_properties    = None();
+        field->deferred_initial_value = None();
+        if (! evaluated || ! field->alive) return false;
+        usize current {};
+        while (current < m_impl->deferred_scripts.len() &&
+               m_impl->deferred_scripts[current].get() != &script)
+            ++current;
+        if (current == m_impl->deferred_scripts.len()) return false;
+        auto owned                   = m_impl->deferred_scripts.remove(current);
+        script.m_impl->init_deferred = false;
+        m_impl->scripts.push(rstd::move(owned));
+        RunFieldScriptInit(m_impl->ctx, m_impl.get(), &script);
+        return true;
     }
+    return false;
 }
 
-void InstallScriptScene(owe::Scene& scene, Box<ScriptScene> script_scene) {
-    scene.InstallExtension(rstd::move(script_scene));
+bool JsRuntime::OwnsDeferredFieldScript(const FieldScript& script) const noexcept {
+    return script.m_impl->init_deferred && ! script.m_impl->init_in_progress &&
+           script.m_impl->rt == m_impl.as_ptr().as_raw_ptr();
 }
 
-void TickSceneScripts(owe::Scene& scene, const FrameInputs& fi) {
-    auto script_scene = scene.ExtensionMut<ScriptScene>();
-    if (script_scene.is_none()) return;
-    auto events = scene.ConsumeAnimationEvents();
-    (**script_scene).Tick(fi, events.as_slice());
+bool JsRuntime::DiscardDeferredFieldScript(FieldScript& script) {
+    for (usize index {}; index < m_impl->deferred_scripts.len(); ++index) {
+        if (m_impl->deferred_scripts[index].get() != &script) continue;
+        for (auto& timer : m_impl->host.deferred) {
+            if (timer.owner != &script) continue;
+            timer.dead  = true;
+            timer.owner = nullptr;
+        }
+        auto owned = m_impl->deferred_scripts.remove(index);
+        ReleaseFieldScriptValues(m_impl->ctx, *owned);
+        return true;
+    }
+    return false;
 }
 
-void SetSceneUserProperty(owe::Scene& scene, ref<str> key, const Json& property) {
-    auto script_scene = scene.ExtensionMut<ScriptScene>();
-    if (script_scene.is_some()) (**script_scene).runtime().SetUserProperty(key, property);
-    scene.ApplyUserLightVisibilityBindings(key, property);
-}
-
-void SetSceneMediaStatus(owe::Scene& scene, const MediaStatus& status) {
-    auto script_scene = scene.ExtensionMut<ScriptScene>();
-    if (script_scene.is_some()) (**script_scene).runtime().SetMediaStatus(status);
-}
-
-void SetScenePersistence(owe::Scene& scene, PathBuf path) {
-    auto script_scene = scene.ExtensionMut<ScriptScene>();
-    if (script_scene.is_none()) return;
-    (**script_scene).runtime().SetPersistence(rstd::move(path));
+void JsRuntime::PruneInactiveFieldScripts() {
+    usize index {};
+    while (index < m_impl->scripts.len()) {
+        if (m_impl->scripts[index]->alive()) {
+            ++index;
+            continue;
+        }
+        auto script = m_impl->scripts.remove(index);
+        ReleaseFieldScriptValues(m_impl->ctx, *script);
+    }
 }
 
 } // namespace owe::script

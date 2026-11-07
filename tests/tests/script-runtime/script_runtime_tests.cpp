@@ -779,7 +779,57 @@ TEST(ScriptNodeSoftMutation, RuntimeLayersKeepIndependentPendingParallaxDepth) {
     EXPECT_FLOAT_EQ(first_state->parallax.depth[rstd::usize(1)], 0.0f);
 }
 
-TEST(ScriptNodeSoftMutation, ImageAlignmentBindingClonesForDynamicLayer) {
+TEST(ScriptNodeSoftMutation, RemovingUniformStatePreservesOtherLayerOwners) {
+    auto state  = Arc<owe::UniformSceneState>::make(Arc<owe::AudioResponseDemand>::make());
+    auto first  = Arc<owe::SceneNode>::make();
+    auto writer = Arc<owe::SceneNode>::make();
+    auto camera =
+        Arc<owe::SceneCamera>::make(owe::SceneCamera::MakeOrthographic(1920, 1080, -1.0, 1.0));
+    auto                   cameras = Arc<owe::UniformCameraResolver>::make(rstd::move(camera));
+    const owe::SceneNodeId id { .index = u32(1), .generation = u32(1) };
+    const owe::wpscene::ParallaxDepthBinding binding { { 1.0f, 1.0f }, true };
+    state->RegisterNodeParallaxContract(*first, i32(-1), binding);
+    state->RegisterNodeParallaxContract(*writer, i32(-1), binding);
+    auto first_state       = Arc<owe::UniformNodeState>::make(first.clone(), cameras.clone());
+    first_state->object_id = i32(-1);
+    state->SetNodeState(id, first_state.clone());
+    EXPECT_TRUE(state->RemoveNodeState(id));
+    EXPECT_FALSE(state->RemoveNodeState(id));
+    EXPECT_EQ(state->FindNodeState(first.as_ptr().as_raw_ptr()), nullptr);
+    EXPECT_TRUE(state->SetObjectParallaxDepth(i32(-1), { 0.25f, 0.5f }));
+    EXPECT_FLOAT_EQ(first_state->parallax.depth[usize()], 1.0f);
+    auto writer_depth = state->NodeParallaxDepth(*writer);
+    ASSERT_TRUE(writer_depth.is_some());
+    EXPECT_FLOAT_EQ((*writer_depth)[usize()], 0.25f);
+    state->RemoveNodeParallaxContract(*writer);
+    auto replacement = Arc<owe::SceneNode>::make();
+    state->RegisterNodeParallaxContract(*replacement, i32(-1), binding);
+    auto replacement_depth = state->NodeParallaxDepth(*replacement);
+    ASSERT_TRUE(replacement_depth.is_some());
+    EXPECT_FLOAT_EQ((*replacement_depth)[usize()], 1.0f);
+}
+
+TEST(ScriptNodeSoftMutation, RemovingNodeUniformSourcesPreservesSharedAndRetainedSources) {
+    owe::Scene scene;
+    auto       first     = Arc<owe::SceneNode>::make();
+    auto       second    = Arc<owe::SceneNode>::make();
+    const auto first_id  = scene.RegisterNode(*first);
+    const auto second_id = scene.RegisterNode(*second);
+    auto       source    = scene.Register(
+        Box<dyn<vrento::UniformSource>>::make(owe::ColorUniformSource(first.clone())));
+    auto retained = scene.RetainUniformSource(source);
+    ASSERT_TRUE(retained.is_some());
+    ASSERT_TRUE(scene.AttachNode(first_id, source));
+    ASSERT_TRUE(scene.AttachNode(second_id, source));
+    EXPECT_EQ(scene.RemoveNodeUniformSources(first_id), usize(1));
+    EXPECT_TRUE(scene.Resolve(source).is_some());
+    EXPECT_EQ(scene.RemoveNodeUniformSources(second_id), usize(1));
+    EXPECT_TRUE(scene.Resolve(source).is_none());
+    EXPECT_TRUE(retained.is_some());
+    EXPECT_EQ(scene.RemoveNodeUniformSources(second_id), usize());
+}
+
+TEST(ScriptNodeSoftMutation, ImageAlignmentBindingsAreIndependent) {
     owe::SceneNode  source;
     owe::SceneNode  clone;
     JsRuntime       rt;
@@ -792,14 +842,28 @@ TEST(ScriptNodeSoftMutation, ImageAlignmentBindingClonesForDynamicLayer) {
             target    = node;
             alignment = String::make(value);
         }));
-    rt.CloneImageAlignmentBinding(&source, &clone);
+    rt.RegisterImageAlignmentSetter(
+        &clone,
+        "center"_str,
+        JsRuntime::ImageAlignmentSetter::make([&](owe::SceneNode* node, ref<str> value) {
+            target    = node;
+            alignment = String::make(value);
+        }));
+    auto* source_probe = rt.MakeFieldScript(
+        "export function update() { return thisLayer.alignment === 'center' ? 1 : 0; }"_str,
+        "test/source_image_alignment"_str,
+        FieldKind::Scalar,
+        owe::MakeObject(),
+        owe::IntoJson(0),
+        &source);
+    ASSERT_NE(source_probe, nullptr);
 
     auto* fs = rt.MakeFieldScript(
         R"JS(
             thisLayer.alignment = 'bottom';
             export function update() { return thisLayer.alignment === 'bottom' ? 1 : 0; }
         )JS"_str,
-        "test/cloned_image_alignment_write"_str,
+        "test/image_alignment_write"_str,
         FieldKind::Scalar,
         owe::MakeObject(),
         owe::IntoJson(0),
@@ -810,6 +874,7 @@ TEST(ScriptNodeSoftMutation, ImageAlignmentBindingClonesForDynamicLayer) {
     EXPECT_EQ(alignment.as_str(), "bottom"_str);
     rt.TickAll();
     EXPECT_EQ(LastScalar(fs), 1.0);
+    EXPECT_EQ(LastScalar(source_probe), 1.0);
 }
 
 TEST(ScriptNodeSoftMutation, OriginDispatchesRegisteredAccessors) {
@@ -1105,6 +1170,9 @@ TEST(ScriptCursor, ClickRestartsNamedAnimationLayer) {
     });
     auto playback = Arc<owe::SceneAnimationPlayback>::make(rstd::move(clip));
     node.RegisterAnimation(playback.clone());
+    auto layer = Arc<owe::SceneAnimationLayer>::make(String::make("Arona Drool"_str));
+    layer->SetPlayback(Some(playback.clone()));
+    node.RegisterAnimationLayer(rstd::move(layer));
 
     JsRuntime rt;
     rt.SetFrameInputs(MakeFi());
@@ -2050,6 +2118,72 @@ TEST(ScriptLayerLookup, EffectIndexAndMaterialWritesUseSceneMaterialOwner) {
     EXPECT_FLOAT_EQ((**channel_mask)[usize(3)], 0.75f);
 }
 
+TEST(ScriptLayerLookup, InvalidatedEffectAndMaterialsDoNotModifyTheirLayer) {
+    owe::Scene scene;
+    auto       layer = Arc<owe::SceneNode>::make(
+        Eigen::Vector3f::Zero(), Eigen::Vector3f::Ones(), Eigen::Vector3f::Zero(), "target"_str);
+    scene.RootMut()->AppendChild(layer.clone());
+    auto layer_effect =
+        Arc<owe::SceneNodeLayer>::make(layer.as_ptr(), 64.0f, 64.0f, "_rt_test"_str);
+    auto effect                             = Arc<owe::SceneImageEffect>::make();
+    effect->name                            = "color"_Str;
+    auto                        effect_node = Arc<owe::SceneNode>::make();
+    auto                        mesh        = Arc<owe::SceneMesh>::make();
+    owe::SceneMaterial          material;
+    owe::SceneShaderVariantDesc variant;
+    (void)variant.uniform_aliases.insert("color"_Str, "g_TintColor"_Str);
+    material.customShader.variant = Some(owe::SceneShaderVariant::from(rstd::move(variant)));
+    (void)material.customShader.constValues.insert(
+        "g_TintColor"_Str, owe::ShaderValue(rstd::array<float, 3> { 1.0f, 0.0f, 0.0f }));
+    mesh->AddMaterial(rstd::move(material));
+    auto* effect_material = mesh->Material();
+    effect_node->AddMesh(rstd::move(mesh));
+    effect->AddNode(owe::SceneImageEffectNode { .output    = owe::SceneEffectTarget::LayerNext(),
+                                                .sceneNode = effect_node.clone() });
+    layer_effect->AddEffect(effect);
+    layer->AttachLayer(layer_effect.clone());
+
+    JsRuntime runtime;
+    runtime.SetScene(&scene);
+    runtime.SetSceneRoot(scene.RootMut().as_raw_ptr());
+    auto* material_script = runtime.MakeFieldScript(
+        "export function init() { globalThis.savedMaterial = thisObject; }"_str,
+        "test/invalidated_material_owner"_str,
+        FieldKind::Scalar,
+        owe::MakeObject(),
+        owe::IntoJson(0),
+        ScriptBindingContext::ForMaterial(layer.as_ptr(), effect_material, "color"_str));
+    ASSERT_NE(material_script, nullptr);
+    auto* observer = MakeProbe(runtime, "test/invalidated_effect_observer", R"JS(
+        let effect = thisScene.getLayer('target').getEffect(0);
+        let material = effect.getMaterial(0);
+        export function update() {
+            material.color = new Vec3(0, 1, 0);
+            globalThis.savedMaterial.color = new Vec3(0, 1, 0);
+            effect.visible = false;
+            return effect.name === 'color' ? 1 : 0;
+        }
+    )JS");
+    ASSERT_NE(observer, nullptr);
+    runtime.TickAll();
+    EXPECT_DOUBLE_EQ(LastScalar(observer), 1.0);
+    auto effect_ref = scene.FindNodeImageEffect(*layer, usize());
+    ASSERT_TRUE(effect_ref.is_some());
+    (void)scene.SetImageEffectRuntimeVisible(*effect_ref, true);
+    (void)scene.SetMaterialShaderValueByKey(
+        *effect_material,
+        "color"_str,
+        owe::ShaderValue(rstd::array<float, 3> { 1.0f, 0.0f, 0.0f }));
+    runtime.InvalidateLayer(*layer);
+    runtime.TickAll();
+    EXPECT_DOUBLE_EQ(LastScalar(observer), 0.0);
+    EXPECT_TRUE(scene.ImageEffectRuntimeVisible(*effect_ref));
+    auto color = effect_material->customShader.constValues.get("g_TintColor"_str);
+    ASSERT_TRUE(color.is_some());
+    EXPECT_FLOAT_EQ((**color)[usize()], 1.0f);
+    EXPECT_FLOAT_EQ((**color)[usize(1)], 0.0f);
+}
+
 TEST(ScriptLayerLookup, MissingLayerKeepsDefaultTransformShape) {
     auto root = rstd::sync::Arc<owe::SceneNode>::make();
 
@@ -2334,36 +2468,46 @@ TEST(ScriptScene, InitialLayerConfigPreservesAuthoredEffects) {
     EXPECT_EQ(fs->last_value().as_Scalar().value.v, 2.0);
 }
 
-TEST(ScriptScene, DestroyLayerHidesSceneNode) {
-    auto root  = rstd::sync::Arc<owe::SceneNode>::make();
-    auto child = rstd::sync::Arc<owe::SceneNode>::make(
+TEST(ScriptScene, DestroyLayerDefersRemovalAndReturnsStatus) {
+    owe::Scene scene;
+    auto*      root  = scene.RootMut().as_raw_ptr();
+    auto       child = rstd::sync::Arc<owe::SceneNode>::make(
         Eigen::Vector3f::Zero(), Eigen::Vector3f::Ones(), Eigen::Vector3f::Zero(), "coin"_str);
     root->AppendChild(child.clone());
 
-    JsRuntime   rt;
+    JsRuntime rt;
+    rt.SetScene(&scene);
+    rt.RegisterInitialLayerConfig(child.as_ptr(), owe::MakeObject());
+    scene.SetLayerRemovalObserver(
+        Box<dyn<FnMut<void(owe::SceneNode&)>>>::make([&rt](owe::SceneNode& node) {
+            rt.InvalidateLayer(node);
+        }));
     FrameInputs fi {};
     rt.SetFrameInputs(fi);
-    rt.SetSceneRoot(root.as_ptr());
+    rt.SetSceneRoot(root);
     auto* fs = rt.MakeFieldScript(
         R"JS(
-            let hidden = 0;
+            let result = 0;
             export function init() {
                 const coin = thisScene.getLayer("coin");
-                thisScene.destroyLayer(coin);
-                hidden = coin.visible ? 0 : 1;
+                result = thisScene.destroyLayer(coin) && !thisScene.destroyLayer(coin) &&
+                         coin.visible ? 1 : -1;
             }
-            export function update() { return hidden; }
+            export function update() { return result; }
         )JS"_str,
-        "test/destroy_layer_hides_node"_str,
+        "test/destroy_layer_deferred"_str,
         FieldKind::Scalar,
         owe::MakeObject(),
         owe::IntoJson(0),
-        root.as_ptr());
+        root);
     ASSERT_NE(fs, nullptr);
 
     rt.TickAll();
-    EXPECT_FALSE(child->Visible());
     EXPECT_EQ(fs->last_value().as_Scalar().value.v, 1.0);
+    EXPECT_TRUE(child->Visible());
+    scene.ProcessLayerDeletions();
+    EXPECT_EQ(child->Parent(), nullptr);
+    EXPECT_EQ(root->FindByName("coin"_str), nullptr);
 }
 
 TEST(ScriptScene, CameraTransformsRoundTripThroughSceneOwner) {
@@ -2563,6 +2707,345 @@ TEST(ScriptScene, CreateLayerRestoresTheCallingFieldScriptBinding) {
     EXPECT_DOUBLE_EQ(LastScalar(script), 344.0);
 }
 
+TEST(ScriptScene, ReentrantSceneRootInitializationDoesNotRepeatActiveScript) {
+    auto root  = Arc<owe::SceneNode>::make();
+    auto owner = Arc<owe::SceneNode>::make(Eigen::Vector3f { 42.0f, 0.0f, 0.0f },
+                                           Eigen::Vector3f::Ones(),
+                                           Eigen::Vector3f::Zero(),
+                                           "owner"_str);
+    root->AppendChild(owner.clone());
+    JsRuntime runtime;
+    int       factory_calls = 0;
+    runtime.SetLayerFactory(JsRuntime::LayerFactory::make(
+        [&root, &runtime, &factory_calls](owe::SceneNode*,
+                                          LayerAssetReference) -> Option<Arc<owe::SceneNode>> {
+            ++factory_calls;
+            if (factory_calls > 1) return None();
+            runtime.SetSceneRoot(root.as_ptr());
+            auto node = Arc<owe::SceneNode>::make();
+            root->AppendChild(node.clone());
+            return Some(rstd::move(node));
+        }));
+    auto* script = runtime.MakeFieldScript(
+        R"JS(
+            let calls = 0;
+            let position = 0;
+            export function init() {
+                calls++;
+                thisScene.createLayer('models/bar.json');
+                position = thisLayer.origin.x;
+            }
+            export function update() { return calls * 100 + position; }
+        )JS"_str,
+        "test/reentrant_scene_root_init"_str,
+        FieldKind::Scalar,
+        owe::MakeObject(),
+        owe::IntoJson(0),
+        owner.as_ptr());
+    ASSERT_NE(script, nullptr);
+    runtime.SetSceneRoot(root.as_ptr());
+    runtime.TickAll();
+    EXPECT_EQ(factory_calls, 1);
+    EXPECT_DOUBLE_EQ(LastScalar(script), 142.0);
+}
+
+TEST(ScriptScene, DeferredFieldScriptInitializesAfterItsLayerIsAttached) {
+    auto root = Arc<owe::SceneNode>::make();
+    auto node = Arc<owe::SceneNode>::make(
+        Eigen::Vector3f::Zero(), Eigen::Vector3f::Ones(), Eigen::Vector3f::Zero(), "pending"_str);
+    JsRuntime runtime;
+    runtime.SetSceneRoot(root.as_ptr());
+    auto* script = runtime.MakeFieldScript(
+        R"JS(
+            let value = 0;
+            setTimeout(() => { value += 100; }, 0);
+            export function init() { value = thisScene.getLayer('pending') === thisLayer ? 10 : -10; }
+            export function applyUserProperties() { value = -100; }
+            export function update() { return ++value; }
+        )JS"_str,
+        "test/deferred_field_init"_str,
+        FieldKind::Scalar,
+        owe::MakeObject(),
+        owe::IntoJson(0),
+        node.as_ptr(),
+        FieldScriptInitialization::Deferred);
+    ASSERT_NE(script, nullptr);
+    EXPECT_TRUE(script->initialization_deferred());
+    runtime.SetUserProperty("test"_str, owe::IntoJson(1));
+    runtime.SetSceneRoot(root.as_ptr());
+    runtime.TickAll();
+    EXPECT_TRUE(script->last_value().is_Empty());
+
+    root->AppendChild(node.clone());
+    EXPECT_TRUE(runtime.InitializeFieldScript(*script));
+    EXPECT_FALSE(script->initialization_deferred());
+    EXPECT_FALSE(runtime.InitializeFieldScript(*script));
+    runtime.TickAll();
+    EXPECT_DOUBLE_EQ(LastScalar(script), 111.0);
+}
+
+TEST(ScriptScene, DeferredModuleEvaluationWaitsForItsLayer) {
+    auto root = Arc<owe::SceneNode>::make();
+    auto node = Arc<owe::SceneNode>::make(
+        Eigen::Vector3f::Zero(), Eigen::Vector3f::Ones(), Eigen::Vector3f::Zero(), "pending"_str);
+    ScriptScene scene;
+    auto&       runtime = scene.runtime();
+    runtime.SetSceneRoot(root.as_ptr());
+    auto* probe =
+        MakeProbe(runtime,
+                  "test/deferred_module_probe",
+                  "export function update() { return globalThis.__deferredModule ?? 0; }");
+    ASSERT_NE(probe, nullptr);
+    auto* discarded = runtime.MakeFieldScript("globalThis.__deferredModule = -100;"_str,
+                                              "test/discarded_module"_str,
+                                              FieldKind::Scalar,
+                                              owe::MakeObject(),
+                                              owe::IntoJson(0),
+                                              node.as_ptr(),
+                                              FieldScriptInitialization::Deferred);
+    ASSERT_NE(discarded, nullptr);
+    scene.Tick(FrameInputs {});
+    EXPECT_DOUBLE_EQ(LastScalar(probe), 0.0);
+    EXPECT_TRUE(scene.DiscardDeferredFieldScript(*discarded));
+    auto* script = runtime.MakeFieldScript(
+        R"JS(globalThis.__deferredModule = thisScene.getLayer('pending') === thisLayer ? 42 : -1;
+             export function update() { return globalThis.__deferredModule; })JS"_str,
+        "test/deferred_module"_str,
+        FieldKind::Scalar,
+        owe::MakeObject(),
+        owe::IntoJson(0),
+        node.as_ptr(),
+        FieldScriptInitialization::Deferred);
+    ASSERT_NE(script, nullptr);
+    scene.Tick(FrameInputs {});
+    EXPECT_DOUBLE_EQ(LastScalar(probe), 0.0);
+    root->AppendChild(node.clone());
+    EXPECT_TRUE(runtime.InitializeFieldScript(*script));
+    scene.Tick(FrameInputs {});
+    EXPECT_DOUBLE_EQ(LastScalar(probe), 42.0);
+    EXPECT_DOUBLE_EQ(LastScalar(script), 42.0);
+}
+
+TEST(ScriptScene, DeferredModuleEvaluationRejectsReentrantDiscardAndInitialization) {
+    auto        root = Arc<owe::SceneNode>::make();
+    ScriptScene scene;
+    auto&       runtime = scene.runtime();
+    runtime.SetSceneRoot(root.as_ptr());
+    auto* other = runtime.MakeFieldScript("export function update() { return 1; }"_str,
+                                          "test/other_deferred_module"_str,
+                                          FieldKind::Scalar,
+                                          owe::MakeObject(),
+                                          owe::IntoJson(0),
+                                          ScriptBindingContext {},
+                                          FieldScriptInitialization::Deferred);
+    ASSERT_NE(other, nullptr);
+    FieldScript* script = nullptr;
+    int          calls  = 0;
+    runtime.SetLayerFactory(JsRuntime::LayerFactory::make(
+        [&](owe::SceneNode*, LayerAssetReference) -> Option<Arc<owe::SceneNode>> {
+            ++calls;
+            EXPECT_FALSE(runtime.InitializeFieldScript(*script));
+            EXPECT_FALSE(scene.DiscardDeferredFieldScript(*script));
+            EXPECT_TRUE(scene.DiscardDeferredFieldScript(*other));
+            auto child = Arc<owe::SceneNode>::make();
+            root->AppendChild(child.clone());
+            return Some(rstd::move(child));
+        }));
+    script = runtime.MakeFieldScript(
+        "thisScene.createLayer('models/child.json'); export function update() { return 7; }"_str,
+        "test/reentrant_deferred_module"_str,
+        FieldKind::Scalar,
+        owe::MakeObject(),
+        owe::IntoJson(0),
+        ScriptBindingContext {},
+        FieldScriptInitialization::Deferred);
+    ASSERT_NE(script, nullptr);
+    EXPECT_TRUE(runtime.InitializeFieldScript(*script));
+    scene.Tick(FrameInputs {});
+    EXPECT_EQ(calls, 1);
+    EXPECT_DOUBLE_EQ(LastScalar(script), 7.0);
+}
+
+TEST(ScriptScene, DiscardsDeferredActuatorDuringActuatorDispatch) {
+    auto        root = Arc<owe::SceneNode>::make();
+    ScriptScene scene;
+    auto&       runtime = scene.runtime();
+    runtime.SetSceneRoot(root.as_ptr());
+    auto* active   = runtime.MakeFieldScript("export function update() { return 1; }"_str,
+                                             "test/dispatch_active"_str,
+                                             FieldKind::Scalar,
+                                             owe::MakeObject(),
+                                             owe::IntoJson(0));
+    auto* deferred = runtime.MakeFieldScript("export function update() { return 2; }"_str,
+                                             "test/dispatch_deferred"_str,
+                                             FieldKind::Scalar,
+                                             owe::MakeObject(),
+                                             owe::IntoJson(0),
+                                             ScriptBindingContext {},
+                                             FieldScriptInitialization::Deferred);
+    ASSERT_NE(active, nullptr);
+    ASSERT_NE(deferred, nullptr);
+    int applied = 0;
+    scene.AddActuator({ active, [&](const ScriptValue&) {
+                           EXPECT_TRUE(scene.DiscardDeferredFieldScript(*deferred));
+                       } });
+    scene.AddActuator({ deferred, [&](const ScriptValue&) {
+                           applied += 100;
+                       } });
+    scene.AddActuator({ active, [&](const ScriptValue&) {
+                           ++applied;
+                       } });
+    scene.Tick(FrameInputs {});
+    EXPECT_EQ(applied, 1);
+}
+
+TEST(ScriptScene, ReclaimsInvalidatedScriptsAfterDispatch) {
+    auto root = Arc<owe::SceneNode>::make();
+    auto node = Arc<owe::SceneNode>::make();
+    root->AppendChild(node.clone());
+    ScriptScene scene;
+    auto&       runtime = scene.runtime();
+    runtime.SetSceneRoot(root.as_ptr());
+    auto* script = runtime.MakeFieldScript("export function update() { return 1; }"_str,
+                                           "test/invalidated_cleanup"_str,
+                                           FieldKind::Scalar,
+                                           owe::MakeObject(),
+                                           owe::IntoJson(0),
+                                           node.as_ptr());
+    ASSERT_NE(script, nullptr);
+    scene.AddActuator({ script, MakeNodeAlphaApply(node.clone()) });
+    runtime.InvalidateLayer(*node);
+    scene.Tick(FrameInputs {});
+    EXPECT_TRUE(scene.empty());
+}
+
+TEST(ScriptScene, FailedDeferredModuleCanBeDiscardedWithoutFiringTimers) {
+    auto        root = Arc<owe::SceneNode>::make();
+    ScriptScene scene;
+    auto&       runtime = scene.runtime();
+    runtime.SetSceneRoot(root.as_ptr());
+    auto* script = runtime.MakeFieldScript(
+        R"JS(setTimeout(() => { globalThis.__failedDeferredTimer = 1; }, 0);
+             throw new Error('deferred module failure');)JS"_str,
+        "test/failed_deferred_module"_str,
+        FieldKind::Scalar,
+        owe::MakeObject(),
+        owe::IntoJson(0),
+        ScriptBindingContext {},
+        FieldScriptInitialization::Deferred);
+    ASSERT_NE(script, nullptr);
+    EXPECT_FALSE(runtime.InitializeFieldScript(*script));
+    EXPECT_FALSE(runtime.InitializeFieldScript(*script));
+    EXPECT_TRUE(scene.DiscardDeferredFieldScript(*script));
+    auto* probe =
+        MakeProbe(runtime,
+                  "test/failed_deferred_module_probe",
+                  "export function update() { return globalThis.__failedDeferredTimer ?? 0; }");
+    ASSERT_NE(probe, nullptr);
+    scene.Tick(FrameInputs {});
+    EXPECT_DOUBLE_EQ(LastScalar(probe), 0.0);
+}
+
+TEST(ScriptScene, DeferredNestedInitializationRestoresCallingScript) {
+    auto root  = Arc<owe::SceneNode>::make();
+    auto owner = Arc<owe::SceneNode>::make(Eigen::Vector3f { 42.0f, 0.0f, 0.0f },
+                                           Eigen::Vector3f::Ones(),
+                                           Eigen::Vector3f::Zero(),
+                                           "owner"_str);
+    root->AppendChild(owner.clone());
+    JsRuntime runtime;
+    runtime.SetLayerFactory(JsRuntime::LayerFactory::make(
+        [&root, &runtime](owe::SceneNode*, LayerAssetReference) -> Option<Arc<owe::SceneNode>> {
+            auto  node  = Arc<owe::SceneNode>::make(Eigen::Vector3f::Zero(),
+                                                    Eigen::Vector3f::Ones(),
+                                                    Eigen::Vector3f::Zero(),
+                                                    "child"_str);
+            auto* child = runtime.MakeFieldScript(
+                R"JS(export function init() {
+                    if (thisScene.getLayer('child') === thisLayer)
+                        thisLayer.origin = new Vec3(7, 0, 0);
+                })JS"_str,
+                "test/nested_deferred_child"_str,
+                FieldKind::Scalar,
+                owe::MakeObject(),
+                owe::IntoJson(0),
+                node.as_ptr(),
+                FieldScriptInitialization::Deferred);
+            if (! child) return None();
+            root->AppendChild(node.clone());
+            EXPECT_TRUE(runtime.InitializeFieldScript(*child));
+            EXPECT_FLOAT_EQ(node->Translate().x(), 7.0f);
+            return Some(rstd::move(node));
+        }));
+    auto* parent = runtime.MakeFieldScript(
+        R"JS(export function update() {
+            let child = thisScene.createLayer('models/child.json');
+            return thisLayer.origin.x + child.origin.x;
+        })JS"_str,
+        "test/nested_deferred_parent"_str,
+        FieldKind::Scalar,
+        owe::MakeObject(),
+        owe::IntoJson(0),
+        owner.as_ptr());
+    ASSERT_NE(parent, nullptr);
+    runtime.SetSceneRoot(root.as_ptr());
+    runtime.TickAll();
+    EXPECT_DOUBLE_EQ(LastScalar(parent), 49.0);
+}
+
+TEST(ScriptScene, FailedFieldScriptDoesNotLeaveModuleTimers) {
+    JsRuntime runtime;
+    auto*     failed = runtime.MakeFieldScript(
+        R"JS(
+            globalThis.__failedTimer = 0;
+            setTimeout(() => { globalThis.__failedTimer++; }, 0);
+            throw new Error('module failure');
+        )JS"_str,
+        "test/failed_module_timer"_str,
+        FieldKind::Scalar,
+        owe::MakeObject(),
+        owe::IntoJson(0));
+    EXPECT_EQ(failed, nullptr);
+    auto* probe = MakeProbe(runtime,
+                            "test/failed_module_timer_probe",
+                            "export function update() { return globalThis.__failedTimer; }");
+    ASSERT_NE(probe, nullptr);
+    runtime.TickAll();
+    EXPECT_DOUBLE_EQ(LastScalar(probe), 0.0);
+}
+
+TEST(ScriptScene, DiscardDeferredScriptRemovesItsTimersAndActuators) {
+    auto        root = Arc<owe::SceneNode>::make();
+    ScriptScene scene;
+    scene.runtime().SetSceneRoot(root.as_ptr());
+    auto* script = scene.runtime().MakeFieldScript(
+        R"JS(
+            globalThis.__discardedTimer = 0;
+            setTimeout(() => { globalThis.__discardedTimer++; }, 0);
+            export function update() { return 5; }
+        )JS"_str,
+        "test/discarded_deferred_script"_str,
+        FieldKind::Scalar,
+        owe::MakeObject(),
+        owe::IntoJson(0),
+        ScriptBindingContext {},
+        FieldScriptInitialization::Deferred);
+    ASSERT_NE(script, nullptr);
+    int applied = 0;
+    scene.AddActuator({ script, [&](const ScriptValue&) {
+                           ++applied;
+                       } });
+    EXPECT_TRUE(scene.DiscardDeferredFieldScript(*script));
+    auto* probe =
+        MakeProbe(scene.runtime(),
+                  "test/discarded_deferred_timer_probe",
+                  "export function update() { return globalThis.__discardedTimer ?? 0; }");
+    ASSERT_NE(probe, nullptr);
+    scene.Tick(FrameInputs {});
+    EXPECT_EQ(applied, 0);
+    EXPECT_DOUBLE_EQ(LastScalar(probe), 0.0);
+}
+
 TEST(ScriptScene, CreatedLayersCanBeSortedBeforeAnExistingLayer) {
     owe::Scene scene;
     auto       ring = Arc<owe::SceneNode>::make(
@@ -2621,11 +3104,13 @@ TEST(ScriptScene, CreatedLayersCanBeSortedBeforeAnExistingLayer) {
     EXPECT_TRUE(scene.ConsumeRenderGraphDirty());
 }
 
-TEST(ScriptScene, RegisteredAssetFactoryCreatesAndReusesDestroyedLayer) {
-    auto                     root = Arc<owe::SceneNode>::make();
+TEST(ScriptScene, RegisteredAssetFactoryDoesNotReusePendingDeletion) {
+    owe::Scene               scene;
+    auto*                    root = scene.RootMut().as_raw_ptr();
     Vec<Arc<owe::SceneNode>> created;
 
     JsRuntime rt;
+    rt.SetScene(&scene);
     rt.SetLayerFactory(JsRuntime::LayerFactory::make(
         [&root, &created](owe::SceneNode*,
                           LayerAssetReference asset) -> Option<Arc<owe::SceneNode>> {
@@ -2647,9 +3132,9 @@ TEST(ScriptScene, RegisteredAssetFactoryCreatesAndReusesDestroyedLayer) {
                     layer.origin = new Vec3(i, 0, 0);
                     layers.push(layer);
                 }
-                thisScene.destroyLayer(layers[0]);
-                const reused = thisScene.createLayer(prism);
-                result = reused.origin.x === 0 ? 12 : -1;
+                const accepted = thisScene.destroyLayer(layers[0]);
+                const replacement = thisScene.createLayer(prism);
+                result = accepted && layers[0].visible && replacement !== layers[0] ? 1 : -1;
             }
             export function update() { return result; }
         )JS"_str,
@@ -2657,18 +3142,20 @@ TEST(ScriptScene, RegisteredAssetFactoryCreatesAndReusesDestroyedLayer) {
         FieldKind::Scalar,
         owe::MakeObject(),
         owe::IntoJson(0),
-        root.as_ptr());
+        root);
     ASSERT_NE(fs, nullptr);
     ASSERT_EQ(fs->RegisteredAssets().len(), usize(1));
 
-    rt.SetSceneRoot(root.as_ptr());
+    rt.SetSceneRoot(root);
     rt.ClearLayerFactory();
     rt.TickAll();
 
-    EXPECT_EQ(created.len(), usize(12));
-    EXPECT_EQ(root->GetChildren().len(), usize(12));
-    EXPECT_DOUBLE_EQ(LastScalar(fs), 12.0);
+    EXPECT_EQ(created.len(), usize(13));
+    EXPECT_EQ(root->GetChildren().len(), usize(13));
+    EXPECT_DOUBLE_EQ(LastScalar(fs), 1.0);
     EXPECT_TRUE(created[usize()]->Visible());
+    scene.ProcessLayerDeletions();
+    EXPECT_EQ(root->GetChildren().len(), usize(12));
 }
 
 TEST(ScriptScene, DirectWorkshopAssetUsesLayerFactoryWithoutFixedCloneCapacity) {
@@ -2755,6 +3242,29 @@ TEST(ScriptScene, ParticleInstanceAndPlaybackUseNodeCapability) {
     EXPECT_FLOAT_EQ(state->colorn[2], 0.8f);
     EXPECT_EQ(state->resets, 2);
     EXPECT_NEAR(LastScalar(fs), 1024.8, 1e-5);
+}
+
+TEST(ScriptScene, InvalidatedParticleInstanceDoesNotAccessItsLayer) {
+    auto root  = Arc<owe::SceneNode>::make();
+    auto layer = Arc<owe::SceneNode>::make(
+        Eigen::Vector3f::Zero(), Eigen::Vector3f::Ones(), Eigen::Vector3f::Zero(), "particle"_str);
+    auto state = Arc<ParticleControlState>::make();
+    layer->SetParticleControl(
+        Arc<dyn<owe::SceneParticleControl>>::make(ParticleControlProbe { state.clone() }));
+    root->AppendChild(layer.clone());
+    JsRuntime runtime;
+    runtime.SetSceneRoot(root.as_ptr());
+    auto* observer = MakeProbe(runtime, "test/invalidated_particle_instance", R"JS(
+        let instance = thisScene.getLayer('particle').instance;
+        export function update() { return instance.colorn === undefined ? 0 : 1; }
+    )JS");
+    ASSERT_NE(observer, nullptr);
+    runtime.TickAll();
+    EXPECT_DOUBLE_EQ(LastScalar(observer), 1.0);
+    runtime.InvalidateLayer(*layer);
+    ASSERT_TRUE(root->RemoveChild(*layer));
+    runtime.TickAll();
+    EXPECT_DOUBLE_EQ(LastScalar(observer), 0.0);
 }
 
 TEST(SceneNodeSound, VisibilityStartsAndStopsTheSoundControl) {
@@ -3483,6 +3993,31 @@ TEST(ScriptActuator, OwnsMoveOnlyMutableCapture) {
     EXPECT_EQ(*count, 2);
 }
 
+TEST(ScriptActuator, DefersActuatorsAddedDuringApply) {
+    ScriptScene scene;
+    auto*       script =
+        MakeProbe(scene.runtime(), "actuator/reentrant", "export function update() { return 1; }");
+    ASSERT_NE(script, nullptr);
+
+    int initial_count = 0;
+    int added_count   = 0;
+    scene.AddActuator({ script, [&](const ScriptValue&) {
+                           ++initial_count;
+                           if (initial_count != 1) return;
+                           for (int i = 0; i < 64; ++i) {
+                               scene.AddActuator({ script, [&](const ScriptValue&) {
+                                                      ++added_count;
+                                                  } });
+                           }
+                       } });
+    scene.Tick(FrameInputs {});
+    EXPECT_EQ(initial_count, 1);
+    EXPECT_EQ(added_count, 0);
+    scene.Tick(FrameInputs {});
+    EXPECT_EQ(initial_count, 2);
+    EXPECT_EQ(added_count, 64);
+}
+
 TEST(ScriptEnumeration, DefersScriptsAddedDuringEnumeration) {
     JsRuntime runtime;
     ASSERT_NE(MakeProbe(runtime, "enumeration/first", "export function update() { return 1; }"),
@@ -3620,8 +4155,11 @@ TEST(ScriptScene, IndexedLayerWritesReachTheSelectedNode) {
     EXPECT_TRUE(scene.last->Visible());
 }
 
-TEST(ScriptScene, IndexedQueriesIncludeCreatedAndReusedAssetLayers) {
-    LayerQueryScene          scene;
+TEST(ScriptScene, IndexedQueriesIncludeLayersPendingDeletion) {
+    LayerQueryScene scene;
+    owe::Scene      owner;
+    owner.RootMut()->AppendChild(scene.root.clone());
+    scene.rt.SetScene(&owner);
     Vec<Arc<owe::SceneNode>> created;
     scene.rt.SetLayerFactory(JsRuntime::LayerFactory::make(
         [&scene, &created](owe::SceneNode*, LayerAssetReference) -> Option<Arc<owe::SceneNode>> {
@@ -3638,12 +4176,12 @@ TEST(ScriptScene, IndexedQueriesIncludeCreatedAndReusedAssetLayers) {
             const asset = engine.registerAsset('models/prism.mdl');
             const layer = thisScene.createLayer(asset);
             if (thisScene.getLayerCount() !== 4 || thisScene.getLayer(3) !== layer) return;
-            thisScene.destroyLayer(layer);
-            if (layer.visible) return;
-            const reused = thisScene.createLayer(asset);
-            result = reused === layer && reused.visible &&
-                     thisScene.getLayerCount() === 4 &&
-                     thisScene.enumerateLayers()[3] === reused;
+            if (!thisScene.destroyLayer(layer) || !layer.visible) return;
+            const replacement = thisScene.createLayer(asset);
+            result = replacement !== layer && replacement.visible &&
+                     thisScene.getLayerCount() === 5 &&
+                     thisScene.enumerateLayers()[3] === layer &&
+                     thisScene.enumerateLayers()[4] === replacement;
         }
         export function update() { return result; }
     )JS",
@@ -3651,7 +4189,9 @@ TEST(ScriptScene, IndexedQueriesIncludeCreatedAndReusedAssetLayers) {
     ASSERT_NE(fs, nullptr);
     scene.rt.TickAll();
     EXPECT_EQ(LastScalar(fs), 1.0);
-    EXPECT_EQ(created.len(), usize(1));
+    EXPECT_EQ(created.len(), usize(2));
+    owner.ProcessLayerDeletions();
+    EXPECT_EQ(scene.root->GetChildren().len(), usize(4));
 }
 
 TEST(ScriptScene, IndexedQueriesFollowLayerSorting) {
@@ -3755,6 +4295,74 @@ TEST(ScriptScene, SceneRootReplacementPreservesRetainedLayerIdentity) {
     scene.rt.SetSceneRoot(root.as_ptr());
     scene.rt.TickAll();
     EXPECT_EQ(LastScalar(fs), 1.0);
+}
+
+TEST(ScriptScene, InvalidatedLayerHandlesDoNotReviveOnPointerReuse) {
+    auto root = Arc<owe::SceneNode>::make();
+    auto node = Arc<owe::SceneNode>::make(Eigen::Vector3f { 7.0f, 0.0f, 0.0f },
+                                          Eigen::Vector3f::Ones(),
+                                          Eigen::Vector3f::Zero(),
+                                          "victim"_str);
+    root->AppendChild(node.clone());
+    JsRuntime runtime;
+    auto*     owner = MakeProbe(runtime,
+                                "test/invalidated_layer_owner",
+                                R"JS(
+        export function init() { globalThis.oldObject = thisObject; }
+        export function update() { return 1; }
+    )JS",
+                                node.as_ptr());
+    ASSERT_NE(owner, nullptr);
+    auto* observer = MakeProbe(runtime, "test/invalidated_layer_observer", R"JS(
+        let saved;
+        export function init() { saved = thisScene.getLayer('victim'); }
+        export function update() {
+            return saved.origin.x + globalThis.oldObject.origin.x * 10 +
+                   thisScene.getLayer('victim').origin.x * 100;
+        }
+    )JS");
+    ASSERT_NE(observer, nullptr);
+    runtime.SetSceneRoot(root.as_ptr());
+    runtime.TickAll();
+    EXPECT_DOUBLE_EQ(LastScalar(observer), 777.0);
+
+    runtime.InvalidateLayer(*node);
+    EXPECT_FALSE(owner->alive());
+    ASSERT_TRUE(root->RemoveChild(*node));
+    root->AppendChild(node.clone());
+    runtime.TickAll();
+    EXPECT_DOUBLE_EQ(LastScalar(observer), 700.0);
+}
+
+TEST(ScriptScene, SceneRootReplacementInvalidatesRemovedLayerScriptsAndHandles) {
+    auto         next_root = Arc<owe::SceneNode>::make();
+    JsRuntime    runtime;
+    FieldScript* observer = nullptr;
+    {
+        auto root = Arc<owe::SceneNode>::make();
+        auto node = Arc<owe::SceneNode>::make(Eigen::Vector3f { 7.0f, 0.0f, 0.0f },
+                                              Eigen::Vector3f::Ones(),
+                                              Eigen::Vector3f::Zero(),
+                                              "old"_str);
+        root->AppendChild(node.clone());
+        runtime.SetSceneRoot(root.as_ptr());
+        auto* owner = MakeProbe(runtime,
+                                "test/replaced_root_old_owner",
+                                "export function update() { return thisLayer.origin.x; }",
+                                node.as_ptr());
+        ASSERT_NE(owner, nullptr);
+        observer = MakeProbe(runtime, "test/replaced_root_old_reference", R"JS(
+            let saved = thisScene.getLayer('old');
+            export function update() { return saved.origin.x; }
+        )JS");
+        ASSERT_NE(observer, nullptr);
+        runtime.TickAll();
+        EXPECT_DOUBLE_EQ(LastScalar(observer), 7.0);
+        runtime.SetSceneRoot(next_root.as_ptr());
+        EXPECT_FALSE(owner->alive());
+    }
+    runtime.TickAll();
+    EXPECT_DOUBLE_EQ(LastScalar(observer), 0.0);
 }
 
 TEST(ScriptScene, CreatingFirstDynamicLayerPreservesStandaloneTreeQueries) {

@@ -166,6 +166,14 @@ void SceneCamera::AttatchNode(SceneNode* node) {
         rstd_error("Attach a null node to camera");
         return;
     }
+    if (m_owned_node.is_some() && (*m_owned_node).as_ptr().as_raw_ptr() != node)
+        m_owned_node = None();
     m_node   = node;
     m_lookat = false; // node-based view takes over from any explicit LookAt
+}
+
+void SceneCamera::AttachOwnedNode(Arc<SceneNode> node) {
+    m_node       = node.as_ptr().as_raw_ptr();
+    m_owned_node = Some(rstd::move(node));
+    m_lookat     = false;
 }

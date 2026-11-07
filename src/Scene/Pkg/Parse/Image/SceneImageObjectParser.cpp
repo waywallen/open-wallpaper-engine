@@ -43,8 +43,8 @@ array<i32, 2> NonZeroRenderTargetExtent(float width, float height) {
     return { NonZeroRenderTargetDimension(width), NonZeroRenderTargetDimension(height) };
 }
 
-array<float, 2> ImageEffectTargetSize(const SceneParseContext&    context,
-                                      const wpscene::ImageObject& obj) {
+array<float, 2> ImageEffectTargetSize(const SceneLayerBuildContext& context,
+                                      const wpscene::ImageObject&   obj) {
     auto camera = context.scene->ActiveCamera();
     if (obj.fullscreen && camera.is_some()) {
         return { static_cast<float>((**camera).Width()), static_cast<float>((**camera).Height()) };
@@ -52,19 +52,29 @@ array<float, 2> ImageEffectTargetSize(const SceneParseContext&    context,
     return { obj.size[usize(0)], obj.size[usize(1)] };
 }
 
-void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj,
+void ParseImageObjImpl(SceneLayerBuildContext& context, wpscene::ImageObject& img_obj,
                        ImageParseGeometry parse_geometry = {}) {
     auto& wpimgobj = img_obj;
     // Invisible image layers are kept in the scene tree because their composite
     // may be sampled by other layers via `_rt_imageLayerComposite_<id>`. The
     // render-graph builder decides whether to actually emit passes for them.
-    if (! wpimgobj.visible) {
+    if (! wpimgobj.visible && wpimgobj.id >= i32()) {
         context.scene->MarkLayerVisibilityElidable(WallpaperLayerId { .value = wpimgobj.id });
     }
 
     auto& vfs = *context.vfs;
 
-    bool       isPassthrough      = wpimgobj.config.passthrough;
+    bool              isPassthrough = wpimgobj.config.passthrough;
+    wpscene::Material image_wpmat   = wpimgobj.material.clone();
+    (void)image_wpmat.combos.insert(rstd::into(WE_CB_SCENE_ORTHO),
+                                    i32(wpimgobj.perspective ? 0 : 1));
+    (void)image_wpmat.combos.insert(rstd::into(OWE_CB_IMAGE_LAYER), i32(1));
+    wpscene::Material image_user_texture_fallback = image_wpmat.clone();
+    ApplyUserTextureBindings(context, image_wpmat);
+    if (wpimgobj.size_from_texture && ! image_wpmat.textures.is_empty()) {
+        auto size = ResolveTextureSize(*context.scene, image_wpmat.textures[usize()].as_str());
+        if (size.is_some()) wpimgobj.size = *size;
+    }
     const bool alpha_can_change   = ! wpimgobj.alpha_user_key.is_empty() ||
                                     wpimgobj.field_bindings.HasAnimation("alpha"_str) ||
                                     wpimgobj.field_bindings.HasScript("alpha"_str);
@@ -134,7 +144,7 @@ void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj
         colorEffect.materials.push(rstd::move(colorMat));
         wpimgobj.effects.push(rstd::move(colorEffect));
     }
-    const bool is_linked_source = context.linked_source_ids.contains(wpimgobj.id);
+    const bool is_linked_source = context.layer_resources->linked_source_ids.contains(wpimgobj.id);
     if (! has_author_effect && wpimgobj.composite_layer && ! is_linked_source) {
         AppendLayerCompositePassthroughEffect(vfs, wpimgobj);
     }
@@ -145,18 +155,21 @@ void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj
     // (they just sample `_rt_default` and write it back). Mark as elidable
     // so the render-graph builder drops them when unreferenced, or routes
     // them to `_rt_link_<id>` when another layer reads their composite.
-    if (! hasEffect && wpimgobj.visible && (wpimgobj.fullscreen || isPassthrough)) {
+    if (! hasEffect && wpimgobj.visible && wpimgobj.id >= i32() &&
+        (wpimgobj.fullscreen || isPassthrough)) {
         context.scene->MarkLayerStaticElidable(WallpaperLayerId { .value = wpimgobj.id });
     }
-    if (! hasEffect && wpimgobj.visible && wpimgobj.alpha <= 0.0f && ! alpha_can_change) {
+    if (! hasEffect && wpimgobj.visible && wpimgobj.id >= i32() && wpimgobj.alpha <= 0.0f &&
+        ! alpha_can_change) {
         context.scene->MarkLayerStaticElidable(WallpaperLayerId { .value = wpimgobj.id });
     }
 
-    // wpimgobj.origin[1] = context.ortho_h - wpimgobj.origin[1];
-    auto           spImgNode = Arc<SceneNode>::make(Vector3f(wpimgobj.origin.data()),
-                                                    Vector3f(wpimgobj.scale.data()),
-                                                    Vector3f(wpimgobj.angles.data()),
-                                                    wpimgobj.name.as_str());
+    // wpimgobj.origin[1] = context.layer_resources->ortho_h - wpimgobj.origin[1];
+    auto spImgNode = Arc<SceneNode>::make(Vector3f(wpimgobj.origin.data()),
+                                          Vector3f(wpimgobj.scale.data()),
+                                          Vector3f(wpimgobj.angles.data()),
+                                          wpimgobj.name.as_str());
+    context.TrackCreatedNode(spImgNode);
     const Vector3f alignment_offset =
         wpimgobj.fullscreen ? Vector3f::Zero()
                             : AlignmentOffset(wpimgobj.alignment.as_str(),
@@ -209,16 +222,10 @@ void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj
     SceneMaterial          material;
     UniformNodeConfigDraft svData;
 
-    ShaderValueMap    baseConstSvs = context.global_base_uniforms.clone();
-    ShaderInfo        shaderInfo;
-    wpscene::Material image_wpmat = wpimgobj.material.clone();
-    (void)image_wpmat.combos.insert(rstd::into(WE_CB_SCENE_ORTHO),
-                                    i32(wpimgobj.perspective ? 0 : 1));
-    (void)image_wpmat.combos.insert(rstd::into(OWE_CB_IMAGE_LAYER), i32(1));
-    wpscene::Material image_user_texture_fallback = image_wpmat.clone();
+    ShaderValueMap baseConstSvs = context.layer_resources->global_base_uniforms.clone();
+    ShaderInfo     shaderInfo;
     if (color_blend_uses_layer_material && ! hasEffect)
         ApplyLayerColorBlend(image_wpmat, wpimgobj.colorBlendMode);
-    ApplyUserTextureBindings(context, image_wpmat);
     {
         svData.SetParallaxContract(wpimgobj.parallax, wpimgobj.id, ! wpimgobj.disablepropagation);
         if (! hasEffect && puppet.is_some() && has_bones) {
@@ -241,8 +248,8 @@ void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj
         shaderInfo.baseConstSvs = baseConstSvs.clone();
 
         auto material_result = BuildMaterial(vfs,
-                                             *context.shader_cache,
-                                             context.shader_environment,
+                                             *context.layer_resources->shader_cache,
+                                             context.layer_resources->shader_environment,
                                              image_wpmat,
                                              *context.scene,
                                              rstd::move(shaderInfo),
@@ -396,7 +403,8 @@ void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj
         mesh.MaterialSlots().first_mut().unwrap().get_mut(),
         image_wpmat,
         shaderInfo,
-        Some(ref<wpscene::Material>::from_raw_parts(&image_user_texture_fallback)));
+        Some(ref<wpscene::Material>::from_raw_parts(&image_user_texture_fallback)),
+        image_node_id);
     WireMaterialShaderValueScripts(context,
                                    spImgNode,
                                    mesh.MaterialSlots().last_mut().unwrap().get_mut(),
@@ -419,14 +427,14 @@ void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj
         SceneMaterial supplemental_material;
         ShaderInfo    supplemental_shader_info;
         supplemental_shader_info.baseConstSvs = baseConstSvs.clone();
-        auto supplemental_result              = BuildMaterial(vfs,
-                                                              *context.shader_cache,
-                                                              context.shader_environment,
-                                                              *supplemental_wpmat,
-                                                              *context.scene,
-                                                              rstd::move(supplemental_shader_info),
-                                                              GeometryStageRequirement::None,
-                                                              context.load_bench);
+        auto supplemental_result = BuildMaterial(vfs,
+                                                 *context.layer_resources->shader_cache,
+                                                 context.layer_resources->shader_environment,
+                                                 *supplemental_wpmat,
+                                                 *context.scene,
+                                                 rstd::move(supplemental_shader_info),
+                                                 GeometryStageRequirement::None,
+                                                 context.load_bench);
         if (supplemental_result.is_err()) {
             rstd_warn("load puppet material '{}' failed for '{}'", material_ref, wpimgobj.name);
             continue;
@@ -447,7 +455,8 @@ void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj
             mesh.MaterialSlots().last_mut().unwrap().get_mut(),
             *supplemental_wpmat,
             supplemental_shader_info,
-            Some(ref<wpscene::Material>::from_raw_parts(&supplemental_user_texture_fallback)));
+            Some(ref<wpscene::Material>::from_raw_parts(&supplemental_user_texture_fallback)),
+            image_node_id);
         WireMaterialShaderValueScripts(context,
                                        spImgNode,
                                        mesh.MaterialSlots().last_mut().unwrap().get_mut(),
@@ -525,14 +534,14 @@ void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj
                 SceneMaterial mask_scene_mat;
                 ShaderInfo    mask_shaderInfo;
                 mask_shaderInfo.baseConstSvs = baseConstSvs.clone();
-                auto mask_result             = BuildMaterial(vfs,
-                                                             *context.shader_cache,
-                                                             context.shader_environment,
-                                                             mask_wpmat,
-                                                             *context.scene,
-                                                             rstd::move(mask_shaderInfo),
-                                                             GeometryStageRequirement::None,
-                                                             context.load_bench);
+                auto mask_result = BuildMaterial(vfs,
+                                                 *context.layer_resources->shader_cache,
+                                                 context.layer_resources->shader_environment,
+                                                 mask_wpmat,
+                                                 *context.scene,
+                                                 rstd::move(mask_shaderInfo),
+                                                 GeometryStageRequirement::None,
+                                                 context.load_bench);
                 if (mask_result.is_err()) {
                     rstd_warn("load mask pre-pass material failed for '{}'", wpimgobj.name);
                     continue;
@@ -565,14 +574,14 @@ void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj
                 SceneMaterial clip_scene_mat;
                 ShaderInfo    clip_shaderInfo;
                 clip_shaderInfo.baseConstSvs = baseConstSvs.clone();
-                auto clip_result             = BuildMaterial(vfs,
-                                                             *context.shader_cache,
-                                                             context.shader_environment,
-                                                             clip_wpmat,
-                                                             *context.scene,
-                                                             rstd::move(clip_shaderInfo),
-                                                             GeometryStageRequirement::None,
-                                                             context.load_bench);
+                auto clip_result = BuildMaterial(vfs,
+                                                 *context.layer_resources->shader_cache,
+                                                 context.layer_resources->shader_environment,
+                                                 clip_wpmat,
+                                                 *context.scene,
+                                                 rstd::move(clip_shaderInfo),
+                                                 GeometryStageRequirement::None,
+                                                 context.load_bench);
                 if (clip_result.is_err()) {
                     rstd_warn("load clipped main material failed for '{}'", wpimgobj.name);
                     continue;
@@ -623,18 +632,24 @@ void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj
                                 -1.0,
                                 1.0));
         if (isPassthrough) {
-            auto attached = (**active).GetAttachedNode();
-            if (attached.is_some()) layer_camera->AttatchNode(attached.unwrap());
-            scene.RegisterLinkedCamera("global"_Str, String::make(nodeAddr));
+            auto owned = (**active).AttachedNodeHandle();
+            if (owned.is_some()) {
+                layer_camera->AttachOwnedNode(rstd::move(*owned));
+            } else {
+                auto attached = (**active).GetAttachedNode();
+                if (attached.is_some()) layer_camera->AttatchNode(attached.unwrap());
+            }
         } else {
             // Attach the per-layer effect camera to spImgNode itself so the
             // camera follows the layer through any parent-container world
             // translation. Otherwise the layer's quad ends up off-center in
             // the ping-pong RT whenever the layer is nested under a non-zero
             // container.
-            layer_camera->AttatchNode(spImgNode.as_ptr());
+            layer_camera->AttachOwnedNode(spImgNode.clone());
         }
-        scene.RegisterCamera(String::make(nodeAddr), layer_camera.clone());
+        if (! scene.RegisterNodeCamera(image_node_id, String::make(nodeAddr), layer_camera.clone()))
+            return;
+        if (isPassthrough) scene.RegisterLinkedCamera("global"_Str, String::make(nodeAddr));
         if (wpimgobj.composite_layer) {
             const auto group_camera       = rstd::format("{}_group", nodeAddr);
             auto       group_camera_owner = Arc<SceneCamera>::make(
@@ -642,8 +657,10 @@ void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj
                                               rstd::as_cast<double>(effect_extent[usize(1)]),
                                               -1.0,
                                               1.0));
-            group_camera_owner->AttatchNode(spImgNode.as_ptr());
-            scene.RegisterCamera(String::make(group_camera), rstd::move(group_camera_owner));
+            group_camera_owner->AttachOwnedNode(spImgNode.clone());
+            if (! scene.RegisterNodeCamera(
+                    image_node_id, String::make(group_camera), rstd::move(group_camera_owner)))
+                return;
             scene.RegisterRenderGroup(WallpaperLayerId { .value = wpimgobj.id },
                                       String::make(group_camera));
         }
@@ -689,7 +706,8 @@ void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj
                 auto& s     = target.sample;
                 s.magFilter = s.minFilter = TextureFilter::NEAREST;
             }
-            scene.RegisterRenderTarget(String::make(effect_composite), rstd::move(target));
+            (void)scene.RegisterNodeRenderTarget(
+                image_node_id, String::make(effect_composite), rstd::move(target));
         }
 
         bool       last_effect_can_composite_final { false };
@@ -731,7 +749,8 @@ void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj
                             .screen = true,
                             .scale  = 1.0 / static_cast<double>(wpfbo.scale.to_primitive()),
                         };
-                        scene.RegisterRenderTarget(String::make(rtname), rstd::move(target));
+                        (void)scene.RegisterNodeRenderTarget(
+                            image_node_id, String::make(rtname), rstd::move(target));
                     } else {
                         auto fbo_size = [&]() -> array<i32, 2> {
                             if (wpfbo.fit > u32()) {
@@ -757,7 +776,8 @@ void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj
                                     static_cast<float>(wpfbo.scale.to_primitive()));
                             return scaled_extent;
                         }();
-                        scene.RegisterRenderTarget(
+                        (void)scene.RegisterNodeRenderTarget(
+                            image_node_id,
                             String::make(rtname),
                             SceneRenderTarget { .width      = fbo_size[usize()],
                                                 .height     = fbo_size[usize(1)],
@@ -830,6 +850,7 @@ void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj
                     wpmat.textures[usize(0)] = rstd::into(inRT);
                 }
                 auto spEffNode = Arc<SceneNode>::make();
+                context.TrackCreatedNode(spEffNode);
                 scene.RegisterNode(*spEffNode);
                 ShaderInfo wpEffShaderInfo;
                 wpEffShaderInfo.baseConstSvs = baseConstSvs.clone();
@@ -845,8 +866,8 @@ void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj
                     wpimgobj.parallax, wpimgobj.id, ! wpimgobj.disablepropagation);
                 SceneShaderValueAnimationMap final_quad_shader_values;
                 auto effect_result = BuildMaterial(vfs,
-                                                   *context.shader_cache,
-                                                   context.shader_environment,
+                                                   *context.layer_resources->shader_cache,
+                                                   context.layer_resources->shader_environment,
                                                    wpmat,
                                                    *context.scene,
                                                    rstd::move(wpEffShaderInfo),
@@ -891,7 +912,8 @@ void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj
                                          spMesh->MaterialSlots().first_mut().unwrap().get_mut(),
                                          wpmat,
                                          wpEffShaderInfo,
-                                         binding_fallback);
+                                         binding_fallback,
+                                         image_node_id);
                 RegisterLayerPreviousBindings(
                     *context.scene, *spMesh->Material(), wpmat, image_node_id, effect_composite);
                 WireMaterialShaderValueScripts(
@@ -921,14 +943,15 @@ void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj
                             SceneMaterial mask_material;
                             ShaderInfo    mask_shaderInfo;
                             mask_shaderInfo.baseConstSvs = wpEffShaderInfo.baseConstSvs.clone();
-                            auto mask_result = BuildMaterial(vfs,
-                                                             *context.shader_cache,
-                                                             context.shader_environment,
-                                                             mask_wpmat,
-                                                             *context.scene,
-                                                             rstd::move(mask_shaderInfo),
-                                                             GeometryStageRequirement::None,
-                                                             context.load_bench);
+                            auto mask_result =
+                                BuildMaterial(vfs,
+                                              *context.layer_resources->shader_cache,
+                                              context.layer_resources->shader_environment,
+                                              mask_wpmat,
+                                              *context.scene,
+                                              rstd::move(mask_shaderInfo),
+                                              GeometryStageRequirement::None,
+                                              context.load_bench);
                             if (mask_result.is_err()) {
                                 return false;
                             }
@@ -956,14 +979,15 @@ void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj
                             SceneMaterial clip_material;
                             ShaderInfo    clip_shaderInfo;
                             clip_shaderInfo.baseConstSvs = wpEffShaderInfo.baseConstSvs.clone();
-                            auto clip_result = BuildMaterial(vfs,
-                                                             *context.shader_cache,
-                                                             context.shader_environment,
-                                                             clip_wpmat,
-                                                             *context.scene,
-                                                             rstd::move(clip_shaderInfo),
-                                                             GeometryStageRequirement::None,
-                                                             context.load_bench);
+                            auto clip_result =
+                                BuildMaterial(vfs,
+                                              *context.layer_resources->shader_cache,
+                                              context.layer_resources->shader_environment,
+                                              clip_wpmat,
+                                              *context.scene,
+                                              rstd::move(clip_shaderInfo),
+                                              GeometryStageRequirement::None,
+                                              context.load_bench);
                             if (clip_result.is_err()) {
                                 return false;
                             }
@@ -1023,7 +1047,8 @@ void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj
                 else
                     passthrough_mat.textures[usize()] = rstd::into(input);
 
-                auto       node = Arc<SceneNode>::make();
+                auto node = Arc<SceneNode>::make();
+                context.TrackCreatedNode(node);
                 ShaderInfo shader_info;
                 shader_info.baseConstSvs = NeutralColorUniforms(baseConstSvs.clone());
                 SceneMaterial          material;
@@ -1036,8 +1061,8 @@ void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj
                     rstd::as_cast<float>(effect_extent[usize(1)])
                 };
                 auto material_result = BuildMaterial(vfs,
-                                                     *context.shader_cache,
-                                                     context.shader_environment,
+                                                     *context.layer_resources->shader_cache,
+                                                     context.layer_resources->shader_environment,
                                                      passthrough_mat,
                                                      *context.scene,
                                                      rstd::move(shader_info),
@@ -1056,7 +1081,9 @@ void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj
                 RegisterMaterialBindings(*context.scene,
                                          mesh->MaterialSlots().first_mut().unwrap().get_mut(),
                                          passthrough_mat,
-                                         shader_info);
+                                         shader_info,
+                                         None(),
+                                         image_node_id);
                 RegisterLayerPreviousBindings(*context.scene,
                                               *mesh->Material(),
                                               passthrough_mat,
@@ -1115,6 +1142,7 @@ void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj
 
                     auto finalEffect = Arc<SceneImageEffect>::make();
                     auto spFinalNode = Arc<SceneNode>::make();
+                    context.TrackCreatedNode(spFinalNode);
 
                     ShaderInfo wpFinalShaderInfo;
                     wpFinalShaderInfo.baseConstSvs = NeutralColorUniforms(baseConstSvs.clone());
@@ -1128,8 +1156,8 @@ void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj
                         rstd::as_cast<float>(effect_extent[usize(1)])
                     };
                     auto final_result = BuildMaterial(vfs,
-                                                      *context.shader_cache,
-                                                      context.shader_environment,
+                                                      *context.layer_resources->shader_cache,
+                                                      context.layer_resources->shader_environment,
                                                       passthrough_mat,
                                                       *context.scene,
                                                       rstd::move(wpFinalShaderInfo),
@@ -1146,7 +1174,9 @@ void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj
                             *context.scene,
                             spFinalMesh->MaterialSlots().first_mut().unwrap().get_mut(),
                             passthrough_mat,
-                            wpFinalShaderInfo);
+                            wpFinalShaderInfo,
+                            None(),
+                            image_node_id);
                         RegisterLayerPreviousBindings(*context.scene,
                                                       *spFinalMesh->Material(),
                                                       passthrough_mat,
@@ -1185,30 +1215,32 @@ void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj
         context,
         spImgNode.as_ptr(),
         wpimgobj.alignment.as_str(),
-        SceneParseContext::ImageAlignmentSetter::make([image_effect_layer,
-                                                       source_uses_framebuffer_space,
-                                                       alignment_base_transform,
-                                                       source_alignment_base_transform,
-                                                       direct_alignment_base_transform,
-                                                       alignment_offset,
-                                                       geometry_size](
-                                                          SceneNode* node, ref<str> alignment) {
-            const Vector3f delta =
-                AlignmentOffset(alignment, { geometry_size[usize(0)], geometry_size[usize(1)] }) -
-                alignment_offset;
-            const Matrix4d alignment_delta = Affine3d(Translation3d(delta.cast<double>())).matrix();
-            Matrix4d       transform       = alignment_base_transform * alignment_delta;
-            if (image_effect_layer) {
-                image_effect_layer->FinalMesh().SetGeometryTransform(rstd::move(transform));
-                const Matrix4d source_transform =
-                    source_uses_framebuffer_space
-                        ? (source_alignment_base_transform * alignment_delta).eval()
-                        : source_alignment_base_transform;
-                image_effect_layer->SetSourceGeometryTransforms(
-                    source_transform, direct_alignment_base_transform * alignment_delta);
-            } else if (node)
-                node->SetGeometryTransform(rstd::move(transform));
-        }));
+        SceneLayerBuildContext::ImageAlignmentSetter::make(
+            [image_effect_layer,
+             source_uses_framebuffer_space,
+             alignment_base_transform,
+             source_alignment_base_transform,
+             direct_alignment_base_transform,
+             alignment_offset,
+             geometry_size](SceneNode* node, ref<str> alignment) {
+                const Vector3f delta =
+                    AlignmentOffset(alignment,
+                                    { geometry_size[usize(0)], geometry_size[usize(1)] }) -
+                    alignment_offset;
+                const Matrix4d alignment_delta =
+                    Affine3d(Translation3d(delta.cast<double>())).matrix();
+                Matrix4d transform = alignment_base_transform * alignment_delta;
+                if (image_effect_layer) {
+                    image_effect_layer->FinalMesh().SetGeometryTransform(rstd::move(transform));
+                    const Matrix4d source_transform =
+                        source_uses_framebuffer_space
+                            ? (source_alignment_base_transform * alignment_delta).eval()
+                            : source_alignment_base_transform;
+                    image_effect_layer->SetSourceGeometryTransforms(
+                        source_transform, direct_alignment_base_transform * alignment_delta);
+                } else if (node)
+                    node->SetGeometryTransform(rstd::move(transform));
+            }));
 
     AssignNodeFieldAnimations(context, *spImgNode.as_ptr(), wpimgobj.field_bindings);
     WireFieldScripts(context, spImgNode, wpimgobj.field_bindings);
@@ -1227,7 +1259,7 @@ void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj
     }
     RegisterNodeRef(context,
                     wpimgobj.id,
-                    SceneParseContext::NodeRef {
+                    SceneLayerNodeDraft {
                         wpimgobj.parent,
                         Some(spImgNode.clone()),
                         (puppet.is_some() && (*puppet)->puppet.is_some())
@@ -1238,7 +1270,7 @@ void ParseImageObjImpl(SceneParseContext& context, wpscene::ImageObject& img_obj
                     });
 }
 
-void ParseShapeObj(SceneParseContext& context, wpscene::ShapeObject& shape_obj) {
+void ParseShapeObj(SceneLayerBuildContext& context, wpscene::ShapeObject& shape_obj) {
     PrepareAnimationBindings(context, shape_obj);
     if (shape_obj.shape != "quad"_str) {
         rstd_error("unsupported shape '{}' for '{}'", shape_obj.shape, shape_obj.name);
@@ -1270,7 +1302,7 @@ void ParseShapeObj(SceneParseContext& context, wpscene::ShapeObject& shape_obj) 
         return;
     }
 
-    const auto edge = static_cast<float>(context.ortho_h.to_primitive());
+    const auto edge = static_cast<float>(context.layer_resources->ortho_h.to_primitive());
     SceneMesh  direct_draw_mesh;
     GenDirectDrawQuadMesh(direct_draw_mesh, edge, *points);
 
@@ -1308,7 +1340,7 @@ void ParseShapeObj(SceneParseContext& context, wpscene::ShapeObject& shape_obj) 
                       });
 }
 
-void ParseImageObj(SceneParseContext& context, wpscene::ImageObject& image) {
+void ParseImageObj(SceneLayerBuildContext& context, wpscene::ImageObject& image) {
     PrepareAnimationBindings(context, image);
     ParseImageObjImpl(context, image);
 }

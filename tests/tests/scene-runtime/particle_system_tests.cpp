@@ -412,6 +412,38 @@ TEST(ParticleSubSystem, DerivesMeshCapacityFromItsOwnInstancePool) {
         SubSystem::MaxParticleCapacity(u32::MAX, u32(2), SpawnType::EVENT_FOLLOW).is_none());
 }
 
+TEST(ParticleRuntime, RemovesOnlyTheRequestedOwner) {
+    owe::Scene           scene;
+    owe::ParticleRuntime runtime;
+    auto                 first       = Arc<owe::SceneNode>::make();
+    auto                 second      = Arc<owe::SceneNode>::make();
+    auto                 first_mesh  = rstd::sync::Weak<owe::SceneMesh>::make();
+    auto                 second_mesh = rstd::sync::Weak<owe::SceneMesh>::make();
+    auto add = [&](const Arc<owe::SceneNode>& owner, rstd::sync::Weak<owe::SceneMesh>& weak) {
+        auto mesh = Arc<owe::SceneMesh>::make();
+        weak      = mesh.downgrade();
+        auto subsystem =
+            Box<owe::ParticleSubSystem>::make(scene,
+                                              mesh.clone(),
+                                              u32(4),
+                                              f64(1.0),
+                                              u32(1),
+                                              f64(1.0),
+                                              owe::ParticleSubSystem::SpawnType::STATIC,
+                                              owe::ParticleAnimationSpec {});
+        subsystem->SetOwnerNode(owner.as_ptr());
+        runtime.Add(rstd::move(subsystem));
+    };
+    add(first, first_mesh);
+    add(second, second_mesh);
+    runtime.RemoveOwner(*first);
+    EXPECT_FALSE(first_mesh.upgrade());
+    EXPECT_TRUE(second_mesh.upgrade());
+    runtime.RemoveOwner(*first);
+    runtime.RemoveOwner(*second);
+    EXPECT_FALSE(second_mesh.upgrade());
+}
+
 TEST(ParticleSubSystem, PlaybackResetClearsAndRestartsIndependentStorage) {
     owe::Scene             scene;
     auto                   mesh = Arc<owe::SceneMesh>::make();

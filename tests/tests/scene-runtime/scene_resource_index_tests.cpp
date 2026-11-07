@@ -6,6 +6,7 @@ import eigen;
 import wescene.types;
 import wescene.json;
 import wescene.scene;
+import wescene.text;
 
 using namespace rstd::prelude;
 using namespace rstd::literals;
@@ -301,6 +302,236 @@ TEST(SceneResourceIndex, RebuildPicksUpNewRenderTargets) {
     ASSERT_NE(scene.ResourceIndex().mutableRenderTarget(*id), nullptr);
     EXPECT_EQ(scene.ResourceIndex().mutableRenderTarget(*id)->width, i32(64));
     EXPECT_EQ(scene.ResourceIndex().renderTarget(*id)->height, i32(32));
+}
+
+TEST(SceneResourceIndex, RuntimeAppendMatchesRebuildForSubtreeAndEffects) {
+    owe::Scene scene;
+    scene.RebuildResourceIndex();
+    scene.RegisterTexture(String::make("runtime/texture"_str),
+                          owe::SceneTexture { .url = "runtime/texture"_Str });
+    scene.RegisterRenderTarget(String::make("runtime/target"_str),
+                               owe::SceneRenderTarget { .width = i32(64), .height = i32(32) });
+    scene.RegisterCamera(
+        String::make("runtime/camera"_str),
+        Arc<owe::SceneCamera>::make(owe::SceneCamera::MakeOrthographic(64, 32, -1.0, 1.0)));
+
+    auto root = Arc<owe::SceneNode>::make();
+    auto mesh = MakeSingleSubmesh("runtime-root");
+    root->AddMesh(mesh.clone());
+    auto child = Arc<owe::SceneNode>::make();
+    child->AddMesh(mesh.clone());
+    root->AppendChild(child.clone());
+    auto layer = Arc<owe::SceneNodeLayer>::make(root.as_ptr(), 64.0f, 32.0f, "runtime/target"_str);
+    auto prefill = Arc<owe::SceneNode>::make();
+    prefill->AddMesh(MakeSingleSubmesh("runtime-prefill"));
+    layer->AddPrefillNode(owe::SceneImageEffectNode { .sceneNode = prefill.clone() });
+    auto effect_node = Arc<owe::SceneNode>::make();
+    effect_node->AddMesh(MakeSingleSubmesh("runtime-effect"));
+    auto effect = Arc<owe::SceneImageEffect>::make();
+    effect->AddNode(owe::SceneImageEffectNode { .sceneNode = effect_node.clone() });
+    layer->AddEffect(effect);
+    root->AttachLayer(layer.clone());
+    scene.AttachRuntimeNode(*scene.RootMut(), root.clone());
+
+    auto texture_id = scene.ResourceIndex().textureId("runtime/texture"_str);
+    auto target_id  = scene.ResourceIndex().renderTargetId("runtime/target"_str);
+    auto camera_id  = scene.ResourceIndex().cameraId("runtime/camera"_str);
+    ASSERT_TRUE(texture_id.is_some());
+    ASSERT_TRUE(target_id.is_some());
+    ASSERT_TRUE(camera_id.is_some());
+    auto root_id    = scene.ResourceIndex().nodeId(*root);
+    auto child_id   = scene.ResourceIndex().nodeId(*child);
+    auto prefill_id = scene.ResourceIndex().nodeId(*prefill);
+    auto effect_id  = scene.ResourceIndex().nodeId(*effect_node);
+    ASSERT_TRUE(root_id.is_some());
+    ASSERT_TRUE(child_id.is_some());
+    ASSERT_TRUE(prefill_id.is_some());
+    ASSERT_TRUE(effect_id.is_some());
+    auto root_draw    = scene.ResourceIndex().drawItemFor(*root_id, u32());
+    auto child_draw   = scene.ResourceIndex().drawItemFor(*child_id, u32());
+    auto prefill_draw = scene.ResourceIndex().drawItemFor(*prefill_id, u32());
+    auto effect_draw  = scene.ResourceIndex().drawItemFor(*effect_id, u32());
+    ASSERT_TRUE(root_draw.is_some());
+    ASSERT_TRUE(child_draw.is_some());
+    ASSERT_TRUE(prefill_draw.is_some());
+    ASSERT_TRUE(effect_draw.is_some());
+    EXPECT_EQ(scene.ResourceIndex().resolve(*root_draw)->mesh,
+              scene.ResourceIndex().resolve(*child_draw)->mesh);
+
+    scene.RebuildResourceIndex();
+    EXPECT_EQ(scene.ResourceIndex().drawItemFor(*root_id, u32()), root_draw);
+    EXPECT_EQ(scene.ResourceIndex().drawItemFor(*child_id, u32()), child_draw);
+    EXPECT_EQ(scene.ResourceIndex().drawItemFor(*prefill_id, u32()), prefill_draw);
+    EXPECT_EQ(scene.ResourceIndex().drawItemFor(*effect_id, u32()), effect_draw);
+    EXPECT_EQ(scene.ResourceIndex().textureId("runtime/texture"_str), texture_id);
+    EXPECT_EQ(scene.ResourceIndex().renderTargetId("runtime/target"_str), target_id);
+    EXPECT_EQ(scene.ResourceIndex().cameraId("runtime/camera"_str), camera_id);
+}
+
+TEST(SceneIdentity, RemovesEffectsByOwnerWithoutRevivingOldHandles) {
+    owe::Scene scene;
+    auto       first     = Arc<owe::SceneNode>::make();
+    auto       second    = Arc<owe::SceneNode>::make();
+    auto       first_id  = scene.RegisterNode(*first);
+    auto       second_id = scene.RegisterNode(*second);
+    auto first_layer  = Arc<owe::SceneNodeLayer>::make(first.as_ptr(), 64.0f, 32.0f, "first"_str);
+    auto second_layer = Arc<owe::SceneNodeLayer>::make(second.as_ptr(), 64.0f, 32.0f, "second"_str);
+    auto first_effect = Arc<owe::SceneImageEffect>::make();
+    auto second_effect  = Arc<owe::SceneImageEffect>::make();
+    first_effect->name  = "first"_Str;
+    second_effect->name = "second"_Str;
+    auto old_id         = scene.RegisterEffect(first_id, *first_layer, first_effect.clone());
+    EXPECT_EQ(scene.RegisterEffect(first_id, *first_layer, first_effect.clone()), old_id);
+    auto second_effect_id = scene.RegisterEffect(second_id, *second_layer, second_effect.clone());
+    EXPECT_EQ(scene.RemoveNodeImageEffects(first_id), usize(1));
+    EXPECT_TRUE(scene.ImageEffectName(owe::SceneImageEffectRef { .id = old_id }).is_empty());
+    EXPECT_EQ(scene.ImageEffectName(owe::SceneImageEffectRef { .id = second_effect_id }),
+              "second"_str);
+    auto new_id = scene.RegisterEffect(first_id, *first_layer, first_effect.clone());
+    EXPECT_NE(new_id, old_id);
+    EXPECT_TRUE(scene.ImageEffectName(owe::SceneImageEffectRef { .id = old_id }).is_empty());
+    EXPECT_EQ(scene.RegisterEffect(second_id, *second_layer, first_effect.clone()), new_id);
+    EXPECT_EQ(scene.RemoveNodeImageEffects(first_id), usize());
+    EXPECT_EQ(scene.RemoveNodeImageEffects(second_id), usize(2));
+    EXPECT_TRUE(scene.ImageEffectName(owe::SceneImageEffectRef { .id = new_id }).is_empty());
+    EXPECT_TRUE(
+        scene.ImageEffectName(owe::SceneImageEffectRef { .id = second_effect_id }).is_empty());
+}
+
+TEST(SceneIdentity, DefersLayerDeletionAndRetainsNodesUntilGraphRetirement) {
+    owe::Scene scene;
+    scene.RebuildResourceIndex();
+    auto layer     = Arc<owe::SceneNode>::make();
+    auto child     = Arc<owe::SceneNode>::make();
+    auto companion = Arc<owe::SceneNode>::make();
+    layer->AppendChild(child.clone());
+    scene.AttachRuntimeNode(*scene.RootMut(), companion.clone());
+    scene.AttachRuntimeNode(*scene.RootMut(), layer.clone());
+    array<Arc<owe::SceneNode>, 1> companions { companion.clone() };
+    scene.RegisterLayerCompanions(*layer, companions.as_slice());
+    auto layer_id     = scene.ResourceIndex().nodeId(*layer);
+    auto child_id     = scene.ResourceIndex().nodeId(*child);
+    auto companion_id = scene.ResourceIndex().nodeId(*companion);
+    ASSERT_TRUE(layer_id.is_some());
+    ASSERT_TRUE(child_id.is_some());
+    ASSERT_TRUE(companion_id.is_some());
+    usize removed {};
+    scene.SetLayerRemovalObserver(
+        Box<dyn<FnMut<void(owe::SceneNode&)>>>::make([&removed](owe::SceneNode&) {
+            ++removed;
+        }));
+    EXPECT_TRUE(scene.RequestLayerDeletion(*layer));
+    EXPECT_FALSE(scene.RequestLayerDeletion(*layer));
+    EXPECT_EQ(layer->Parent(), scene.RootMut().as_raw_ptr());
+    EXPECT_TRUE(scene.ResourceIndex().nodeId(*layer).is_some());
+    scene.ProcessLayerDeletions();
+    EXPECT_EQ(removed, usize(3));
+    EXPECT_EQ(layer->Parent(), nullptr);
+    EXPECT_EQ(companion->Parent(), nullptr);
+    EXPECT_TRUE(scene.ResourceIndex().nodeId(*layer).is_none());
+    EXPECT_TRUE(scene.ResourceIndex().nodeId(*child).is_none());
+    EXPECT_TRUE(scene.ResourceIndex().nodeId(*companion).is_none());
+    EXPECT_EQ(scene.ResourceIndex().node(*layer_id), nullptr);
+    EXPECT_EQ(scene.ResourceIndex().node(*child_id), nullptr);
+    EXPECT_EQ(scene.ResourceIndex().node(*companion_id), nullptr);
+    auto weak = layer.downgrade();
+    layer     = Arc<owe::SceneNode>::make();
+    EXPECT_TRUE(weak.upgrade());
+    scene.ReleaseRetiredLayers();
+    EXPECT_FALSE(weak.upgrade());
+}
+
+TEST(SceneIdentity, RemovesLightAndCameraPathOwnedByDeletedLayer) {
+    owe::Scene scene;
+    auto       layer = Arc<owe::SceneNode>::make();
+    scene.AttachRuntimeNode(*scene.RootMut(), layer.clone());
+    auto light = Box<owe::SceneLight>::make(owe::SceneLight::Desc {});
+    light->setNode(layer.as_ptr());
+    (void)scene.RegisterLight(rstd::move(light));
+
+    auto path         = Arc<owe::SceneCameraPath>::make();
+    path->node        = layer.as_ptr();
+    path->camera_name = "test"_Str;
+    auto weak_path    = path.downgrade();
+    scene.RegisterCameraPath(path.clone());
+    scene.RegisterCameraPathUserBinding("camera"_Str, path.clone());
+    path = Arc<owe::SceneCameraPath>::make();
+
+    ASSERT_TRUE(scene.RequestLayerDeletion(*layer));
+    scene.ProcessLayerDeletions();
+    EXPECT_TRUE(scene.Lights().is_empty());
+    EXPECT_FALSE(weak_path.upgrade());
+    scene.TickCameraPaths();
+}
+
+TEST(SceneIdentity, RemovesDetachedNodeRegistrationsWithoutTouchingLiveNodes) {
+    owe::Scene scene;
+    auto       parent = Arc<owe::SceneNode>::make();
+    auto       child  = Arc<owe::SceneNode>::make();
+    auto       live   = Arc<owe::SceneNode>::make();
+    ASSERT_TRUE(parent->AppendChild(child.clone()));
+    ASSERT_TRUE(scene.RootMut()->AppendChild(live.clone()));
+    auto layer_id  = owe::WallpaperLayerId { .value = i32(42) };
+    auto parent_id = scene.RegisterNode(*parent, Some(layer_id));
+    auto child_id  = scene.RegisterNode(*child);
+    auto live_id   = scene.RegisterNode(*live);
+    auto material  = Arc<owe::SceneMaterial>::make();
+    scene.RegisterShaderUserBinding("value"_Str, material.clone(), "u_Value"_Str, parent_id);
+    scene.RegisterShaderUserBinding("value"_Str, material.clone(), "u_Value"_Str, live_id);
+    auto source = scene.Register(
+        Box<dyn<owe::UniformSource>>::make(owe::text::TextOpacityUniformSource(None())));
+    ASSERT_TRUE(scene.AttachNode(parent_id, source));
+    ASSERT_TRUE(scene.AttachNode(live_id, source));
+    scene.MarkLayerVisibilityElidable(layer_id);
+    scene.RegisterLayerLinkSource(layer_id, *child);
+    auto effect_layer = Arc<owe::SceneNodeLayer>::make(parent.as_ptr(), 8.0f, 8.0f, "test"_str);
+    auto effect       = Arc<owe::SceneImageEffect>::make();
+    effect->name      = "effect"_Str;
+    auto effect_id    = scene.RegisterEffect(parent_id, *effect_layer, effect.clone());
+    ASSERT_TRUE(scene.RegisterNodeRenderTarget(
+        parent_id,
+        "private-target"_Str,
+        owe::SceneRenderTarget { .width = i32(8), .height = i32(8) }));
+    scene.RegisterRenderTarget("shared-target"_Str,
+                               owe::SceneRenderTarget { .width = i32(8), .height = i32(8) });
+    auto camera = Arc<owe::SceneCamera>::make(owe::SceneCamera::MakeOrthographic(8, 8, -1.0, 1.0));
+    ASSERT_TRUE(scene.RegisterNodeCamera(parent_id, "private-camera"_Str, camera.clone()));
+    scene.RegisterCamera("shared-camera"_Str, camera.clone());
+
+    Vec<Arc<owe::SceneNode>> nodes;
+    nodes.push(parent.clone());
+    nodes.push(child.clone());
+    nodes.push(live.clone());
+    EXPECT_FALSE(scene.RemoveDetachedNodeRegistrations(nodes.as_slice()));
+    EXPECT_TRUE(scene.RenderTarget("private-target"_str).is_some());
+    EXPECT_EQ(parent->Identity(), parent_id);
+    (void)nodes.pop();
+    owe::Scene other_scene;
+    auto       other_node = Arc<owe::SceneNode>::make();
+    other_scene.RegisterNode(*other_node);
+    nodes.push(other_node.clone());
+    EXPECT_FALSE(scene.RemoveDetachedNodeRegistrations(nodes.as_slice()));
+    EXPECT_EQ(parent->Identity(), parent_id);
+    (void)nodes.pop();
+    nodes.push(child.clone());
+    ASSERT_TRUE(scene.RemoveDetachedNodeRegistrations(nodes.as_slice()));
+
+    EXPECT_FALSE(parent->Identity().Valid());
+    EXPECT_FALSE(child->Identity().Valid());
+    EXPECT_EQ(live->Identity(), live_id);
+    EXPECT_TRUE(scene.RenderTarget("private-target"_str).is_none());
+    EXPECT_TRUE(scene.RenderTarget("shared-target"_str).is_some());
+    EXPECT_TRUE(scene.Camera("private-camera"_str).is_none());
+    EXPECT_TRUE(scene.Camera("shared-camera"_str).is_some());
+    EXPECT_TRUE(scene.ImageEffectName(owe::SceneImageEffectRef { .id = effect_id }).is_empty());
+    EXPECT_EQ(scene.ShaderUserBindings("value"_str).len(), usize(1));
+    EXPECT_TRUE(scene.NodeSources(parent_id).is_empty());
+    EXPECT_EQ(scene.NodeSources(live_id).len(), usize(1));
+    EXPECT_TRUE(scene.Resolve(source).is_some());
+    EXPECT_TRUE(scene.RegisteredLayerLinkSourceId(layer_id).is_none());
+    EXPECT_FALSE(scene.IsLayerVisibilityElidable(layer_id));
+    EXPECT_NE(scene.RegisterNode(*parent, Some(layer_id)), parent_id);
+    EXPECT_NE(scene.RegisterNode(*child), child_id);
 }
 
 TEST(SceneIdentity, RegistersStableNodeAndEffectOwners) {
@@ -737,6 +968,28 @@ TEST(SceneTextureAnimation, AdvancesOncePerRuntimeFrame) {
     ASSERT_TRUE(playing.is_some());
     EXPECT_FLOAT_EQ(paused->translation[rstd::usize()], 0.5f);
     EXPECT_FLOAT_EQ(playing->translation[rstd::usize()], 0.0f);
+
+    auto added = rstd::sync::Arc<owe::SceneNode>::make();
+    scene.AttachRuntimeNode(*scene.RootMut(), added.clone());
+    auto paused_after_attach = scene.TextureFrame(*rebuilt_draw_id, rstd::usize());
+    ASSERT_TRUE(paused_after_attach.is_some());
+    EXPECT_FLOAT_EQ(paused_after_attach->translation[rstd::usize()], 0.5f);
+    auto third_node = rstd::sync::Arc<owe::SceneNode>::make();
+    auto third_mesh = MakeSingleSubmesh("sprite-c");
+    third_mesh->MaterialSlots()[usize()]->textures.push("tex/sprite"_Str);
+    third_node->AddMesh(third_mesh.clone());
+    scene.AttachRuntimeNode(*scene.RootMut(), third_node.clone());
+    auto third_id = scene.ResourceIndex().nodeId(*third_node);
+    ASSERT_TRUE(third_id.is_some());
+    auto third_draw = scene.ResourceIndex().drawItemFor(*third_id, u32());
+    ASSERT_TRUE(third_draw.is_some());
+    auto third_frame = scene.TextureFrame(*third_draw, usize());
+    ASSERT_TRUE(third_frame.is_some());
+    EXPECT_FLOAT_EQ(third_frame->translation[usize()], 0.0f);
+    scene.Runtime().Advance(rstd::f64(0.11));
+    auto paused_after_tick = scene.TextureFrame(*rebuilt_draw_id, rstd::usize());
+    ASSERT_TRUE(paused_after_tick.is_some());
+    EXPECT_FLOAT_EQ(paused_after_tick->translation[rstd::usize()], 0.5f);
 }
 
 TEST(SceneTextures, EnsureTextureDescriptorRegistersImportedTexture) {
@@ -1496,6 +1749,56 @@ TEST(SceneRenderTargets, EnsureLinkRenderTargetCreatesOwnedDescriptor) {
     ASSERT_TRUE(fallback_target.is_some());
     EXPECT_EQ((**fallback_target).width, i32(1920));
     EXPECT_EQ((**fallback_target).height, i32(1080));
+}
+
+TEST(SceneRenderTargets, RemovesNodeTargetsWithoutRemovingSharedTargets) {
+    owe::Scene scene;
+    auto       first      = Arc<owe::SceneNode>::make();
+    auto       second     = Arc<owe::SceneNode>::make();
+    auto       first_id   = scene.RegisterNode(*first);
+    auto       second_id  = scene.RegisterNode(*second);
+    auto       first_key  = scene.NodeResourceKey(first_id, "composite"_str);
+    auto       second_key = scene.NodeResourceKey(second_id, "composite"_str);
+    scene.RegisterRenderTarget("shared"_Str,
+                               owe::SceneRenderTarget { .width = i32(8), .height = i32(8) });
+    EXPECT_FALSE(scene.RegisterNodeRenderTarget(first_id, "shared"_Str, {}));
+    EXPECT_TRUE(scene.RegisterNodeRenderTarget(
+        first_id,
+        first_key.clone(),
+        owe::SceneRenderTarget { .width = i32(16), .height = i32(16) }));
+    EXPECT_TRUE(scene.RegisterNodeRenderTarget(
+        second_id,
+        second_key.clone(),
+        owe::SceneRenderTarget { .width = i32(32), .height = i32(32) }));
+    EXPECT_FALSE(scene.RegisterNodeRenderTarget(second_id, first_key.clone(), {}));
+    scene.RegisterRenderTarget(first_key.clone(), owe::SceneRenderTarget { .width = i32(99) });
+    ASSERT_TRUE(scene.RenderTarget(first_key.as_str()).is_some());
+    EXPECT_EQ((**scene.RenderTarget(first_key.as_str())).width, i32(16));
+    EXPECT_TRUE(scene.RegisterNodeRenderTarget(
+        first_id,
+        first_key.clone(),
+        owe::SceneRenderTarget { .width = i32(24), .height = i32(24) }));
+    auto retained = scene.TargetResource(first_key.as_str());
+    ASSERT_TRUE(retained.is_some());
+    auto old_id = retained->id();
+    EXPECT_TRUE(scene.ResizeRenderTarget(first_key.as_str(), i32(48), i32(48)));
+    rstd::array<owe::SceneNodeId, 2> owners { first_id, first_id };
+    EXPECT_EQ(scene.RemoveNodeRenderTargets(owners.as_slice()), usize(1));
+    EXPECT_TRUE(scene.RenderTarget(first_key.as_str()).is_none());
+    EXPECT_TRUE(scene.RenderTarget(second_key.as_str()).is_some());
+    EXPECT_TRUE(scene.RenderTarget("shared"_str).is_some());
+    EXPECT_TRUE(scene.ConsumePreparedRenderTargetDirtyEvents().is_empty());
+    EXPECT_TRUE(retained->valid());
+    EXPECT_TRUE(scene.RegisterNodeRenderTarget(first_id, first_key.clone(), {}));
+    auto replacement = scene.TargetResource(first_key.as_str());
+    ASSERT_TRUE(replacement.is_some());
+    EXPECT_NE(replacement->id(), old_id);
+    EXPECT_TRUE(scene.RemoveRenderTarget(first_key.as_str()));
+    EXPECT_EQ(scene.RemoveNodeRenderTargets(owners.as_slice()), usize());
+    EXPECT_TRUE(scene.RegisterNodeRenderTarget(first_id, first_key.clone(), {}));
+    rstd::array<owe::SceneNodeId, 2> both { first_id, second_id };
+    EXPECT_EQ(scene.RemoveNodeRenderTargets(both.as_slice()), usize(2));
+    EXPECT_TRUE(scene.RenderTarget("shared"_str).is_some());
 }
 
 TEST(SceneRenderTargets, ReplacesDescriptorBehindStableName) {

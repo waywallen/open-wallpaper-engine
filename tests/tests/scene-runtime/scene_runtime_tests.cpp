@@ -344,8 +344,8 @@ TEST(AudioUniformSource, ExposesLogicalSpectrumValues) {
 }
 
 TEST(LightUniformSource, ExposesLogicalVec3Array) {
-    auto                    lights = Vec<ref<owe::SceneLight>>::make();
-    owe::LightUniformSource source(rstd::move(lights));
+    owe::Scene              scene;
+    owe::LightUniformSource source(ref<owe::Scene>::from_raw_parts(&scene));
     scene_test::ShapeSink   shape_sink_impl;
     auto shape_sink = rstd::dyn<owe::UniformBindingSink>::from_ref(shape_sink_impl);
     auto described  = source.Describe(shape_sink.as_mut_ref());
@@ -445,12 +445,11 @@ TEST(LightUniformSource, PublishesWorldDirectionAndType) {
     desc.color       = { 0.25f, 0.5f, 1.0f };
     desc.intensity   = 2.0f;
     desc.cast_shadow = true;
-    owe::SceneLight light(desc);
-    light.setNode(node.as_ptr());
-
-    auto lights = Vec<ref<owe::SceneLight>>::make();
-    lights.push(ref<owe::SceneLight>::from_raw_parts(rstd::addressof(light)));
-    owe::LightUniformSource source(rstd::move(lights));
+    owe::Scene scene;
+    auto       light = Box<owe::SceneLight>::make(desc);
+    light->setNode(node.as_ptr());
+    (void)scene.RegisterLight(rstd::move(light));
+    owe::LightUniformSource source(ref<owe::Scene>::from_raw_parts(&scene));
     owe::SceneFrame         frame;
 
     auto position = scene_test::Capture(frame, source, owe::LightUniformOutput::Position);
@@ -486,19 +485,19 @@ TEST(LightUniformSource, HiddenAncestorsDoNotConsumeLightSlots) {
 
     owe::SceneLight::Desc point_desc;
     point_desc.color = { 1.0f, 0.0f, 0.0f };
-    owe::SceneLight point(point_desc);
-    point.setNode(hidden.as_ptr());
     owe::SceneLight::Desc sun_desc;
     sun_desc.type  = owe::SceneLightType::Directional;
     sun_desc.color = { 0.0f, 1.0f, 0.0f };
-    owe::SceneLight sun(sun_desc);
-    sun.setNode(visible.as_ptr());
-
-    auto lights = Vec<ref<owe::SceneLight>>::make();
-    for (int index = 0; index < 4; ++index)
-        lights.push(ref<owe::SceneLight>::from_raw_parts(rstd::addressof(point)));
-    lights.push(ref<owe::SceneLight>::from_raw_parts(rstd::addressof(sun)));
-    owe::LightUniformSource source(rstd::move(lights));
+    owe::Scene scene;
+    for (int index = 0; index < 4; ++index) {
+        auto point = Box<owe::SceneLight>::make(point_desc);
+        point->setNode(hidden.as_ptr());
+        (void)scene.RegisterLight(rstd::move(point));
+    }
+    auto sun = Box<owe::SceneLight>::make(sun_desc);
+    sun->setNode(visible.as_ptr());
+    (void)scene.RegisterLight(rstd::move(sun));
+    owe::LightUniformSource source(ref<owe::Scene>::from_raw_parts(&scene));
     owe::SceneFrame         frame;
 
     auto color = scene_test::Capture(frame, source, owe::LightUniformOutput::ColorRadius);
@@ -524,10 +523,11 @@ TEST(ShadowUniformSource, UsesAuthoredCascadeExtentAndLightObjectFrame) {
     desc.cascade_distances[0] = 10.0f;
     desc.cascade_distances[1] = 20.0f;
     desc.cascade_distances[2] = 40.0f;
-    owe::SceneLight light(desc);
-    light.setNode(light_node.as_ptr());
-    owe::ShadowUniformSource source(rstd::move(camera),
-                                    ref<owe::SceneLight>::from_raw_parts(rstd::addressof(light)));
+    owe::Scene scene;
+    auto       light = Box<owe::SceneLight>::make(desc);
+    light->setNode(light_node.as_ptr());
+    (void)scene.RegisterLight(rstd::move(light));
+    owe::ShadowUniformSource source(rstd::move(camera), ref<owe::Scene>::from_raw_parts(&scene));
 
     owe::SceneFrame frame;
     auto            matrices =
@@ -1110,6 +1110,8 @@ TEST(SceneParserText, AlignmentDoesNotMoveChildFrames) {
         child->UpdateTrans();
         EXPECT_NEAR(child->ModelTrans()(0, 3), 994.0, 1e-5);
         EXPECT_NEAR(child->ModelTrans()(1, 3), 612.0, 1e-5);
+        EXPECT_EQ(scene.scene->RemoveNodeUserBindings(parent->Identity()), usize(1));
+        EXPECT_FALSE(scene.scene->ApplyUserTextBindings("caption"_str, caption));
 
         owe::script::TickSceneScripts(*scene.scene, owe::script::FrameInputs {});
         EXPECT_TRUE(parent->Translate().isApprox(Eigen::Vector3f(1200, 700, 0)));
@@ -1176,6 +1178,77 @@ TEST(SceneUserPropertyBinding, AppliesJsonPayloadToOwnedCallback) {
     EXPECT_TRUE(scene.ApplyUserPropertyBindings("camera"_str, property));
     EXPECT_TRUE(called);
     EXPECT_FALSE(scene.ApplyUserPropertyBindings("other"_str, property));
+}
+
+TEST(SceneUserPropertyBinding, RemovesOnlyBindingsOwnedByNode) {
+    owe::Scene scene;
+    auto       first        = Arc<owe::SceneNode>::make();
+    auto       second       = Arc<owe::SceneNode>::make();
+    auto       first_id     = scene.RegisterNode(*first);
+    auto       second_id    = scene.RegisterNode(*second);
+    int        first_calls  = 0;
+    int        second_calls = 0;
+    int        global_calls = 0;
+    scene.RegisterUserTextBinding("title"_Str,
+                                  Box<dyn<FnMut<void(ref<str>)>>>::make([&](ref<str>) {
+                                      ++first_calls;
+                                  }),
+                                  first_id);
+    scene.RegisterUserTextBinding("title"_Str,
+                                  Box<dyn<FnMut<void(ref<str>)>>>::make([&](ref<str>) {
+                                      ++second_calls;
+                                  }),
+                                  second_id);
+    scene.RegisterUserTextBinding("title"_Str, Box<dyn<FnMut<void(ref<str>)>>>::make([&](ref<str>) {
+                                      ++global_calls;
+                                  }));
+    scene.RegisterUserPropertyBinding(
+        "other"_Str,
+        Box<dyn<FnMut<void(ref<owe::Json>)>>>::make([&](ref<owe::Json>) {
+            ++first_calls;
+        }),
+        first_id);
+    EXPECT_EQ(scene.RemoveNodeUserBindings(first_id), usize(2));
+    EXPECT_EQ(scene.RemoveNodeUserBindings(first_id), usize());
+    auto value = owe::ParseJson(R"({"value":"updated"})"_str).unwrap();
+    EXPECT_TRUE(scene.ApplyUserTextBindings("title"_str, value));
+    EXPECT_FALSE(scene.ApplyUserPropertyBindings("other"_str, value));
+    EXPECT_EQ(first_calls, 0);
+    EXPECT_EQ(second_calls, 1);
+    EXPECT_EQ(global_calls, 1);
+}
+
+TEST(SceneUserPropertyBinding, DispatchHandlesReentrantRemovalAndRegistration) {
+    owe::Scene scene;
+    auto       node    = Arc<owe::SceneNode>::make();
+    auto       owner   = scene.RegisterNode(*node);
+    int        first   = 0;
+    int        removed = 0;
+    int        added   = 0;
+    scene.RegisterUserPropertyBinding(
+        "setting"_Str,
+        Box<dyn<FnMut<void(ref<owe::Json>)>>>::make([&](ref<owe::Json>) {
+            ++first;
+            EXPECT_EQ(scene.RemoveNodeUserBindings(owner), usize(2));
+            scene.RegisterUserPropertyBinding(
+                "setting"_Str, Box<dyn<FnMut<void(ref<owe::Json>)>>>::make([&](ref<owe::Json>) {
+                    ++added;
+                }));
+        }),
+        owner);
+    scene.RegisterUserPropertyBinding(
+        "setting"_Str,
+        Box<dyn<FnMut<void(ref<owe::Json>)>>>::make([&](ref<owe::Json>) {
+            ++removed;
+        }),
+        owner);
+    auto value = owe::ParseJson(R"({"value":true})"_str).unwrap();
+    EXPECT_TRUE(scene.ApplyUserPropertyBindings("setting"_str, value));
+    EXPECT_EQ(first, 1);
+    EXPECT_EQ(removed, 0);
+    EXPECT_EQ(added, 0);
+    EXPECT_TRUE(scene.ApplyUserPropertyBindings("setting"_str, value));
+    EXPECT_EQ(added, 1);
 }
 
 TEST(SceneTransformUpdater, ReceivesRuntimeElapsedTime) {
@@ -1306,6 +1379,57 @@ TEST(SceneCameraState, PublishesStableOwnedMatricesAndProjectionChanges) {
     EXPECT_EQ(camera.CameraSnapshot().revision, changed.revision);
     camera.Clone(clone);
     EXPECT_EQ(camera.CameraSnapshot().revision, changed.revision + u64(1));
+}
+
+TEST(SceneCameraState, SharedRegistryTracksRuntimeCamerasAndRetainsNodes) {
+    owe::Scene scene;
+    auto global = Arc<owe::SceneCamera>::make(owe::SceneCamera::MakeOrthographic(200, 100, -1, 1));
+    scene.RegisterCamera("global"_Str, global.clone());
+    ASSERT_TRUE(scene.SetActiveCamera("global"_str));
+    auto resolver = Arc<owe::UniformCameraResolver>::make(global.clone(), scene.CameraRegistry());
+    auto updated_global =
+        Arc<owe::SceneCamera>::make(owe::SceneCamera::MakeOrthographic(300, 150, -1, 1));
+    scene.RegisterCamera("global"_Str, updated_global.clone());
+    EXPECT_EQ(resolver->Active().as_raw_ptr(), updated_global.as_ptr().as_raw_ptr());
+    scene.RegisterCamera("global"_Str, global.clone());
+    auto node  = Arc<owe::SceneNode>::make();
+    auto owner = scene.RegisterNode(*node);
+    node->SetCamera("private"_str);
+    EXPECT_TRUE(resolver->Resolve(*node).is_none());
+    auto                          weak_node = node.downgrade();
+    Option<Arc<owe::SceneCamera>> retained;
+    {
+        auto camera =
+            Arc<owe::SceneCamera>::make(owe::SceneCamera::MakeOrthographic(80, 40, -1, 1));
+        camera->AttachOwnedNode(node.clone());
+        retained = Some(camera.clone());
+        ASSERT_TRUE(scene.RegisterNodeCamera(owner, "private"_Str, camera.clone()));
+        EXPECT_FALSE(scene.RegisterNodeCamera(owner, "global"_Str, camera.clone()));
+        ASSERT_TRUE(resolver->Resolve(*node).is_some());
+        EXPECT_EQ((*resolver->Resolve(*node)).as_raw_ptr(), camera.as_ptr().as_raw_ptr());
+        ASSERT_TRUE(scene.SetActiveCamera("private"_str));
+        EXPECT_EQ(resolver->Active().as_raw_ptr(), camera.as_ptr().as_raw_ptr());
+        scene.RegisterLinkedCamera("global"_Str, "private"_Str);
+        scene.RegisterRenderGroup(owe::WallpaperLayerId { .value = i32(3) }, "private"_Str);
+        rstd::array<owe::SceneNodeId, 2> owners { owner, owner };
+        EXPECT_EQ(scene.RemoveNodeCameras(owners.as_slice()).len(), usize(1));
+        EXPECT_TRUE(resolver->Resolve(*node).is_none());
+        EXPECT_TRUE(scene.ActiveCamera().is_none());
+        EXPECT_EQ(resolver->Active().as_raw_ptr(), global.as_ptr().as_raw_ptr());
+        EXPECT_TRUE(scene.Camera("global"_str).is_some());
+        EXPECT_TRUE(scene.RenderGroupCamera(owe::WallpaperLayerId { .value = i32(3) }).is_none());
+        auto replacement =
+            Arc<owe::SceneCamera>::make(owe::SceneCamera::MakeOrthographic(50, 25, -1, 1));
+        ASSERT_TRUE(scene.RegisterNodeCamera(owner, "private"_Str, replacement.clone()));
+        scene.UpdateLinkedCamera("global"_str);
+        EXPECT_DOUBLE_EQ(replacement->Width(), 50.0);
+        EXPECT_EQ(scene.RemoveNodeCameras(owners.as_slice()).len(), usize(1));
+    }
+    node = Arc<owe::SceneNode>::make();
+    EXPECT_TRUE(static_cast<bool>(weak_node.upgrade()));
+    EXPECT_TRUE((*retained)->CameraSnapshot().view.isIdentity());
+    retained = None();
+    EXPECT_FALSE(static_cast<bool>(weak_node.upgrade()));
 }
 
 TEST(SceneCameraState, TracksParentChangesAndPreservesNodeInverse) {
@@ -1566,9 +1690,11 @@ TEST(ShadowUniformSource, CascadeCentersUseFinalCameraPosition) {
     owe::SceneLight::Desc desc;
     desc.type        = owe::SceneLightType::Directional;
     desc.cast_shadow = true;
-    owe::SceneLight light(desc);
-    light.setNode(light_node.as_ptr());
-    owe::ShadowUniformSource source(camera.clone(), ref<owe::SceneLight>::from_raw_parts(&light));
+    owe::Scene scene;
+    auto       light = Box<owe::SceneLight>::make(desc);
+    light->setNode(light_node.as_ptr());
+    (void)scene.RegisterLight(rstd::move(light));
+    owe::ShadowUniformSource source(camera.clone(), ref<owe::Scene>::from_raw_parts(&scene));
     auto                     translated = scene_test::Capture(
         owe::SceneFrame {}, source, owe::ShadowUniformOutput::ViewProjectionMatrices);
     camera->SetViewOffset(Eigen::Vector3d::Zero());

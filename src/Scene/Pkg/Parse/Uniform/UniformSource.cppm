@@ -173,8 +173,6 @@ struct UniformNodeConfigDraft {
     Option<Arc<SceneNode>>        effect_projection_node;
     array<float, 2>               effect_projection_size { 0.0f, 0.0f };
 
-    auto Clone() const -> UniformNodeConfigDraft;
-    auto CloneForRuntimeLayer(i32 owner) const -> UniformNodeConfigDraft;
     void SetParallaxContract(wpscene::ParallaxDepthBinding binding, i32 owner = i32(),
                              bool propagate_to_children = true);
 };
@@ -183,15 +181,17 @@ class UniformCameraResolver {
 public:
     explicit UniformCameraResolver(Arc<SceneCamera> active_camera)
         : m_active_camera(rstd::move(active_camera)) {}
+    UniformCameraResolver(Arc<SceneCamera> active_camera, Arc<SceneCameraRegistry> cameras)
+        : m_cameras(Some(rstd::move(cameras))), m_active_camera(rstd::move(active_camera)) {}
 
     void Add(String name, Arc<SceneCamera> camera);
-    void Reserve(usize count) { m_cameras.reserve(count); }
 
     auto Resolve(const SceneNode& node) const -> Option<mut_ref<SceneCamera>>;
-    auto Active() const -> mut_ref<SceneCamera> { return m_active_camera.deref_mut(); }
+    auto Active() const -> mut_ref<SceneCamera>;
 
 private:
-    HashMap<String, Arc<SceneCamera>> m_cameras;
+    Option<Arc<SceneCameraRegistry>>  m_cameras;
+    HashMap<String, Arc<SceneCamera>> m_local_cameras;
     Arc<SceneCamera>                  m_active_camera;
 };
 
@@ -225,6 +225,8 @@ public:
 
     void SetNodeState(SceneNodeId, Arc<UniformNodeState>);
     void RegisterNodeParallaxContract(const SceneNode&, i32, const wpscene::ParallaxDepthBinding&);
+    bool RemoveNodeState(SceneNodeId);
+    void RemoveNodeParallaxContract(const SceneNode&);
     bool SetEffectProjectionSize(SceneNodeId, array<float, 2>);
     bool SetObjectParallaxDepth(i32, array<float, 2>);
     bool SetNodeParallaxDepth(const SceneNode&, array<float, 2>);
@@ -273,6 +275,7 @@ private:
     HashMap<i32, Vec<Arc<UniformNodeState>>>         m_nodes_by_object;
     HashMap<i32, array<float, 2>>                    m_object_parallax_depths;
     HashMap<const SceneNode*, i32>                   m_parallax_owners;
+    HashMap<i32, usize>                              m_parallax_owner_counts;
     HashMap<const SceneNode*, array<float, 2>>       m_node_parallax_depths;
 
     auto LogicalParallaxState(const UniformNodeState&) const -> const UniformNodeState*;
@@ -377,7 +380,7 @@ private:
 
 class LightUniformSource {
 public:
-    explicit LightUniformSource(Vec<ref<SceneLight>> lights): m_lights(rstd::move(lights)) {}
+    explicit LightUniformSource(ref<Scene> scene): m_scene(scene) {}
 
     auto Describe(mut_ref<dyn<UniformBindingSink>>) const -> Result<empty, UniformError>;
     auto Version(ref<dyn<UniformUpdateContext>>) const -> u64;
@@ -386,13 +389,13 @@ public:
     auto AcquireBindingLease() const -> Option<Box<dyn<UniformBindingLease>>> { return None(); }
 
 private:
-    Vec<ref<SceneLight>> m_lights;
+    ref<Scene> m_scene;
 };
 
 class ShadowUniformSource {
 public:
-    ShadowUniformSource(Arc<SceneCamera> camera, ref<SceneLight> light)
-        : m_camera(rstd::move(camera)), m_light(light) {}
+    ShadowUniformSource(Arc<SceneCamera> camera, ref<Scene> scene)
+        : m_camera(rstd::move(camera)), m_scene(scene) {}
 
     auto Describe(mut_ref<dyn<UniformBindingSink>>) const -> Result<empty, UniformError>;
     auto Version(ref<dyn<UniformUpdateContext>>) const -> u64;
@@ -402,7 +405,7 @@ public:
 
 private:
     Arc<SceneCamera> m_camera;
-    ref<SceneLight>  m_light;
+    ref<Scene>       m_scene;
 };
 
 class TextureUniformSource {

@@ -83,44 +83,88 @@ bool RegisterParticleTrailUniformSource(Scene& scene, const Arc<SceneNode>& node
     return true;
 }
 
+void RegisterLayerUniformSources(Scene& scene, const Arc<UniformSceneState>& uniform_state,
+                                 const Arc<UniformCameraResolver>& camera_resolver,
+                                 const SceneLayerBuildResult&      result) {
+    auto active_camera = scene.ActiveCameraHandle();
+
+    auto camera_for = [&](const SceneNode& node) -> Option<Arc<SceneCamera>> {
+        if (! node.Camera().is_empty()) return scene.CameraHandle(node.Camera());
+        if (node.Perspective()) return scene.CameraHandle("global_perspective"_str);
+        return active_camera.is_some() ? Some((*active_camera).clone()) : None<Arc<SceneCamera>>();
+    };
+    auto registrar = dyn<UniformSourceRegistrar>::from_ref(scene);
+    auto writer    = dyn<UniformAttachmentWriter>::from_ref(scene);
+    for (const auto& draft : result.text_uniform_configs) {
+        if (active_camera.is_none()) continue;
+        auto node_id = scene.ResourceIndex().nodeId(*draft.node);
+        if (node_id.is_none()) continue;
+        auto state               = Arc<text::TextUniformState>::make(draft.node.clone());
+        state->camera            = camera_for(*draft.node);
+        state->active_camera     = Some((*active_camera).clone());
+        state->effect_projection = draft.effect_projection.clone();
+        const auto source        = registrar->Register(
+            Box<dyn<UniformSource>>::make(text::TextUniformSource { rstd::move(state) }));
+        (void)writer->AttachNode(*node_id, source, i32());
+    }
+    for (const auto& entry : result.uniform_configs) {
+        (void)RegisterUniformNodeSources(
+            scene, uniform_state, camera_resolver, entry.node, entry.config);
+    }
+    for (const auto& draft : result.particle_trail_uniform_configs) {
+        (void)RegisterParticleTrailUniformSource(scene, draft.node, draft.uniform_state);
+    }
+}
+
+bool RegisterRuntimePuppetUniformSources(Scene& scene, SceneLayerResources& resources,
+                                         slice<Arc<SceneNode>> nodes) {
+    HashMap<PuppetLayer*, UniformSourceId> sources;
+    for (const auto& node : nodes) {
+        auto layer = resources.puppet_layers->by_node.get(node.as_ptr().as_raw_ptr());
+        if (layer.is_none()) continue;
+        auto node_id = scene.ResourceIndex().nodeId(*node);
+        if (node_id.is_none()) return false;
+        auto*           key    = (**layer).as_ptr().as_raw_ptr();
+        auto            source = sources.get(key);
+        UniformSourceId id;
+        if (source.is_none()) {
+            id = scene.Register(
+                Box<dyn<UniformSource>>::make(PuppetUniformSource { (**layer).clone() }));
+            (void)sources.insert(key, id);
+        } else {
+            id = **source;
+        }
+        if (! scene.AttachNode(*node_id, id, i32(10))) return false;
+    }
+    return true;
+}
+
 void FinalizeUniformSources(SceneParseContext& context) {
     auto& scene = *context.scene;
     scene.RebuildResourceIndex();
 
     auto active_camera = scene.ActiveCameraHandle();
     if (active_camera.is_none()) return;
-    auto camera_for = [&](const SceneNode& node) -> Option<Arc<SceneCamera>> {
-        if (! node.Camera().is_empty()) {
-            return scene.CameraHandle(node.Camera());
-        }
-        if (node.Perspective()) {
-            return scene.CameraHandle("global_perspective"_str);
-        }
-        return Some((*active_camera).clone());
-    };
-    auto camera_resolver = Arc<UniformCameraResolver>::make((*active_camera).clone());
-    auto camera_names    = scene.CameraNames();
-    camera_resolver->Reserve(camera_names.len());
-    for (usize index {}; index < camera_names.len(); ++index) {
-        const auto& name   = camera_names[index];
-        auto        camera = scene.CameraHandle(name.as_str());
-        if (camera.is_some()) camera_resolver->Add(name.clone(), rstd::move(*camera));
-    }
+    auto camera_resolver =
+        Arc<UniformCameraResolver>::make((*active_camera).clone(), scene.CameraRegistry());
 
     auto ortho = scene.Ortho();
-    context.uniform_state->SetOrtho(static_cast<float>(ortho[usize()].to_primitive()),
-                                    static_cast<float>(ortho[usize(1)].to_primitive()));
+    context.layer_resources->uniform_state->SetOrtho(
+        static_cast<float>(ortho[usize()].to_primitive()),
+        static_cast<float>(ortho[usize(1)].to_primitive()));
     scene.Runtime().RegisterSystem(
-        UniformRuntimeSystem { context.uniform_state.clone(), scene, context.orthographic_scene },
+        UniformRuntimeSystem { context.layer_resources->uniform_state.clone(),
+                               scene,
+                               context.layer_resources->orthographic_scene },
         SceneRuntimeSchedule::BeforeRender);
 
     auto registrar = dyn<UniformSourceRegistrar>::from_ref(scene);
     auto writer    = dyn<UniformAttachmentWriter>::from_ref(scene);
 
-    const auto frame_source = registrar->Register(
-        Box<dyn<UniformSource>>::make(FrameUniformSource { context.uniform_state.clone() }));
-    const auto audio_source = registrar->Register(
-        Box<dyn<UniformSource>>::make(AudioUniformSource { context.uniform_state.clone() }));
+    const auto frame_source = registrar->Register(Box<dyn<UniformSource>>::make(
+        FrameUniformSource { context.layer_resources->uniform_state.clone() }));
+    const auto audio_source = registrar->Register(Box<dyn<UniformSource>>::make(
+        AudioUniformSource { context.layer_resources->uniform_state.clone() }));
     (void)writer->AttachGlobal(frame_source, i32());
 
     auto frame_sources = Vec<UniformSourceAttachment>::make();
@@ -141,25 +185,22 @@ void FinalizeUniformSources(SceneParseContext& context) {
         .sources  = rstd::move(audio_sources),
     });
 
-    Vec<ref<SceneLight>>    lights;
-    Option<ref<SceneLight>> shadow_light;
-    auto                    owned_lights = scene.Lights();
-    lights.reserve(owned_lights.len());
+    bool shadow_light = false;
+    auto owned_lights = scene.Lights();
     for (usize index {}; index < owned_lights.len(); ++index) {
-        lights.push(owned_lights[index].as_ref());
         const auto& light = *owned_lights[index];
-        if (shadow_light.is_none() && light.type() == SceneLightType::Directional &&
+        if (! shadow_light && light.type() == SceneLightType::Directional &&
             light.desc().cast_shadow) {
-            shadow_light = Some(owned_lights[index].as_ref());
+            shadow_light = true;
         }
     }
     const auto light_source = registrar->Register(
-        Box<dyn<UniformSource>>::make(LightUniformSource { rstd::move(lights) }));
+        Box<dyn<UniformSource>>::make(LightUniformSource { ref<Scene>::from_raw_parts(&scene) }));
     auto lighting_sources = Vec<UniformSourceAttachment>::make();
     lighting_sources.push(UniformSourceAttachment { .source = light_source });
-    if (context.shader_environment.directional_shadow && shadow_light.is_some()) {
+    if (context.layer_resources->shader_environment.directional_shadow && shadow_light) {
         const auto shadow_source = registrar->Register(Box<dyn<UniformSource>>::make(
-            ShadowUniformSource { (*active_camera).clone(), *shadow_light }));
+            ShadowUniformSource { (*active_camera).clone(), ref<Scene>::from_raw_parts(&scene) }));
         lighting_sources.push(UniformSourceAttachment { .source = shadow_source });
     }
     (void)scene.RegisterUniformBlock(UniformBlockDefinition {
@@ -169,33 +210,17 @@ void FinalizeUniformSources(SceneParseContext& context) {
         .sources  = rstd::move(lighting_sources),
     });
 
-    for (auto& draft : context.text_uniform_configs) {
-        auto node_id = scene.ResourceIndex().nodeId(*draft.node);
-        if (node_id.is_none()) continue;
-        auto state               = Arc<text::TextUniformState>::make(draft.node.clone());
-        state->camera            = camera_for(*draft.node);
-        state->active_camera     = Some((*active_camera).clone());
-        state->effect_projection = draft.effect_projection.clone();
-        const auto source        = registrar->Register(
-            Box<dyn<UniformSource>>::make(text::TextUniformSource { rstd::move(state) }));
-        (void)writer->AttachNode(*node_id, source, i32());
-    }
-
-    for (auto& entry : context.uniform_configs) {
+    for (auto& entry : context.layer_build.uniform_configs) {
         if (entry.config.object_id != i32() &&
             context.ride_parent_parallax_ids.contains(entry.config.object_id)) {
             entry.config.ride_parent_parallax = true;
         }
-        (void)RegisterUniformNodeSources(
-            scene, context.uniform_state, camera_resolver, entry.node, entry.config);
     }
-
-    for (auto& draft : context.particle_trail_uniform_configs) {
-        (void)RegisterParticleTrailUniformSource(scene, draft.node, draft.uniform_state);
-    }
+    RegisterLayerUniformSources(
+        scene, context.layer_resources->uniform_state, camera_resolver, context.layer_build);
 
     HashMap<PuppetLayer*, UniformSourceId> puppet_sources;
-    context.puppet_layers->by_node.iter().for_each([&](auto entry) {
+    context.layer_resources->puppet_layers->by_node.iter().for_each([&](auto entry) {
         auto [node_ref, layer_ref] = entry;
         auto*       node           = *node_ref;
         const auto& layer          = *layer_ref;
@@ -214,139 +239,24 @@ void FinalizeUniformSources(SceneParseContext& context) {
         }
     });
 
-    if (! context.dynamic_image_prototypes.is_empty() ||
-        ! context.dynamic_particle_prototypes.is_empty()) {
-        auto scripts = scene.ExtensionMut<script::ScriptScene>();
-        if (scripts.is_some()) {
-            auto* script_scene        = rstd::addressof(**scripts);
-            auto* runtime             = rstd::addressof((**scripts).runtime());
-            auto  image_prototypes    = rstd::move(context.dynamic_image_prototypes);
-            auto  particle_prototypes = rstd::move(context.dynamic_particle_prototypes);
-            auto  particle_runtime    = context.particle_runtime.is_some()
-                                            ? Some((*context.particle_runtime).clone())
-                                            : None<Arc<ParticleRuntime>>();
-            auto  scene_ptr           = rstd::addressof(scene);
-            (**scripts).runtime().SetLayerFactory(script::JsRuntime::LayerFactory::make(
-                [scene_ptr,
-                 script_scene,
-                 runtime,
-                 image_prototypes          = rstd::move(image_prototypes),
-                 particle_prototypes       = rstd::move(particle_prototypes),
-                 particle_runtime          = rstd::move(particle_runtime),
-                 shader_cache              = context.shader_cache.clone(),
-                 shader_environment        = context.shader_environment,
-                 geometry_limits           = context.geometry_shader_limits,
-                 geometry_shader_supported = context.geometry_shader_supported,
-                 global_base_uniforms      = context.global_base_uniforms.clone(),
-                 ortho_w                   = context.ortho_w,
-                 ortho_h                   = context.ortho_h,
-                 next_object_id            = context.next_synthetic_object_id,
-                 uniform_state             = context.uniform_state.clone(),
-                 camera_resolver           = camera_resolver.clone()](
-                    SceneNode*                  owner,
-                    script::LayerAssetReference request) mutable -> Option<Arc<SceneNode>> {
-                    SceneNode* parent = owner && owner->Parent()
-                                            ? owner->Parent()
-                                            : scene_ptr->RootMut().as_raw_ptr();
-
-                    auto instantiate = [&](ref<str> asset) -> Option<Arc<SceneNode>> {
-                        auto allocate_object_id = [&]() {
-                            auto id        = next_object_id;
-                            next_object_id = next_object_id.checked_sub(i32(1)).unwrap();
-                            return id;
-                        };
-                        if (auto prototype = image_prototypes.get(asset); prototype.is_some()) {
-                            auto node =
-                                CloneRegisteredNode(*scene_ptr, (**prototype).node.deref(), asset);
-                            runtime->CloneImageAlignmentBinding((**prototype).node.as_ptr(),
-                                                                node.as_ptr());
-                            scene_ptr->AttachRuntimeNode(*parent, node.clone());
-                            auto config =
-                                (**prototype)
-                                    .uniform_config.CloneForRuntimeLayer(allocate_object_id());
-                            if (! RegisterUniformNodeSources(
-                                    *scene_ptr, uniform_state, camera_resolver, node, config)) {
-                                rstd_error("registered image asset '{}' has no runtime resource id",
-                                           asset);
-                                return None();
-                            }
-                            InstantiateDynamicMaterialScripts(
-                                *script_scene, *scene_ptr, **prototype, node);
-                            return Some(rstd::move(node));
-                        }
-
-                        auto prototype = particle_prototypes.get(asset);
-                        if (prototype.is_none() || particle_runtime.is_none()) return None();
-                        auto vfs = scene_ptr->ExtensionMut<fs::VFS>();
-                        if (vfs.is_none()) {
-                            rstd_error("registered particle asset '{}' has no runtime VFS", asset);
-                            return None();
-                        }
-
-                        auto particle    = (**prototype).Clone();
-                        particle.id      = allocate_object_id();
-                        particle.name    = rstd::into(asset);
-                        particle.origin  = { 0.0f, 0.0f, 0.0f };
-                        particle.scale   = { 1.0f, 1.0f, 1.0f };
-                        particle.angles  = { 0.0f, 0.0f, 0.0f };
-                        particle.parent  = u32();
-                        particle.visible = true;
-                        ParticleObjectParseServices particle_services {
-                            .scene                     = scene_ptr,
-                            .vfs                       = (*vfs).as_raw_ptr(),
-                            .shader_cache              = shader_cache.clone(),
-                            .shader_environment        = shader_environment,
-                            .geometry_shader_limits    = geometry_limits,
-                            .geometry_shader_supported = geometry_shader_supported,
-                            .global_base_uniforms      = global_base_uniforms.clone(),
-                            .particle_runtime          = (*particle_runtime).clone(),
-                            .ortho_w                   = ortho_w,
-                            .ortho_h                   = ortho_h,
-                        };
-                        auto parsed = BuildParticleObject(particle_services, particle);
-                        if (parsed.root.is_none()) return None();
-                        auto node = rstd::move(*parsed.root);
-                        scene_ptr->RegisterNode(*node);
-                        scene_ptr->AttachRuntimeNode(*parent, node.clone());
-                        for (auto& entry : parsed.uniform_configs) {
-                            (void)RegisterUniformNodeSources(*scene_ptr,
-                                                             uniform_state,
-                                                             camera_resolver,
-                                                             entry.node,
-                                                             entry.config);
-                        }
-                        for (auto& draft : parsed.trail_uniform_configs) {
-                            (void)RegisterParticleTrailUniformSource(
-                                *scene_ptr, draft.node, draft.uniform_state);
-                        }
-                        return Some(rstd::move(node));
-                    };
-
-                    auto node = instantiate(request.path);
-                    if (node.is_some()) return node;
-                    auto workshop_path = WorkshopAssetPath(request);
-                    if (workshop_path.is_none()) return None();
-                    return instantiate(workshop_path->as_str());
-                }));
-        }
-    }
+    InstallRuntimeLayerFactory(context, camera_resolver);
 }
 
-Box<Scene> FinalizeScene(SceneParseContext& context) {
+void FinalizeScene(SceneParseContext& context) {
     // Attach once after every registered node has been created in JSON
     // declaration order (node_id_order) but not yet inserted into the scene
     // graph. Walk that order and AppendChild to parent (or root). Result:
     // child lists at every depth match scene.json declaration order, which
     // is what WE treats as z-order.
     int attached = 0, missing_parent = 0;
-    for (auto id : context.node_id_order) {
-        auto found = context.node_id_map.get_mut(id);
+    for (auto id : context.layer_build.node_id_order) {
+        auto found = context.layer_build.node_id_map.get_mut(id);
         if (found.is_none() || (**found).node.is_none()) continue;
-        auto&                             ref         = **found;
-        SceneNode*                        parent_node = context.scene->RootMut().as_raw_ptr();
-        const SceneParseContext::NodeRef* parent_ref  = nullptr;
+        auto&                      ref         = **found;
+        SceneNode*                 parent_node = context.scene->RootMut().as_raw_ptr();
+        const SceneLayerNodeDraft* parent_ref  = nullptr;
         if (ref.parent_id != u32()) {
-            auto parent = context.node_id_map.get(rstd::as_cast<i32>(ref.parent_id));
+            auto parent = context.layer_build.node_id_map.get(rstd::as_cast<i32>(ref.parent_id));
             if (parent.is_none() || (**parent).node.is_none()) {
                 missing_parent++;
                 continue;
@@ -386,7 +296,8 @@ Box<Scene> FinalizeScene(SceneParseContext& context) {
                     };
                     update(context.scene->Runtime().Frame().elapsed);
                     context.scene->RegisterTransformUpdater(
-                        Box<dyn<FnMut<void(f64)>>>::make(rstd::move(update)));
+                        Box<dyn<FnMut<void(f64)>>>::make(rstd::move(update)),
+                        context.scene->RegisterNode(*node));
                 } else {
                     apply_bind_offset();
                 }
@@ -396,11 +307,12 @@ Box<Scene> FinalizeScene(SceneParseContext& context) {
             parent_node->AppendChild(before_node.clone());
         }
         parent_node->AppendChild((*ref.node).clone());
+        context.scene->RegisterLayerCompanions(**ref.node, ref.ordered_before_nodes.as_slice());
         attached++;
     }
     rstd_info("attach: {}/{} nodes ({} missing parents)",
               attached,
-              context.node_id_map.len(),
+              context.layer_build.node_id_map.len(),
               missing_parent);
 
     // If any object during the visit installed a script binding, hand the
@@ -412,14 +324,14 @@ Box<Scene> FinalizeScene(SceneParseContext& context) {
         // can resolve against the live graph. The renderer also ticks the
         // ScriptScene once per frame via owe::script::TickSceneScripts.
         auto& runtime = (*context.script_scene)->runtime();
-        for (auto id : context.node_id_order) {
-            auto node   = context.node_id_map.get(id);
+        for (auto id : context.layer_build.node_id_order) {
+            auto node   = context.layer_build.node_id_map.get(id);
             auto config = context.initial_layer_configs.get(id);
             if (node.is_none() || (**node).node.is_none() || config.is_none()) continue;
             runtime.RegisterInitialLayerConfig((*(**node).node).as_ptr(), (**config).clone());
         }
-        runtime.SetScene(context.scene.get());
-        auto parallax_state = CopyableArcHold(context.uniform_state.clone());
+        runtime.SetScene(context.scene);
+        auto parallax_state = CopyableArcHold(context.layer_resources->uniform_state.clone());
         runtime.SetNodeParallaxDepthAccessors(
             script::JsRuntime::NodeParallaxDepthGetter::make(
                 [parallax_state](SceneNode* node) mutable -> Option<script::Vec2Value> {
@@ -455,15 +367,15 @@ Box<Scene> FinalizeScene(SceneParseContext& context) {
         owe::script::InstallScriptScene(*context.scene,
                                         context.script_scene.take().unwrap_unchecked());
     }
-    if (context.particle_runtime.is_some()) {
+    if (context.layer_resources->particle_runtime.is_some()) {
         context.scene->Runtime().RegisterSystem(
-            ParticleRuntimeSystem { (*context.particle_runtime).clone() },
+            ParticleRuntimeSystem { (*context.layer_resources->particle_runtime).clone() },
             SceneRuntimeSchedule::BeforeRender);
     }
-    context.shader_cache->ReleaseTransientEntries();
-    context.scene->InstallExtension(Box<Arc<ShaderCache>>::make(context.shader_cache.clone()));
+    context.layer_resources->shader_cache->ReleaseTransientEntries();
+    context.scene->InstallExtension(
+        Box<Arc<ShaderCache>>::make(context.layer_resources->shader_cache.clone()));
     FinalizeUniformSources(context);
-    return context.scene.Take();
 }
 
 } // namespace owe

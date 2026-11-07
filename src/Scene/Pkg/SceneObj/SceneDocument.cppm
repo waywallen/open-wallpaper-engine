@@ -222,6 +222,7 @@ public:
 };
 
 Option<SceneDocument>  ParseSceneDocumentValue(owe::Json, SceneVersion);
+SceneObjectKind        ClassifySceneObject(const owe::Json&);
 Vec<SceneObjectRecord> ParseSceneObjectRecords(const owe::Json&, bool& objects_are_array);
 Option<SceneDocument>  ParseSceneDocumentJson(ref<str>, SceneVersion);
 Option<SceneDocument>  LoadSceneDocumentFromVfs(fs::VFS&, fs::Path, SceneVersion);

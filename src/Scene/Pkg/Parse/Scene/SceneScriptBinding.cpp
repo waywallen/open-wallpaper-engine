@@ -117,11 +117,11 @@ Arc<PuppetLayer> MakePuppetLayer(Arc<Puppet> puppet, slice<wpscene::PuppetAnimat
     return out;
 }
 
-void RegisterPuppetLayer(SceneParseContext& context, SceneNode* node, Arc<PuppetLayer> layer) {
+void RegisterPuppetLayer(SceneLayerBuildContext& context, SceneNode* node, Arc<PuppetLayer> layer) {
     if (! node) return;
     for (const auto& playback : layer->AnimationPlaybacks())
         node->RegisterAnimation(playback.clone());
-    (void)context.puppet_layers->by_node.insert(node, rstd::move(layer));
+    (void)context.layer_resources->puppet_layers->by_node.insert(node, rstd::move(layer));
 }
 
 Option<Arc<PuppetLayer>> LookupPuppetLayer(const Arc<PuppetLayerRegistry>& layers,
@@ -140,8 +140,8 @@ SceneNode* RootOf(SceneNode* node) {
     return node;
 }
 
-void MarkHiddenLinkSource(SceneParseContext& context, i32 id) {
-    if (context.hidden_link_source_ids.contains(i32(id)))
+void MarkHiddenLinkSource(SceneLayerBuildContext& context, i32 id) {
+    if (context.layer_resources->hidden_link_source_ids.contains(i32(id)))
         context.scene->MarkLayerVisibilityElidable(WallpaperLayerId { .value = i32(id) });
 }
 
@@ -166,16 +166,20 @@ array<float, 2> Texture0UvScale(const SceneMaterial& material, bool nopadding) {
 }
 
 void InstallImageAlignmentBinding(script::JsRuntime& runtime, SceneNode* node, ref<str> alignment,
-                                  const SceneParseContext::ImageAlignmentSetter& setter) {
+                                  const SceneLayerBuildContext::ImageAlignmentSetter& setter) {
     runtime.RegisterImageAlignmentSetter(node, alignment, setter.clone());
 }
 
-void RegisterImageAlignmentBinding(SceneParseContext& context, SceneNode* node, ref<str> alignment,
-                                   SceneParseContext::ImageAlignmentSetter setter) {
+void RegisterImageAlignmentBinding(SceneLayerBuildContext& context, SceneNode* node,
+                                   ref<str>                                     alignment,
+                                   SceneLayerBuildContext::ImageAlignmentSetter setter) {
     if (context.script_scene.is_some()) {
         InstallImageAlignmentBinding((*context.script_scene)->runtime(), node, alignment, setter);
+    } else if (auto scripts = context.scene->ExtensionMut<script::ScriptScene>();
+               scripts.is_some()) {
+        InstallImageAlignmentBinding((**scripts).runtime(), node, alignment, setter);
     }
-    context.image_alignment_bindings.push(SceneParseContext::ImageAlignmentBinding {
+    context.image_alignment_bindings.push(SceneLayerBuildContext::ImageAlignmentBinding {
         .node      = node,
         .alignment = String::make(alignment),
         .setter    = rstd::move(setter),
@@ -197,11 +201,13 @@ Option<Arc<PuppetLayer>> FindPuppetLayerWithBone(const Arc<PuppetLayerRegistry>&
     return None();
 }
 
-script::ScriptScene& EnsureScriptScene(SceneParseContext& context) {
+script::ScriptScene& EnsureScriptScene(SceneLayerBuildContext& context) {
+    if (auto scripts = context.scene->ExtensionMut<script::ScriptScene>(); scripts.is_some())
+        return **scripts;
     if (context.script_scene.is_none()) {
-        context.script_scene =
-            Some(Box<script::ScriptScene>::make(Some(context.audio_response_demand.clone())));
-        auto layers = context.puppet_layers.clone();
+        context.script_scene = Some(Box<script::ScriptScene>::make(
+            Some(context.layer_resources->audio_response_demand.clone())));
+        auto layers          = context.layer_resources->puppet_layers.clone();
         (*context.script_scene)
             ->runtime()
             .SetBoneResolvers(
@@ -280,7 +286,7 @@ script::ScriptScene& EnsureScriptScene(SceneParseContext& context) {
     return **context.script_scene;
 }
 
-void SetScriptInitializationOrder(SceneParseContext& context, script::FieldScript& script,
+void SetScriptInitializationOrder(SceneLayerBuildContext& context, script::FieldScript& script,
                                   const SceneNode* node) {
     if (node == nullptr) return;
     auto order = context.script_initialization_orders.get(node->ID());
@@ -288,7 +294,8 @@ void SetScriptInitializationOrder(SceneParseContext& context, script::FieldScrip
     EnsureScriptScene(context).runtime().SetInitializationOrder(script, **order);
 }
 
-void TrackRegisteredAssets(SceneParseContext& context, script::FieldScript* script) {
+void TrackFieldScript(SceneLayerBuildContext& context, script::FieldScript* script) {
+    if (script && script->initialization_deferred()) context.deferred_scripts.emplace_back(script);
     if (script && ! script->RegisteredAssets().is_empty())
         context.registered_asset_scripts.push(rstd::move(script));
 }
@@ -305,7 +312,7 @@ Option<float> ScriptValueAsFloat(const script::ScriptValue& value) {
     return None();
 }
 
-void WirePuppetAnimationScripts(SceneParseContext& context, SceneNode* node,
+void WirePuppetAnimationScripts(SceneLayerBuildContext& context, SceneNode* node,
                                 Arc<PuppetLayer>                     puppet,
                                 slice<wpscene::PuppetAnimationLayer> layers) {
     if (! node) return;
@@ -352,10 +359,11 @@ void WirePuppetAnimationScripts(SceneParseContext& context, SceneNode* node,
                 spec.ScriptProperties(),
                 source.initial_value,
                 script::ScriptBindingContext::ForAnimationLayer(
-                    node, spec.field.as_str(), state.clone(), rstd::move(playback)));
+                    node, spec.field.as_str(), state.clone(), rstd::move(playback)),
+                context.script_initialization);
             if (! field) continue;
             SetScriptInitializationOrder(context, *field, node);
-            TrackRegisteredAssets(context, field);
+            TrackFieldScript(context, field);
             scripts.AddActuator({ field,
                                   [state = state.clone(),
                                    name  = spec.field.clone()](const script::ScriptValue& value) {
@@ -441,7 +449,7 @@ Json ScriptInitialValueForField(ref<str> field, const Json& value) {
 namespace owe
 {
 
-void WireFieldScripts(SceneParseContext& context, const Arc<SceneNode>& node_sp,
+void WireFieldScripts(SceneLayerBuildContext& context, const Arc<SceneNode>& node_sp,
                       const wpscene::FieldBindings&                             fb,
                       Option<Arc<dyn<FnMut<void(const script::ScriptValue&)>>>> origin_apply,
                       Option<Arc<dyn<FnMut<void(const script::ScriptValue&)>>>> scale_apply) {
@@ -451,13 +459,14 @@ void WireFieldScripts(SceneParseContext& context, const Arc<SceneNode>& node_sp,
     if (parallax_binding.is_some() && (**parallax_binding).user.is_some() && node->ID() != i32() &&
         ! context.parallax_depth_user_binding_ids.contains(node->ID())) {
         context.parallax_depth_user_binding_ids.insert(node->ID());
-        auto state = context.uniform_state.clone();
+        auto state = context.layer_resources->uniform_state.clone();
         context.scene->RegisterUserPropertyBinding(
             (**parallax_binding).user->clone(),
             Box<dyn<FnMut<void(ref<Json>)>>>::make(
                 [state = state.clone(), object_id = node->ID()](ref<Json> property) mutable {
                     (void)state->ApplyObjectParallaxDepth(object_id, *property);
-                }));
+                }),
+            context.scene->RegisterNode(*node));
     }
     auto& ss = EnsureScriptScene(context);
     auto& rt = ss.runtime();
@@ -515,10 +524,11 @@ void WireFieldScripts(SceneParseContext& context, const Arc<SceneNode>& node_sp,
                                       binding.ScriptProperties(),
                                       initial_value,
                                       script::ScriptBindingContext::ForLayer(
-                                          node, binding.field.as_str(), rstd::move(animation)));
+                                          node, binding.field.as_str(), rstd::move(animation)),
+                                      context.script_initialization);
         if (! fs) continue;
         SetScriptInitializationOrder(context, *fs, node);
-        TrackRegisteredAssets(context, fs);
+        TrackFieldScript(context, fs);
         if (! has_actuator) continue;
         if (is_alpha)
             ss.AddActuator({ fs, script::MakeNodeAlphaApply(node_sp.clone()) });
@@ -527,7 +537,7 @@ void WireFieldScripts(SceneParseContext& context, const Arc<SceneNode>& node_sp,
         else if (is_volume)
             ss.AddActuator({ fs, script::MakeNodeVolumeApply(node_sp.clone()) });
         else if (is_parallax) {
-            auto state = context.uniform_state.clone();
+            auto state = context.layer_resources->uniform_state.clone();
             ss.AddActuator({ fs,
                              [state     = state.clone(),
                               object_id = node->ID()](const script::ScriptValue& value) mutable {
@@ -552,7 +562,7 @@ void WireFieldScripts(SceneParseContext& context, const Arc<SceneNode>& node_sp,
 // can. The effect is already registered with the scene, so the actuator
 // only has to flip its runtime visibility; the render graph rebuild is
 // handled by Scene::SetImageEffectRuntimeVisible.
-void WireImageEffectVisibilityScript(SceneParseContext& context, SceneNode* node,
+void WireImageEffectVisibilityScript(SceneLayerBuildContext& context, SceneNode* node,
                                      const wpscene::ImageEffect& effect, SceneEffectId effect_id) {
     const auto* binding = effect.visible_binding();
     if (binding == nullptr || binding->script.is_none() || ! effect_id.Valid()) return;
@@ -574,12 +584,13 @@ void WireImageEffectVisibilityScript(SceneParseContext& context, SceneNode* node
                            binding->ScriptProperties(),
                            sb.initial_value,
                            script::ScriptBindingContext::ForEffect(
-                               node, { .id = effect_id }, "visible"_str, rstd::move(animation)));
+                               node, { .id = effect_id }, "visible"_str, rstd::move(animation)),
+                           context.script_initialization);
     if (! fs) return;
     SetScriptInitializationOrder(context, *fs, node);
-    TrackRegisteredAssets(context, fs);
+    TrackFieldScript(context, fs);
 
-    auto* scene = context.scene.get();
+    auto* scene = context.scene;
     ss.AddActuator({ fs, [scene, effect_id](const script::ScriptValue& value) {
                         auto flag = ScriptValueAsFloat(value);
                         if (! flag) return;
@@ -588,7 +599,7 @@ void WireImageEffectVisibilityScript(SceneParseContext& context, SceneNode* node
                     } });
 }
 
-void WireGeneralFieldScripts(SceneParseContext& context, const wpscene::FieldBindings& fb) {
+void WireGeneralFieldScripts(SceneLayerBuildContext& context, const wpscene::FieldBindings& fb) {
     auto& ss = EnsureScriptScene(context);
     auto& rt = ss.runtime();
 
@@ -620,13 +631,14 @@ void WireGeneralFieldScripts(SceneParseContext& context, const wpscene::FieldBin
                                       binding.ScriptProperties(),
                                       sb.initial_value,
                                       script::ScriptBindingContext::ForLayer(
-                                          nullptr, binding.field.as_str(), rstd::move(animation)));
+                                          nullptr, binding.field.as_str(), rstd::move(animation)),
+                                      context.script_initialization);
         if (! fs) continue;
-        TrackRegisteredAssets(context, fs);
+        TrackFieldScript(context, fs);
 
-        auto  state      = context.uniform_state.clone();
+        auto  state      = context.layer_resources->uniform_state.clone();
         auto  field_name = binding.field.clone();
-        auto* scene      = context.scene.get();
+        auto* scene      = context.scene;
         ss.AddActuator(
             { fs,
               [state = state.clone(), scene, field_name = rstd::move(field_name)](
@@ -669,7 +681,7 @@ void WireGeneralFieldScripts(SceneParseContext& context, const wpscene::FieldBin
     }
 }
 
-void WireCameraFieldScripts(SceneParseContext& context, const Arc<SceneNode>& node_sp,
+void WireCameraFieldScripts(SceneLayerBuildContext& context, const Arc<SceneNode>& node_sp,
                             const Arc<SceneCamera>& camera, const Arc<SceneCameraPath>& camera_path,
                             const wpscene::FieldBindings& fb, const Vector3f& translate_bias,
                             const Vector3f& rotation_bias) {
@@ -697,10 +709,11 @@ void WireCameraFieldScripts(SceneParseContext& context, const Arc<SceneNode>& no
             binding.ScriptProperties(),
             initial_value,
             script::ScriptBindingContext::ForLayer(
-                node, binding.field.as_str(), node->FieldAnimation(binding.field.as_str())));
+                node, binding.field.as_str(), node->FieldAnimation(binding.field.as_str())),
+            context.script_initialization);
         if (! fs) continue;
         SetScriptInitializationOrder(context, *fs, node);
-        TrackRegisteredAssets(context, fs);
+        TrackFieldScript(context, fs);
 
         if (field == "visible"_str) {
             auto path = camera_path.clone();

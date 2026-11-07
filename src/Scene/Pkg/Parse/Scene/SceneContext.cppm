@@ -29,6 +29,7 @@ export namespace owe
 using SceneObjectVar      = wpscene::SceneObject;
 using EffectRenderTargets = HashMap<String, String>;
 
+struct SceneLayerBuildContext;
 struct SceneParseContext;
 
 struct PuppetLayerRegistry {
@@ -73,13 +74,14 @@ void ParseSpecTexName(String&, const wpscene::Material&, const ShaderInfo&, Scen
 auto IsLegacyAtmosphereShadowValue(const wpscene::Material&, ref<str>) -> bool;
 void RegisterMaterialBindings(Scene&, const Arc<SceneMaterial>&, const wpscene::Material&,
                               const ShaderInfo&,
-                              Option<ref<wpscene::Material>> user_texture_fallback = None());
+                              Option<ref<wpscene::Material>> user_texture_fallback = None(),
+                              SceneNodeId                    owner                 = {});
 void RegisterLayerPreviousBindings(Scene&, SceneMaterial&, const wpscene::Material&, SceneNodeId,
                                    ref<str> composite_target);
 void ApplyTextureBinds(wpscene::Material&, slice<wpscene::MaterialPassBindItem>,
                        const EffectRenderTargets&);
-void LoadConstvalue(SceneParseContext&, SceneMaterial&, const wpscene::Material&, const ShaderInfo&,
-                    SceneShaderValueAnimationMap* = nullptr);
+void LoadConstvalue(SceneLayerBuildContext&, SceneMaterial&, const wpscene::Material&,
+                    const ShaderInfo&, SceneShaderValueAnimationMap* = nullptr);
 
 using DirectDrawQuad = array<array<float, 2>, 4>;
 void GenCardMesh(SceneMesh&, array<float, 2>, array<float, 2> = { 1.0f, 1.0f },
@@ -100,40 +102,69 @@ struct ParticleTrailUniformConfigDraft {
     Arc<ParticleTrailUniformState> uniform_state;
 };
 
-class ParseSceneHandle {
-public:
-    ParseSceneHandle(): m_scene(Box<Scene>::make()) {}
-
-    Scene*       get() noexcept { return m_scene.get(); }
-    const Scene* get() const noexcept { return m_scene.as_ptr().as_raw_ptr(); }
-    Scene*       operator->() noexcept { return m_scene.get(); }
-    const Scene* operator->() const noexcept { return m_scene.as_ptr().as_raw_ptr(); }
-    Scene&       operator*() noexcept { return *m_scene; }
-    const Scene& operator*() const noexcept { return *m_scene; }
-
-    auto Take() -> Box<Scene> { return rstd::move(m_scene); }
-
-private:
-    Box<Scene> m_scene;
+struct SceneLayerNodeDraft {
+    u32                                            parent_id { 0 };
+    Option<Arc<SceneNode>>                         node;
+    Option<Arc<Puppet>>                            puppet;
+    String                                         attachment;
+    Option<Arc<PuppetLayer>>                       puppet_layer;
+    Option<Box<dyn<FnMut<void(Eigen::Vector3f)>>>> apply_attachment_offset;
+    Vec<Arc<SceneNode>>                            ordered_before_nodes;
 };
 
-struct SceneParseContext {
+struct TextUniformConfigDraft {
+    Arc<SceneNode>                               node;
+    Option<Arc<text::TextEffectProjectionState>> effect_projection;
+};
+
+struct SceneLayerBuildResult {
+    HashMap<i32, SceneLayerNodeDraft>    node_id_map;
+    Vec<i32>                             node_id_order;
+    Vec<SceneUniformConfigDraft>         uniform_configs;
+    Vec<TextUniformConfigDraft>          text_uniform_configs;
+    Vec<ParticleTrailUniformConfigDraft> particle_trail_uniform_configs;
+};
+
+struct SceneLayerResources {
+    explicit SceneLayerResources(Arc<AudioResponseDemand> demand)
+        : audio_response_demand(rstd::move(demand)),
+          uniform_state(Arc<UniformSceneState>::make(audio_response_demand.clone())) {}
+
+    i32                          ortho_w { 0 };
+    i32                          ortho_h { 0 };
+    bool                         orthographic_scene { false };
+    wpscene::SceneVersion        pkg_version { wpscene::kSceneVersionUnknown };
+    Option<Arc<ParticleRuntime>> particle_runtime;
+    Arc<ShaderCache>             shader_cache { Arc<ShaderCache>::make() };
+    ShaderValueMap               global_base_uniforms;
+    SceneShaderEnvironment       shader_environment;
+    GeometryShaderLimits         geometry_shader_limits;
+    bool                         geometry_shader_supported { true };
+    Arc<AudioResponseDemand>     audio_response_demand;
+    Arc<UniformSceneState>       uniform_state;
+    Arc<PuppetLayerRegistry>     puppet_layers { Arc<PuppetLayerRegistry>::make() };
+    HashMap<i32, u32>            object_parent_ids;
+    HashSet<i32>                 solid_layer_ids;
+    HashMap<i32, String>         system_media_image_fallbacks;
+    HashSet<i32>                 linked_source_ids;
+    HashSet<i32>                 hidden_link_source_ids;
+    bool                         scene_has_scripts { false };
+    bool                         scene_layer_text_writes { false };
+};
+
+struct SceneLayerBuildContext {
+    SceneLayerBuildContext(Scene& owner, fs::VFS& filesystem, Arc<SceneLayerResources> resources)
+        : scene(rstd::addressof(owner)),
+          layer_resources(rstd::move(resources)),
+          vfs(rstd::addressof(filesystem)) {}
+
     SceneLoadBenchRecorderView           load_bench;
-    ParseSceneHandle                     scene;
-    Option<Arc<ParticleRuntime>>         particle_runtime;
-    i32                                  ortho_w { 0 };
-    i32                                  ortho_h { 0 };
-    bool                                 orthographic_scene { false };
-    wpscene::SceneVersion                pkg_version { wpscene::kSceneVersionUnknown };
+    Scene*                               scene;
+    Arc<SceneLayerResources>             layer_resources;
     fs::VFS*                             vfs { nullptr };
     Option<ref<rstd::json::Map>>         user_properties;
-    Arc<ShaderCache>                     shader_cache { Arc<ShaderCache>::make() };
     HashMap<String, vectext::FontSource> font_sources;
 
-    ShaderValueMap         global_base_uniforms;
-    SceneShaderEnvironment shader_environment;
-    GeometryShaderLimits   geometry_shader_limits;
-    bool                   geometry_shader_supported { true };
     Option<Arc<SceneNode>> effect_camera_node;
     Option<Arc<SceneNode>> global_camera_node;
     Option<Arc<SceneNode>> global_perspective_camera_node;
@@ -145,132 +176,110 @@ struct SceneParseContext {
         String               alignment;
         ImageAlignmentSetter setter;
     };
-    Vec<ImageAlignmentBinding>   image_alignment_bindings;
-    Arc<PuppetLayerRegistry>     puppet_layers { Arc<PuppetLayerRegistry>::make() };
-    Vec<SceneUniformConfigDraft> uniform_configs;
-    Arc<AudioResponseDemand>     audio_response_demand { scene->AudioDemandHandle() };
-    Arc<UniformSceneState>       uniform_state { Arc<UniformSceneState>::make(
-        audio_response_demand.clone()) };
-    struct TextUniformConfigDraft {
-        Arc<SceneNode>                               node;
-        Option<Arc<text::TextEffectProjectionState>> effect_projection;
-    };
-    Vec<TextUniformConfigDraft>          text_uniform_configs;
-    Vec<ParticleTrailUniformConfigDraft> particle_trail_uniform_configs;
-    SceneAnimationBindingScope           animation_bindings;
+    Vec<ImageAlignmentBinding> image_alignment_bindings;
+    SceneLayerBuildResult      layer_build;
+    SceneAnimationBindingScope animation_bindings;
 
-    struct NodeRef {
-        u32                                            parent_id { 0 };
-        Option<Arc<SceneNode>>                         node;
-        Option<Arc<Puppet>>                            puppet;
-        String                                         attachment;
-        Option<Arc<PuppetLayer>>                       puppet_layer;
-        Option<Box<dyn<FnMut<void(Eigen::Vector3f)>>>> apply_attachment_offset;
-        Vec<Arc<SceneNode>>                            ordered_before_nodes;
-    };
-    HashMap<i32, NodeRef>        node_id_map;
-    HashMap<i32, u32>            object_parent_ids;
-    HashSet<i32>                 solid_layer_ids;
-    Vec<i32>                     node_id_order;
     HashMap<i32, rstd::uint64_t> script_initialization_orders;
-    HashMap<i32, Json>           initial_layer_configs;
     HashSet<i32>                 parallax_depth_user_binding_ids;
     HashSet<i32>                 ride_parent_parallax_ids;
 
-    i32                             next_synthetic_object_id { -1 };
-    Vec<owe::script::FieldScript*>  registered_asset_scripts;
-    HashMap<String, Arc<SceneNode>> dynamic_model_prototypes;
-    bool                            capture_material_script_templates { false };
-    struct MaterialFieldScriptTemplate {
-        u32               material_slot { 0 };
-        String            source;
-        String            sha;
-        script::FieldKind kind { script::FieldKind::Unknown };
-        Json              properties;
-        Json              initial_value;
-        String            property;
-        String            uniform_name;
+    Vec<owe::script::FieldScript*>    registered_asset_scripts;
+    script::FieldScriptInitialization script_initialization {
+        script::FieldScriptInitialization::Automatic
     };
-    struct DynamicImagePrototype {
-        Arc<SceneNode>                   node;
-        UniformNodeConfigDraft           uniform_config;
-        Vec<MaterialFieldScriptTemplate> material_scripts;
-    };
-    HashMap<const SceneMaterial*, Vec<MaterialFieldScriptTemplate>> material_script_templates;
-    HashMap<String, DynamicImagePrototype>                          dynamic_image_prototypes;
-    HashMap<String, wpscene::ParticleObject>                        dynamic_particle_prototypes;
-    wavsen::audio::SoundManager*                                    sound_manager { nullptr };
+    Vec<owe::script::FieldScript*> deferred_scripts;
+    bool                           runtime_created { false };
+    bool                           track_created_nodes { false };
+    Vec<Arc<SceneNode>>            created_nodes;
 
-    HashMap<i32, String> system_media_image_fallbacks;
-    HashSet<i32>         linked_source_ids;
-    HashSet<i32>         hidden_link_source_ids;
-    bool                 scene_has_scripts { false };
-    bool                 scene_layer_text_writes { false };
+    void TrackCreatedNode(const Arc<SceneNode>& node) {
+        if (! track_created_nodes) return;
+        for (const auto& tracked : created_nodes)
+            if (tracked.as_ptr() == node.as_ptr()) return;
+        created_nodes.push(node.clone());
+    }
 
-    bool IsLinkedSource(i32 id) const { return linked_source_ids.contains(i32(id)); }
+    bool IsLinkedSource(i32 id) const {
+        return layer_resources->linked_source_ids.contains(i32(id));
+    }
+};
+
+struct SceneParseContext : SceneLayerBuildContext {
+    SceneParseContext(Scene& owner, fs::VFS& filesystem)
+        : SceneLayerBuildContext(owner, filesystem,
+                                 Arc<SceneLayerResources>::make(owner.AudioDemandHandle())) {}
+
+    HashMap<i32, Json>                       initial_layer_configs;
+    i32                                      next_synthetic_object_id { -1 };
+    HashMap<String, wpscene::ParticleObject> dynamic_particle_prototypes;
+    wavsen::audio::SoundManager*             sound_manager { nullptr };
+
     auto NextSyntheticObjectId() -> i32;
 };
 
-void SetUniformConfig(SceneParseContext&, const Arc<SceneNode>&, UniformNodeConfigDraft);
-void ApplyParallaxUniformConfig(SceneParseContext&, const Arc<SceneNode>&,
+void SetUniformConfig(SceneLayerBuildContext&, const Arc<SceneNode>&, UniformNodeConfigDraft);
+void ApplyParallaxUniformConfig(SceneLayerBuildContext&, const Arc<SceneNode>&,
                                 const wpscene::ParallaxDepthBinding& parallax, i32 object_id,
                                 bool propagate_to_children = true);
-auto FindUniformConfig(const SceneParseContext&, const SceneNode&) -> const UniformNodeConfigDraft*;
-void RegisterNodeRef(SceneParseContext&, i32, SceneParseContext::NodeRef);
+void RegisterNodeRef(SceneLayerBuildContext&, i32, SceneLayerNodeDraft);
 
 bool SceneWritesLayerText(slice<SceneObjectVar>);
 bool SceneHasScripts(slice<SceneObjectVar>);
 auto LoadJsonFile(fs::VFS&, ref<str>) -> Option<Json>;
+bool ResolveVisibleUserBinding(bool&, const wpscene::VisibleUserBinding&,
+                               Option<ref<rstd::json::Map>>);
 bool AppendLayerCompositePassthroughEffect(fs::VFS&, wpscene::ImageObject&);
 auto MakePuppetLayer(Arc<Puppet>, slice<wpscene::PuppetAnimationLayer>) -> Arc<PuppetLayer>;
-void WirePuppetAnimationScripts(SceneParseContext&, SceneNode*, Arc<PuppetLayer>,
+void WirePuppetAnimationScripts(SceneLayerBuildContext&, SceneNode*, Arc<PuppetLayer>,
                                 slice<wpscene::PuppetAnimationLayer>);
-void RegisterPuppetLayer(SceneParseContext&, SceneNode*, Arc<PuppetLayer>);
-void MarkHiddenLinkSource(SceneParseContext&, i32);
+void RegisterPuppetLayer(SceneLayerBuildContext&, SceneNode*, Arc<PuppetLayer>);
+void MarkHiddenLinkSource(SceneLayerBuildContext&, i32);
 auto ToSceneUserVisibilityBinding(const wpscene::VisibleUserBinding&) -> SceneUserVisibilityBinding;
 auto Texture0UvScale(const SceneMaterial&, bool = false) -> array<float, 2>;
 auto ParticleTextureRatio(const SceneMaterial&) -> float;
-void RegisterImageAlignmentBinding(SceneParseContext&, SceneNode*, ref<str>,
-                                   SceneParseContext::ImageAlignmentSetter);
-auto EnsureScriptScene(SceneParseContext&) -> script::ScriptScene&;
-void SetScriptInitializationOrder(SceneParseContext&, script::FieldScript&, const SceneNode*);
-void TrackRegisteredAssets(SceneParseContext&, script::FieldScript*);
+void RegisterImageAlignmentBinding(SceneLayerBuildContext&, SceneNode*, ref<str>,
+                                   SceneLayerBuildContext::ImageAlignmentSetter);
+auto EnsureScriptScene(SceneLayerBuildContext&) -> script::ScriptScene&;
+void SetScriptInitializationOrder(SceneLayerBuildContext&, script::FieldScript&, const SceneNode*);
+void TrackFieldScript(SceneLayerBuildContext&, script::FieldScript*);
 auto ScriptValueAsFloat(const script::ScriptValue&) -> Option<float>;
 auto ScriptValueAsVec2(const script::ScriptValue&) -> Option<array<float, 2>>;
 auto ScriptValueAsVec3(const script::ScriptValue&, const Eigen::Vector3f&)
     -> Option<Eigen::Vector3f>;
-void WireFieldScripts(SceneParseContext&, const Arc<SceneNode>&, const wpscene::FieldBindings&,
+void WireFieldScripts(SceneLayerBuildContext&, const Arc<SceneNode>&, const wpscene::FieldBindings&,
                       Option<Arc<dyn<FnMut<void(const script::ScriptValue&)>>>> = {},
                       Option<Arc<dyn<FnMut<void(const script::ScriptValue&)>>>> = {});
-void WireImageEffectVisibilityScript(SceneParseContext&, SceneNode*, const wpscene::ImageEffect&,
-                                     SceneEffectId);
-void WireGeneralFieldScripts(SceneParseContext&, const wpscene::FieldBindings&);
-void WireCameraFieldScripts(SceneParseContext&, const Arc<SceneNode>&, const Arc<SceneCamera>&,
+void WireImageEffectVisibilityScript(SceneLayerBuildContext&, SceneNode*,
+                                     const wpscene::ImageEffect&, SceneEffectId);
+void WireGeneralFieldScripts(SceneLayerBuildContext&, const wpscene::FieldBindings&);
+void WireCameraFieldScripts(SceneLayerBuildContext&, const Arc<SceneNode>&, const Arc<SceneCamera>&,
                             const Arc<SceneCameraPath>&, const wpscene::FieldBindings&,
                             const Eigen::Vector3f&, const Eigen::Vector3f&);
-void WireMaterialShaderValueScripts(SceneParseContext&, const Arc<SceneNode>&,
+void WireMaterialShaderValueScripts(SceneLayerBuildContext&, const Arc<SceneNode>&,
                                     const Arc<SceneMaterial>&, const wpscene::Material&,
                                     const ShaderInfo&);
 auto ScriptValueAsShaderValue(const script::ScriptValue&) -> Option<ShaderValue>;
 auto UsesUnitFinalQuad(const wpscene::Material&) -> bool;
-auto HasSolidCompositeContext(const SceneParseContext&, const wpscene::ImageObject&) -> bool;
+auto HasSolidCompositeContext(const SceneLayerBuildContext&, const wpscene::ImageObject&) -> bool;
 auto CanCompositeFinalEffectMaterial(ref<str>, const ShaderInfo&, bool) -> bool;
 auto AlignmentOffset(ref<str>, Eigen::Vector2f) -> Eigen::Vector3f;
-void ApplyUserTextureBindings(SceneParseContext&, wpscene::Material&);
-void IndexSystemMediaImageFallbacks(SceneParseContext&, slice<SceneObjectVar>);
+void ApplyUserTextureBindings(SceneLayerBuildContext&, wpscene::Material&);
+void IndexSystemMediaImageFallbacks(SceneLayerBuildContext&, slice<SceneObjectVar>);
 
 struct ParticleObjectParseServices {
-    Scene*                 scene { nullptr };
-    fs::VFS*               vfs { nullptr };
-    Arc<ShaderCache>       shader_cache;
-    SceneShaderEnvironment shader_environment;
-    GeometryShaderLimits   geometry_shader_limits;
-    bool                   geometry_shader_supported { true };
-    ShaderValueMap         global_base_uniforms;
-    Arc<ParticleRuntime>   particle_runtime;
-    i32                    ortho_w { 0 };
-    i32                    ortho_h { 0 };
-    SceneParseContext*     construction_context { nullptr };
+    Scene*                  scene { nullptr };
+    fs::VFS*                vfs { nullptr };
+    Arc<ShaderCache>        shader_cache;
+    SceneShaderEnvironment  shader_environment;
+    GeometryShaderLimits    geometry_shader_limits;
+    bool                    geometry_shader_supported { true };
+    ShaderValueMap          global_base_uniforms;
+    Arc<ParticleRuntime>    particle_runtime;
+    i32                     ortho_w { 0 };
+    i32                     ortho_h { 0 };
+    SceneLayerBuildContext& construction_context;
+    bool                    wire_scripts { true };
 };
 
 struct ParticleObjectParseOutput {
@@ -281,22 +290,29 @@ struct ParticleObjectParseOutput {
 
 auto BuildParticleObject(ParticleObjectParseServices&, wpscene::ParticleObject&)
     -> ParticleObjectParseOutput;
-auto CloneRegisteredNode(Scene&, ref<SceneNode>, ref<str>) -> Arc<SceneNode>;
-void InstantiateDynamicMaterialScripts(script::ScriptScene&, Scene&,
-                                       const SceneParseContext::DynamicImagePrototype&,
-                                       const Arc<SceneNode>&);
+bool RegisterUniformNodeSources(Scene&, const Arc<UniformSceneState>&,
+                                const Arc<UniformCameraResolver>&, const Arc<SceneNode>&,
+                                const UniformNodeConfigDraft&);
+bool RegisterParticleTrailUniformSource(Scene&, const Arc<SceneNode>&,
+                                        const Arc<ParticleTrailUniformState>&);
+void RegisterLayerUniformSources(Scene&, const Arc<UniformSceneState>&,
+                                 const Arc<UniformCameraResolver>&, const SceneLayerBuildResult&);
+void InstallRuntimeLayerFactory(SceneParseContext&, const Arc<UniformCameraResolver>&);
 auto WorkshopAssetPath(const script::LayerAssetReference&) -> Option<String>;
+auto ResolveTextureSize(Scene&, ref<str>) -> Option<array<float, 2>>;
 auto InstantiateRegisteredAsset(SceneParseContext&, SceneNode*, const script::LayerAssetReference&)
     -> Option<Arc<SceneNode>>;
 auto InstantiateLayerConfiguration(SceneParseContext&, SceneNode*, const Json&)
     -> Option<Arc<SceneNode>>;
 void ResolveRegisteredAssets(SceneParseContext&);
-void ParseImageObj(SceneParseContext&, wpscene::ImageObject&);
-void ParseShapeObj(SceneParseContext&, wpscene::ShapeObject&);
+void ParseImageObj(SceneLayerBuildContext&, wpscene::ImageObject&);
+void ParseShapeObj(SceneLayerBuildContext&, wpscene::ShapeObject&);
 void ParseParticleObj(SceneParseContext&, wpscene::ParticleObject&);
 void ParseSoundObj(SceneParseContext&, wpscene::SoundObject&, wavsen::audio::SoundManager&);
 void ParseModelObj(SceneParseContext&, wpscene::ModelObject&);
-void ParseTextObj(SceneParseContext&, wpscene::TextObject&);
+void ParseModelObj(SceneLayerBuildContext&, wpscene::ModelObject&);
+bool RegisterRuntimePuppetUniformSources(Scene&, SceneLayerResources&, slice<Arc<SceneNode>>);
+void ParseTextObj(SceneLayerBuildContext&, wpscene::TextObject&);
 
 struct ExpandedSceneObjects {
     Vec<SceneObjectVar> objects;
@@ -307,25 +323,25 @@ struct ExpandedSceneObjects {
 auto ExpandSceneObjects(ref<wpscene::SceneDocument>, mut_ref<fs::VFS>, Option<ref<rstd::json::Map>>)
     -> ExpandedSceneObjects;
 
-void PrepareAnimationBindings(SceneParseContext&, const wpscene::FieldBindings&);
-void PrepareAnimationBindings(SceneParseContext&, const wpscene::ContainerObject&);
-void PrepareAnimationBindings(SceneParseContext&, const wpscene::ImageObject&);
-void PrepareAnimationBindings(SceneParseContext&, const wpscene::ShapeObject&);
-void PrepareAnimationBindings(SceneParseContext&, const wpscene::ParticleObject&);
-void PrepareAnimationBindings(SceneParseContext&, const wpscene::SoundObject&);
-void PrepareAnimationBindings(SceneParseContext&, const wpscene::LightObject&);
-void PrepareAnimationBindings(SceneParseContext&, const wpscene::TextObject&);
-void PrepareAnimationBindings(SceneParseContext&, const wpscene::ModelObject&);
-void PrepareAnimationBindings(SceneParseContext&, const wpscene::CameraObject&);
-auto ResolveAnimationTrack(const SceneParseContext&, const wpscene::FieldBindingSpec&)
+void PrepareAnimationBindings(SceneLayerBuildContext&, const wpscene::FieldBindings&);
+void PrepareAnimationBindings(SceneLayerBuildContext&, const wpscene::ContainerObject&);
+void PrepareAnimationBindings(SceneLayerBuildContext&, const wpscene::ImageObject&);
+void PrepareAnimationBindings(SceneLayerBuildContext&, const wpscene::ShapeObject&);
+void PrepareAnimationBindings(SceneLayerBuildContext&, const wpscene::ParticleObject&);
+void PrepareAnimationBindings(SceneLayerBuildContext&, const wpscene::SoundObject&);
+void PrepareAnimationBindings(SceneLayerBuildContext&, const wpscene::LightObject&);
+void PrepareAnimationBindings(SceneLayerBuildContext&, const wpscene::TextObject&);
+void PrepareAnimationBindings(SceneLayerBuildContext&, const wpscene::ModelObject&);
+void PrepareAnimationBindings(SceneLayerBuildContext&, const wpscene::CameraObject&);
+auto ResolveAnimationTrack(const SceneLayerBuildContext&, const wpscene::FieldBindingSpec&)
     -> SceneAnimationTrack;
-void AssignNodeFieldAnimations(SceneParseContext&, SceneNode&, const wpscene::FieldBindings&);
-void AssignCameraFieldAnimations(SceneParseContext&, SceneNode&, SceneCameraPath&,
+void AssignNodeFieldAnimations(SceneLayerBuildContext&, SceneNode&, const wpscene::FieldBindings&);
+void AssignCameraFieldAnimations(SceneLayerBuildContext&, SceneNode&, SceneCameraPath&,
                                  const wpscene::FieldBindings&);
-void LoadCameraObjectPath(SceneParseContext&, const wpscene::CameraObject&, SceneCameraPath&);
+void LoadCameraObjectPath(SceneLayerBuildContext&, const wpscene::CameraObject&, SceneCameraPath&);
 auto ToSceneAnimationCurve(const wpscene::AnimCurve&) -> SceneAnimationCurve;
 auto ToSceneAnimationTrack(const wpscene::AnimCurve&) -> SceneAnimationTrack;
-void LoadRootCameraPaths(SceneParseContext&, const wpscene::SceneMetadata&);
+void LoadRootCameraPaths(SceneLayerBuildContext&, const wpscene::SceneMetadata&);
 
 struct ProcessOpts {
     enum Kind : unsigned
@@ -342,9 +358,9 @@ struct ProcessOpts {
 };
 
 SceneParseContext
-BuildContext(fs::VFS&, ref<str> scene_id, const wpscene::SceneMetadata&, array<i32, 2> ortho_extent,
-             Option<ref<rstd::json::Map>> user_properties  = None(),
-             Option<rstd::path::PathBuf>  shader_cache_dir = None(),
+BuildContext(Scene&, fs::VFS&, ref<str> scene_id, const wpscene::SceneMetadata&,
+             array<i32, 2> ortho_extent, Option<ref<rstd::json::Map>> user_properties = None(),
+             Option<rstd::path::PathBuf> shader_cache_dir = None(),
              GeometryShaderLimits geometry_limits = {}, bool directional_shadow = false,
              bool geometry_shader_supported = true, Option<ImageReadyCallback> image_ready = None(),
              TextureMemoryOptions texture_memory = {});
@@ -355,7 +371,7 @@ void ProcessContainers(SceneParseContext&, mut_ref<SceneObjectVar[]>);
 void ProcessObjects(SceneParseContext&, mut_ref<SceneObjectVar[]>, wavsen::audio::SoundManager* sm,
                     ProcessOpts opts = {}, SceneLoadBenchRecorderView load_bench = {});
 
-Box<Scene> FinalizeScene(SceneParseContext&);
-void       BuildBloomPostProcess(SceneParseContext&, fs::VFS&, const wpscene::SceneGeneral&);
+void FinalizeScene(SceneParseContext&);
+void BuildBloomPostProcess(SceneParseContext&, fs::VFS&, const wpscene::SceneGeneral&);
 
 } // namespace owe
