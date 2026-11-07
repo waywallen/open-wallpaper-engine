@@ -477,6 +477,41 @@ TEST(LightUniformSource, PublishesWorldDirectionAndType) {
     EXPECT_FLOAT_EQ(cast_shadow[usize()], 1.0f);
 }
 
+TEST(LightUniformSource, HiddenAncestorsDoNotConsumeLightSlots) {
+    auto parent  = Arc<owe::SceneNode>::make();
+    auto hidden  = Arc<owe::SceneNode>::make();
+    auto visible = Arc<owe::SceneNode>::make();
+    parent->AppendChild(hidden.clone());
+    parent->SetVisible(false);
+
+    owe::SceneLight::Desc point_desc;
+    point_desc.color = { 1.0f, 0.0f, 0.0f };
+    owe::SceneLight point(point_desc);
+    point.setNode(hidden.as_ptr());
+    owe::SceneLight::Desc sun_desc;
+    sun_desc.type  = owe::SceneLightType::Directional;
+    sun_desc.color = { 0.0f, 1.0f, 0.0f };
+    owe::SceneLight sun(sun_desc);
+    sun.setNode(visible.as_ptr());
+
+    auto lights = Vec<ref<owe::SceneLight>>::make();
+    for (int index = 0; index < 4; ++index)
+        lights.push(ref<owe::SceneLight>::from_raw_parts(rstd::addressof(point)));
+    lights.push(ref<owe::SceneLight>::from_raw_parts(rstd::addressof(sun)));
+    owe::LightUniformSource source(rstd::move(lights));
+    owe::SceneFrame         frame;
+
+    auto color = scene_test::Capture(frame, source, owe::LightUniformOutput::ColorRadius);
+    EXPECT_FLOAT_EQ(color[usize()], 0.0f);
+    EXPECT_FLOAT_EQ(color[usize(1)], 1.0f);
+    auto direction = scene_test::Capture(frame, source, owe::LightUniformOutput::DirectionType);
+    EXPECT_FLOAT_EQ(direction[usize(3)], static_cast<float>(owe::SceneLightType::Directional));
+    parent->SetVisible(true);
+    color = scene_test::Capture(frame, source, owe::LightUniformOutput::ColorRadius);
+    EXPECT_FLOAT_EQ(color[usize()], 1.0f);
+    EXPECT_FLOAT_EQ(color[usize(1)], 0.0f);
+}
+
 TEST(ShadowUniformSource, UsesAuthoredCascadeExtentAndLightObjectFrame) {
     auto camera =
         Arc<owe::SceneCamera>::make(owe::SceneCamera::MakePerspective(1.0, 0.1, 1000.0, 50.0));

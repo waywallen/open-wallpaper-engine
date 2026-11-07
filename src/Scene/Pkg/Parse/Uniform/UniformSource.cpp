@@ -857,9 +857,19 @@ auto LightUniformSource::Evaluate(ref<dyn<UniformUpdateContext>>,
     array<float, 4>  cast_shadow {};
     for (usize index {}; index < max_lights; ++index)
         directions_type[index * usize(4) + usize(3)] = -1.0f;
-    for (usize index {}; index < rstd::cmp::min(max_lights, m_lights.len()); ++index) {
-        const auto& light = *m_lights[index];
+    usize index {};
+    for (const auto& light_ref : m_lights) {
+        const auto& light = *light_ref;
         if (light.node() == nullptr || ! light.runtimeVisible()) continue;
+        bool visible = true;
+        for (auto* node = light.node(); node; node = node->Parent()) {
+            if (! node->Visible()) {
+                visible = false;
+                break;
+            }
+        }
+        if (! visible) continue;
+        if (index >= max_lights) break;
         auto& node = *light.node();
         node.UpdateTrans();
         const auto transform = node.ModelTrans();
@@ -892,6 +902,7 @@ auto LightUniformSource::Evaluate(ref<dyn<UniformUpdateContext>>,
                     premultiplied[component.to_primitive()];
             }
         }
+        ++index;
     }
     writer.Write(Output::Position, positions);
     writer.Write(Output::ColorLegacy, colors_legacy);
