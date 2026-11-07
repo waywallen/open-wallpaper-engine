@@ -283,6 +283,8 @@ public:
     Option<Eigen::Affine3f> attachmentTransform(usize index, double time) noexcept;
     auto AnimationPlaybacks() const noexcept -> slice<Arc<SceneAnimationPlayback>>;
     auto AnimationPlayback(i32 layer_id) const -> Option<Arc<SceneAnimationPlayback>>;
+    auto AnimationPlaybackAt(usize index) const -> Option<Arc<SceneAnimationPlayback>>;
+    void SetRuntimeAnimationLayer(usize index, Arc<SceneAnimationLayer> state);
     void SetAnimationVisible(i32 layer_id, bool visible);
     auto TextureChannelBlendMap(double time) noexcept -> slice<float>;
 
@@ -300,10 +302,13 @@ private:
         AnimationLayer                       anim_layer;
         const Puppet::Animation*             anim { nullptr };
         Option<Arc<SceneAnimationPlayback>>  playback;
+        Option<Arc<SceneAnimationLayer>>     state;
         bool                                 legacy_absolute_base { false };
         Puppet::Animation::InterpolationInfo interp_info {};
 
         bool IsAdditiveTransform() const { return anim_layer.additive && ! legacy_absolute_base; }
+        bool Visible() const { return state.is_some() ? (*state)->Visible() : anim_layer.visible; }
+        double Blend() const { return state.is_some() ? (*state)->Blend() : anim_layer.blend; }
 
         operator bool() const noexcept { return anim != nullptr; };
     };

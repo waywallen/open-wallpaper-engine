@@ -3318,6 +3318,49 @@ TEST(ScriptAnimation, SeparatesLayerAndCurrentPropertyLookup) {
     EXPECT_EQ(LastScalar(scene_property), 1.0);
 }
 
+TEST(ScriptAnimation, NamedPuppetLayerUsesFieldPlaybackAndSample) {
+    auto root = Arc<owe::SceneNode>::make();
+    auto node = Arc<owe::SceneNode>::make();
+    root->AppendChild(node.clone());
+    auto clip     = Arc<owe::SceneAnimationClip>::make(owe::SceneAnimationClipSpec {
+        .name = String::make("surprise"_str),
+        .fps  = 10.0f,
+        .end  = i32(10),
+    });
+    auto playback = Arc<owe::SceneAnimationPlayback>::make(rstd::move(clip));
+    auto curve    = Arc<owe::SceneAnimationCurve>::make();
+    curve->c0.push({ .frame = i32(), .value = 0.0f });
+    curve->c0.push({ .frame = i32(10), .value = 1.0f });
+    auto layer = Arc<owe::SceneAnimationLayer>::make(String::make("Surprise"_str));
+    layer->RegisterFieldAnimation(String::make("blend"_str),
+                                  { .curve = rstd::move(curve), .playback = playback.clone() });
+    node->RegisterAnimationLayer(layer.clone());
+
+    JsRuntime rt;
+    auto*     script = rt.MakeFieldScript(
+        R"JS(
+            export function update(value) {
+                const animation = thisLayer.getAnimationLayer('Surprise').getAnimation('surprise');
+                animation.pause();
+                return value + (animation.getFrame() === 5 ? 1 : 0);
+            }
+        )JS"_str,
+        "test/puppet_animation_layer"_str,
+        FieldKind::Scalar,
+        owe::MakeObject(),
+        owe::IntoJson(0),
+        ScriptBindingContext::ForAnimationLayer(
+            node.as_ptr(), "blend"_str, layer.clone(), Some(playback.clone())));
+    ASSERT_NE(script, nullptr);
+    rt.SetSceneRoot(root.as_ptr());
+    playback->SetFrame(5.0f);
+    layer->SampleFields();
+    rt.TickAll();
+    EXPECT_FLOAT_EQ(layer->Blend(), 0.5f);
+    EXPECT_DOUBLE_EQ(LastScalar(script), 1.5);
+    EXPECT_FALSE(playback->IsPlaying());
+}
+
 TEST(ScriptAnimation, TimerKeepsCurrentPropertyAnimation) {
     owe::SceneNode layer;
     auto           clip     = Arc<owe::SceneAnimationClip>::make(owe::SceneAnimationClipSpec {

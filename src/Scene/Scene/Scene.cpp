@@ -1181,6 +1181,35 @@ auto SceneAnimationSet::Named(ref<str> name) const -> Option<Arc<SceneAnimationP
     return playback.is_some() ? Some((**playback).clone()) : None();
 }
 
+void SceneAnimationLayer::RegisterFieldAnimation(String field, SceneAnimationTrack track) {
+    (void)m_fields.insert(rstd::move(field), rstd::move(track));
+}
+
+auto SceneAnimationLayer::FieldAnimation(ref<str> field) const -> Option<SceneAnimationTrack> {
+    auto track = m_fields.get(field);
+    return track.is_some() ? Some((**track).Share()) : None();
+}
+
+auto SceneAnimationLayer::NamedAnimation(ref<str> name) const
+    -> Option<Arc<SceneAnimationPlayback>> {
+    Option<Arc<SceneAnimationPlayback>> result;
+    m_fields.iter().for_each([&](auto entry) {
+        auto [field, track] = entry;
+        (void)field;
+        if (track->playback->Name() == name) result = Some(track->playback.clone());
+    });
+    return result;
+}
+
+void SceneAnimationLayer::SampleFields() {
+    if (auto track = FieldAnimation("blend"_str); track.is_some())
+        SetBlend(track->EvaluateScalar(m_blend));
+    if (auto track = FieldAnimation("rate"_str); track.is_some())
+        SetRate(track->EvaluateScalar(m_rate));
+    if (auto track = FieldAnimation("visible"_str); track.is_some())
+        SetVisible(track->EvaluateScalar(m_visible ? 1.0f : 0.0f) >= 0.5f);
+}
+
 void SceneAnimationSet::Advance(SceneNode& owner, double runtime,
                                 Vec<SceneAnimationEventDispatch>& events) {
     Vec<SceneAnimationEvent> passed;
@@ -1258,8 +1287,24 @@ auto SceneNode::NamedAnimation(ref<str> name) const -> Option<Arc<SceneAnimation
     return m_animations.Named(name);
 }
 
+void SceneNode::RegisterAnimationLayer(Arc<SceneAnimationLayer> layer) {
+    m_animation_layers.push(rstd::move(layer));
+}
+
+auto SceneNode::AnimationLayer(ref<str> name) const -> Option<Arc<SceneAnimationLayer>> {
+    Option<Arc<SceneAnimationLayer>> result;
+    for (const auto& layer : m_animation_layers)
+        if (layer->Name() == name) result = Some(layer.clone());
+    return result;
+}
+
+auto SceneNode::AnimationLayer(usize index) const -> Option<Arc<SceneAnimationLayer>> {
+    return index < m_animation_layers.len() ? Some(m_animation_layers[index].clone()) : None();
+}
+
 void SceneNode::TickFieldAnimations(double runtime, Vec<SceneAnimationEventDispatch>& events) {
     m_animations.Advance(*this, runtime, events);
+    for (const auto& layer : m_animation_layers) layer->SampleFields();
     for (const auto& binding : m_field_animation_tracks) {
         switch (binding.target) {
         case SceneNodeAnimationTarget::Origin:

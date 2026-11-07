@@ -1460,6 +1460,40 @@ private:
     Vec<Arc<SceneAnimationPlayback>>             m_players;
 };
 
+class SceneAnimationLayer {
+public:
+    explicit SceneAnimationLayer(String name): m_name(rstd::move(name)) {}
+
+    ref<str> Name() const { return m_name.as_str(); }
+    void     SetPlayback(Option<Arc<SceneAnimationPlayback>> playback) {
+        m_playback = rstd::move(playback);
+    }
+    auto Playback() const -> Option<Arc<SceneAnimationPlayback>> {
+        return m_playback.is_some() ? Some((*m_playback).clone()) : None();
+    }
+    void RegisterFieldAnimation(String field, SceneAnimationTrack track);
+    auto NamedAnimation(ref<str> name) const -> Option<Arc<SceneAnimationPlayback>>;
+    auto FieldAnimation(ref<str> field) const -> Option<SceneAnimationTrack>;
+    void SetBlend(float value) { m_blend = value; }
+    void SetRate(float value) {
+        m_rate = value;
+        if (m_playback.is_some()) (*m_playback)->SetRate(value);
+    }
+    void  SetVisible(bool value) { m_visible = value; }
+    float Blend() const { return m_blend; }
+    float Rate() const { return m_rate; }
+    bool  Visible() const { return m_visible; }
+    void  SampleFields();
+
+private:
+    String                               m_name;
+    Option<Arc<SceneAnimationPlayback>>  m_playback;
+    HashMap<String, SceneAnimationTrack> m_fields;
+    float                                m_blend { 1.0f };
+    float                                m_rate { 1.0f };
+    bool                                 m_visible { true };
+};
+
 struct SceneCameraLookAtKey {
     float           frame { 0.0f };
     Eigen::Vector3f eye { Eigen::Vector3f::Zero() };
@@ -1729,6 +1763,9 @@ public:
     auto FieldAnimation(ref<str> field) const -> Option<Arc<SceneAnimationPlayback>>;
     bool HasFieldAnimationTrack(ref<str> field) const;
     auto NamedAnimation(ref<str> name) const -> Option<Arc<SceneAnimationPlayback>>;
+    void RegisterAnimationLayer(Arc<SceneAnimationLayer> layer);
+    auto AnimationLayer(ref<str> name) const -> Option<Arc<SceneAnimationLayer>>;
+    auto AnimationLayer(usize index) const -> Option<Arc<SceneAnimationLayer>>;
     void TickFieldAnimations(double runtime, Vec<SceneAnimationEventDispatch>& events);
     void SetAlphaSource(SceneNode* node) { m_alpha_source = node; }
 
@@ -1924,6 +1961,7 @@ private:
     SceneNode*                             m_alpha_source { nullptr };
     Vec<SceneNodeFieldAnimation>           m_field_animation_tracks;
     SceneAnimationSet                      m_animations;
+    Vec<Arc<SceneAnimationLayer>>          m_animation_layers;
     float                                  m_brightness { 1.0f };
     bool                                   m_brightness_overridden { false };
     Eigen::Vector3f                        m_color { 1.0f, 1.0f, 1.0f };

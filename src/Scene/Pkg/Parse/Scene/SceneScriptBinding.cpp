@@ -308,32 +308,68 @@ Option<float> ScriptValueAsFloat(const script::ScriptValue& value) {
 void WirePuppetAnimationScripts(SceneParseContext& context, SceneNode* node,
                                 Arc<PuppetLayer>                     puppet,
                                 slice<wpscene::PuppetAnimationLayer> layers) {
-    for (const auto& layer : layers) {
-        auto binding = layer.field_bindings.Get("visible"_str);
-        if (binding.is_none() || (**binding).script.is_none()) continue;
-        auto playback = puppet->AnimationPlayback(i32(layer.playback.layer_id));
-        if (playback.is_none()) continue;
-        const auto& spec    = **binding;
-        const auto& source  = *spec.script;
-        auto&       scripts = EnsureScriptScene(context);
-        auto*       field   = scripts.runtime().MakeFieldScript(
-            source.source.as_str(),
-            utils::genSha1(rstd::as_bytes(source.source.as_str().as_bytes())).as_str(),
-            script::FieldKind::Bool,
-            spec.ScriptProperties(),
-            source.initial_value,
-            script::ScriptBindingContext::ForAnimationLayer(
-                node, spec.field.as_str(), rstd::move(*playback)));
-        if (! field) continue;
-        SetScriptInitializationOrder(context, *field, node);
-        TrackRegisteredAssets(context, field);
-        auto owner = puppet.clone();
-        scripts.AddActuator({ field,
-                              [owner = owner.clone(), id = i32(layer.playback.layer_id)](
-                                  const script::ScriptValue& value) {
-                                  if (auto visible = ScriptValueAsFloat(value); visible.is_some())
-                                      owner->SetAnimationVisible(id, *visible >= 0.5f);
-                              } });
+    if (! node) return;
+    Vec<Arc<SceneAnimationLayer>> states;
+    for (usize index {}; index < layers.len(); ++index) {
+        const auto& layer = layers[index];
+        auto        state = Arc<SceneAnimationLayer>::make(layer.playback.name.clone());
+        state->SetPlayback(puppet->AnimationPlaybackAt(index));
+        state->SetBlend(static_cast<float>(layer.playback.blend));
+        if (layer.playback.rate > 0.0) state->SetRate(static_cast<float>(layer.playback.rate));
+        state->SetVisible(layer.playback.visible);
+        puppet->SetRuntimeAnimationLayer(index, state.clone());
+        auto bindings = BuildAnimationBindingScope(layer.field_bindings);
+        for (const auto& binding : layer.field_bindings.Entries()) {
+            if (binding.animation.is_none()) continue;
+            auto track = bindings.Resolve(binding);
+            if (track.is_none()) continue;
+            node->RegisterAnimation(track->playback.clone());
+            state->RegisterFieldAnimation(binding.field.clone(), rstd::move(*track));
+        }
+        node->RegisterAnimationLayer(state.clone());
+        states.push(rstd::move(state));
+    }
+    for (usize index {}; index < layers.len(); ++index) {
+        const auto& layer = layers[index];
+        auto        state = states[index].clone();
+        for (const auto& spec : layer.field_bindings.Entries()) {
+            if (spec.script.is_none()) continue;
+            if (spec.field != "visible"_str && spec.field != "blend"_str &&
+                spec.field != "rate"_str)
+                continue;
+            auto                                track = state->FieldAnimation(spec.field.as_str());
+            Option<Arc<SceneAnimationPlayback>> playback;
+            if (track.is_some())
+                playback = Some(track->playback.clone());
+            else if (spec.field == "visible"_str)
+                playback = state->Playback();
+            const auto& source  = *spec.script;
+            auto&       scripts = EnsureScriptScene(context);
+            auto*       field   = scripts.runtime().MakeFieldScript(
+                source.source.as_str(),
+                utils::genSha1(rstd::as_bytes(source.source.as_str().as_bytes())).as_str(),
+                spec.field == "visible"_str ? script::FieldKind::Bool : script::FieldKind::Scalar,
+                spec.ScriptProperties(),
+                source.initial_value,
+                script::ScriptBindingContext::ForAnimationLayer(
+                    node, spec.field.as_str(), state.clone(), rstd::move(playback)));
+            if (! field) continue;
+            SetScriptInitializationOrder(context, *field, node);
+            TrackRegisteredAssets(context, field);
+            scripts.AddActuator({ field,
+                                  [state = state.clone(),
+                                   name  = spec.field.clone()](const script::ScriptValue& value) {
+                                      if (auto result = ScriptValueAsFloat(value);
+                                          result.is_some()) {
+                                          if (name == "visible"_str)
+                                              state->SetVisible(*result >= 0.5f);
+                                          else if (name == "blend"_str)
+                                              state->SetBlend(*result);
+                                          else if (name == "rate"_str)
+                                              state->SetRate(*result);
+                                      }
+                                  } });
+        }
     }
 }
 

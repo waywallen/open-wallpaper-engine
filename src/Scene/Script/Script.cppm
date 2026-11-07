@@ -169,6 +169,7 @@ struct ScriptBindingContext {
     ScriptPropertyObjectKind                 object_kind { ScriptPropertyObjectKind::Layer };
     String                                   property;
     Option<Arc<owe::SceneAnimationPlayback>> animation;
+    Option<Arc<owe::SceneAnimationLayer>>    animation_layer;
     Option<owe::SceneImageEffectRef>         effect;
     owe::SceneMaterial*                      material { nullptr };
 
@@ -180,6 +181,8 @@ struct ScriptBindingContext {
                          Option<Arc<owe::SceneAnimationPlayback>> = None()) -> ScriptBindingContext;
     static auto ForAnimationLayer(owe::SceneNode*, ref<str>, Arc<owe::SceneAnimationPlayback>)
         -> ScriptBindingContext;
+    static auto ForAnimationLayer(owe::SceneNode*, ref<str>, Arc<owe::SceneAnimationLayer>,
+                                  Option<Arc<owe::SceneAnimationPlayback>>) -> ScriptBindingContext;
     static auto ForEffect(owe::SceneNode*, owe::SceneImageEffectRef, ref<str>,
                           Option<Arc<owe::SceneAnimationPlayback>> = None())
         -> ScriptBindingContext;

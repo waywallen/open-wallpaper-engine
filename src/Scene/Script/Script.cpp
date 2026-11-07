@@ -642,6 +642,7 @@ struct FieldScript::Impl {
     // cursorEnter / cursorLeave between frames.
     bool                                     cursor_inside { false };
     Option<Arc<owe::SceneAnimationPlayback>> animation;
+    Option<Arc<owe::SceneAnimationLayer>>    animation_layer;
     HashMap<String, Vec<owe::SceneNode*>>    asset_clone_queues;
     HashMap<owe::SceneNode*, String>         clone_asset_keys;
     Vec<String>                              registered_assets;
@@ -662,6 +663,16 @@ auto ScriptBindingContext::ForAnimationLayer(owe::SceneNode* layer, ref<str> pro
     -> ScriptBindingContext {
     auto context        = ForLayer(layer, property, Some(rstd::move(animation)));
     context.object_kind = ScriptPropertyObjectKind::AnimationLayer;
+    return context;
+}
+
+auto ScriptBindingContext::ForAnimationLayer(owe::SceneNode* layer, ref<str> property,
+                                             Arc<owe::SceneAnimationLayer> animation_layer,
+                                             Option<Arc<owe::SceneAnimationPlayback>> animation)
+    -> ScriptBindingContext {
+    auto context            = ForLayer(layer, property, rstd::move(animation));
+    context.object_kind     = ScriptPropertyObjectKind::AnimationLayer;
+    context.animation_layer = Some(rstd::move(animation_layer));
     return context;
 }
 
@@ -4797,6 +4808,173 @@ JSValue WrapAnimationLayer(JSContext* ctx, Option<Arc<owe::SceneAnimationPlaybac
     return object;
 }
 
+static JSClassID s_named_animation_layer_class_id = 0;
+
+void NamedAnimationLayerFinalizer(JSRuntime*, JSValue value) {
+    delete static_cast<Arc<owe::SceneAnimationLayer>*>(
+        JS_GetOpaque(value, s_named_animation_layer_class_id));
+}
+
+owe::SceneAnimationLayer* GetNamedAnimationLayer(JSValueConst value) {
+    auto* layer = static_cast<Arc<owe::SceneAnimationLayer>*>(
+        JS_GetOpaque(value, s_named_animation_layer_class_id));
+    return layer ? layer->as_ptr().as_raw_ptr() : nullptr;
+}
+
+JSValue NamedLayerGetBlend(JSContext* ctx, JSValueConst value) {
+    auto* layer = GetNamedAnimationLayer(value);
+    return layer ? JS_NewFloat64(ctx, layer->Blend()) : JS_UNDEFINED;
+}
+JSValue NamedLayerSetBlend(JSContext* ctx, JSValueConst value, JSValueConst next) {
+    double number;
+    if (auto* layer = GetNamedAnimationLayer(value); layer && JS_ToFloat64(ctx, &number, next) == 0)
+        layer->SetBlend(static_cast<float>(number));
+    return JS_UNDEFINED;
+}
+JSValue NamedLayerGetRate(JSContext* ctx, JSValueConst value) {
+    auto* layer = GetNamedAnimationLayer(value);
+    return layer ? JS_NewFloat64(ctx, layer->Rate()) : JS_UNDEFINED;
+}
+JSValue NamedLayerSetRate(JSContext* ctx, JSValueConst value, JSValueConst next) {
+    double number;
+    if (auto* layer = GetNamedAnimationLayer(value); layer && JS_ToFloat64(ctx, &number, next) == 0)
+        layer->SetRate(static_cast<float>(number));
+    return JS_UNDEFINED;
+}
+JSValue NamedLayerGetVisible(JSContext* ctx, JSValueConst value) {
+    auto* layer = GetNamedAnimationLayer(value);
+    return layer ? JS_NewBool(ctx, layer->Visible()) : JS_UNDEFINED;
+}
+JSValue NamedLayerSetVisible(JSContext* ctx, JSValueConst value, JSValueConst next) {
+    if (auto* layer = GetNamedAnimationLayer(value)) layer->SetVisible(JS_ToBool(ctx, next) > 0);
+    return JS_UNDEFINED;
+}
+JSValue NamedLayerPlay(JSContext*, JSValueConst value, int, JSValueConst*) {
+    if (auto* layer = GetNamedAnimationLayer(value))
+        if (auto playback = layer->Playback(); playback.is_some()) (*playback)->Play();
+    return JS_UNDEFINED;
+}
+JSValue NamedLayerPause(JSContext*, JSValueConst value, int, JSValueConst*) {
+    if (auto* layer = GetNamedAnimationLayer(value))
+        if (auto playback = layer->Playback(); playback.is_some()) (*playback)->Pause();
+    return JS_UNDEFINED;
+}
+JSValue NamedLayerStop(JSContext*, JSValueConst value, int, JSValueConst*) {
+    if (auto* layer = GetNamedAnimationLayer(value))
+        if (auto playback = layer->Playback(); playback.is_some()) (*playback)->Stop();
+    return JS_UNDEFINED;
+}
+JSValue NamedLayerIsPlaying(JSContext* ctx, JSValueConst value, int, JSValueConst*) {
+    if (auto* layer = GetNamedAnimationLayer(value))
+        if (auto playback = layer->Playback(); playback.is_some())
+            return JS_NewBool(ctx, (*playback)->IsPlaying());
+    return JS_NewBool(ctx, false);
+}
+JSValue NamedLayerGetName(JSContext* ctx, JSValueConst value) {
+    auto* layer = GetNamedAnimationLayer(value);
+    if (! layer) return JS_UNDEFINED;
+    auto name = rstd::cppstd::as_string_view(layer->Name());
+    return JS_NewStringLen(ctx, name.data(), name.size());
+}
+JSValue NamedLayerGetFps(JSContext* ctx, JSValueConst value) {
+    if (auto* layer = GetNamedAnimationLayer(value))
+        if (auto playback = layer->Playback(); playback.is_some())
+            return JS_NewFloat64(ctx, (*playback)->Fps());
+    return JS_UNDEFINED;
+}
+JSValue NamedLayerGetFrameCount(JSContext* ctx, JSValueConst value) {
+    if (auto* layer = GetNamedAnimationLayer(value))
+        if (auto playback = layer->Playback(); playback.is_some())
+            return JS_NewInt32(ctx, (*playback)->FrameCount().to_primitive());
+    return JS_UNDEFINED;
+}
+JSValue NamedLayerGetDuration(JSContext* ctx, JSValueConst value) {
+    if (auto* layer = GetNamedAnimationLayer(value))
+        if (auto playback = layer->Playback(); playback.is_some())
+            return JS_NewFloat64(ctx, (*playback)->Duration());
+    return JS_UNDEFINED;
+}
+JSValue NamedLayerGetFrame(JSContext* ctx, JSValueConst value, int, JSValueConst*) {
+    if (auto* layer = GetNamedAnimationLayer(value))
+        if (auto playback = layer->Playback(); playback.is_some())
+            return JS_NewInt32(ctx, (*playback)->Frame().to_primitive());
+    return JS_UNDEFINED;
+}
+JSValue NamedLayerSetFrame(JSContext* ctx, JSValueConst value, int argc, JSValueConst* argv) {
+    double frame;
+    if (argc && JS_ToFloat64(ctx, &frame, argv[0]) == 0)
+        if (auto* layer = GetNamedAnimationLayer(value))
+            if (auto playback = layer->Playback(); playback.is_some())
+                (*playback)->SetFrame(static_cast<float>(frame));
+    return JS_UNDEFINED;
+}
+
+JSValue NamedAnimationLayerGetAnimation(JSContext* ctx, JSValueConst value, int argc,
+                                        JSValueConst* argv) {
+    auto* layer = static_cast<Arc<owe::SceneAnimationLayer>*>(
+        JS_GetOpaque(value, s_named_animation_layer_class_id));
+    if (! layer) return JS_UNDEFINED;
+    if (argc == 0 || JS_IsUndefined(argv[0]))
+        return WrapAnimation(ctx, ActivePropertyAnimation(ctx, argc, argv));
+    const char* name = JS_ToCString(ctx, argv[0]);
+    if (! name) return JS_EXCEPTION;
+    auto animation = (*layer)->NamedAnimation(rstd::cppstd::as_str(name).unwrap());
+    JS_FreeCString(ctx, name);
+    if (animation.is_none()) return JS_UNDEFINED;
+    return WrapAnimation(ctx, rstd::move(animation));
+}
+
+JSValue WrapNamedAnimationLayer(JSContext* ctx, Arc<owe::SceneAnimationLayer> layer) {
+    JSValue object = JS_NewObjectClass(ctx, s_named_animation_layer_class_id);
+    if (JS_IsException(object)) return object;
+    JS_SetOpaque(object, new Arc<owe::SceneAnimationLayer>(rstd::move(layer)));
+    return object;
+}
+
+JSValue NodeGetAnimationLayer(JSContext* ctx, JSValueConst value, int argc, JSValueConst* argv) {
+    auto* node = GetLayerNode(value);
+    if (! node || argc == 0) return JS_UNDEFINED;
+    if (JS_IsNumber(argv[0])) {
+        int32_t index;
+        if (JS_ToInt32(ctx, &index, argv[0]) < 0 || index < 0) return JS_UNDEFINED;
+        auto layer = node->AnimationLayer(usize(index));
+        return layer.is_some() ? WrapNamedAnimationLayer(ctx, rstd::move(*layer)) : JS_UNDEFINED;
+    }
+    const char* name = JS_ToCString(ctx, argv[0]);
+    if (! name) return JS_EXCEPTION;
+    auto layer = node->AnimationLayer(rstd::cppstd::as_str(name).unwrap());
+    JS_FreeCString(ctx, name);
+    if (layer.is_none()) return JS_UNDEFINED;
+    return WrapNamedAnimationLayer(ctx, rstd::move(*layer));
+}
+
+void InitNamedAnimationLayerClass(JSContext* ctx, JSRuntime* rt) {
+    if (s_named_animation_layer_class_id == 0) JS_NewClassID(rt, &s_named_animation_layer_class_id);
+    JSClassDef def {};
+    def.class_name = "WWNamedAnimationLayer";
+    def.finalizer  = NamedAnimationLayerFinalizer;
+    JS_NewClass(rt, s_named_animation_layer_class_id, &def);
+    JSValue                           proto   = JS_NewObject(ctx);
+    static const JSCFunctionListEntry funcs[] = {
+        JS_CFUNC_DEF("getAnimation", 1, NamedAnimationLayerGetAnimation),
+        JS_CFUNC_DEF("play", 0, NamedLayerPlay),
+        JS_CFUNC_DEF("pause", 0, NamedLayerPause),
+        JS_CFUNC_DEF("stop", 0, NamedLayerStop),
+        JS_CFUNC_DEF("isPlaying", 0, NamedLayerIsPlaying),
+        JS_CFUNC_DEF("getFrame", 0, NamedLayerGetFrame),
+        JS_CFUNC_DEF("setFrame", 1, NamedLayerSetFrame),
+        JS_CGETSET_DEF("name", NamedLayerGetName, NodeSetIgnore),
+        JS_CGETSET_DEF("fps", NamedLayerGetFps, NodeSetIgnore),
+        JS_CGETSET_DEF("frameCount", NamedLayerGetFrameCount, NodeSetIgnore),
+        JS_CGETSET_DEF("duration", NamedLayerGetDuration, NodeSetIgnore),
+        JS_CGETSET_DEF("blend", NamedLayerGetBlend, NamedLayerSetBlend),
+        JS_CGETSET_DEF("rate", NamedLayerGetRate, NamedLayerSetRate),
+        JS_CGETSET_DEF("visible", NamedLayerGetVisible, NamedLayerSetVisible),
+    };
+    JS_SetPropertyFunctionList(ctx, proto, funcs, sizeof(funcs) / sizeof(funcs[0]));
+    JS_SetClassProto(ctx, s_named_animation_layer_class_id, proto);
+}
+
 JSValue NodeGetAnimation(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
     auto* handle = GetLayerHandle(this_val);
     if (handle == nullptr) return MakeAnimationStub(ctx);
@@ -4978,7 +5156,7 @@ const JSCFunctionListEntry s_layer_proto_funcs[] = {
     JS_CFUNC_DEF("getVideoTexture", 0, NodeGetVideoTexture),
     JS_CFUNC_DEF("emitParticles", 1, NodeEmitParticles),
     JS_CFUNC_DEF("getAnimation", 1, NodeGetAnimation),
-    JS_CFUNC_DEF("getAnimationLayer", 1, NodeGetAnimation),
+    JS_CFUNC_DEF("getAnimationLayer", 1, NodeGetAnimationLayer),
     JS_CFUNC_DEF("createLayer", 1, NodeSceneCreateLayer),
     JS_CFUNC_DEF("destroyLayer", 1, NodeSceneDestroyLayer),
     JS_CFUNC_DEF("getLayerIndex", 1, NodeSceneGetLayerIndex),
@@ -5204,6 +5382,7 @@ JsRuntime::JsRuntime(): m_impl(Box<Impl>::make()) {
     InitMaterialClass(m_impl->ctx, m_impl->rt);
     InitTexAnimClass(m_impl->ctx, m_impl->rt);
     InitAnimationClass(m_impl->ctx, m_impl->rt);
+    InitNamedAnimationLayerClass(m_impl->ctx, m_impl->rt);
     InitVideoTextureClass(m_impl->ctx, m_impl->rt);
     InstallEngineGlobal(m_impl->ctx);
     // Bootstrap created stub `thisLayer` / `thisScene` on globalThis.
@@ -5433,6 +5612,23 @@ void JsRuntime::TickAll(slice<owe::SceneAnimationEventDispatch> animation_events
     // Node animations run before scripts; cached script returns must not erase their values.
     for (usize index {}; index < script_count; ++index) {
         auto* script = m_impl->scripts[index]->m_impl.get();
+        if (script->alive && script->object_kind == ScriptPropertyObjectKind::AnimationLayer &&
+            script->animation_layer.is_some() &&
+            (*script->animation_layer)->FieldAnimation(script->property.as_str()).is_some()) {
+            auto&   layer   = **script->animation_layer;
+            JSValue current = script->property == "blend"_str  ? JS_NewFloat64(ctx, layer.Blend())
+                              : script->property == "rate"_str ? JS_NewFloat64(ctx, layer.Rate())
+                              : script->property == "visible"_str ? JS_NewBool(ctx, layer.Visible())
+                                                                  : JS_UNDEFINED;
+            auto    value   = CoerceReturn(ctx, current, script->kind);
+            JS_FreeValue(ctx, current);
+            if (! value.is_Empty()) {
+                JS_FreeValue(ctx, script->current_value);
+                script->current_value = ScriptValueToJs(ctx, value);
+                script->last_value    = rstd::move(value);
+            }
+            continue;
+        }
         if (! script->alive || script->node == nullptr ||
             script->object_kind != ScriptPropertyObjectKind::Layer ||
             ! script->node->HasFieldAnimationTrack(script->property.as_str()))
@@ -5760,10 +5956,12 @@ FieldScript* JsRuntime::MakeFieldScript(ref<str> source, ref<str> script_sha,
         wrapped_object = WrapMaterial(ctx, context.material);
         break;
     case ScriptPropertyObjectKind::AnimationLayer:
-        wrapped_object = WrapAnimationLayer(ctx,
-                                            context.animation.is_some()
-                                                ? Some((*context.animation).clone())
-                                                : None<Arc<owe::SceneAnimationPlayback>>());
+        wrapped_object = context.animation_layer.is_some()
+                             ? WrapNamedAnimationLayer(ctx, (*context.animation_layer).clone())
+                             : WrapAnimationLayer(ctx,
+                                                  context.animation.is_some()
+                                                      ? Some((*context.animation).clone())
+                                                      : None<Arc<owe::SceneAnimationPlayback>>());
         break;
     }
     JSValueConst layer_value =
@@ -5818,19 +6016,20 @@ FieldScript* JsRuntime::MakeFieldScript(ref<str> source, ref<str> script_sha,
     m_impl->host.active_animation = None();
 
     // 2. Build the FieldScript handle.
-    auto  fs          = Box<FieldScript>::make();
-    auto* I           = fs->m_impl.get();
-    I->rt             = m_impl.get();
-    I->ctx            = ctx;
-    I->sha            = rstd::move(sha_str);
-    I->kind           = (field_kind_in == FieldKind::Unknown) ? FieldKind::Scalar : field_kind_in;
-    I->module_ns      = ns; // owns one ref now
-    I->node           = node;
-    I->property       = rstd::move(context.property);
-    I->object_kind    = context.object_kind;
-    I->animation      = rstd::move(context.animation);
-    I->wrapped_layer  = wrapped_layer;
-    I->wrapped_object = wrapped_object;
+    auto  fs           = Box<FieldScript>::make();
+    auto* I            = fs->m_impl.get();
+    I->rt              = m_impl.get();
+    I->ctx             = ctx;
+    I->sha             = rstd::move(sha_str);
+    I->kind            = (field_kind_in == FieldKind::Unknown) ? FieldKind::Scalar : field_kind_in;
+    I->module_ns       = ns; // owns one ref now
+    I->node            = node;
+    I->property        = rstd::move(context.property);
+    I->object_kind     = context.object_kind;
+    I->animation       = rstd::move(context.animation);
+    I->animation_layer = rstd::move(context.animation_layer);
+    I->wrapped_layer   = wrapped_layer;
+    I->wrapped_object  = wrapped_object;
     I->registered_assets = rstd::move(m_impl->host.pending_registered_assets);
     JSValue workshop_id  = JS_GetPropertyStr(ctx, ns, "__workshopId");
     if (JS_IsString(workshop_id)) {

@@ -83,6 +83,22 @@ TEST(Puppet, VisibilityChangesKeepTheSamePlayback) {
     EXPECT_FLOAT_EQ((*playback)->Sample().current, 0.5f);
 }
 
+TEST(Puppet, RuntimeLayerStateDrivesBoneBlendAndVisibility) {
+    auto                             puppet = MakeReplacementPuppet();
+    owe::PuppetLayer                 layer(puppet.clone());
+    owe::PuppetLayer::AnimationLayer authored { .id = 1, .visible = true };
+    layer.prepared(slice<owe::PuppetLayer::AnimationLayer>::from_raw_parts(&authored, usize(1)));
+    auto state = Arc<owe::SceneAnimationLayer>::make(String::make("test"_str));
+    state->SetPlayback(layer.AnimationPlaybackAt(usize()));
+    layer.SetRuntimeAnimationLayer(usize(), state.clone());
+    state->SetBlend(0.5f);
+    EXPECT_FLOAT_EQ(layer.boneTransform(1, 0.0)->translation().x(), 7.0f);
+    state->SetBlend(1.0f);
+    EXPECT_FLOAT_EQ(layer.boneTransform(1, 0.0)->translation().x(), 10.0f);
+    state->SetVisible(false);
+    EXPECT_FLOAT_EQ(layer.boneTransform(1, 0.0)->translation().x(), 4.0f);
+}
+
 TEST(Puppet, ReplacementLayersBlendSequentiallyFromReference) {
     auto puppet = MakeReplacementPuppet();
     for (bool reverse : { false, true }) {
