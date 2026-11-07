@@ -15,6 +15,11 @@ update = "@OWE_WAYWALLEN_PLUGIN_UPDATE_URL@"
 entry = "main.lua"
 entry_version = 4
 
+[plugin.probe]
+entry = "probe.lua"
+version = 1
+types = ["scene"]
+
 [plugin.i18n]
 directory = "i18n"
 
