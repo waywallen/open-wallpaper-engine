@@ -746,6 +746,12 @@ TEST(SceneRenderGraph, PreservesLinkedSourceBelowVisibilityHiddenParent) {
 
     auto parent          = Arc<owe::SceneNode>::make();
     parent->ID()         = rstd::i32(7);
+    auto parent_mesh     = Arc<owe::SceneMesh>::make();
+    auto parent_material = GraphMaterial();
+    parent_material.name = "hidden-parent"_Str;
+    parent_mesh->AddMaterial(std::move(parent_material));
+    parent_mesh->Submeshes().push(owe::SceneMesh::Submesh {});
+    parent->AddMesh(std::move(parent_mesh));
     auto source          = Arc<owe::SceneNode>::make();
     source->ID()         = rstd::i32(8);
     auto source_mesh     = Arc<owe::SceneMesh>::make();
@@ -754,6 +760,14 @@ TEST(SceneRenderGraph, PreservesLinkedSourceBelowVisibilityHiddenParent) {
     source_mesh->AddMaterial(std::move(source_material));
     source_mesh->Submeshes().push(owe::SceneMesh::Submesh {});
     source->AddMesh(std::move(source_mesh));
+    auto source_child          = Arc<owe::SceneNode>::make();
+    auto source_child_mesh     = Arc<owe::SceneMesh>::make();
+    auto source_child_material = GraphMaterial();
+    source_child_material.name = "source-child"_Str;
+    source_child_mesh->AddMaterial(std::move(source_child_material));
+    source_child_mesh->Submeshes().push(owe::SceneMesh::Submesh {});
+    source_child->AddMesh(std::move(source_child_mesh));
+    source->AppendChild(source_child.clone());
     parent->AppendChild(source.clone());
     scene.RootMut()->AppendChild(parent.clone());
     scene.RegisterNode(*parent, Some(owe::WallpaperLayerId { .value = rstd::i32(7) }));
@@ -778,7 +792,26 @@ TEST(SceneRenderGraph, PreservesLinkedSourceBelowVisibilityHiddenParent) {
     ASSERT_TRUE(graph.is_ok());
     auto ordered = graph->graph.compile();
     ASSERT_TRUE(ordered.is_ok());
-    EXPECT_EQ(graph->draws.len(), rstd::usize(2));
+    EXPECT_EQ(graph->draws.len(), rstd::usize(3));
+    auto plan                   = graph->textures.resourcePlan(graph->graph).unwrap();
+    bool child_uses_link_target = false;
+    for (auto handle : graph->graph.inspect().order) {
+        auto& pass = graph->graph.passes()[usize(handle)];
+        if (pass.name != "source-child"_str) continue;
+        auto draw = graph->draw(pass.id);
+        ASSERT_TRUE(draw.is_some());
+        for (auto use : (*draw)->resourceUses().textures)
+            for (const auto& texture : plan.textures)
+                if (texture.handle == use && texture.request().name == "_rt_link_8"_str)
+                    child_uses_link_target = true;
+    }
+    EXPECT_TRUE(child_uses_link_target);
+    EXPECT_TRUE(scene.SetNodeVisible(*parent, true));
+    auto visible_snapshot = owe::ExtractRenderSceneSnapshot(scene);
+    auto visible_graph    = owe::BuildSceneRenderState(scene, visible_snapshot);
+    ASSERT_TRUE(visible_graph.is_ok());
+    EXPECT_TRUE(visible_graph->graph.compile().is_ok());
+    EXPECT_EQ(visible_graph->draws.len(), rstd::usize(4));
 }
 
 TEST(VulkanRenderDiagnostics, EmptyBeforeProgramBuild) {

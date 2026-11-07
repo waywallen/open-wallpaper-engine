@@ -543,7 +543,8 @@ static bool CollectEmitSkipSubtrees(SceneNode* node, Scene& scene, const BTreeSe
         (! node->Visible() || (layer_id >= i32() && scene.IsLayerVisibilityElidable(
                                                         WallpaperLayerId { .value = layer_id }))) &&
         ! linked;
-    const bool visibility_hidden = visibility_hidden_ancestor || visibility_hidden_self;
+    const bool visibility_hidden =
+        linked ? false : visibility_hidden_ancestor || visibility_hidden_self;
 
     bool all_children_skippable = true;
     for (auto& c : node->GetChildren()) {
@@ -588,7 +589,7 @@ static void ConfigureNestedOutput(SceneNode* node, ref<str> output, ref<str> inh
 
 static void EmitSceneNode(SceneNode* node, ref<str> inherited_output, ref<str> inherited_camera,
                           ExtraInfo& extra, const HashSet<const SceneNode*>& emit_skip_subtrees,
-                          const BTreeSet<i32>& linked_ids) {
+                          const BTreeSet<i32>& linked_ids, bool hidden_ancestor = false) {
     if (node == nullptr || emit_skip_subtrees.contains(node)) return;
 
     auto&      scene       = *extra.scene;
@@ -596,9 +597,11 @@ static void EmitSceneNode(SceneNode* node, ref<str> inherited_output, ref<str> i
     const auto link_source = scene.ResolveLayerLinkSource(*node);
     const i32 layer_id = link_source.is_some() ? link_source->value
                                                : (wallpaper.is_some() ? wallpaper->value : i32(-1));
-    const bool elidable = scene.IsLayerElidable(WallpaperLayerId { .value = layer_id });
-    const bool linked   = link_source.is_some() && linked_ids.contains(link_source->value);
-    bool       emit     = true;
+    const bool elidable     = scene.IsLayerElidable(WallpaperLayerId { .value = layer_id });
+    const bool linked       = link_source.is_some() && linked_ids.contains(link_source->value);
+    const bool hidden       = hidden_ancestor || (! node->Visible() && ! linked);
+    const bool child_hidden = linked ? false : hidden;
+    bool       emit         = ! hidden || linked;
 
     ref<str> node_output = inherited_output;
 
@@ -632,8 +635,13 @@ static void EmitSceneNode(SceneNode* node, ref<str> inherited_output, ref<str> i
         const ref<str> child_output =
             effect_layer == nullptr ? node_output : effect_layer->CompositeTarget();
         for (auto& child : node->GetChildren()) {
-            EmitSceneNode(
-                child.as_ptr(), child_output, *group_camera, extra, emit_skip_subtrees, linked_ids);
+            EmitSceneNode(child.as_ptr(),
+                          child_output,
+                          *group_camera,
+                          extra,
+                          emit_skip_subtrees,
+                          linked_ids,
+                          child_hidden);
         }
         if (effect_layer != nullptr && effect_layer->HasRenderEffects()) {
             LoadGraphEffects(effect_layer, extra);
@@ -647,11 +655,12 @@ static void EmitSceneNode(SceneNode* node, ref<str> inherited_output, ref<str> i
     }
     for (auto& child : node->GetChildren()) {
         EmitSceneNode(child.as_ptr(),
-                      inherited_output,
+                      linked && elidable && emit ? node_output : inherited_output,
                       inherited_camera,
                       extra,
                       emit_skip_subtrees,
-                      linked_ids);
+                      linked_ids,
+                      child_hidden);
     }
 }
 
