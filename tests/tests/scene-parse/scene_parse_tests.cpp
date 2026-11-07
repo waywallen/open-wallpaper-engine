@@ -25,6 +25,7 @@ import wescene.pkg.parse;
 import wescene.pkg_fs;
 import wescene.pkg.scene_obj;
 import wescene.scene;
+import wescene.script;
 import wescene.spec_names;
 import wescene.testing.scene_parse_probe;
 import wescene.types;
@@ -374,6 +375,39 @@ TEST(SceneObjectExpansion, UserVisibilityRestoresImageDescendants) {
         EXPECT_FALSE(scene.IsLayerVisibilityElidable({ .value = rstd::i32(2) }));
         EXPECT_TRUE(scene.IsLayerVisibilityElidable({ .value = rstd::i32(3) }));
     }
+}
+
+TEST(SceneGeneralScript, FovUpdatesPerspectiveCameraAndSharedState) {
+    auto document = owe::wpscene::ParseSceneDocumentJson(R"JSON({
+        "camera": {"eye":"0 0 5", "center":"0 0 0", "up":"0 1 0"},
+        "general": {"orthogonalprojection": null,
+          "fov": {"value": 50, "script": "shared.zooming = 0; export function update(value) { return value + 5; }"}},
+        "objects": [{"id":1, "name":"Interface Root",
+          "scale": {"value":"1 1 1", "script":"export function update(value) { return shared.zooming === 0 ? 1 : 0.4; }"}}]
+    })JSON"_str,
+                                                         owe::wpscene::kSceneVersionUnknown);
+    ASSERT_TRUE(document.is_some());
+    auto assets = owe::fs::make_physical_fs(
+        owe::fs::Path(rstd::cppstd::as_str(WAYWALLEN_ASSETS_DIR).unwrap()));
+    ASSERT_TRUE(assets.is_ok());
+    owe::fs::VFS vfs;
+    ASSERT_TRUE(vfs.mount("/assets"_str, rstd::move(assets).unwrap_unchecked()).is_ok());
+    wavsen::audio::SoundManager sound;
+    owe::SceneParser            parser;
+    auto                        parsed = parser.Parse(
+        "general-fov"_str,
+        rstd::ref<owe::wpscene::SceneDocument>::from_raw_parts(rstd::addressof(*document)),
+        rstd::mut_ref<owe::fs::VFS>::from_raw_parts(rstd::addressof(vfs)),
+        rstd::mut_ref<wavsen::audio::SoundManager>::from_raw_parts(rstd::addressof(sound)));
+    ASSERT_TRUE(parsed.is_ok());
+    auto  scene  = rstd::move(parsed).unwrap();
+    auto  camera = scene.scene->CameraHandle("global_perspective"_str);
+    auto* node   = scene.scene->RootMut()->FindByName("Interface Root"_str);
+    ASSERT_TRUE(camera.is_some());
+    ASSERT_NE(node, nullptr);
+    owe::script::TickSceneScripts(*scene.scene, owe::script::FrameInputs {});
+    EXPECT_DOUBLE_EQ((**camera).Fov(), 55.0);
+    EXPECT_FLOAT_EQ(node->Scale().x(), 1.0f);
 }
 
 TEST(SceneShaderReflection, InitialMaterialsRetainSharedReflectionAfterFinalize) {

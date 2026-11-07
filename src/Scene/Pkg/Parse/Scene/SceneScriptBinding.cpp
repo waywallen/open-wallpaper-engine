@@ -601,8 +601,8 @@ void WireGeneralFieldScripts(SceneParseContext& context, const wpscene::FieldBin
             kind = script::FieldKind::Bool;
         } else if (field == "ambientcolor"_str || field == "skylightcolor"_str) {
             kind = script::FieldKind::Vec3;
-        } else if (field != "camerashakeamplitude"_str && field != "camerashakespeed"_str &&
-                   field != "camerashakeroughness"_str) {
+        } else if (field != "fov"_str && field != "camerashakeamplitude"_str &&
+                   field != "camerashakespeed"_str && field != "camerashakeroughness"_str) {
             continue;
         }
 
@@ -624,12 +624,13 @@ void WireGeneralFieldScripts(SceneParseContext& context, const wpscene::FieldBin
         if (! fs) continue;
         TrackRegisteredAssets(context, fs);
 
-        auto state      = context.uniform_state.clone();
-        auto field_name = binding.field.clone();
+        auto  state      = context.uniform_state.clone();
+        auto  field_name = binding.field.clone();
+        auto* scene      = context.scene.get();
         ss.AddActuator(
             { fs,
-              [state      = state.clone(),
-               field_name = rstd::move(field_name)](const script::ScriptValue& value) mutable {
+              [state = state.clone(), scene, field_name = rstd::move(field_name)](
+                  const script::ScriptValue& value) mutable {
                   if (field_name == "ambientcolor"_str || field_name == "skylightcolor"_str) {
                       const auto current = field_name == "ambientcolor"_str
                                                ? state->AmbientColor()
@@ -645,6 +646,16 @@ void WireGeneralFieldScripts(SceneParseContext& context, const wpscene::FieldBin
                   }
                   auto scalar = ScriptValueAsFloat(value);
                   if (! scalar) return;
+                  if (field_name == "fov"_str) {
+                      auto camera = scene->CameraHandle("global_perspective"_str);
+                      if (camera.is_some() && f32(*scalar).is_finite() && *scalar > 0.0f &&
+                          *scalar < 180.0f && (**camera).Fov() != *scalar) {
+                          (**camera).SetFov(*scalar);
+                          (**camera).Update();
+                          scene->UpdateLinkedCamera("global_perspective"_str);
+                      }
+                      return;
+                  }
                   auto& shake = state->CameraShake();
                   if (field_name == "camerashake"_str)
                       shake.enable = *scalar >= 0.5f;
