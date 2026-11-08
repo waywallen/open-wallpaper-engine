@@ -19,6 +19,7 @@ dependencies:
   - git
   - make
   - nasm
+  - libjxl
 
   # Renderer and bridge dependencies.
   - libvulkan-headers

@@ -1,3 +1,29 @@
+<release version="0.3.3" date="2026-11-08">
+  <description>
+    <p>Added:</p>
+    <ul>
+      <li>SceneScript bone manipulation, matrix math and text tracking. #159 by @Shnimlz</li>
+      <li>Dynamic creation of scene image, text, particle and sound layers.</li>
+      <li>Workshop scene resolution probing and excluded filter tags.</li>
+    </ul>
+    <p>Fixes:</p>
+    <ul>
+      <li>Animated texture slots with different mip counts. #179 by @DeiTYmon</li>
+      <li>Skip the Steam compatibility symlink during library auto-detection. #183 by @wehrwolfmann</li>
+      <li>Camera path visibility, scripted field of view and perspective zoom during render-graph rebuilds.</li>
+      <li>Perspective depth draw ordering and inherited layer visibility.</li>
+      <li>Puppet animation layer scripts and text alpha animation.</li>
+      <li>Shader macro redefinitions, varying declarations and inactive combo expressions.</li>
+      <li>SceneScript general settings events and two-component layer scales.</li>
+    </ul>
+    <p>Improved:</p>
+    <ul>
+      <li>Batch Workshop author profile requests.</li>
+      <li>Scene error ownership and diagnostics.</li>
+    </ul>
+  </description>
+</release>
+
 <release version="0.3.2" date="2026-10-29">
   <description>
     <p>Added:</p>
