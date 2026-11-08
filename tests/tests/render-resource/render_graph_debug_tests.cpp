@@ -398,6 +398,114 @@ TEST(RenderGraphResources, PreservesFrameBoundaryTextureVersions) {
     }
 }
 
+TEST(SceneRenderGraph, GroupsPerspectiveDepthDrawsWithoutCrossingOtherDraws) {
+    owe::Scene scene;
+    scene.RegisterRenderTarget(
+        "_rt_default"_Str,
+        owe::SceneRenderTarget { .width = i32(1280), .height = i32(720), .withDepth = true });
+    scene.RegisterCamera("perspective"_Str,
+                         Arc<owe::SceneCamera>::make(
+                             owe::SceneCamera::MakePerspective(16.0 / 9.0, 0.1, 1000.0, 50.0)));
+    ASSERT_TRUE(scene.SetActiveCamera("perspective"_str));
+    auto add = [&](ref<str> name, bool depth_test, bool depth_write) {
+        auto node     = Arc<owe::SceneNode>::make();
+        auto mesh     = Arc<owe::SceneMesh>::make();
+        auto material = GraphMaterial();
+        material.name = String::make(name);
+        material.SetBlendMode(depth_write ? owe::BlendMode::Disable : owe::BlendMode::Translucent);
+        material.SetDepthTest(depth_test);
+        material.SetDepthWrite(depth_write);
+        mesh->AddMaterial(rstd::move(material));
+        mesh->Submeshes().push(owe::SceneMesh::Submesh {});
+        node->AddMesh(rstd::move(mesh));
+        scene.RootMut()->AppendChild(rstd::move(node));
+    };
+    add("opaque-first"_str, true, true);
+    add("transparent-first"_str, true, false);
+    add("opaque-second"_str, true, true);
+    add("transparent-second"_str, true, false);
+    add("overlay"_str, false, false);
+    add("opaque-after-overlay"_str, true, true);
+
+    auto graph = owe::BuildSceneRenderState(scene).unwrap();
+    ASSERT_TRUE(graph.graph.compile().is_ok());
+    auto        order = graph.graph.inspect().order.clone();
+    Vec<String> names;
+    for (auto id : order) {
+        auto* pass = &graph.graph.passes()[usize(id)];
+        if (! pass->name.is_empty() && pass->name != "frame/clear"_str)
+            names.push(pass->name.clone());
+    }
+    ASSERT_EQ(names.len(), usize(6));
+    EXPECT_EQ(names[usize(0)], "opaque-first"_str);
+    EXPECT_EQ(names[usize(1)], "opaque-second"_str);
+    EXPECT_EQ(names[usize(2)], "transparent-first"_str);
+    EXPECT_EQ(names[usize(3)], "transparent-second"_str);
+    EXPECT_EQ(names[usize(4)], "overlay"_str);
+    EXPECT_EQ(names[usize(5)], "opaque-after-overlay"_str);
+
+    scene.RegisterCamera(
+        "orthographic"_Str,
+        Arc<owe::SceneCamera>::make(owe::SceneCamera::MakeOrthographic(1280, 720, -1, 1)));
+    (void)scene.ConsumeRenderGraphDirty();
+    ASSERT_TRUE(scene.SetActiveCamera("orthographic"_str));
+    EXPECT_TRUE(scene.ConsumeRenderGraphDirty());
+    auto ortho_graph = owe::BuildSceneRenderState(scene).unwrap();
+    ASSERT_TRUE(ortho_graph.graph.compile().is_ok());
+    names.clear();
+    for (auto id : ortho_graph.graph.inspect().order) {
+        auto* pass = &ortho_graph.graph.passes()[usize(id)];
+        if (! pass->name.is_empty() && pass->name != "frame/clear"_str)
+            names.push(pass->name.clone());
+    }
+    ASSERT_EQ(names.len(), usize(6));
+    EXPECT_EQ(names[usize(0)], "opaque-first"_str);
+    EXPECT_EQ(names[usize(1)], "transparent-first"_str);
+    EXPECT_EQ(names[usize(2)], "opaque-second"_str);
+    EXPECT_EQ(names[usize(3)], "transparent-second"_str);
+}
+
+TEST(SceneRenderGraph, DoesNotReorderAcrossFramebufferSampling) {
+    owe::Scene scene;
+    scene.RegisterRenderTarget(
+        "_rt_default"_Str,
+        owe::SceneRenderTarget { .width = i32(1280), .height = i32(720), .withDepth = true });
+    scene.RegisterCamera("perspective"_Str,
+                         Arc<owe::SceneCamera>::make(
+                             owe::SceneCamera::MakePerspective(16.0 / 9.0, 0.1, 1000.0, 50.0)));
+    ASSERT_TRUE(scene.SetActiveCamera("perspective"_str));
+    auto add = [&](ref<str> name, bool writes, bool samples_framebuffer) {
+        auto node     = Arc<owe::SceneNode>::make();
+        auto mesh     = Arc<owe::SceneMesh>::make();
+        auto material = GraphMaterial(samples_framebuffer ? usize(1) : usize());
+        material.name = String::make(name);
+        material.SetDepthTest(true);
+        material.SetDepthWrite(writes);
+        material.SetBlendMode(writes ? owe::BlendMode::Disable : owe::BlendMode::Translucent);
+        if (samples_framebuffer) material.textures.push("_rt_default"_Str);
+        mesh->AddMaterial(rstd::move(material));
+        mesh->Submeshes().push(owe::SceneMesh::Submesh {});
+        node->AddMesh(rstd::move(mesh));
+        scene.RootMut()->AppendChild(rstd::move(node));
+    };
+    add("transparent-before"_str, false, false);
+    add("framebuffer-reader"_str, false, true);
+    add("opaque-after"_str, true, false);
+    auto graph = owe::BuildSceneRenderState(scene).unwrap();
+    ASSERT_TRUE(graph.graph.compile().is_ok());
+    Vec<String> names;
+    for (auto id : graph.graph.inspect().order) {
+        auto* pass = &graph.graph.passes()[usize(id)];
+        if (pass->name == "transparent-before"_str || pass->name == "framebuffer-reader"_str ||
+            pass->name == "opaque-after"_str)
+            names.push(pass->name.clone());
+    }
+    ASSERT_EQ(names.len(), usize(3));
+    EXPECT_EQ(names[usize(0)], "transparent-before"_str);
+    EXPECT_EQ(names[usize(1)], "framebuffer-reader"_str);
+    EXPECT_EQ(names[usize(2)], "opaque-after"_str);
+}
+
 TEST(SceneRenderGraph, OrdersShadowAtlasWriterBeforeReceiver) {
     owe::Scene scene;
     scene.RegisterRenderTarget(String::make("_rt_default"_str),

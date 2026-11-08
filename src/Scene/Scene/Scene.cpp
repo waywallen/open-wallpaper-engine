@@ -2175,8 +2175,13 @@ auto Scene::CameraHandle(ref<str> name) const -> Option<Arc<SceneCamera>> {
 }
 
 bool Scene::SetActiveCamera(ref<str> name) {
-    if (m_camera_registry->Camera(name).is_none()) return false;
-    auto active = m_camera_registry->ActiveName();
+    auto next_camera = m_camera_registry->Camera(name);
+    if (next_camera.is_none()) return false;
+    auto active         = m_camera_registry->ActiveName();
+    auto current_camera = ActiveCamera();
+    if (current_camera.is_none() ||
+        (**current_camera).IsPerspective() != (**next_camera).IsPerspective())
+        m_render_graph_dirty = true;
     if (active.is_some() && *active != name) SetActiveCameraViewOffset(Eigen::Vector3d::Zero());
     m_camera_registry->SetActive(name);
     return true;

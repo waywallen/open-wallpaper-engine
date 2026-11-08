@@ -800,11 +800,15 @@ public:
         return m_pipeline.Snapshot();
     }
     bool SetPipeline(vrento::MaterialPipelineDesc value) {
-        const bool attachment_changed =
-            Pipeline().UsesDepthAttachment() != value.UsesDepthAttachment();
+        const bool graph_changed =
+            Pipeline().UsesDepthAttachment() != value.UsesDepthAttachment() ||
+            Pipeline().depth_test != value.depth_test ||
+            Pipeline().depth_write != value.depth_write ||
+            ((Pipeline().depth_test || value.depth_test) &&
+             Pipeline().blend_mode != value.blend_mode);
         if (! m_pipeline.Set(rstd::move(value))) return false;
         SetPipelineDirty();
-        if (attachment_changed) SetGraphDirty();
+        if (graph_changed) SetGraphDirty();
         return true;
     }
     bool SetShaderValue(ref<str> uniform_name, const ShaderValue& value) {
@@ -2122,7 +2126,11 @@ public:
         m_final_cull_mode   = material.Pipeline().cull_mode;
         m_resolved          = false;
     }
-    void SetFinalTarget(ref<str> t) {
+    BlendMode FinalBlend() const { return m_final_blend; }
+    bool      FinalDepthTest() const { return m_final_depth_test; }
+    bool      FinalDepthWrite() const { return m_final_depth_write; }
+    ref<str>  FinalCamera() const { return m_final_camera.as_str(); }
+    void      SetFinalTarget(ref<str> t) {
         m_final_target = rstd::into(t);
         m_resolved     = false;
     }

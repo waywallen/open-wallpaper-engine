@@ -2418,15 +2418,20 @@ TEST(SceneMaterialPipeline, MoveAssignmentInvalidatesExistingPipelineRevision) {
     EXPECT_EQ(target.DirtyFlags(), owe::SceneMaterialDirtyPipeline | owe::SceneMaterialDirtyGraph);
 }
 
-TEST(SceneMaterialPipeline, DepthAttachmentTransitionsInvalidateGraph) {
+TEST(SceneMaterialPipeline, DepthStateTransitionsInvalidateGraph) {
     owe::SceneMaterial material;
     ASSERT_TRUE(material.SetDepthTest(true));
     EXPECT_EQ(material.ConsumeDirtyFlags(),
               owe::SceneMaterialDirtyPipeline | owe::SceneMaterialDirtyGraph);
     ASSERT_TRUE(material.SetDepthWrite(true));
-    EXPECT_EQ(material.ConsumeDirtyFlags(), owe::SceneMaterialDirtyPipeline);
+    EXPECT_EQ(material.ConsumeDirtyFlags(),
+              owe::SceneMaterialDirtyPipeline | owe::SceneMaterialDirtyGraph);
+    ASSERT_TRUE(material.SetBlendMode(owe::BlendMode::Additive));
+    EXPECT_EQ(material.ConsumeDirtyFlags(),
+              owe::SceneMaterialDirtyPipeline | owe::SceneMaterialDirtyGraph);
     ASSERT_TRUE(material.SetDepthTest(false));
-    EXPECT_EQ(material.ConsumeDirtyFlags(), owe::SceneMaterialDirtyPipeline);
+    EXPECT_EQ(material.ConsumeDirtyFlags(),
+              owe::SceneMaterialDirtyPipeline | owe::SceneMaterialDirtyGraph);
     ASSERT_TRUE(material.SetDepthWrite(false));
     EXPECT_EQ(material.ConsumeDirtyFlags(),
               owe::SceneMaterialDirtyPipeline | owe::SceneMaterialDirtyGraph);
