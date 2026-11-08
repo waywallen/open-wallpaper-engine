@@ -1174,6 +1174,12 @@ struct SceneCameraTransforms {
     Eigen::Vector3d up { Eigen::Vector3d::UnitY() };
 };
 
+enum class SceneCameraFovPolicy
+{
+    Authored,
+    OrthographicProjection,
+};
+
 class SceneCamera {
 public:
     static auto MakeOrthographic(double width, double height, double near, double far)
@@ -1192,13 +1198,14 @@ public:
     void AttatchNode(SceneNode*);
     void AttachOwnedNode(Arc<SceneNode>);
 
-    bool   IsPerspective() const { return m_perspective; }
-    double Aspect() const { return m_aspect; }
-    double Width() const { return m_width; }
-    double Height() const { return m_height; }
-    double NearClip() const { return m_nearClip; }
-    double FarClip() const { return m_farClip; }
-    double Fov() const { return m_fov; }
+    bool                 IsPerspective() const { return m_perspective; }
+    double               Aspect() const { return m_aspect; }
+    double               Width() const { return m_width; }
+    double               Height() const { return m_height; }
+    double               NearClip() const { return m_nearClip; }
+    double               FarClip() const { return m_farClip; }
+    double               Fov() const { return m_fov; }
+    SceneCameraFovPolicy FovPolicy() const { return m_fov_policy; }
 
     void SetWidth(double value) {
         m_width  = value;
@@ -1210,6 +1217,7 @@ public:
     }
     void SetAspect(double aspect) { m_aspect = aspect; }
     void SetFov(double value) { m_fov = value; }
+    void SetFovPolicy(SceneCameraFovPolicy policy) { m_fov_policy = policy; }
 
     // Explicit eye/center/up view, used by perspective scenes (general
     // isOrtho==false) whose camera is given in WE world units rather than the
@@ -1260,6 +1268,7 @@ public:
         m_nearClip    = cam.m_nearClip;
         m_farClip     = cam.m_farClip;
         m_fov         = cam.m_fov;
+        m_fov_policy  = cam.m_fov_policy;
         m_perspective = cam.m_perspective;
         m_lookat      = cam.m_lookat;
         m_eye         = cam.m_eye;
@@ -1288,13 +1297,14 @@ private:
     Eigen::Matrix4d CalculateReflectionViewProjectionMatrix();
     Eigen::Matrix4d ProjectionMatrix() const;
 
-    double m_width { 1.0f };
-    double m_height { 1.0f };
-    double m_aspect { 16.0f / 9.0f };
-    double m_nearClip { 0.01f };
-    double m_farClip { 1000.0f };
-    double m_fov { 45.0f };
-    bool   m_perspective { false };
+    double               m_width { 1.0f };
+    double               m_height { 1.0f };
+    double               m_aspect { 16.0f / 9.0f };
+    double               m_nearClip { 0.01f };
+    double               m_farClip { 1000.0f };
+    double               m_fov { 45.0f };
+    SceneCameraFovPolicy m_fov_policy { SceneCameraFovPolicy::Authored };
+    bool                 m_perspective { false };
 
     bool            m_lookat { false };
     Eigen::Vector3d m_eye { Eigen::Vector3d::Zero() };
@@ -3113,6 +3123,7 @@ public:
     auto CameraRegistry() const -> Arc<SceneCameraRegistry> { return m_camera_registry.clone(); }
     bool SetActiveCamera(ref<str> name);
     auto ActiveCamera() const -> Option<ref<SceneCamera>>;
+    void UpdateCameraFillMode(u32 width, u32 height, FillMode mode);
     auto ActiveCameraHandle() const -> Option<Arc<SceneCamera>>;
     auto ActiveCameraTransforms() const -> Option<SceneCameraTransforms>;
     bool SetActiveCameraTransforms(const SceneCameraTransforms& transforms);

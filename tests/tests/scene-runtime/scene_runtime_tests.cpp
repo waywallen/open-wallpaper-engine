@@ -1362,6 +1362,37 @@ TEST(SceneCameraProjection, AppliesViewportScaleToOrthographicExtent) {
     EXPECT_DOUBLE_EQ(extent[usize(1)], 1080.0);
 }
 
+TEST(SceneCameraProjection, FillModePreservesAuthoredFovAcrossCameraAttachment) {
+    owe::Scene scene;
+    scene.SetOrtho({ i32(1920), i32(1080) });
+    auto global =
+        Arc<owe::SceneCamera>::make(owe::SceneCamera::MakeOrthographic(1920, 1080, -1.0, 1.0));
+    auto camera = Arc<owe::SceneCamera>::make(
+        owe::SceneCamera::MakePerspective(16.0 / 9.0, 0.01, 10000.0, 50.0));
+    auto node = Arc<owe::SceneNode>::make();
+    scene.RegisterCamera("global"_Str, global.clone());
+    scene.RegisterCamera("global_perspective"_Str, camera.clone());
+    camera->SetLookAt({ 0, 0, 6 }, { 0, 0, 0 }, Eigen::Vector3d::UnitY());
+    scene.UpdateCameraFillMode(u32(1280), u32(720), owe::FillMode::ASPECTCROP);
+    EXPECT_DOUBLE_EQ(camera->Fov(), 50.0);
+    camera->AttachOwnedNode(node.clone());
+    for (int i = 0; i < 3; ++i) {
+        scene.UpdateCameraFillMode(u32(1280), u32(720), owe::FillMode::ASPECTCROP);
+        EXPECT_DOUBLE_EQ(camera->Fov(), 50.0);
+    }
+
+    camera->SetFovPolicy(owe::SceneCameraFovPolicy::OrthographicProjection);
+    camera->SetLookAt({ 0, 0, 6 }, { 0, 0, 0 }, Eigen::Vector3d::UnitY());
+    scene.UpdateCameraFillMode(u32(1280), u32(720), owe::FillMode::ASPECTCROP);
+    EXPECT_NEAR(camera->Fov(), 56.738092586, 0.0001);
+    camera->AttachOwnedNode(node.clone());
+    camera->SetFov(30.0);
+    scene.UpdateCameraFillMode(u32(1280), u32(720), owe::FillMode::ASPECTCROP);
+    EXPECT_NEAR(camera->Fov(), 56.738092586, 0.0001);
+    auto cloned = owe::SceneCamera(*camera);
+    EXPECT_TRUE(cloned.FovPolicy() == owe::SceneCameraFovPolicy::OrthographicProjection);
+}
+
 TEST(SceneCameraState, PublishesStableOwnedMatricesAndProjectionChanges) {
     auto       camera = owe::SceneCamera::MakeOrthographic(200, 100, -1, 1);
     const auto first  = camera.CameraSnapshot();

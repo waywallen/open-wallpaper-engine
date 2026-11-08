@@ -11,6 +11,8 @@ using rstd::f64;
 
 using namespace owe;
 using namespace Eigen;
+using namespace rstd::prelude;
+using namespace rstd::literals;
 
 namespace
 {
@@ -160,6 +162,55 @@ void SceneCamera::CalculateViewProjectionMatrix() {
 }
 
 void SceneCamera::Update() { CalculateViewProjectionMatrix(); }
+
+void Scene::UpdateCameraFillMode(u32 width, u32 height, FillMode fillmode) {
+    if (width == u32() || height == u32()) return;
+    auto         extent = OrthographicProjectionExtent();
+    const double sw = extent[usize()], sh = extent[usize(1)];
+    if (sw <= 0.0 || sh <= 0.0) return;
+    const double output_aspect = rstd::as_cast<double>(width) / rstd::as_cast<double>(height);
+    const double scene_aspect  = sw / sh;
+    auto         global        = CameraMut("global"_str);
+    auto         perspective   = CameraMut("global_perspective"_str);
+    if (global.is_none() || perspective.is_none()) return;
+    auto& gcam = **global;
+    auto& pcam = **perspective;
+
+    switch (fillmode) {
+    case FillMode::STRETCH:
+        gcam.SetWidth(sw);
+        gcam.SetHeight(sh);
+        pcam.SetAspect(scene_aspect);
+        break;
+    case FillMode::ASPECTFIT:
+        if (output_aspect < scene_aspect) {
+            gcam.SetWidth(sw);
+            gcam.SetHeight(sw / output_aspect);
+        } else {
+            gcam.SetWidth(sh * output_aspect);
+            gcam.SetHeight(sh);
+        }
+        pcam.SetAspect(output_aspect);
+        break;
+    case FillMode::ASPECTCROP:
+    default:
+        if (output_aspect > scene_aspect) {
+            gcam.SetWidth(sw);
+            gcam.SetHeight(sw / output_aspect);
+        } else {
+            gcam.SetWidth(sh * output_aspect);
+            gcam.SetHeight(sh);
+        }
+        pcam.SetAspect(output_aspect);
+        break;
+    }
+    if (pcam.FovPolicy() == SceneCameraFovPolicy::OrthographicProjection)
+        pcam.SetFov(algorism::CalculatePersperctiveFov(1000.0f, gcam.Height()));
+    gcam.Update();
+    pcam.Update();
+    UpdateLinkedCamera("global"_str);
+    CaptureCameraPathViewports();
+}
 
 void SceneCamera::AttatchNode(SceneNode* node) {
     if (! node) {

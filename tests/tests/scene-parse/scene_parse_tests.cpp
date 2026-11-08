@@ -408,6 +408,8 @@ TEST(SceneGeneralScript, FovUpdatesPerspectiveCameraAndSharedState) {
     ASSERT_NE(node, nullptr);
     owe::script::TickSceneScripts(*scene.scene, owe::script::FrameInputs {});
     EXPECT_DOUBLE_EQ((**camera).Fov(), 55.0);
+    scene.scene->UpdateCameraFillMode(rstd::u32(1280), rstd::u32(720), owe::FillMode::ASPECTCROP);
+    EXPECT_DOUBLE_EQ((**camera).Fov(), 55.0);
     EXPECT_FLOAT_EQ(node->Scale().x(), 1.0f);
 }
 
@@ -2336,6 +2338,8 @@ TEST(SceneCameraParsing, PerspectiveOverridePreservesTheOrthographicReferencePla
     auto camera = scene.scene->CameraMut("global_perspective"_str);
     ASSERT_TRUE(camera.is_some());
     EXPECT_DOUBLE_EQ((**camera).Fov(), 21.0);
+    scene.scene->UpdateCameraFillMode(rstd::u32(1920), rstd::u32(1080), owe::FillMode::ASPECTCROP);
+    EXPECT_DOUBLE_EQ((**camera).Fov(), 21.0);
     const double expected_distance =
         4320.0 / (2.0 * std::tan(21.0 * rstd::f64::consts::PI.to_primitive() / 360.0));
     EXPECT_NEAR((**camera).GetPosition().z(), expected_distance, 1e-3);
@@ -2346,6 +2350,36 @@ TEST(SceneCameraParsing, PerspectiveOverridePreservesTheOrthographicReferencePla
     EXPECT_NEAR(view_projection(2, 2), 0.000333444477, 1e-9);
     EXPECT_NEAR(view_projection(2, 3), 1.11559916, 1e-6);
     EXPECT_NEAR(view_projection(3, 3), expected_distance, 1e-3);
+}
+
+TEST(SceneCameraParsing, OrthographicSceneDerivesPerspectiveFovFromViewport) {
+    auto document = owe::wpscene::ParseSceneDocumentJson(
+        R"JSON({
+            "camera": {},
+            "general": {"orthogonalprojection": {"width": 1920, "height": 1080}},
+            "objects": []
+        })JSON"_str,
+        owe::wpscene::kSceneVersionUnknown);
+    ASSERT_TRUE(document.is_some());
+    auto assets = owe::fs::make_physical_fs(
+        owe::fs::Path(rstd::cppstd::as_str(WAYWALLEN_ASSETS_DIR).unwrap()));
+    ASSERT_TRUE(assets.is_ok());
+    owe::fs::VFS vfs;
+    ASSERT_TRUE(vfs.mount("/assets"_str, rstd::move(assets).unwrap_unchecked()).is_ok());
+    wavsen::audio::SoundManager sound_manager;
+    owe::SceneParser            parser;
+    auto                        parsed = parser.Parse(
+        "ortho-perspective"_str,
+        rstd::ref<owe::wpscene::SceneDocument>::from_raw_parts(rstd::addressof(*document)),
+        rstd::mut_ref<owe::fs::VFS>::from_raw_parts(rstd::addressof(vfs)),
+        rstd::mut_ref<wavsen::audio::SoundManager>::from_raw_parts(rstd::addressof(sound_manager)));
+    ASSERT_TRUE(parsed.is_ok());
+    auto scene  = rstd::move(parsed).unwrap();
+    auto camera = scene.scene->Camera("global_perspective"_str);
+    ASSERT_TRUE(camera.is_some());
+    EXPECT_TRUE((**camera).FovPolicy() == owe::SceneCameraFovPolicy::OrthographicProjection);
+    scene.scene->UpdateCameraFillMode(rstd::u32(1280), rstd::u32(720), owe::FillMode::ASPECTCROP);
+    EXPECT_NEAR((**camera).Fov(), 56.738092586, 0.0001);
 }
 
 TEST(BloomParsing, PreservesPassBindingsAndAuthoredConstants) {

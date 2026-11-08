@@ -72,6 +72,9 @@ void ParseCamera(SceneParseContext& context, const wpscene::SceneMetadata& sc) {
                                      perspective_near,
                                      perspective_far,
                                      perspective_fov));
+    perspective_camera->SetFovPolicy(general.isOrtho && ! override_perspective_fov
+                                         ? SceneCameraFovPolicy::OrthographicProjection
+                                         : SceneCameraFovPolicy::Authored);
 
     Vector3f cperori                       = cori;
     cperori[2]                             = static_cast<float>(perspective_distance);

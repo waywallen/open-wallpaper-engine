@@ -1159,59 +1159,7 @@ bool VulkanRender::Impl::onSwapchainReady(unsigned width, unsigned height) {
 }
 
 void VulkanRender::Impl::UpdateCameraFillMode(owe::Scene& scene, owe::FillMode fillmode) {
-    auto width  = m_extent.width;
-    auto height = m_extent.height;
-
-    if (width == 0) return;
-    auto   projection_extent = scene.OrthographicProjectionExtent();
-    double sw = projection_extent[usize()], sh = projection_extent[usize(1)];
-    double fboAspect = width / (double)height, sAspect = sw / sh;
-    auto   global      = scene.CameraMut("global"_str);
-    auto   perspective = scene.CameraMut("global_perspective"_str);
-    if (global.is_none() || perspective.is_none()) return;
-    auto& gCam    = **global;
-    auto& gPerCam = **perspective;
-    // assum cam
-    switch (fillmode) {
-    case FillMode::STRETCH:
-        gCam.SetWidth(sw);
-        gCam.SetHeight(sh);
-        gPerCam.SetAspect(sAspect);
-        if (! gPerCam.IsLookAt())
-            gPerCam.SetFov(algorism::CalculatePersperctiveFov(1000.0f, gCam.Height()));
-        break;
-    case FillMode::ASPECTFIT:
-        if (fboAspect < sAspect) {
-            // scale height
-            gCam.SetWidth(sw);
-            gCam.SetHeight(sw / fboAspect);
-        } else {
-            gCam.SetWidth(sh * fboAspect);
-            gCam.SetHeight(sh);
-        }
-        gPerCam.SetAspect(fboAspect);
-        if (! gPerCam.IsLookAt())
-            gPerCam.SetFov(algorism::CalculatePersperctiveFov(1000.0f, gCam.Height()));
-        break;
-    case FillMode::ASPECTCROP:
-    default:
-        if (fboAspect > sAspect) {
-            // scale height
-            gCam.SetWidth(sw);
-            gCam.SetHeight(sw / fboAspect);
-        } else {
-            gCam.SetWidth(sh * fboAspect);
-            gCam.SetHeight(sh);
-        }
-        gPerCam.SetAspect(fboAspect);
-        if (! gPerCam.IsLookAt())
-            gPerCam.SetFov(algorism::CalculatePersperctiveFov(1000.0f, gCam.Height()));
-        break;
-    }
-    gCam.Update();
-    gPerCam.Update();
-    scene.UpdateLinkedCamera("global"_str);
-    scene.CaptureCameraPathViewports();
+    scene.UpdateCameraFillMode(u32(m_extent.width), u32(m_extent.height), fillmode);
 }
 
 void VulkanRender::Impl::clearLastRenderGraph(RenderGraphResourceRetention retention) {
