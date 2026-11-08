@@ -78,6 +78,17 @@ inline Option<DeclMatch> TryParseDeclLine(ref<str> src, usize line_start,
     c.SkipHSpace();
     auto tn = shader_lex::ReadTypeName(c);
     if (! tn) return None();
+    // Some authored varyings include a component suffix in the declaration.
+    if (kw == "varying"_str && c.MatchChar('.')) {
+        auto components = c.ReadIdent();
+        if (! components || components->len() > usize(4)) return None();
+        for (auto component : components->as_bytes()) {
+            char ch = static_cast<char>(component.to_primitive());
+            if (ch != 'x' && ch != 'y' && ch != 'z' && ch != 'w' && ch != 'r' && ch != 'g' &&
+                ch != 'b' && ch != 'a' && ch != 's' && ch != 't' && ch != 'p' && ch != 'q')
+                return None();
+        }
+    }
     c.SkipHSpace();
     auto array = c.ReadArraySuffix();
     c.SkipHSpace();

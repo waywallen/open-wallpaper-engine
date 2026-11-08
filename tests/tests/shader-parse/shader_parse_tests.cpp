@@ -461,6 +461,39 @@ void main() {
     ASSERT_TRUE(result.shader);
 }
 
+TEST(ShaderParser, CompileVaryingDeclarationWithComponentSuffix) {
+    owe::SceneShaderVariantDesc desc;
+    desc.scene_id    = "varying-component-declaration-test"_Str;
+    desc.shader_name = "varying-component-declaration-test"_Str;
+    desc.stages.push(owe::SceneShaderVariantStage {
+        .stage      = owe::ShaderType::VERTEX,
+        .source_key = "/assets/shaders/varying-component-declaration-test.vert"_Str,
+        .source     = R"(
+attribute vec3 a_Position;
+varying vec4 v_Size;
+void main() {
+    v_Size = vec4(a_Position, 1.0);
+    gl_Position = vec4(a_Position, 1.0);
+}
+)"_Str,
+    });
+    desc.stages.push(owe::SceneShaderVariantStage {
+        .stage      = owe::ShaderType::FRAGMENT,
+        .source_key = "/assets/shaders/varying-component-declaration-test.frag"_Str,
+        .source     = R"(
+varying vec4 v_Size.xy;
+void main() {
+    gl_FragColor = vec4(v_Size.xy, v_Size.zw);
+}
+)"_Str,
+    });
+
+    owe::fs::VFS vfs;
+    const auto   result = owe::ShaderParser::CompileSceneShaderVariant(desc, vfs);
+    ASSERT_TRUE(result.ok) << rstd::cppstd::as_string_view(result.error.as_str());
+    ASSERT_TRUE(result.shader);
+}
+
 TEST(ShaderParser, PreShaderHeaderFlattensPackedAudioSpectrumAccess) {
     const std::string out =
         rstd::cppstd::to_string(owe::ShaderParser::PreShaderHeader(rstd::cppstd::as_str(
