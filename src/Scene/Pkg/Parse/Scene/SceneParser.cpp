@@ -78,7 +78,9 @@ auto owe::SceneParser::Parse(ref<str> scene_id, ref<wpscene::SceneDocument> docu
                      options.capabilities.geometry_shader_supported,
                      rstd::move(options.image_ready),
                      rstd::move(options.texture_memory));
-    context.load_bench = options.load_bench;
+    context.load_bench                     = options.load_bench;
+    context.layer_resources->sound_unmount = rstd::move(options.sound_unmount);
+    context.layer_resources->sound_mount   = rstd::move(options.sound_mount);
     auto runtime_input =
         Arc<UniformRuntimeInput>::make(context.layer_resources->uniform_state.clone());
     context.layer_resources->hidden_link_source_ids = rstd::move(expanded.hidden_link_source_ids);

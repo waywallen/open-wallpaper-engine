@@ -181,6 +181,20 @@ TEST(Vfs, OverlayAndUnmountKeepOpenedRangeAlive) {
     EXPECT_EQ(ReadText(std::move(retained)), "upper"_str);
 }
 
+TEST(Vfs, SnapshotRetainsMountsAfterOriginalIsDestroyed) {
+    auto snapshot = [] {
+        owe::fs::VFS vfs;
+        auto         mounted = vfs.mount("/assets"_str, MakeMount({ { "sound.ogg", "audio" } }));
+        EXPECT_TRUE(mounted.is_ok());
+        auto retained = vfs.Snapshot();
+        EXPECT_TRUE(vfs.unmount(*mounted));
+        return retained;
+    }();
+    auto opened = snapshot->open_read("/assets/sound.ogg"_str);
+    ASSERT_TRUE(opened.is_ok());
+    EXPECT_EQ(ReadText(rstd::move(opened).unwrap_unchecked()), "audio"_str);
+}
+
 TEST(Vfs, BackendErrorsAreNotOverlayMisses) {
     owe::fs::VFS vfs;
     ASSERT_TRUE(vfs.mount("/assets"_str, MakeMount({ { "broken", "lower" } })).is_ok());

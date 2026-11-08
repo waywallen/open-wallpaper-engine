@@ -71,6 +71,10 @@ class MainMsg final {
               (SetMuted, (bool muted;)),
               (SetAudioClientIdentity, (SceneAudioClientIdentity identity;)),
               (AudioDeviceEvent, (wavsen::audio::AudioDeviceEvent event;)),
+              (UnmountSound, (wavsen::audio::SoundStreamId id;)),
+              (MountSound,
+               (Arc<SceneLoadState> load; Box<dyn<wavsen::audio::SoundStreamObject>> stream;
+                Arc<SceneSoundMountState>                                            mount;)),
               (SetFillMode, (FillMode mode;)), (SetSpeed, (f32 speed;)),
               (SetMouseParallax, (bool enabled;)), (SetUserProperty, (String key; Json value;)),
               (SetFirstFrameCallback, (FirstFrameCallback cb;)),
@@ -186,6 +190,8 @@ public:
     void on(MainMsg::SetMuted_payload&&);
     void on(MainMsg::SetAudioClientIdentity_payload&&);
     void on(MainMsg::AudioDeviceEvent_payload&&);
+    void on(MainMsg::UnmountSound_payload&&);
+    void on(MainMsg::MountSound_payload&&);
     void on(MainMsg::SetFillMode_payload&&);
     void on(MainMsg::SetSpeed_payload&&);
     void on(MainMsg::SetMouseParallax_payload&&);
@@ -1000,6 +1006,8 @@ void SceneRuntimeController::startMainLoop() {
                 RSTD_CASE_PAYLOAD(SetMuted, value) { on(rstd::move(value)); }
                 RSTD_CASE_PAYLOAD(SetAudioClientIdentity, value) { on(rstd::move(value)); }
                 RSTD_CASE_PAYLOAD(AudioDeviceEvent, value) { on(rstd::move(value)); }
+                RSTD_CASE_PAYLOAD(UnmountSound, value) { on(rstd::move(value)); }
+                RSTD_CASE_PAYLOAD(MountSound, value) { on(rstd::move(value)); }
                 RSTD_CASE_PAYLOAD(SetFillMode, value) { on(rstd::move(value)); }
                 RSTD_CASE_PAYLOAD(SetSpeed, value) { on(rstd::move(value)); }
                 RSTD_CASE_PAYLOAD(SetMouseParallax, value) { on(rstd::move(value)); }
@@ -1117,6 +1125,22 @@ void SceneRuntimeController::on(MainMsg::SetAudioClientIdentity_payload&& m) {
 
 void SceneRuntimeController::on(MainMsg::AudioDeviceEvent_payload&& m) {
     m_sound_manager->on_device_event(rstd::move(m.event));
+}
+
+void SceneRuntimeController::on(MainMsg::UnmountSound_payload&& m) {
+    (void)m_sound_manager->unmount(m.id);
+}
+
+void SceneRuntimeController::on(MainMsg::MountSound_payload&& m) {
+    if (! m.load->active.load() || ! m_loading_scene ||
+        ! Arc<SceneLoadState>::ptr_eq(*m_loading_scene, m.load) || m.mount->IsCanceled())
+        return;
+    auto id = m_sound_manager->mount(rstd::move(m.stream));
+    if (id.is_none()) {
+        rstd_warn("failed to mount scene sound");
+        return;
+    }
+    if (! m.load->active.load() || ! m.mount->Attach(*id)) (void)m_sound_manager->unmount(*id);
 }
 
 void SceneRuntimeController::on(MainMsg::SetFillMode_payload&& m) {
@@ -1271,6 +1295,17 @@ void SceneRuntimeController::loadScene() {
             .max_geometry_total_output_components = u32(m_render_capabilities->max_geometry_total_output_components),
         },
         .load_bench = loadBenchView(),
+        .sound_unmount = Some(SceneSoundUnmountCallback::make(
+            [tx = sender()](wavsen::audio::SoundStreamId id) {
+                (void)tx.send(MainMsg::UnmountSound(id));
+            })),
+        .sound_mount = Some(SceneSoundMountCallback::make(
+            [tx = sender(), load = scene_load.clone()](
+                Box<dyn<wavsen::audio::SoundStreamObject>> stream,
+                Arc<SceneSoundMountState> mount) {
+                return tx.send(MainMsg::MountSound(load.clone(), rstd::move(stream),
+                                                   rstd::move(mount))).is_ok();
+            })),
         .texture_memory = m_texture_memory.clone(),
     }, mut_ref<wavsen::audio::SoundManager>::from_raw_parts(m_sound_manager.get()));
     if (loaded.is_err()) {

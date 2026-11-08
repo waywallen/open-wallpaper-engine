@@ -2138,7 +2138,8 @@ JSValue NodeSceneCreateLayer(JSContext* ctx, JSValueConst /*this_val*/, int argc
         else
             node->SetVisible(true);
     }
-    node->Play();
+    // Sound controls already carry the authored visibility and startsilent state.
+    if (node->SoundControl().is_none()) node->Play();
     return WrapLayerNode(ctx, node);
 }
 

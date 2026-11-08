@@ -17,6 +17,7 @@ import wescene.pkg.puppet;
 import :particle_runtime;
 import :shader_parser;
 import :uniform_source;
+import :sound_parser;
 
 using namespace rstd::prelude;
 using rstd::collections::HashMap;
@@ -130,26 +131,28 @@ struct SceneLayerResources {
         : audio_response_demand(rstd::move(demand)),
           uniform_state(Arc<UniformSceneState>::make(audio_response_demand.clone())) {}
 
-    i32                          ortho_w { 0 };
-    i32                          ortho_h { 0 };
-    bool                         orthographic_scene { false };
-    wpscene::SceneVersion        pkg_version { wpscene::kSceneVersionUnknown };
-    Option<Arc<ParticleRuntime>> particle_runtime;
-    Arc<ShaderCache>             shader_cache { Arc<ShaderCache>::make() };
-    ShaderValueMap               global_base_uniforms;
-    SceneShaderEnvironment       shader_environment;
-    GeometryShaderLimits         geometry_shader_limits;
-    bool                         geometry_shader_supported { true };
-    Arc<AudioResponseDemand>     audio_response_demand;
-    Arc<UniformSceneState>       uniform_state;
-    Arc<PuppetLayerRegistry>     puppet_layers { Arc<PuppetLayerRegistry>::make() };
-    HashMap<i32, u32>            object_parent_ids;
-    HashSet<i32>                 solid_layer_ids;
-    HashMap<i32, String>         system_media_image_fallbacks;
-    HashSet<i32>                 linked_source_ids;
-    HashSet<i32>                 hidden_link_source_ids;
-    bool                         scene_has_scripts { false };
-    bool                         scene_layer_text_writes { false };
+    i32                               ortho_w { 0 };
+    i32                               ortho_h { 0 };
+    bool                              orthographic_scene { false };
+    wpscene::SceneVersion             pkg_version { wpscene::kSceneVersionUnknown };
+    Option<Arc<ParticleRuntime>>      particle_runtime;
+    Option<SceneSoundMountCallback>   sound_mount;
+    Option<SceneSoundUnmountCallback> sound_unmount;
+    Arc<ShaderCache>                  shader_cache { Arc<ShaderCache>::make() };
+    ShaderValueMap                    global_base_uniforms;
+    SceneShaderEnvironment            shader_environment;
+    GeometryShaderLimits              geometry_shader_limits;
+    bool                              geometry_shader_supported { true };
+    Arc<AudioResponseDemand>          audio_response_demand;
+    Arc<UniformSceneState>            uniform_state;
+    Arc<PuppetLayerRegistry>          puppet_layers { Arc<PuppetLayerRegistry>::make() };
+    HashMap<i32, u32>                 object_parent_ids;
+    HashSet<i32>                      solid_layer_ids;
+    HashMap<i32, String>              system_media_image_fallbacks;
+    HashSet<i32>                      linked_source_ids;
+    HashSet<i32>                      hidden_link_source_ids;
+    bool                              scene_has_scripts { false };
+    bool                              scene_layer_text_writes { false };
 };
 
 struct SceneLayerBuildContext {
@@ -189,6 +192,7 @@ struct SceneLayerBuildContext {
         script::FieldScriptInitialization::Automatic
     };
     Vec<owe::script::FieldScript*> deferred_scripts;
+    Vec<ScenePreparedSound>        pending_sounds;
     bool                           runtime_created { false };
     bool                           track_created_nodes { false };
     Vec<Arc<SceneNode>>            created_nodes;
@@ -309,6 +313,7 @@ void ParseImageObj(SceneLayerBuildContext&, wpscene::ImageObject&);
 void ParseShapeObj(SceneLayerBuildContext&, wpscene::ShapeObject&);
 void ParseParticleObj(SceneParseContext&, wpscene::ParticleObject&);
 void ParseSoundObj(SceneParseContext&, wpscene::SoundObject&, wavsen::audio::SoundManager&);
+bool ParseSoundObj(SceneLayerBuildContext&, wpscene::SoundObject&);
 void ParseModelObj(SceneParseContext&, wpscene::ModelObject&);
 void ParseModelObj(SceneLayerBuildContext&, wpscene::ModelObject&);
 bool RegisterRuntimePuppetUniformSources(Scene&, SceneLayerResources&, slice<Arc<SceneNode>>);

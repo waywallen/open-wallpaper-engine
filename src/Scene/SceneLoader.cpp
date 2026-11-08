@@ -150,6 +150,8 @@ auto LoadScene(SceneLoadRequest request, mut_ref<wavsen::audio::SoundManager> so
                        .shader_cache_dir = rstd::move(shader_cache),
                        .capabilities     = request.capabilities,
                        .image_ready      = rstd::move(request.image_ready),
+                       .sound_unmount    = rstd::move(request.sound_unmount),
+                       .sound_mount      = rstd::move(request.sound_mount),
                        .texture_memory   = rstd::move(request.texture_memory) });
     if (parsed.is_err()) {
         auto error = parsed.unwrap_err();

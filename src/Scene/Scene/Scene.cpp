@@ -1615,6 +1615,7 @@ void Scene::ProcessLayerDeletions() {
     for (auto& node : nodes) {
         if (m_resource_index.nodeId(*node).is_some()) continue;
         node->Stop();
+        node->ReleaseSoundControl();
         if (m_layer_removal_observer.is_some()) (**m_layer_removal_observer)(*node);
         removed.push(node.clone());
     }

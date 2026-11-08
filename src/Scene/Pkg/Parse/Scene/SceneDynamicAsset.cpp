@@ -336,6 +336,13 @@ struct RuntimeLayerFactory {
                 return None();
             }
         }
+        for (auto& sound : context.pending_sounds) {
+            if (resources->sound_mount.is_none() ||
+                ! (**resources->sound_mount)(rstd::move(sound.stream), sound.mount.clone())) {
+                Rollback(context, rstd::addressof(parent));
+                return None();
+            }
+        }
         return Some(rstd::move(node));
     }
 
@@ -344,13 +351,33 @@ struct RuntimeLayerFactory {
         if (kind != wpscene::SceneObjectKind::Image && kind != wpscene::SceneObjectKind::Text &&
             kind != wpscene::SceneObjectKind::Particle &&
             kind != wpscene::SceneObjectKind::Container &&
-            kind != wpscene::SceneObjectKind::Model && kind != wpscene::SceneObjectKind::Shape)
+            kind != wpscene::SceneObjectKind::Model && kind != wpscene::SceneObjectKind::Shape &&
+            kind != wpscene::SceneObjectKind::Sound)
             return None();
         auto vfs = scene->ExtensionMut<fs::VFS>();
         if (vfs.is_none()) return None();
         SceneLayerBuildContext context(*scene, **vfs, resources.clone());
         PrepareContext(context);
         auto* parent = owner && owner->Parent() ? owner->Parent() : scene->RootMut().as_raw_ptr();
+        if (kind == wpscene::SceneObjectKind::Sound) {
+            auto decoded = wpscene::DecodeSceneObject(
+                config, mut_ref<fs::VFS>::from_raw_parts(context.vfs), resources->pkg_version);
+            if (decoded.is_none() || ! decoded->is_Sound()) return None();
+            auto sound   = rstd::move(decoded->as_Sound().value);
+            sound.id     = NextObjectId();
+            sound.parent = u32();
+            ResolveVisibleUserBinding(sound.visible, sound.visible_user, context.user_properties);
+            if (context.user_properties.is_some() && ! sound.volume_user_key.is_empty()) {
+                auto property = (*context.user_properties)->get(sound.volume_user_key.as_str());
+                if (property.is_some()) {
+                    auto volume = ResolveSceneUserPropertyScalar(**property);
+                    if (volume.is_some())
+                        sound.volume = rstd::cmp::min(1.0f, rstd::cmp::max(0.0f, *volume));
+                }
+            }
+            if (! ParseSoundObj(context, sound)) return Commit(context, *parent, None());
+            return Commit(context, *parent, TakeCreatedLayer(context, sound.id));
+        }
         if (kind == wpscene::SceneObjectKind::Shape) {
             auto decoded = wpscene::DecodeSceneObject(
                 config, mut_ref<fs::VFS>::from_raw_parts(context.vfs), resources->pkg_version);
@@ -430,6 +457,20 @@ struct RuntimeLayerFactory {
     }
 
     auto Instantiate(SceneNode& parent, ref<str> asset) -> Option<Arc<SceneNode>> {
+        if (AssetEndsWith(asset, ".ogg"_str)) {
+            auto vfs = scene->ExtensionMut<fs::VFS>();
+            if (vfs.is_none()) return None();
+            auto path = fs::ResolveAssetPath(asset);
+            if (path.is_err() || (*vfs)->metadata(path->as_path()).is_err()) return None();
+            SceneLayerBuildContext context(*scene, **vfs, resources.clone());
+            PrepareContext(context);
+            wpscene::SoundObject sound;
+            sound.id   = NextObjectId();
+            sound.name = String::make(asset);
+            sound.sound.push(String::make(asset));
+            if (! ParseSoundObj(context, sound)) return Commit(context, parent, None());
+            return Commit(context, parent, TakeCreatedLayer(context, sound.id));
+        }
         if (AssetEndsWith(asset, ".mdl"_str)) {
             auto vfs = scene->ExtensionMut<fs::VFS>();
             if (vfs.is_none()) return None();

@@ -20,6 +20,8 @@ struct SceneLoadRequest {
     SceneParseCapabilities                          capabilities;
     SceneLoadBenchRecorderView                      load_bench;
     Option<ImageReadyCallback>                      image_ready;
+    Option<SceneSoundUnmountCallback>               sound_unmount;
+    Option<SceneSoundMountCallback>                 sound_mount;
     TextureMemoryOptions                            texture_memory;
 };
 enum class SceneLoadStage

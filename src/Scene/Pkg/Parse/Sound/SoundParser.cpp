@@ -11,6 +11,24 @@ using rstd::sync::Arc;
 using rstd::sync::atomic::Atomic;
 using rstd::sync::atomic::Ordering;
 
+bool SceneSoundMountState::IsCanceled() {
+    auto state = m_state.lock().unwrap_unchecked();
+    return state->canceled;
+}
+
+bool SceneSoundMountState::Attach(wavsen::audio::SoundStreamId id) {
+    auto state = m_state.lock().unwrap_unchecked();
+    if (state->canceled || state->id.is_some()) return false;
+    state->id = Some(id);
+    return true;
+}
+
+auto SceneSoundMountState::Cancel() -> Option<wavsen::audio::SoundStreamId> {
+    auto state      = m_state.lock().unwrap_unchecked();
+    state->canceled = true;
+    return state->id.take();
+}
+
 enum class PlaybackMode
 {
     Random,
@@ -38,9 +56,24 @@ struct SoundState {
     Atomic<u32>  stop_seq {};
 };
 
+class SoundLease final {
+public:
+    SoundLease(Arc<SceneSoundMountState> mount, Option<SceneSoundUnmountCallback> unmount)
+        : m_mount(rstd::move(mount)), m_unmount(rstd::move(unmount)) {}
+    ~SoundLease() {
+        auto id = m_mount->Cancel();
+        if (id.is_some() && m_unmount.is_some()) (**m_unmount)(*id);
+    }
+
+private:
+    Arc<SceneSoundMountState>         m_mount;
+    Option<SceneSoundUnmountCallback> m_unmount;
+};
+
 class SoundControl final {
 public:
-    explicit SoundControl(Arc<SoundState> state): m_state(rstd::move(state)) {}
+    SoundControl(Arc<SoundState> state, Option<Arc<SoundLease>> lease)
+        : m_state(rstd::move(state)), m_lease(rstd::move(lease)) {}
 
     void Play() {
         m_state->playing.store(true, Ordering::Release);
@@ -57,7 +90,8 @@ public:
     }
 
 private:
-    Arc<SoundState> m_state;
+    Arc<SoundState>         m_state;
+    Option<Arc<SoundLease>> m_lease;
 };
 
 } // namespace
@@ -70,9 +104,9 @@ public:
         f32          volume { 1.0f };
         PlaybackMode mode { PlaybackMode::Loop };
     };
-    SoundStream(Vec<String> paths, fs::VFS& vfs, Config c, Arc<SoundState> state,
+    SoundStream(Vec<String> paths, Arc<fs::VFS> vfs, Config c, Arc<SoundState> state,
                 Option<Arc<SceneAudioAverage>> audio_average)
-        : vfs(vfs),
+        : vfs(rstd::move(vfs)),
           m_config(c),
           m_state(rstd::move(state)),
           m_soundPaths(rstd::move(paths)),
@@ -124,8 +158,8 @@ public:
         }
         const u32 base = SelectStartIndex(n);
         for (u32 tried {}; tried < n; ++tried) {
-            const auto& path   = m_soundPaths[rstd::as_cast<usize>((base + tried) % n)];
-            auto        source = vfs.open_read(fs::Path(rstd::format("/assets/{}", path).as_str()));
+            const auto& path = m_soundPaths[rstd::as_cast<usize>((base + tried) % n)];
+            auto source      = vfs->open_read(fs::Path(rstd::format("/assets/{}", path).as_str()));
             if (source.is_err()) continue;
             auto handle =
                 rstd::io::ReadSeekHandle::make(rstd::move(source).unwrap_unchecked().into_reader());
@@ -192,7 +226,7 @@ private:
         }
     }
 
-    fs::VFS&        vfs;
+    Arc<fs::VFS>    vfs;
     Config          m_config;
     Desc            m_desc;
     Arc<SoundState> m_state;
@@ -206,8 +240,10 @@ private:
     Option<Arc<SceneAudioAverage>>                     m_audio_average;
 };
 
-Arc<dyn<SceneSoundControl>> SoundParser::Parse(const wpscene::SoundObject& obj, fs::VFS& vfs,
-                                               wavsen::audio::SoundManager& sm, Scene* scene) {
+namespace
+{
+auto PrepareSound(const wpscene::SoundObject& obj, fs::VFS& vfs, Scene* scene,
+                  Option<SceneSoundUnmountCallback> unmount) -> ScenePreparedSound {
     SoundStream::Config config { .maxtime = f32(obj.maxtime),
                                  .mintime = f32(obj.mintime),
                                  .volume  = f32(obj.volume).clamp(f32(), f32(1.0f)),
@@ -221,10 +257,30 @@ Arc<dyn<SceneSoundControl>> SoundParser::Parse(const wpscene::SoundObject& obj, 
     // something toggles it.
     state->playing.store(obj.visible && ! obj.startsilent, Ordering::Release);
     state->volume.store(config.volume, Ordering::Release);
-    auto control = Arc<dyn<SceneSoundControl>>::make(SoundControl(state.clone()));
-    auto ss      = Box<SoundStream>::make(
-        obj.sound.clone(), vfs, config, rstd::move(state), rstd::move(audio_average));
-    sm.mount(Box<dyn<wavsen::audio::SoundStreamObject>>::from_raw(
-        dyn<wavsen::audio::SoundStreamObject>::from_ptr(rstd::move(ss).into_raw())));
-    return control;
+    auto ss = Box<SoundStream>::make(
+        obj.sound.clone(), vfs.Snapshot(), config, state.clone(), rstd::move(audio_average));
+    auto mount = Arc<SceneSoundMountState>::make();
+    auto lease = Arc<SoundLease>::make(mount.clone(), rstd::move(unmount));
+    return {
+        .control = Arc<dyn<SceneSoundControl>>::make(
+            SoundControl(rstd::move(state), Some(rstd::move(lease)))),
+        .stream = Box<dyn<wavsen::audio::SoundStreamObject>>::from_raw(
+            dyn<wavsen::audio::SoundStreamObject>::from_ptr(rstd::move(ss).into_raw())),
+        .mount = rstd::move(mount),
+    };
+}
+} // namespace
+
+Arc<dyn<SceneSoundControl>> SoundParser::Parse(const wpscene::SoundObject& obj, fs::VFS& vfs,
+                                               wavsen::audio::SoundManager& sm, Scene* scene,
+                                               Option<SceneSoundUnmountCallback> unmount) {
+    auto prepared = PrepareSound(obj, vfs, scene, rstd::move(unmount));
+    auto id       = sm.mount(rstd::move(prepared.stream));
+    if (id.is_some() && ! prepared.mount->Attach(*id)) (void)sm.unmount(*id);
+    return rstd::move(prepared.control);
+}
+
+auto SoundParser::PrepareAsync(const wpscene::SoundObject& obj, fs::VFS& vfs, Scene* scene,
+                               SceneSoundUnmountCallback unmount) -> ScenePreparedSound {
+    return PrepareSound(obj, vfs, scene, Some(rstd::move(unmount)));
 }

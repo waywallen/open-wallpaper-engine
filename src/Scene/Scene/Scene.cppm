@@ -1868,6 +1868,7 @@ public:
     void SetSoundControl(Arc<dyn<SceneSoundControl>> control) {
         m_sound_control = Some(rstd::move(control));
     }
+    void                                ReleaseSoundControl() { m_sound_control = None(); }
     Option<ref<dyn<SceneSoundControl>>> SoundControl() const {
         if (m_sound_control.is_none()) return None();
         return Some(m_sound_control->deref());

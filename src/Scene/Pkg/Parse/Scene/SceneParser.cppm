@@ -7,6 +7,7 @@ import wescene.load_bench;
 import wescene.scene;
 import wescene.pkg.scene_obj;
 import :uniform_source;
+import :sound_parser;
 import wescene.texture_memory;
 
 using namespace rstd::prelude;
@@ -37,12 +38,14 @@ struct SceneParseCapabilities {
 };
 
 struct SceneParseOptions {
-    SceneLoadBenchRecorderView   load_bench;
-    Option<ref<rstd::json::Map>> user_properties;
-    Option<rstd::path::PathBuf>  shader_cache_dir;
-    SceneParseCapabilities       capabilities;
-    Option<ImageReadyCallback>   image_ready;
-    TextureMemoryOptions         texture_memory;
+    SceneLoadBenchRecorderView        load_bench;
+    Option<ref<rstd::json::Map>>      user_properties;
+    Option<rstd::path::PathBuf>       shader_cache_dir;
+    SceneParseCapabilities            capabilities;
+    Option<ImageReadyCallback>        image_ready;
+    Option<SceneSoundUnmountCallback> sound_unmount;
+    Option<SceneSoundMountCallback>   sound_mount;
+    TextureMemoryOptions              texture_memory;
 };
 
 struct ParsedScene {

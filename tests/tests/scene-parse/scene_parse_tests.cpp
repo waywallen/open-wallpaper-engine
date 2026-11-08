@@ -724,6 +724,210 @@ TEST(SceneDynamicLayer, DeletesCreatedAndAuthoredLayersAfterScriptTick) {
     EXPECT_FLOAT_EQ(creator->Translate().x(), 53.0f);
 }
 
+TEST(SceneDynamicLayer, UnmountsOnlyDeletedSoundAfterScriptTick) {
+    using namespace rstd::prelude;
+    auto document = owe::wpscene::ParseSceneDocumentJson(R"JSON({
+        "camera": {},
+        "general": {"orthogonalprojection": {"width": 1920, "height": 1080}},
+        "objects": [
+            {"id":1,"name":"sound-a","sound":["missing-a.ogg"],"volume":{"value":0.5,"user":"volume"},"playbackmode":"loop"},
+            {"id":2,"name":"sound-b","sound":["missing-b.ogg"],"volume":{"value":0.5,"user":"volume"},"playbackmode":"loop"},
+            {"id":3,"name":"creator","scale":{"value":"1 1 1","script":"let done = false; export function update(value) { if (!done) { thisScene.destroyLayer('sound-a'); done = true; } return value; }"}}
+        ]
+    })JSON"_str,
+                                                         owe::wpscene::kSceneVersionUnknown);
+    ASSERT_TRUE(document.is_some());
+    auto assets = owe::fs::make_physical_fs(
+        owe::fs::Path(rstd::cppstd::as_str(WAYWALLEN_ASSETS_DIR).unwrap()));
+    ASSERT_TRUE(assets.is_ok());
+    auto vfs = Box<owe::fs::VFS>::make();
+    ASSERT_TRUE(vfs->mount("/assets"_str, rstd::move(assets).unwrap()).is_ok());
+    wavsen::audio::SoundManager sound;
+    usize                       unmounted {};
+    owe::SceneParser            parser;
+    auto                        parsed =
+        parser.Parse("delete-sound"_str,
+                     ref<owe::wpscene::SceneDocument>::from_raw_parts(rstd::addressof(*document)),
+                     mut_ref<owe::fs::VFS>::from_raw_parts(vfs.get()),
+                     mut_ref<wavsen::audio::SoundManager>::from_raw_parts(rstd::addressof(sound)),
+                     { .sound_unmount = Some(owe::SceneSoundUnmountCallback::make(
+                           [&sound, &unmounted](wavsen::audio::SoundStreamId id) {
+                               ++unmounted;
+                               (void)sound.unmount(id);
+                           })) });
+    ASSERT_TRUE(parsed.is_ok());
+    auto scene = rstd::move(parsed).unwrap();
+    scene.scene->InstallExtension(rstd::move(vfs));
+    EXPECT_EQ(scene.scene->SoundVolumeBindings("volume"_str).len(), usize(2));
+    owe::script::TickSceneScripts(*scene.scene, owe::script::FrameInputs {});
+    EXPECT_EQ(scene.scene->RootMut()->FindByName("sound-a"_str), nullptr);
+    EXPECT_NE(scene.scene->RootMut()->FindByName("sound-b"_str), nullptr);
+    EXPECT_EQ(scene.scene->SoundVolumeBindings("volume"_str).len(), usize(1));
+    EXPECT_EQ(unmounted, usize(1));
+    owe::script::TickSceneScripts(*scene.scene, owe::script::FrameInputs {});
+    EXPECT_EQ(unmounted, usize(1));
+}
+
+TEST(SceneSoundMount, CancelsBeforeOrAfterAttachExactlyOnce) {
+    owe::SceneSoundMountState before;
+    EXPECT_FALSE(before.IsCanceled());
+    EXPECT_TRUE(before.Cancel().is_none());
+    EXPECT_TRUE(before.IsCanceled());
+    EXPECT_FALSE(before.Attach(wavsen::audio::SoundStreamId { rstd::u64(1) }));
+
+    owe::SceneSoundMountState after;
+    EXPECT_TRUE(after.Attach(wavsen::audio::SoundStreamId { rstd::u64(2) }));
+    EXPECT_FALSE(after.Attach(wavsen::audio::SoundStreamId { rstd::u64(3) }));
+    auto id = after.Cancel();
+    ASSERT_TRUE(id.is_some());
+    EXPECT_EQ(id->value, rstd::u64(2));
+    EXPECT_TRUE(after.Cancel().is_none());
+}
+
+TEST(SceneSoundMount, ConcurrentAttachAndCancelHaveOneOwner) {
+    using namespace rstd::prelude;
+    for (int iteration = 0; iteration < 100; ++iteration) {
+        owe::SceneSoundMountState        state;
+        rstd::sync::atomic::Atomic<bool> start { false };
+        auto                             worker = rstd::thread::spawn([&] {
+                          while (! start.load()) rstd::thread::yield_now();
+                          return state.Attach(wavsen::audio::SoundStreamId { u64(17) });
+                                                  }).unwrap();
+        start.store(true);
+        auto canceled = state.Cancel();
+        auto attached = rstd::move(worker).join().unwrap();
+        EXPECT_EQ(attached, canceled.is_some());
+        if (canceled.is_some()) EXPECT_EQ(canceled->value, u64(17));
+        EXPECT_TRUE(state.Cancel().is_none());
+    }
+}
+
+TEST(SceneSoundMount, DecodesAfterSourceVfsIsDestroyed) {
+    using namespace rstd::prelude;
+    auto temporary = rstd::fs::TempDir::make("owe-sound-vfs"_str).unwrap();
+    auto root      = rstd::path::PathBuf::from(temporary.path().as_os_str().to_os_string());
+    auto bytes     = Vec<u8>::make();
+    auto tag       = [&bytes](ref<str> value) {
+        bytes.extend_from_slice(value->as_bytes());
+    };
+    auto word = [&bytes](rstd::uint32_t value, int count) {
+        for (int i = 0; i < count; ++i) bytes.push(u8((value >> (i * 8)) & 255u));
+    };
+    constexpr rstd::uint32_t data_size = 9600;
+    tag("RIFF"_str);
+    word(36 + data_size, 4);
+    tag("WAVE"_str);
+    tag("fmt "_str);
+    word(16, 4);
+    word(1, 2);
+    word(1, 2);
+    word(48000, 4);
+    word(96000, 4);
+    word(2, 2);
+    word(16, 2);
+    tag("data"_str);
+    word(data_size, 4);
+    for (rstd::uint32_t i = 0; i < data_size / 2; ++i) word(0x4000, 2);
+    ASSERT_TRUE(rstd::fs::write(root.join("sound.wav"_str).as_path(), bytes.as_slice()).is_ok());
+    auto prepared = [&] {
+        owe::fs::VFS vfs;
+        auto         local = owe::fs::make_physical_fs(temporary.path());
+        EXPECT_TRUE(local.is_ok());
+        EXPECT_TRUE(vfs.mount("/assets"_str, rstd::move(local).unwrap()).is_ok());
+        owe::wpscene::SoundObject sound;
+        sound.sound.push("sound.wav"_Str);
+        return owe::SoundParser::PrepareAsync(
+            sound,
+            vfs,
+            nullptr,
+            owe::SceneSoundUnmountCallback::make([](wavsen::audio::SoundStreamId) {
+            }));
+    }();
+    prepared.stream->stream().pass_desc({ u32(2), u32(48000) });
+    float output[512] {};
+    auto  frames = prepared.stream->stream().next_pcm(output, u32(256));
+    EXPECT_GT(frames, u64());
+    EXPECT_GT(output[0], 0.1f);
+}
+
+TEST(SceneDynamicLayer, CreatesAndCancelsAsynchronousSounds) {
+    using namespace rstd::prelude;
+    using rstd::sync::Arc;
+    struct PendingSound {
+        Box<dyn<wavsen::audio::SoundStreamObject>> stream;
+        Arc<owe::SceneSoundMountState>             state;
+    };
+    auto document = owe::wpscene::ParseSceneDocumentJson(R"JSON({
+        "camera": {},
+        "general": {"orthogonalprojection": {"width": 1920, "height": 1080}},
+        "objects": [{"id":1,"name":"creator","scale":{"value":"1 1 1",
+            "script":"let stage=0, b; export function update(value) { if (stage === 0) { let a=thisScene.createLayer({name:'pending-a',sound:['sound/runtime.ogg'],volume:{value:0.5,user:'volume'},playbackmode:'loop',startsilent:true}); b=thisScene.createLayer('sound/runtime.ogg'); let failed=0; try { thisScene.createLayer({name:'failed-sound',sound:['sound/runtime.ogg'],volume:1,playbackmode:'loop',scale:{value:'1 1 1',script:'throw new Error(7); export function update(v) { return v; }'}}); } catch(e) { failed++; } try { thisScene.createLayer({name:'rejected-sound',sound:['sound/runtime.ogg'],volume:1,playbackmode:'loop'}); } catch(e) { failed++; } if (a.volume === 0.75 && !a.isPlaying() && b.isPlaying() && failed === 2) thisLayer.origin=new Vec3(17,0,0); thisScene.destroyLayer(a); stage=1; } else if (stage === 1) { thisScene.destroyLayer(b); stage=2; } return value; }"}}]
+    })JSON"_str,
+                                                         owe::wpscene::kSceneVersionUnknown);
+    ASSERT_TRUE(document.is_some());
+    auto assets = owe::fs::make_physical_fs(
+        owe::fs::Path(rstd::cppstd::as_str(WAYWALLEN_ASSETS_DIR).unwrap()));
+    ASSERT_TRUE(assets.is_ok());
+    auto temporary = rstd::fs::TempDir::make("owe-runtime-sound"_str).unwrap();
+    auto root      = rstd::path::PathBuf::from(temporary.path().as_os_str().to_os_string());
+    ASSERT_TRUE(rstd::fs::create_dir(root.join("sound"_str).as_path()).is_ok());
+    ASSERT_TRUE(
+        rstd::fs::write(root.join("sound/runtime.ogg"_str).as_path(), "audio"_bytes).is_ok());
+    auto local = owe::fs::make_physical_fs(temporary.path());
+    ASSERT_TRUE(local.is_ok());
+    auto vfs = Box<owe::fs::VFS>::make();
+    ASSERT_TRUE(vfs->mount("/assets"_str, rstd::move(assets).unwrap()).is_ok());
+    ASSERT_TRUE(vfs->mount("/assets"_str, rstd::move(local).unwrap()).is_ok());
+    wavsen::audio::SoundManager sound;
+    Vec<PendingSound>           pending;
+    usize                       attempts {}, unmounted {};
+    auto             properties = owe::ParseJson(R"({"volume":{"value":0.75}})"_str).unwrap();
+    owe::SceneParser parser;
+    auto             parsed =
+        parser.Parse("runtime-sound"_str,
+                     ref<owe::wpscene::SceneDocument>::from_raw_parts(rstd::addressof(*document)),
+                     mut_ref<owe::fs::VFS>::from_raw_parts(vfs.get()),
+                     mut_ref<wavsen::audio::SoundManager>::from_raw_parts(rstd::addressof(sound)),
+                     { .user_properties = Some(*properties.as_object()),
+                       .sound_unmount   = Some(owe::SceneSoundUnmountCallback::make(
+                           [&sound, &unmounted](wavsen::audio::SoundStreamId id) {
+                               ++unmounted;
+                               (void)sound.unmount(id);
+                           })),
+                       .sound_mount     = Some(owe::SceneSoundMountCallback::make(
+                           [&pending, &attempts](Box<dyn<wavsen::audio::SoundStreamObject>> stream,
+                                                 Arc<owe::SceneSoundMountState>
+                                                     state) {
+                               ++attempts;
+                               if (attempts == usize(3)) return false;
+                               pending.push({ rstd::move(stream), rstd::move(state) });
+                               return true;
+                           })) });
+    ASSERT_TRUE(parsed.is_ok());
+    auto scene = rstd::move(parsed).unwrap();
+    scene.scene->InstallExtension(rstd::move(vfs));
+    owe::script::TickSceneScripts(*scene.scene, owe::script::FrameInputs {});
+    auto* creator = scene.scene->RootMut()->FindByName("creator"_str);
+    ASSERT_NE(creator, nullptr);
+    EXPECT_FLOAT_EQ(creator->Translate().x(), 17.0f);
+    EXPECT_EQ(attempts, usize(3));
+    ASSERT_EQ(pending.len(), usize(2));
+    EXPECT_TRUE(pending[usize()].state->IsCanceled());
+    EXPECT_FALSE(pending[usize()].state->Attach(wavsen::audio::SoundStreamId { u64(99) }));
+    EXPECT_FALSE(pending[usize(1)].state->IsCanceled());
+    EXPECT_EQ(scene.scene->RootMut()->FindByName("pending-a"_str), nullptr);
+    EXPECT_EQ(scene.scene->RootMut()->FindByName("failed-sound"_str), nullptr);
+    EXPECT_EQ(scene.scene->RootMut()->FindByName("rejected-sound"_str), nullptr);
+    ASSERT_NE(scene.scene->RootMut()->FindByName("sound/runtime.ogg"_str), nullptr);
+    auto id = sound.mount(rstd::move(pending[usize(1)].stream));
+    ASSERT_TRUE(id.is_some());
+    ASSERT_TRUE(pending[usize(1)].state->Attach(*id));
+    owe::script::TickSceneScripts(*scene.scene, owe::script::FrameInputs {});
+    EXPECT_TRUE(pending[usize(1)].state->IsCanceled());
+    EXPECT_EQ(unmounted, usize(1));
+    EXPECT_EQ(scene.scene->RootMut()->FindByName("sound/runtime.ogg"_str), nullptr);
+}
+
 TEST(SceneDynamicLayer, PreservesEarlierLayersDuringRepeatedCreation) {
     using namespace rstd::prelude;
     auto document = owe::wpscene::ParseSceneDocumentJson(R"JSON({

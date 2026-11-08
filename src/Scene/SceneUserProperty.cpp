@@ -429,9 +429,9 @@ void ApplyParticles(Scene& scene, ref<str> key, const Json& property) {
 void ApplySoundVolume(Scene& scene, ref<str> key, const Json& property) {
     auto controls = scene.SoundVolumeBindings(key);
     if (controls.is_empty()) return;
-    auto coerced = CoerceUserPropertyValue(property);
-    if (! coerced.ok || coerced.value.size() < usize(1)) return;
-    const float volume = rstd::cmp::min(1.0f, rstd::cmp::max(0.0f, coerced.value[usize()]));
+    auto value = ResolveSceneUserPropertyScalar(property);
+    if (value.is_none()) return;
+    const float volume = rstd::cmp::min(1.0f, rstd::cmp::max(0.0f, *value));
     for (usize index {}; index < controls.len(); ++index) controls[index]->SetVolume(volume);
 }
 
@@ -445,6 +445,12 @@ void SceneUserPropertyApplier::ApplyImageBinding(Scene& scene, const SceneNode& 
 
 ref<str> CanonicalSceneUserPropertyKey(ref<str> key) {
     return key == kWaywallenSchemeColorKey ? kSchemeColorKey : key;
+}
+
+Option<float> ResolveSceneUserPropertyScalar(const Json& property) {
+    auto coerced = CoerceUserPropertyValue(property);
+    if (! coerced.ok || coerced.value.size() < usize(1)) return None();
+    return Some(coerced.value[usize()]);
 }
 
 Option<array<float, 3>> ResolveSceneUserPropertyColor(const Json& property) {

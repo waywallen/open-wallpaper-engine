@@ -31,6 +31,7 @@ auto EnsureSceneUserPropertyState(Scene&) -> SceneUserPropertyState&;
 
 ref<str>                CanonicalSceneUserPropertyKey(ref<str> key);
 Option<array<float, 3>> ResolveSceneUserPropertyColor(const Json&);
+Option<float>           ResolveSceneUserPropertyScalar(const Json&);
 
 class SceneUserPropertyApplier {
 public:
