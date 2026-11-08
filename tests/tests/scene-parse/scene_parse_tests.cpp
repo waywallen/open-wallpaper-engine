@@ -413,6 +413,39 @@ TEST(SceneGeneralScript, FovUpdatesPerspectiveCameraAndSharedState) {
     EXPECT_FLOAT_EQ(node->Scale().x(), 1.0f);
 }
 
+TEST(SceneGeneralScript, ReceivesConfiguredGeneralSettingsBeforeUpdate) {
+    using namespace rstd::prelude;
+    auto document = owe::wpscene::ParseSceneDocumentJson(R"JSON({
+        "camera": {},
+        "general": {"orthogonalprojection": null,
+          "fov": {"value":50, "script":"let lang; export function applyGeneralSettings(s) { lang = s.language; } export function update() { return lang === 'zh-chs' ? 60 : 40; }"}},
+        "objects": []
+    })JSON"_str,
+                                                         owe::wpscene::kSceneVersionUnknown);
+    ASSERT_TRUE(document.is_some());
+    auto assets = owe::fs::make_physical_fs(
+        owe::fs::Path(rstd::cppstd::as_str(WAYWALLEN_ASSETS_DIR).unwrap()));
+    ASSERT_TRUE(assets.is_ok());
+    owe::fs::VFS vfs;
+    ASSERT_TRUE(vfs.mount("/assets"_str, rstd::move(assets).unwrap()).is_ok());
+    auto settings = rstd::json::Map::make();
+    settings.insert("language"_Str, owe::Json::String("zh-chs"_Str));
+    wavsen::audio::SoundManager sound;
+    owe::SceneParser            parser;
+    auto                        parsed = parser.Parse(
+        "general-settings"_str,
+        rstd::ref<owe::wpscene::SceneDocument>::from_raw_parts(rstd::addressof(*document)),
+        rstd::mut_ref<owe::fs::VFS>::from_raw_parts(rstd::addressof(vfs)),
+        rstd::mut_ref<wavsen::audio::SoundManager>::from_raw_parts(rstd::addressof(sound)),
+        { .general_settings = Some(ref<rstd::json::Map>::from_raw_parts(&settings)) });
+    ASSERT_TRUE(parsed.is_ok());
+    auto scene  = rstd::move(parsed).unwrap();
+    auto camera = scene.scene->CameraHandle("global_perspective"_str);
+    ASSERT_TRUE(camera.is_some());
+    owe::script::TickSceneScripts(*scene.scene, owe::script::FrameInputs {});
+    EXPECT_DOUBLE_EQ((**camera).Fov(), 60.0);
+}
+
 TEST(SceneDynamicLayer, CreatesImageConfigurationDuringInitialization) {
     using namespace rstd::prelude;
     auto document = owe::wpscene::ParseSceneDocumentJson(R"JSON({
@@ -420,7 +453,7 @@ TEST(SceneDynamicLayer, CreatesImageConfigurationDuringInitialization) {
         "general": {"orthogonalprojection": {"width": 1920, "height": 1080}},
         "objects": [{"id": 1, "name": "creator", "scale": {
             "value": "1 1 1",
-            "script": "export function init() { const created = thisScene.createLayer({image:'models/util/solidlayer.json', name:'initial-runtime', size:'32 32', origin:'0 0 0', scale:'1 1 1', color:{value:'1 1 1', user:'tint'}}); created.origin = new Vec3(10, 20, 0); }"
+            "script": "export function init() { const created = thisScene.createLayer({image:'models/util/solidlayer.json', name:'initial-runtime', size:'32 32', origin:'0 0 0', scale:new Vec2(2, 3), color:{value:'1 1 1', user:'tint'}}); created.origin = new Vec3(10, 20, 0); }"
         }}]
     })JSON"_str,
                                                          owe::wpscene::kSceneVersionUnknown);
@@ -444,6 +477,9 @@ TEST(SceneDynamicLayer, CreatesImageConfigurationDuringInitialization) {
     ASSERT_NE(created->Mesh(), nullptr);
     EXPECT_FLOAT_EQ(created->Translate().x(), 10.0f);
     EXPECT_FLOAT_EQ(created->Translate().y(), 20.0f);
+    EXPECT_FLOAT_EQ(created->Scale().x(), 2.0f);
+    EXPECT_FLOAT_EQ(created->Scale().y(), 3.0f);
+    EXPECT_FLOAT_EQ(created->Scale().z(), 1.0f);
     EXPECT_TRUE(scene.scene->ResourceIndex().nodeId(*created).is_some());
     EXPECT_EQ(scene.scene->ImageColorUserBindings("tint"_str).len(), usize(1));
     EXPECT_TRUE(scene.scene->RemoveNodeMaterialBindings(created->Identity()) > usize());

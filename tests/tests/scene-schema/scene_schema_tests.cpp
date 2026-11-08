@@ -37,6 +37,33 @@ import wescene.testing.scene_keys;
 
 using namespace rstd::literals;
 
+TEST(SceneTransform, ReadsTwoAndThreeComponentLayerScales) {
+    for (auto source : { R"({"scale":"4 5"})"_str, R"({"scale":[4,5]})"_str }) {
+        auto                  json = owe::ParseJson(source).unwrap();
+        rstd::array<float, 3> scale { 1.0f, 1.0f, 1.0f };
+        ASSERT_TRUE(owe::wpscene::ReadLayerScale(json, scale));
+        EXPECT_FLOAT_EQ(scale[rstd::usize()], 4.0f);
+        EXPECT_FLOAT_EQ(scale[rstd::usize(1)], 5.0f);
+        EXPECT_FLOAT_EQ(scale[rstd::usize(2)], 1.0f);
+    }
+    auto                  json = owe::ParseJson(R"({"scale":"4 5 6"})"_str).unwrap();
+    rstd::array<float, 3> scale { 1.0f, 1.0f, 1.0f };
+    ASSERT_TRUE(owe::wpscene::ReadLayerScale(json, scale));
+    EXPECT_FLOAT_EQ(scale[rstd::usize(2)], 6.0f);
+
+    auto bound = owe::ParseJson(R"({"scale":{"value":"7 8"}})"_str).unwrap();
+    ASSERT_TRUE(owe::wpscene::ReadLayerScale(bound, scale));
+    EXPECT_FLOAT_EQ(scale[rstd::usize()], 7.0f);
+    EXPECT_FLOAT_EQ(scale[rstd::usize(1)], 8.0f);
+    EXPECT_FLOAT_EQ(scale[rstd::usize(2)], 6.0f);
+
+    auto scalar = owe::ParseJson(R"({"scale":2})"_str).unwrap();
+    ASSERT_TRUE(owe::wpscene::ReadLayerScale(scalar, scale));
+    EXPECT_FLOAT_EQ(scale[rstd::usize()], 2.0f);
+    EXPECT_FLOAT_EQ(scale[rstd::usize(1)], 0.0f);
+    EXPECT_FLOAT_EQ(scale[rstd::usize(2)], 0.0f);
+}
+
 TEST(SceneGeneralVersion, ReadsTransparentSortingFromVersion21) {
     auto json = owe::ParseJson(R"({"transparentsorting":true,"fogdistance":true})"_str).unwrap();
     for (auto version : { owe::wpscene::SceneVersion(20),

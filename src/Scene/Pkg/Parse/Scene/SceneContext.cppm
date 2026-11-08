@@ -215,6 +215,7 @@ struct SceneParseContext : SceneLayerBuildContext {
                                  Arc<SceneLayerResources>::make(owner.AudioDemandHandle())) {}
 
     HashMap<i32, Json>                       initial_layer_configs;
+    Option<ref<rstd::json::Map>>             general_settings;
     i32                                      next_synthetic_object_id { -1 };
     HashMap<String, wpscene::ParticleObject> dynamic_particle_prototypes;
     wavsen::audio::SoundManager*             sound_manager { nullptr };

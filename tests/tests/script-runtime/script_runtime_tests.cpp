@@ -131,6 +131,53 @@ TEST(ScriptInitialization, UsesSceneOwnerOrderInsteadOfRegistrationOrder) {
     EXPECT_EQ(LastScalar(consumer), 7.0);
 }
 
+TEST(ScriptInitialization, DispatchesGeneralSettingsToInitialAndNewScripts) {
+    auto      root = Arc<owe::SceneNode>::make();
+    JsRuntime rt;
+    auto*     script = rt.MakeFieldScript(
+        R"JS(
+            let language = '';
+            let events = 0;
+            let initialized = false;
+            export function applyGeneralSettings(settings) {
+                if (settings.hasOwnProperty('language')) language = settings.language;
+                events++;
+            }
+            export function init() { initialized = language === 'en-us'; }
+            export function update() {
+                return (initialized ? 100 : 0) + (language === 'zh-chs' ? 10 : 0) + events;
+            }
+        )JS"_str,
+        "test/general_settings"_str,
+        FieldKind::Scalar,
+        owe::MakeObject(),
+        owe::IntoJson(0));
+    ASSERT_NE(script, nullptr);
+    rt.SetSceneRoot(root.as_ptr());
+    rt.TickAll();
+    EXPECT_EQ(LastScalar(script), 101.0);
+
+    auto changes = rstd::json::Map::make();
+    changes.insert("language"_Str, owe::Json::String("zh-chs"_Str));
+    rt.SetGeneralSettings(owe::Json::Object(rstd::move(changes)));
+    rt.TickAll();
+    EXPECT_EQ(LastScalar(script), 112.0);
+
+    auto* later = rt.MakeFieldScript(
+        R"JS(
+            let language = '';
+            export function applyGeneralSettings(settings) { language = settings.language; }
+            export function update() { return language === 'zh-chs' ? 1 : 0; }
+        )JS"_str,
+        "test/general_settings_later"_str,
+        FieldKind::Scalar,
+        owe::MakeObject(),
+        owe::IntoJson(0));
+    ASSERT_NE(later, nullptr);
+    rt.TickAll();
+    EXPECT_EQ(LastScalar(later), 1.0);
+}
+
 TEST(ScriptValueCoercion, PreservesVec4InitialAndReturnValues) {
     JsRuntime rt;
     auto*     script = rt.MakeFieldScript(

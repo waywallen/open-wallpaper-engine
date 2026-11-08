@@ -259,6 +259,25 @@ typename JsonTemplateTypeCheck<T>::type GetJsonValue(const Json& json, ref<str> 
     return ReadJsonValue(**member, value, Some(name_view), loc);
 }
 
+bool GetJsonVec2OrVec3(const Json& json, ref<str> name, array<float, 3>& value, bool warn,
+                       source_location loc) {
+    auto member = json.get(name);
+    if (member.is_some()) {
+        const auto& input = InitialJsonValue(**member);
+        auto        array = input.as_array();
+        auto        text  = input.as_str();
+        if ((array.is_some() && (*array)->len() == usize(2)) ||
+            (text.is_some() && ArrayComponentCount(*text) == usize(2))) {
+            rstd::array<float, 2> pair {};
+            if (! GetJsonValue(json, name, pair, warn, loc)) return false;
+            value[usize()]  = pair[usize()];
+            value[usize(1)] = pair[usize(1)];
+            return true;
+        }
+    }
+    return GetJsonValue(json, name, value, warn, loc);
+}
+
 #define OWE_IMPL_GET_JSON(TYPE)                                    \
     template JsonTemplateTypeCheck<TYPE>::type GetJsonValue<TYPE>( \
         const Json&, TYPE&, source_location);                      \

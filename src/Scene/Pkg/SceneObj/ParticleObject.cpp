@@ -57,7 +57,7 @@ bool ParticleChild::FromJson(const owe::Json& json, fs::VFS& vfs) {
     }
     owe::GetJsonValue(json, "probability"_str, probability, false);
     owe::GetJsonValue(json, "origin"_str, origin, false);
-    owe::GetJsonValue(json, "scale"_str, scale, false);
+    ReadLayerScale(json, scale, false);
     owe::GetJsonValue(json, "angles"_str, angles, false);
     return true;
 }
@@ -388,7 +388,7 @@ bool ParticleObject::FromJson(const owe::Json& json, fs::VFS& vfs, SceneVersion 
     owe::GetJsonValue(json, "id"_str, id, false);
     owe::GetJsonValue(json, "origin"_str, origin);
     owe::GetJsonValue(json, "angles"_str, angles);
-    owe::GetJsonValue(json, "scale"_str, scale);
+    ReadLayerScale(json, scale);
     ReadParallaxDepth(json, parallax);
 
     if (auto value = json.get("instanceoverride"_str); value.is_some() && ! (*value)->is_null()) {

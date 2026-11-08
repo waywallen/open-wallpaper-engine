@@ -3,6 +3,7 @@ import rstd;
 import wescene.fs;
 import wescene.json;
 import :animation_layer;
+import :transform;
 export import :field_binding;
 import :visibility_binding;
 import :image_object;
@@ -88,7 +89,7 @@ struct TextObject {
         owe::GetJsonValue(json, "id"_str, id, false);
         owe::GetJsonValue(json, "name"_str, name, false);
         owe::GetJsonValue(json, "origin"_str, origin, false);
-        owe::GetJsonValue(json, "scale"_str, scale, false);
+        ReadLayerScale(json, scale, false);
         owe::GetJsonValue(json, "angles"_str, angles, false);
         ReadParallaxDepth(json, parallax);
         ReadVisibleProperty(json, visible, visible_user);
@@ -182,7 +183,7 @@ struct ModelObject {
         owe::GetJsonValue(json, "id"_str, id, false);
         owe::GetJsonValue(json, "name"_str, name, false);
         owe::GetJsonValue(json, "origin"_str, origin, false);
-        owe::GetJsonValue(json, "scale"_str, scale, false);
+        ReadLayerScale(json, scale, false);
         owe::GetJsonValue(json, "angles"_str, angles, false);
         ReadParallaxDepth(json, parallax);
         ReadVisibleProperty(json, visible, visible_user);
@@ -244,7 +245,7 @@ struct CameraObject {
         owe::GetJsonValue(json, "id"_str, id, false);
         owe::GetJsonValue(json, "name"_str, name, false);
         owe::GetJsonValue(json, "origin"_str, origin, false);
-        owe::GetJsonValue(json, "scale"_str, scale, false);
+        ReadLayerScale(json, scale, false);
         owe::GetJsonValue(json, "angles"_str, angles, false);
         ReadParallaxDepth(json, parallax);
         ReadVisibleProperty(json, visible, visible_user);

@@ -250,6 +250,9 @@ public:
     // (`{value: ...}` plus optional metadata).
     void SetUserProperty(ref<str> key, const Json& property);
 
+    // Merge changed general settings and notify initialized scripts.
+    void SetGeneralSettings(const Json& changes);
+
     // Dispatch Wallpaper Engine media callbacks for the current media
     // snapshot. Call from the renderer owner thread.
     void SetMediaStatus(const MediaStatus& status);

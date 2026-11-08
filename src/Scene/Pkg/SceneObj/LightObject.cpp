@@ -12,7 +12,7 @@ bool LightObject::FromJson(const owe::Json& json, fs::VFS& vfs) {
 bool LightObject::FromJson(const owe::Json& json, fs::VFS&, SceneVersion /*v*/) {
     owe::GetJsonValue(json, "origin"_str, origin);
     owe::GetJsonValue(json, "angles"_str, angles);
-    owe::GetJsonValue(json, "scale"_str, scale);
+    ReadLayerScale(json, scale);
     owe::GetJsonValue(json, "color"_str, color);
     owe::GetJsonValue(json, "light"_str, light);
     owe::GetJsonValue(json, "radius"_str, radius);

@@ -16,7 +16,7 @@ bool ContainerObject::FromJson(const owe::Json& json) {
     owe::GetJsonValue(json, "id"_str, id, false);
     owe::GetJsonValue(json, "name"_str, name, false);
     owe::GetJsonValue(json, "origin"_str, origin, false);
-    owe::GetJsonValue(json, "scale"_str, scale, false);
+    ReadLayerScale(json, scale, false);
     owe::GetJsonValue(json, "angles"_str, angles, false);
     ReadParallaxDepth(json, parallax);
     ReadVisibleProperty(json, visible, visible_user);

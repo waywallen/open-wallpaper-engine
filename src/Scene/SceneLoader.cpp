@@ -140,19 +140,20 @@ auto LoadScene(SceneLoadRequest request, mut_ref<wavsen::audio::SoundManager> so
     Option<PathBuf> shader_cache;
     if (! request.cache_dir.is_empty()) shader_cache = Some(request.cache_dir.clone());
     SceneParser parser;
-    auto        parsed =
-        parser.Parse(request.scene_id.as_str(),
-                     ref<wpscene::SceneDocument>::from_raw_parts(document->as_ptr()),
-                     mut_ref<fs::VFS>::from_raw_parts(&*vfs),
-                     sound,
-                     { .load_bench       = request.load_bench,
-                       .user_properties  = Some(ref<rstd::json::Map>::from_raw_parts(&properties)),
-                       .shader_cache_dir = rstd::move(shader_cache),
-                       .capabilities     = request.capabilities,
-                       .image_ready      = rstd::move(request.image_ready),
-                       .sound_unmount    = rstd::move(request.sound_unmount),
-                       .sound_mount      = rstd::move(request.sound_mount),
-                       .texture_memory   = rstd::move(request.texture_memory) });
+    auto        parsed = parser.Parse(
+        request.scene_id.as_str(),
+        ref<wpscene::SceneDocument>::from_raw_parts(document->as_ptr()),
+        mut_ref<fs::VFS>::from_raw_parts(&*vfs),
+        sound,
+        { .load_bench       = request.load_bench,
+          .user_properties  = Some(ref<rstd::json::Map>::from_raw_parts(&properties)),
+          .general_settings = Some(ref<rstd::json::Map>::from_raw_parts(&request.general_settings)),
+          .shader_cache_dir = rstd::move(shader_cache),
+          .capabilities     = request.capabilities,
+          .image_ready      = rstd::move(request.image_ready),
+          .sound_unmount    = rstd::move(request.sound_unmount),
+          .sound_mount      = rstd::move(request.sound_mount),
+          .texture_memory   = rstd::move(request.texture_memory) });
     if (parsed.is_err()) {
         auto error = parsed.unwrap_err();
         return Err(

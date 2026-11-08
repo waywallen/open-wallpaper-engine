@@ -1288,6 +1288,7 @@ void SceneRuntimeController::loadScene() {
         .cache_dir = m_config.cache_dir.clone(),
         .document = m_config.scene_document.clone(),
         .user_properties = m_user_properties.clone(),
+        .general_settings = m_config.general_settings.clone(),
         .capabilities = {
             .directional_shadow = m_render_capabilities->directional_shadow(),
             .geometry_shader_supported = m_render_capabilities->geometry_shader,

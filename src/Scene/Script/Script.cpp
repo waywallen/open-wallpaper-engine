@@ -320,6 +320,7 @@ struct JsRuntime::Impl {
     rstd::uint64_t           next_module_serial { 0 };
     Vec<Box<FieldScript>>    scripts;
     Vec<Box<FieldScript>>    deferred_scripts;
+    rstd::json::Map          general_settings { rstd::json::Map::make() };
     // Set of error-logged shas to log once.
     HashSet<String> errored;
     // Scene root for `thisScene`. Wrapped lazily; freed in dtor.
@@ -3025,6 +3026,7 @@ JSValue MakeMediaThumbnailEvent(JSContext* ctx, const MediaStatus& status) {
 // --- JsRuntime methods ------------------------------------------------------
 
 JsRuntime::JsRuntime(): m_impl(Box<Impl>::make()) {
+    m_impl->general_settings.insert("language"_Str, Json::String("en-us"_Str));
     m_impl->rt  = JS_NewRuntime();
     m_impl->ctx = JS_NewContext(m_impl->rt);
     if (! m_impl->rt || ! m_impl->ctx) {
@@ -3111,6 +3113,43 @@ void JsRuntime::SetAudioResponseDemand(Option<Arc<AudioResponseDemand>> demand) 
     m_impl->host.audio_response_demand = rstd::move(demand);
     if (HasAudioBuffers(m_impl->host) && m_impl->host.audio_response_demand.is_some()) {
         m_impl->host.audio_response_lease = Some((*m_impl->host.audio_response_demand)->Acquire());
+    }
+}
+
+namespace
+{
+void DispatchGeneralSettings(JSContext* ctx, JsRuntime::Impl* rt, FieldScript* script,
+                             const Json& settings) {
+    auto* field = script->m_impl.get();
+    if (! field->alive || field->init_deferred) return;
+    JSValue fn = JS_GetPropertyStr(ctx, field->module_ns, "applyGeneralSettings");
+    if (JS_IsFunction(ctx, fn)) {
+        EngineBindingGuard binding_guard(ctx, rt->host);
+        BindFieldScriptContext(ctx, *field, rt->host.default_layer);
+        if (! JS_IsUndefined(rt->wrapped_scene)) BindThisScene(ctx, rt->wrapped_scene);
+        rt->host.active_field_script = script;
+        JSValue arg                  = JsonToJs(ctx, settings);
+        JSValue result               = JS_Call(ctx, fn, JS_UNDEFINED, 1, &arg);
+        JS_FreeValue(ctx, arg);
+        if (JS_IsException(result))
+            rt->LogError(ctx, field->sha.as_str(), "applyGeneralSettings threw");
+        JS_FreeValue(ctx, result);
+    }
+    JS_FreeValue(ctx, fn);
+}
+} // namespace
+
+void JsRuntime::SetGeneralSettings(const Json& changes) {
+    auto object = changes.as_object();
+    if (object.is_none()) return;
+    for (const auto& [key, value] : (**object).iter())
+        m_impl->general_settings.insert(key->clone(), value->clone());
+    if (! m_impl->ctx) return;
+    const auto count = m_impl->scripts.len();
+    for (usize index {}; index < count; ++index) {
+        auto* script = m_impl->scripts[index].get();
+        if (script->m_impl->init_done)
+            DispatchGeneralSettings(m_impl->ctx, m_impl.get(), script, changes);
     }
 }
 
@@ -3594,14 +3633,23 @@ bool FunctionTakesArg(JSContext* ctx, JSValue fn) {
 void RunFieldScriptInit(JSContext* ctx, JsRuntime::Impl* rt, FieldScript* fs) {
     if (! fs || ! fs->m_impl->alive || fs->m_impl->init_done || fs->m_impl->init_in_progress)
         return;
-    auto* I = fs->m_impl.get();
+    auto* I             = fs->m_impl.get();
+    I->init_in_progress = true;
+    auto settings       = rstd::json::Map::make();
+    for (const auto& [key, value] : rt->general_settings.iter())
+        settings.insert(key->clone(), value->clone());
+    DispatchGeneralSettings(ctx, rt, fs, Json::Object(rstd::move(settings)));
+    if (! I->alive) {
+        I->init_in_progress = false;
+        return;
+    }
     if (! JS_IsFunction(ctx, I->init_fn)) {
-        I->init_done = true;
+        I->init_in_progress = false;
+        I->init_done        = true;
         return;
     }
 
     EngineBindingGuard binding_guard(ctx, rt->host);
-    I->init_in_progress = true;
     BindFieldScriptContext(ctx, *I, rt->host.default_layer);
     if (! JS_IsUndefined(rt->wrapped_scene)) BindThisScene(ctx, rt->wrapped_scene);
     rt->host.active_field_script = fs;

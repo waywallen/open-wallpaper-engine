@@ -3,6 +3,7 @@ import wavsen.audio;
 import wescene.fs;
 
 import wescene.json;
+import :transform;
 export import :field_binding;
 import :visibility_binding;
 import :scene_document;
@@ -65,7 +66,7 @@ struct SoundObject {
         owe::GetJsonValue(json, "playbackmode"_str, playbackmode);
         owe::GetJsonValue(json, "origin"_str, origin, false);
         owe::GetJsonValue(json, "angles"_str, angles, false);
-        owe::GetJsonValue(json, "scale"_str, scale, false);
+        ReadLayerScale(json, scale, false);
         owe::GetJsonValue(json, "mintime"_str, mintime, false);
         owe::GetJsonValue(json, "maxtime"_str, maxtime, false);
         ReadVisibleProperty(json, visible, visible_user);

@@ -324,6 +324,12 @@ void FinalizeScene(SceneParseContext& context) {
         // can resolve against the live graph. The renderer also ticks the
         // ScriptScene once per frame via owe::script::TickSceneScripts.
         auto& runtime = (*context.script_scene)->runtime();
+        if (context.general_settings.is_some()) {
+            auto settings = rstd::json::Map::make();
+            for (const auto& [key, value] : (*context.general_settings)->iter())
+                settings.insert(key->clone(), value->clone());
+            runtime.SetGeneralSettings(Json::Object(rstd::move(settings)));
+        }
         for (auto id : context.layer_build.node_id_order) {
             auto node   = context.layer_build.node_id_map.get(id);
             auto config = context.initial_layer_configs.get(id);

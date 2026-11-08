@@ -64,6 +64,7 @@ struct SceneWallpaperConfig {
     Option<Arc<wpscene::SceneDocument>> scene_document;
     Option<SceneLoadBenchHandle>        load_bench;
     rstd::json::Map                     user_properties;
+    rstd::json::Map                     general_settings;
     uint32_t                            fps { 30 };
     float                               volume { 1.0f };
     float                               volume_scale { 1.0f };

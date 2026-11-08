@@ -1,6 +1,7 @@
 export module wescene.pkg.scene_obj;
 
 export import :field_binding;
+export import :transform;
 export import :animation_layer;
 export import :visibility_binding;
 export import :material;

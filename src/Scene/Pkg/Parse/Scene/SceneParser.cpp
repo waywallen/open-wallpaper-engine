@@ -79,6 +79,7 @@ auto owe::SceneParser::Parse(ref<str> scene_id, ref<wpscene::SceneDocument> docu
                      rstd::move(options.image_ready),
                      rstd::move(options.texture_memory));
     context.load_bench                     = options.load_bench;
+    context.general_settings               = options.general_settings;
     context.layer_resources->sound_unmount = rstd::move(options.sound_unmount);
     context.layer_resources->sound_mount   = rstd::move(options.sound_mount);
     auto runtime_input =

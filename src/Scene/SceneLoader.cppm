@@ -17,6 +17,7 @@ struct SceneLoadRequest {
     String                                          scene_id;
     Option<rstd::sync::Arc<wpscene::SceneDocument>> document;
     rstd::json::Map                                 user_properties;
+    rstd::json::Map                                 general_settings;
     SceneParseCapabilities                          capabilities;
     SceneLoadBenchRecorderView                      load_bench;
     Option<ImageReadyCallback>                      image_ready;

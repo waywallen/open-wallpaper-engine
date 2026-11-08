@@ -37,6 +37,9 @@ typename JsonTemplateTypeCheck<T>::type
 GetJsonValue(const Json& json, ref<str> name, T& value, bool warn = true,
              source_location loc = source_location::current());
 
+bool GetJsonVec2OrVec3(const Json& json, ref<str> name, array<float, 3>& value, bool warn = true,
+                       source_location loc = source_location::current());
+
 enum class JsonValueError
 {
     WrongType,

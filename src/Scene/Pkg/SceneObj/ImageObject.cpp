@@ -317,7 +317,7 @@ bool ImageObject::FromJson(const owe::Json& json, fs::VFS& vfs, SceneVersion v) 
     if (! fullscreen) {
         owe::GetJsonValue(json, "origin"_str, origin);
         owe::GetJsonValue(json, "angles"_str, angles);
-        owe::GetJsonValue(json, "scale"_str, scale);
+        ReadLayerScale(json, scale);
         if (jImage->get("width"_str).is_some()) {
             i32 w {}, h {};
             owe::GetJsonValue(*jImage, "width"_str, w);
@@ -406,7 +406,7 @@ bool ShapeObject::FromJson(const owe::Json& json, fs::VFS& vfs, SceneVersion v) 
     owe::GetJsonValue(json, "id"_str, id, false);
     owe::GetJsonValue(json, "origin"_str, origin);
     owe::GetJsonValue(json, "angles"_str, angles);
-    owe::GetJsonValue(json, "scale"_str, scale);
+    ReadLayerScale(json, scale);
     ReadParallaxDepth(json, parallax);
 
     ReadImageEffects(json, vfs, v, effects);

@@ -78,6 +78,7 @@ sources = [
   "src/Scene/Pkg/SceneObj/SceneDocument.cppm",
   "src/Scene/Pkg/SceneObj/SceneDocument.cpp",
   "src/Scene/Pkg/SceneObj/SoundObject.cppm",
+  "src/Scene/Pkg/SceneObj/Transform.cppm",
   "src/Scene/Pkg/SceneObj/VisibilityBinding.cppm",
   "src/Scene/Pkg/SceneObj/mod.cppm",
   "src/Scene/Pkg/SpecNames.cppm",

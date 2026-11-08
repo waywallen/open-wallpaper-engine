@@ -40,6 +40,7 @@ struct SceneParseCapabilities {
 struct SceneParseOptions {
     SceneLoadBenchRecorderView        load_bench;
     Option<ref<rstd::json::Map>>      user_properties;
+    Option<ref<rstd::json::Map>>      general_settings;
     Option<rstd::path::PathBuf>       shader_cache_dir;
     SceneParseCapabilities            capabilities;
     Option<ImageReadyCallback>        image_ready;
