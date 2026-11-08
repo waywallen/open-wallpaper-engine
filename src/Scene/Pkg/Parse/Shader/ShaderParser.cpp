@@ -765,9 +765,9 @@ inline String BalanceConditionals(String src) {
     return out;
 }
 
-inline String Preprocessor(ref<str> in_src, ShaderType type, const Combos& combos,
+inline String Preprocessor(ref<str> in_src, ShaderType type, const ShaderInfo& info,
                            PreprocessorInfo& process_info) {
-    String with_prologue = owe::ShaderParser::PreShaderHeader(in_src, combos, type);
+    String with_prologue = owe::ShaderParser::PreShaderHeader(in_src, info.combos, type);
 
     // `#require` is a WE-specific marker, not a real preprocessor directive.
     // Prefix `//` to neutralize it. Allowed leading horizontal whitespace.
@@ -814,6 +814,27 @@ inline String Preprocessor(ref<str> in_src, ShaderType type, const Combos& combo
         // diagnostics. Keep with_prologue so the failing path matches what
         // a developer would see if they bypassed the preprocess step.
         src = rstd::into(input);
+    } else {
+        HashSet<String> defaults;
+        for (const auto& combo : info.combo_defs) {
+            if (combo.default_ == i32() && ! info.combos.contains_key(combo.combo.as_str()))
+                (void)defaults.insert(combo.combo.clone());
+        }
+        if (! defaults.is_empty()) {
+            auto              preprocessed = src.as_str();
+            shader_lex::Lexer lexer(preprocessed);
+            String            normalized;
+            normalized.reserve(preprocessed.len());
+            for (;;) {
+                auto token = lexer.Next();
+                if (token.kind == shader_lex::TokenKind::Eof) break;
+                if (token.kind == shader_lex::TokenKind::Ident && defaults.contains(token.text))
+                    normalized.push_str("0"_str);
+                else
+                    normalized.push_str(token.text);
+            }
+            src = rstd::move(normalized);
+        }
     }
     auto source = src.as_str();
 
@@ -1902,7 +1923,7 @@ constexpr array<rstd::uint8_t, 8> kShaderCacheMagic { rstd::uint8_t('O'), rstd::
                                                       rstd::uint8_t('P'), rstd::uint8_t('V'),
                                                       rstd::uint8_t('3'), rstd::uint8_t(0) };
 constexpr rstd::uint32_t          kShaderCacheFormatVersion = 3;
-constexpr rstd::uint32_t          kShaderCacheAbiVersion    = 19;
+constexpr rstd::uint32_t          kShaderCacheAbiVersion    = 20;
 // 8-byte magic, six u32 fields, and four SHA-1 digests total 112 bytes.
 constexpr rstd::uint32_t kShaderCacheHeaderSize = static_cast<rstd::uint32_t>(
     kShaderCacheMagic.len().to_primitive() + 6 * sizeof(rstd::uint32_t) +
@@ -2896,8 +2917,8 @@ auto ShaderParser::CompileToSpv(ref<str> scene_id, mut_ref<ShaderUnit[]> units,
     {
         auto span = SceneLoadSpan(bench, &SceneLoadProbeIds::shader_preprocess);
         for (auto& unit : units) {
-            unit.src = Preprocessor(
-                unit.src.as_str(), unit.stage, shader_info->combos, unit.preprocess_info);
+            unit.src =
+                Preprocessor(unit.src.as_str(), unit.stage, *shader_info, unit.preprocess_info);
         }
         ShapeShaderDefaults(units.as_ref(), *shader_info);
     }

@@ -1757,7 +1757,7 @@ void main() {
                (static_cast<std::uint32_t>(header[offset + 3]) << 24);
     };
     EXPECT_EQ(read_u32(8), 3u);
-    EXPECT_EQ(read_u32(12), 19u);
+    EXPECT_EQ(read_u32(12), 20u);
     EXPECT_EQ(read_u32(16), 112u);
     EXPECT_EQ(read_u32(24), 2u);
     const auto initial_write_time = std::filesystem::last_write_time(artifact_path);
@@ -1981,6 +1981,7 @@ void main() {
 // [COMBO] {"combo":"LINE_STYLE2","default":0,"require":{"HATCH":0,"LINE_COUNT":2}}
 // [COMBO] {"combo":"LINE_STYLE3","default":0,"require":{"HATCH":0,"LINE_COUNT":3}}
 // [COMBO] {"combo":"SHAPE_VARIATION","default":1,"require":{"HATCH":1}}
+// [COMBO] {"combo":"SHARP","default":0,"require":{"HATCH":1}}
 #if LINE_COUNT == 3
 #define LINE_STYLE2 LINE_STYLE3
 #endif
@@ -1991,7 +1992,7 @@ float selection() {
 }
 void main() {
 #if LINE_STYLE2 == 3
-    gl_FragColor = vec4(selection());
+    gl_FragColor = vec4(selection(), float(SHARP), float(LINE_STYLE2), 1.0);
 #else
     gl_FragColor = vec4(0.0);
 #endif
@@ -2004,6 +2005,7 @@ void main() {
 
     ASSERT_TRUE(result.ok) << rstd::cppstd::as_string_view(result.error.as_str());
     EXPECT_FALSE(result.variant.resolved_combos.contains_key("LINE_STYLE2"_str));
+    EXPECT_FALSE(result.variant.resolved_combos.contains_key("SHARP"_str));
     ASSERT_TRUE(result.variant.resolved_combos.contains_key("LINE_STYLE3"_str));
     EXPECT_EQ((**result.variant.resolved_combos.get("LINE_STYLE3"_str)).as_str(), "3"_str);
     ASSERT_TRUE(result.variant.resolved_combos.contains_key("SHAPE_VARIATION"_str));
