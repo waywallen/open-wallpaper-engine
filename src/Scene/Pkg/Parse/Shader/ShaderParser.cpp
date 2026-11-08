@@ -598,7 +598,8 @@ inline String UndefBeforeUserMacroDefines(ref<str> src, ref<str> macro_name) {
 
 inline String UndefBeforeConflictingMacroDefines(ref<str> src) {
     auto out = String::make(src);
-    for (auto macro_name : rstd::array<ref<str>, 3> { "M_PI_2"_str, "dFdx"_str, "dFdy"_str }) {
+    for (auto macro_name :
+         rstd::array<ref<str>, 4> { "M_PI_2"_str, "dFdx"_str, "dFdy"_str, "mix"_str }) {
         out = UndefBeforeUserMacroDefines(out.as_str(), macro_name);
     }
     return out;

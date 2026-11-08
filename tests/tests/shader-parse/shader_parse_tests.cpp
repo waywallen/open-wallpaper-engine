@@ -413,6 +413,18 @@ void main() {}
     EXPECT_EQ(out.find("#undef textureGrad"), std::string::npos);
 }
 
+TEST(ShaderParser, UndefsMixBeforeUserAlias) {
+    const std::string out = rstd::cppstd::to_string(
+        owe::ShaderParser::PreShaderHeader(
+            "#define mix lerp\nvoid main() {}\n"_str, {}, owe::ShaderType::FRAGMENT)
+            .as_str());
+    const auto undef_pos  = out.find("#undef mix");
+    const auto define_pos = out.find("#define mix lerp");
+    ASSERT_NE(undef_pos, std::string::npos);
+    ASSERT_NE(define_pos, std::string::npos);
+    EXPECT_LT(undef_pos, define_pos);
+}
+
 TEST(ShaderParser, CompileSceneShaderVariantAcceptsBothAtanForms) {
     owe::SceneShaderVariantDesc desc;
     desc.scene_id    = "atan-overloads-test"_Str;
