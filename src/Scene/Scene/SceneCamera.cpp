@@ -210,6 +210,8 @@ void Scene::UpdateCameraFillMode(u32 width, u32 height, FillMode fillmode) {
     pcam.Update();
     UpdateLinkedCamera("global"_str);
     CaptureCameraPathViewports();
+    // Reapply the current camera path sample to the updated viewport.
+    TickCameraPaths();
 }
 
 void SceneCamera::AttatchNode(SceneNode* node) {
