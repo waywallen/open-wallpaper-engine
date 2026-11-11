@@ -89,9 +89,8 @@ void GenDirectDrawQuadMesh(SceneMesh& mesh, float edge, const DirectDrawQuad& po
     mesh.AddIndexArray(SceneIndexArray(indices.as_slice()));
 }
 
-void SetParticleMesh(SceneMesh& mesh, u32 count, bool thick_format,
-                     bool geometry_shader_supported) {
-    if (geometry_shader_supported) {
+void SetParticleMesh(SceneMesh& mesh, u32 count, bool thick_format, bool geometry_shader) {
+    if (geometry_shader) {
         auto specs =
             thick_format
                 ? MakeAttrSet(
@@ -135,9 +134,9 @@ void SetParticleMesh(SceneMesh& mesh, u32 count, bool thick_format,
 }
 
 void SetRopeParticleMesh(SceneMesh& mesh, const wpscene::Particle& particle, u32 count,
-                         bool thick_format, bool trail_renderer, bool geometry_shader_supported) {
+                         bool thick_format, bool trail_renderer, bool geometry_shader) {
     (void)particle;
-    if (geometry_shader_supported) {
+    if (geometry_shader) {
         auto specs = thick_format ? MakeAttrSet({ VAttr::PositionVec4,
                                                   VAttr::TexCoordVec4,
                                                   VAttr::TexCoordVec4C1,

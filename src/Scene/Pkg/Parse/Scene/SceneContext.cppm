@@ -53,6 +53,7 @@ enum class GeometryStageRequirement
 {
     None,
     Required,
+    IfAvailable,
     Disabled,
 };
 
@@ -63,6 +64,7 @@ struct MaterialBuildError {
 struct MaterialBuild {
     SceneMaterial material;
     ShaderInfo    shader_info;
+    bool          has_geometry_stage { false };
 };
 
 auto BuildMaterial(fs::VFS&, ShaderCache&, const SceneShaderEnvironment&, const wpscene::Material&,
@@ -89,9 +91,9 @@ void GenCardMesh(SceneMesh&, array<float, 2>, array<float, 2> = { 1.0f, 1.0f },
                  const Eigen::Vector3f& = Eigen::Vector3f::Zero());
 auto ReadDirectDrawQuad(const wpscene::Material&) -> Option<DirectDrawQuad>;
 void GenDirectDrawQuadMesh(SceneMesh&, float, const DirectDrawQuad&);
-void SetParticleMesh(SceneMesh&, u32, bool, bool geometry_shader_supported);
+void SetParticleMesh(SceneMesh&, u32, bool, bool geometry_shader);
 void SetRopeParticleMesh(SceneMesh&, const wpscene::Particle&, u32, bool, bool,
-                         bool geometry_shader_supported);
+                         bool geometry_shader);
 
 struct SceneUniformConfigDraft {
     Arc<SceneNode>         node;

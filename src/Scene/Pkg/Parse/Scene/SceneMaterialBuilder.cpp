@@ -274,14 +274,7 @@ auto BuildMaterial(fs::VFS& vfs, ShaderCache& shader_cache,
     Vec<ShaderUnit> sd_units;
     Vec<String>     sd_source_keys;
     Vec<String>     sd_original_sources;
-    auto            add_shader_unit = [&](ShaderType stage, String source_key) {
-        auto   loaded = fs::ReadFileContent(vfs, fs::Path(source_key.as_str()));
-        String source;
-        if (loaded.is_ok()) {
-            source = rstd::move(loaded).unwrap_unchecked();
-        } else {
-            rstd_error("Can't read shader source {}", source_key);
-        }
+    auto            append_shader_unit = [&](ShaderType stage, String source_key, String source) {
         sd_source_keys.push(rstd::move(source_key));
         sd_original_sources.push(source.clone());
         sd_units.push({
@@ -290,22 +283,44 @@ auto BuildMaterial(fs::VFS& vfs, ShaderCache& shader_cache,
             .preprocess_info = {},
         });
     };
+    auto add_shader_unit = [&](ShaderType stage, String source_key) {
+        auto   loaded = fs::ReadFileContent(vfs, fs::Path(source_key.as_str()));
+        String source;
+        if (loaded.is_ok()) {
+            source = rstd::move(loaded).unwrap_unchecked();
+        } else {
+            rstd_error("Can't read shader source {}", source_key);
+        }
+        append_shader_unit(stage, rstd::move(source_key), rstd::move(source));
+    };
     add_shader_unit(ShaderType::VERTEX, rstd::format("{}.vert", shaderPath));
-    bool has_geometry_stage = geometry_stage == GeometryStageRequirement::Required;
-    if (geometry_stage == GeometryStageRequirement::Disabled) {
-        (void)shader_info_ref.combos.insert(rstd::into(WE_CB_GS_ENABLED), "0"_Str);
-    }
-    if (has_geometry_stage) {
+    if (geometry_stage == GeometryStageRequirement::Required ||
+        geometry_stage == GeometryStageRequirement::IfAvailable) {
         auto geom_path = rstd::format("{}.geom", shaderPath);
-        if (vfs.metadata(fs::Path(geom_path.as_str())).is_err()) {
-            rstd_error("required geometry shader source missing: {}", geom_path);
+        auto loaded    = fs::ReadFileContent(vfs, fs::Path(geom_path.as_str()));
+        if (loaded.is_err()) {
+            auto error = rstd::move(loaded).unwrap_err_unchecked();
+            if (geometry_stage == GeometryStageRequirement::Required ||
+                error.kind().code != rstd::io::error::ErrorKind::NotFound) {
+                rstd_error("Can't read geometry shader source {}: {}", geom_path, error);
+                return Err(MaterialBuildError {
+                    .message = "failed to read geometry shader source"_Str,
+                });
+            }
+        } else if (auto source = rstd::move(loaded).unwrap_unchecked(); ! source.is_empty()) {
+            append_shader_unit(ShaderType::GEOMETRY, rstd::move(geom_path), rstd::move(source));
+            build.has_geometry_stage = true;
+        } else if (geometry_stage == GeometryStageRequirement::Required) {
+            rstd_error("required geometry shader source is empty: {}", geom_path);
             return Err(MaterialBuildError {
-                .message = "required geometry shader source is missing"_Str,
+                .message = "required geometry shader source is empty"_Str,
             });
         }
-        add_shader_unit(ShaderType::GEOMETRY, rstd::move(geom_path));
-        (void)shader_info_ref.combos.insert(rstd::into(WE_CB_GS_ENABLED), "1"_Str);
     }
+    const bool has_geometry_stage = build.has_geometry_stage;
+    if (geometry_stage != GeometryStageRequirement::None)
+        (void)shader_info_ref.combos.insert(rstd::into(WE_CB_GS_ENABLED),
+                                            has_geometry_stage ? "1"_Str : "0"_Str);
     add_shader_unit(ShaderType::FRAGMENT, rstd::format("{}.frag", shaderPath));
     (void)sources_span.finish();
 
@@ -351,6 +366,9 @@ auto BuildMaterial(fs::VFS& vfs, ShaderCache& shader_cache,
     for (auto [key, value] : wpmat.combos.iter()) {
         (void)shader_info_ref.combos.insert(key->clone(), rstd::format("{}", *value));
     }
+    if (geometry_stage != GeometryStageRequirement::None)
+        (void)shader_info_ref.combos.insert(rstd::into(WE_CB_GS_ENABLED),
+                                            has_geometry_stage ? "1"_Str : "0"_Str);
     if (blend_mode == BlendMode::AlphaToCoverage) {
         (void)shader_info_ref.combos.insert("ALPHATOCOVERAGE"_Str, "1"_Str);
     }

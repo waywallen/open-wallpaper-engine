@@ -1259,6 +1259,102 @@ TEST(SceneDynamicLayer, CreatesModelAssetsAndConfigurations) {
     EXPECT_FLOAT_EQ(creator->Translate().x(), 37.0f);
 }
 
+TEST(ParticleMaterial, MeshMatchesAvailableGeometryStage) {
+    using namespace rstd::prelude;
+    auto document = owe::wpscene::ParseSceneDocumentJson(R"JSON({
+        "camera": {},
+        "general": {"orthogonalprojection": {"width": 1920, "height": 1080}},
+        "objects": [
+            {"id": 1, "name": "with-geometry", "particle": "particles/with-geometry.json"},
+            {"id": 2, "name": "without-geometry", "particle": "particles/without-geometry.json"}
+        ]
+    })JSON"_str,
+                                                         owe::wpscene::kSceneVersionUnknown);
+    ASSERT_TRUE(document.is_some());
+    auto assets_path =
+        rstd::path::PathBuf::from(rstd::cppstd::as_str(WAYWALLEN_ASSETS_DIR).unwrap());
+    if (rstd::fs::metadata(assets_path.as_path()).is_err()) {
+        assets_path = rstd::path::PathBuf::from("../assets"_str);
+    }
+    auto assets = owe::fs::make_physical_fs(assets_path.as_path());
+    ASSERT_TRUE(assets.is_ok());
+    auto vfs = Box<owe::fs::VFS>::make();
+    ASSERT_TRUE(vfs->mount("/assets"_str, rstd::move(assets).unwrap()).is_ok());
+    auto vertex =
+        owe::fs::ReadFileBytes(*vfs, owe::fs::Path("/assets/shaders/genericparticle.vert"_str));
+    auto fragment =
+        owe::fs::ReadFileBytes(*vfs, owe::fs::Path("/assets/shaders/genericparticle.frag"_str));
+    ASSERT_TRUE(vertex.is_ok());
+    ASSERT_TRUE(fragment.is_ok());
+
+    auto temporary = rstd::fs::TempDir::make("owe-particle-stage"_str).unwrap();
+    auto root      = rstd::path::PathBuf::from(temporary.path().as_os_str().to_os_string());
+    ASSERT_TRUE(rstd::fs::create_dir(root.join("particles"_str).as_path()).is_ok());
+    ASSERT_TRUE(rstd::fs::create_dir(root.join("materials"_str).as_path()).is_ok());
+    ASSERT_TRUE(rstd::fs::create_dir(root.join("shaders"_str).as_path()).is_ok());
+    ASSERT_TRUE(rstd::fs::write(root.join("shaders/particle-no-geometry.vert"_str).as_path(),
+                                vertex.unwrap().as_slice())
+                    .is_ok());
+    ASSERT_TRUE(rstd::fs::write(root.join("shaders/particle-no-geometry.frag"_str).as_path(),
+                                fragment.unwrap().as_slice())
+                    .is_ok());
+    ASSERT_TRUE(
+        rstd::fs::write(
+            root.join("particles/with-geometry.json"_str).as_path(),
+            R"({"material":"materials/with-geometry.json","maxcount":16,"emitter":[{"name":"sphererandom","rate":1}]})"_bytes)
+            .is_ok());
+    ASSERT_TRUE(
+        rstd::fs::write(
+            root.join("particles/without-geometry.json"_str).as_path(),
+            R"({"material":"materials/without-geometry.json","maxcount":16,"emitter":[{"name":"sphererandom","rate":1}]})"_bytes)
+            .is_ok());
+    ASSERT_TRUE(
+        rstd::fs::write(
+            root.join("materials/with-geometry.json"_str).as_path(),
+            R"({"passes":[{"shader":"genericparticle","blending":"additive","textures":["particle/halo"]}]})"_bytes)
+            .is_ok());
+    ASSERT_TRUE(
+        rstd::fs::write(
+            root.join("materials/without-geometry.json"_str).as_path(),
+            R"({"passes":[{"shader":"particle-no-geometry","blending":"additive","combos":{"GS_ENABLED":1},"textures":["particle/halo"]}]})"_bytes)
+            .is_ok());
+    auto local = owe::fs::make_physical_fs(temporary.path());
+    ASSERT_TRUE(local.is_ok());
+    ASSERT_TRUE(vfs->mount("/assets"_str, rstd::move(local).unwrap()).is_ok());
+
+    wavsen::audio::SoundManager sound;
+    owe::SceneParser            parser;
+    auto                        parsed =
+        parser.Parse("particle-stage"_str,
+                     ref<owe::wpscene::SceneDocument>::from_raw_parts(rstd::addressof(*document)),
+                     mut_ref<owe::fs::VFS>::from_raw_parts(vfs.get()),
+                     mut_ref<wavsen::audio::SoundManager>::from_raw_parts(rstd::addressof(sound)));
+    ASSERT_TRUE(parsed.is_ok());
+    auto scene = rstd::move(parsed).unwrap();
+    scene.scene->InstallExtension(rstd::move(vfs));
+    const array<ref<str>, 2> names { "with-geometry"_str, "without-geometry"_str };
+    for (usize i {}; i < names.len(); ++i) {
+        const bool geometry = i == usize();
+        auto*      node     = scene.scene->RootMut()->FindByName(names[i]);
+        ASSERT_NE(node, nullptr);
+        ASSERT_NE(node->Mesh(), nullptr);
+        auto* mesh = node->Mesh();
+        ASSERT_NE(mesh->Material(), nullptr);
+        ASSERT_TRUE(mesh->Material()->customShader.variant.is_some());
+        const auto& variant = mesh->Material()->customShader.variant->Description();
+        EXPECT_EQ(variant.geometry_shader_enabled, geometry);
+        ASSERT_TRUE(variant.input_combos.get("GS_ENABLED"_str).is_some());
+        EXPECT_EQ(*variant.input_combos.get("GS_ENABLED"_str).unwrap(),
+                  geometry ? "1"_str : "0"_str);
+        EXPECT_EQ(mesh->Primitive(),
+                  geometry ? owe::MeshPrimitive::POINT : owe::MeshPrimitive::TRIANGLE);
+        EXPECT_EQ(mesh->GetVertexArray(usize()).GetOption("GS_ENABLED"_str), geometry);
+        EXPECT_EQ(
+            mesh->GetVertexArray(usize()).AttributeOffset(owe::VAttr::TexCoordC2.name).is_some(),
+            ! geometry);
+    }
+}
+
 TEST(SceneDynamicLayer, CreatesUnregisteredParticleWithoutInitialParticles) {
     using namespace rstd::prelude;
     auto document = owe::wpscene::ParseSceneDocumentJson(R"JSON({

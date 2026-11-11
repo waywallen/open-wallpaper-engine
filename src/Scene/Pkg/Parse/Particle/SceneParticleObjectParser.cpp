@@ -472,7 +472,8 @@ void BuildParticleObjectNode(ParticleObjectParseServices& services,
         (void)shaderInfo.combos.insert("SPRITESHEETBLEND"_Str, "1"_Str);
     }
 
-    bool mat_ok = false;
+    bool mat_ok             = false;
+    bool has_geometry_stage = false;
     try {
         auto material_result =
             BuildMaterial(vfs,
@@ -481,13 +482,14 @@ void BuildParticleObjectNode(ParticleObjectParseServices& services,
                           particle_obj.material,
                           *services.scene,
                           rstd::move(shaderInfo),
-                          services.geometry_shader_supported ? GeometryStageRequirement::Required
+                          services.geometry_shader_supported ? GeometryStageRequirement::IfAvailable
                                                              : GeometryStageRequirement::Disabled,
                           services.construction_context.load_bench);
         if (material_result.is_ok()) {
             auto material_build = rstd::move(material_result).unwrap_unchecked();
             material            = rstd::move(material_build.material);
             shaderInfo          = rstd::move(material_build.shader_info);
+            has_geometry_stage  = material_build.has_geometry_stage;
             mat_ok              = true;
         }
     } catch (const std::exception& e) {
@@ -566,9 +568,9 @@ void BuildParticleObjectNode(ParticleObjectParseServices& services,
                                 mesh_maxcount,
                                 thick_format,
                                 render_rope_trail,
-                                services.geometry_shader_supported);
+                                has_geometry_stage);
         } else {
-            SetParticleMesh(mesh, mesh_maxcount, thick_format, services.geometry_shader_supported);
+            SetParticleMesh(mesh, mesh_maxcount, thick_format, has_geometry_stage);
         }
     }
 
