@@ -97,6 +97,31 @@ struct SoundControlProbe {
 
 } // namespace
 
+TEST(ScriptReturnValue, BoolRequiresBoolean) {
+    JsRuntime rt;
+    auto*     script = rt.MakeFieldScript(
+        R"JS(
+            const values = [true, '2026-11-11', 0, 1, {}, null, undefined, false];
+            let index = 0;
+            export function update() { return values[index++]; }
+        )JS"_str,
+        "test/bool_return_type"_str,
+        FieldKind::Bool,
+        owe::MakeObject(),
+        owe::IntoJson(false));
+    ASSERT_NE(script, nullptr);
+    rt.TickAll();
+    ASSERT_TRUE(script->last_value().is_Bool());
+    EXPECT_TRUE(script->last_value().as_Bool().value.v);
+    for (int i = 0; i < 6; ++i) {
+        rt.TickAll();
+        EXPECT_TRUE(script->last_value().is_Empty());
+    }
+    rt.TickAll();
+    ASSERT_TRUE(script->last_value().is_Bool());
+    EXPECT_FALSE(script->last_value().as_Bool().value.v);
+}
+
 TEST(ScriptInitialization, UsesSceneOwnerOrderInsteadOfRegistrationOrder) {
     auto root = Arc<owe::SceneNode>::make();
 

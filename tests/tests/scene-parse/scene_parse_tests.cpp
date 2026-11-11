@@ -1831,6 +1831,62 @@ TEST(PuppetScriptParsing, VisibilityScriptsInitializeTheirOwnPlayback) {
     EXPECT_NE((*first_playback).as_ptr(), (*second_playback).as_ptr());
 }
 
+TEST(ImageEffectVisibility, InvalidScriptReturnPreservesUserBinding) {
+    using namespace rstd::prelude;
+    auto document = owe::wpscene::ParseSceneDocumentJson(R"JSON({
+        "camera": {},
+        "general": {"orthogonalprojection": {"width": 128, "height": 128}},
+        "objects": [{
+            "id": 1, "name": "image", "image": "models/util/solidlayer.json",
+            "origin": "64 64 0", "size": "128 128", "scale": "1 1 1",
+            "effects": [{"file": "effects/tint/effect.json", "visible": {
+                "value": false, "user": "filter",
+                "script": "export function update() { return '2026-11-11'; }"
+            }}]
+        }]
+    })JSON"_str,
+                                                         owe::wpscene::kSceneVersionUnknown);
+    ASSERT_TRUE(document.is_some());
+    auto assets_path =
+        rstd::path::PathBuf::from(rstd::cppstd::as_str(WAYWALLEN_ASSETS_DIR).unwrap());
+    if (rstd::fs::metadata(assets_path.as_path()).is_err()) {
+        assets_path = rstd::path::PathBuf::from("../assets"_str);
+    }
+    auto assets = owe::fs::make_physical_fs(assets_path.as_path());
+    ASSERT_TRUE(assets.is_ok());
+    auto effects_path = assets_path.join(owe::fs::Path("effects/tint"_str));
+    auto effects      = owe::fs::make_physical_fs(effects_path.as_path());
+    ASSERT_TRUE(effects.is_ok());
+    owe::fs::VFS vfs;
+    ASSERT_TRUE(vfs.mount("/assets"_str, rstd::move(assets).unwrap()).is_ok());
+    ASSERT_TRUE(vfs.mount("/assets"_str, rstd::move(effects).unwrap()).is_ok());
+    wavsen::audio::SoundManager sound;
+    owe::SceneParser            parser;
+    auto                        parsed =
+        parser.Parse("effect-visibility"_str,
+                     ref<owe::wpscene::SceneDocument>::from_raw_parts(rstd::addressof(*document)),
+                     mut_ref<owe::fs::VFS>::from_raw_parts(rstd::addressof(vfs)),
+                     mut_ref<wavsen::audio::SoundManager>::from_raw_parts(rstd::addressof(sound)));
+    ASSERT_TRUE(parsed.is_ok());
+    auto  scene = rstd::move(parsed).unwrap();
+    auto* node  = scene.scene->RootMut()->FindByName("image"_str);
+    ASSERT_NE(node, nullptr);
+    ASSERT_TRUE(node->HasLayer());
+    auto& layer = node->Layer();
+    ASSERT_EQ(layer->EffectCount(), usize(1));
+    auto& effect = layer->GetEffect(usize());
+    EXPECT_FALSE(effect->runtime_visible);
+    owe::script::TickSceneScripts(*scene.scene, owe::script::FrameInputs {});
+    EXPECT_FALSE(effect->runtime_visible);
+    for (bool visible : { true, false, true }) {
+        EXPECT_TRUE(scene.scene->ApplyUserImageEffectVisibilityBindings(
+            "filter"_str, rstd::into<owe::Json>(visible)));
+        EXPECT_EQ(effect->runtime_visible, visible);
+        owe::script::TickSceneScripts(*scene.scene, owe::script::FrameInputs {});
+        EXPECT_EQ(effect->runtime_visible, visible);
+    }
+}
+
 TEST(ImageAlignmentParsing, DisabledEffectsPreserveSourceDrawAnchor) {
     using namespace rstd::prelude;
     auto assets = owe::fs::make_physical_fs(

@@ -77,6 +77,7 @@ ScriptValue CoerceReturn(JSContext* ctx, JSValue ret, FieldKind kind) {
 
     switch (kind) {
     case FieldKind::Bool: {
+        if (! JS_IsBool(ret)) return {};
         int b = JS_ToBool(ctx, ret);
         return BoolValue { b > 0 };
     }
