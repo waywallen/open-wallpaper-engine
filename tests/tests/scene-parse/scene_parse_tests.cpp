@@ -378,6 +378,65 @@ TEST(SceneObjectExpansion, UserVisibilityRestoresImageDescendants) {
     }
 }
 
+TEST(SceneLegacyObjectIds, PreserveAuthoredIdsAndSeparateDynamicLayers) {
+    using namespace rstd::prelude;
+    auto document = owe::wpscene::ParseSceneDocumentJson(R"JSON({
+        "camera": {},
+        "general": {"orthogonalprojection": {"width":128,"height":128}},
+        "objects": [
+            {"name":"first", "image":"models/util/solidlayer.json", "size":"32 32"},
+            {"id":-1, "name":"authored", "image":"models/util/solidlayer.json", "size":"32 32"},
+            {"name":"second", "image":"models/util/solidlayer.json", "size":"32 32"},
+            {"id":2, "name":"creator", "scale":{"value":"1 1 1", "script":"let done=false; export function update(v) { if (!done) { thisScene.createLayer({image:'models/util/solidlayer.json',name:'dynamic',size:'32 32'}); done=true; } return v; }"}},
+            {"id":-2147483648, "name":"minimum-id"}
+        ]
+    })JSON"_str,
+                                                         owe::wpscene::kSceneVersionUnknown);
+    ASSERT_TRUE(document.is_some());
+    ASSERT_EQ(document->objects.len(), usize(5));
+    EXPECT_FALSE(document->objects[usize(0)].metadata.has_id);
+    EXPECT_EQ(document->objects[usize(0)].metadata.id, i32(-2));
+    EXPECT_TRUE(document->objects[usize(1)].metadata.has_id);
+    EXPECT_EQ(document->objects[usize(1)].metadata.id, i32(-1));
+    EXPECT_FALSE(document->objects[usize(2)].metadata.has_id);
+    EXPECT_EQ(document->objects[usize(2)].metadata.id, i32(-3));
+
+    auto assets_path =
+        rstd::path::PathBuf::from(rstd::cppstd::as_str(WAYWALLEN_ASSETS_DIR).unwrap());
+    if (rstd::fs::metadata(assets_path.as_path()).is_err())
+        assets_path = rstd::path::PathBuf::from("../assets"_str);
+    auto assets = owe::fs::make_physical_fs(assets_path.as_path());
+    ASSERT_TRUE(assets.is_ok());
+    auto vfs = Box<owe::fs::VFS>::make();
+    ASSERT_TRUE(vfs->mount("/assets"_str, rstd::move(assets).unwrap()).is_ok());
+    wavsen::audio::SoundManager sound;
+    owe::SceneParser            parser;
+    auto                        parsed =
+        parser.Parse("legacy-ids"_str,
+                     ref<owe::wpscene::SceneDocument>::from_raw_parts(rstd::addressof(*document)),
+                     mut_ref<owe::fs::VFS>::from_raw_parts(vfs.get()),
+                     mut_ref<wavsen::audio::SoundManager>::from_raw_parts(rstd::addressof(sound)));
+    ASSERT_TRUE(parsed.is_ok());
+    auto scene = rstd::move(parsed).unwrap();
+    scene.scene->InstallExtension(rstd::move(vfs));
+    auto* first    = scene.scene->RootMut()->FindByName("first"_str);
+    auto* authored = scene.scene->RootMut()->FindByName("authored"_str);
+    auto* second   = scene.scene->RootMut()->FindByName("second"_str);
+    ASSERT_NE(first, nullptr);
+    ASSERT_NE(authored, nullptr);
+    ASSERT_NE(second, nullptr);
+    ASSERT_NE(scene.scene->RootMut()->FindByName("minimum-id"_str), nullptr);
+    EXPECT_EQ(first->ID(), i32(-2));
+    EXPECT_EQ(authored->ID(), i32(-1));
+    EXPECT_EQ(second->ID(), i32(-3));
+    owe::script::TickSceneScripts(*scene.scene, owe::script::FrameInputs {});
+    auto* dynamic = scene.scene->RootMut()->FindByName("dynamic"_str);
+    ASSERT_NE(dynamic, nullptr);
+    EXPECT_NE(dynamic->Identity(), first->Identity());
+    EXPECT_NE(dynamic->Identity(), authored->Identity());
+    EXPECT_NE(dynamic->Identity(), second->Identity());
+}
+
 TEST(SceneGeneralScript, FovUpdatesPerspectiveCameraAndSharedState) {
     auto document = owe::wpscene::ParseSceneDocumentJson(R"JSON({
         "camera": {"eye":"0 0 5", "center":"0 0 0", "up":"0 1 0"},

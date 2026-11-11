@@ -99,9 +99,14 @@ Vec<SceneObject> DecodeSceneObjects(ref<SceneDocument> document, mut_ref<fs::VFS
             (record.metadata.kind == SceneObjectKind::Container && ! record.metadata.has_id))
             continue;
         auto object = DecodeSceneObject(record.authored, vfs, document->metadata.pkg_version);
-        if (object.is_some())
+        if (object.is_some()) {
+            if (! record.metadata.has_id) {
+                object->visit_mut([&]<auto Tag>(rstd::choice_tag<Tag>, auto& payload) {
+                    payload.value.id = record.metadata.id;
+                });
+            }
             objects.push(rstd::move(*object));
-        else
+        } else
             rstd_error("parse scene object failed, name: {}", record.metadata.name);
     }
     return objects;

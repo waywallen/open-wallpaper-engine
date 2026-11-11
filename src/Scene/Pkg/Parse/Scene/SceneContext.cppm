@@ -33,6 +33,13 @@ using EffectRenderTargets = HashMap<String, String>;
 struct SceneLayerBuildContext;
 struct SceneParseContext;
 
+struct SceneSyntheticObjectIds {
+    HashSet<i32> reserved;
+    i32          next { -1 };
+
+    auto Allocate() -> i32;
+};
+
 struct PuppetLayerRegistry {
     HashMap<SceneNode*, Arc<PuppetLayer>> by_node;
     HashMap<SceneNode*, Arc<PuppetLayer>> fallback_by_node;
@@ -218,7 +225,7 @@ struct SceneParseContext : SceneLayerBuildContext {
 
     HashMap<i32, Json>                       initial_layer_configs;
     Option<ref<rstd::json::Map>>             general_settings;
-    i32                                      next_synthetic_object_id { -1 };
+    SceneSyntheticObjectIds                  synthetic_object_ids;
     HashMap<String, wpscene::ParticleObject> dynamic_particle_prototypes;
     wavsen::audio::SoundManager*             sound_manager { nullptr };
 

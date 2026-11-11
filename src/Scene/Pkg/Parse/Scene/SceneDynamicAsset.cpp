@@ -257,14 +257,10 @@ struct RuntimeLayerFactory {
     script::ScriptScene*                     scripts;
     HashMap<String, wpscene::ParticleObject> particles;
     Arc<SceneLayerResources>                 resources;
-    i32                                      next_object_id;
+    SceneSyntheticObjectIds                  synthetic_object_ids;
     Arc<UniformCameraResolver>               camera_resolver;
 
-    auto NextObjectId() -> i32 {
-        auto id        = next_object_id;
-        next_object_id = next_object_id.checked_sub(i32(1)).unwrap();
-        return id;
-    }
+    auto NextObjectId() -> i32 { return synthetic_object_ids.Allocate(); }
 
     void Rollback(SceneLayerBuildContext& context, SceneNode* parent) {
         for (auto& node : context.created_nodes) {
@@ -558,12 +554,12 @@ void InstallRuntimeLayerFactory(SceneParseContext&                context,
     auto  scripts = scene.ExtensionMut<script::ScriptScene>();
     if (scripts.is_none()) return;
     auto factory = Arc<RuntimeLayerFactory>::make(RuntimeLayerFactory {
-        .scene           = rstd::addressof(scene),
-        .scripts         = rstd::addressof(**scripts),
-        .particles       = rstd::move(context.dynamic_particle_prototypes),
-        .resources       = context.layer_resources.clone(),
-        .next_object_id  = context.next_synthetic_object_id,
-        .camera_resolver = camera_resolver.clone(),
+        .scene                = rstd::addressof(scene),
+        .scripts              = rstd::addressof(**scripts),
+        .particles            = rstd::move(context.dynamic_particle_prototypes),
+        .resources            = context.layer_resources.clone(),
+        .synthetic_object_ids = rstd::move(context.synthetic_object_ids),
+        .camera_resolver      = camera_resolver.clone(),
     });
     scene.SetLayerRemovalObserver(
         Box<dyn<FnMut<void(SceneNode&)>>>::make([factory = factory.clone()](SceneNode& node) {

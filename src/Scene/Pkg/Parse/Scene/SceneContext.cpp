@@ -47,10 +47,16 @@ void owe::ApplyParallaxUniformConfig(SceneLayerBuildContext& context, const Arc<
     SetUniformConfig(context, node, rstd::move(uniform_config));
 }
 
-auto owe::SceneParseContext::NextSyntheticObjectId() -> i32 {
-    auto id                  = next_synthetic_object_id;
-    next_synthetic_object_id = next_synthetic_object_id.checked_sub(i32(1)).unwrap();
+auto owe::SceneSyntheticObjectIds::Allocate() -> i32 {
+    while (reserved.contains(next)) next = next.checked_sub(i32(1)).unwrap();
+    auto id = next;
+    reserved.insert(id);
+    next = next.checked_sub(i32(1)).unwrap();
     return id;
+}
+
+auto owe::SceneParseContext::NextSyntheticObjectId() -> i32 {
+    return synthetic_object_ids.Allocate();
 }
 
 void owe::RegisterNodeRef(SceneLayerBuildContext& context, i32 id, SceneLayerNodeDraft node) {

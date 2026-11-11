@@ -199,7 +199,7 @@ class SceneObjectMetadata {
 public:
     SceneObjectKind         kind { SceneObjectKind::Unknown };
     rstd::size_t            raw_index { 0 };
-    i32                     id { 0 };
+    i32                     id { 0 }; // Internal ID when the source has none.
     bool                    has_id { false };
     String                  name;
     bool                    visible { true };

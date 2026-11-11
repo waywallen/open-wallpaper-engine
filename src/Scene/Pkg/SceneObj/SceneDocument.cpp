@@ -232,6 +232,21 @@ Vec<SceneObjectRecord> parse_object_records(const owe::Json& root, bool& objects
             .authored = authored.clone(),
         });
     }
+    rstd::collections::HashSet<i32> used_ids;
+    for (const auto& record : objects) {
+        if (record.metadata.has_id) used_ids.insert(record.metadata.id);
+    }
+    i32 next_id(-1);
+    for (auto& record : objects) {
+        auto& metadata = record.metadata;
+        if (metadata.has_id || metadata.kind == SceneObjectKind::Unknown ||
+            metadata.kind == SceneObjectKind::Container)
+            continue;
+        while (used_ids.contains(next_id)) next_id = next_id.checked_sub(i32(1)).unwrap();
+        metadata.id = next_id;
+        used_ids.insert(next_id);
+        next_id = next_id.checked_sub(i32(1)).unwrap();
+    }
     return objects;
 }
 
