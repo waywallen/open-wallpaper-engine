@@ -76,6 +76,10 @@ Typically `%1` or `%2` (or `%3` for Flatpak Steam).]],
             discover = {
                 search = true,
                 details = true,
+                artists = {
+                    search_text = false,
+                    sorts = api.artist_sorts,
+                },
                 subscription = true,
                 sorts = {
                     { key = "trend_day", label = tr("Trending today") },

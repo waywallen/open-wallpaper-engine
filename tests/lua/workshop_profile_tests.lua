@@ -12,6 +12,10 @@ end
 local profile = assert(loadfile(source .. "/wallpaper_engine/profile.lua"))()
 local ctx = {
     json = { encode = function(value) return value end },
+    base64 = { decode = function(value)
+        assert(value == "avatar")
+        return string.rep("\1", 20)
+    end },
     log = function(message) logs[#logs + 1] = message end,
     http = {},
 }
@@ -32,33 +36,36 @@ local function response(accounts)
         json = function() return { response = { accounts = accounts } } end,
     }
 end
-local function account(id, name)
-    return { public_data = { steamid = id, persona_name = name } }
+local function account(id, name, avatar)
+    return { public_data = { steamid = id, persona_name = name, sha_digest_avatar = avatar } }
 end
 
-next_response = response({ account("1", "Alice"), account("2", "Bob") })
-local result = profile.names(ctx, { "1", "2", "1", "" })
-assert(result["1"] == "Alice" and result["2"] == "Bob")
+next_response = response({ account("1", "Alice", "avatar"), account("2", "Bob", "bad") })
+local result = profile.get(ctx, { "1", "2", "1", "" })
+assert(result["1"].name == "Alice" and result["2"].name == "Bob")
+assert(result["1"].avatar_url == "https://avatars.steamstatic.com/" .. string.rep("01", 20) .. "_full.jpg")
+assert(result["2"].avatar_url == "")
+assert(result["1"].url == "https://steamcommunity.com/profiles/1/")
 assert(#requests == 1 and #requests[1].query_value.input_json.steamids == 2)
 assert(requests[1].query_value.access_token == "test-token")
 assert(requests[1].timeout_value == 4)
 assert(requests[1].url:find("GetPlayerLinkDetails", 1, true))
-profile.names(ctx, { "2", "1" })
-profile.names(ctx, {})
+profile.get(ctx, { "2", "1" })
+profile.get(ctx, {})
 assert(#requests == 1)
 
 next_response = response({ account("3", "Carol"), account("unexpected", "Ignored") })
-result = profile.names(ctx, { "1", "3", "4" })
-assert(result["1"] == "Alice" and result["3"] == "Carol" and not result["4"])
+result = profile.get(ctx, { "1", "3", "4" })
+assert(result["1"].name == "Alice" and result["3"].name == "Carol" and not result["4"])
 assert(not result.unexpected and #requests == 2)
 next_response = "network unavailable"
-result = profile.names(ctx, { "1", "4" })
-assert(result["1"] == "Alice" and not result["4"] and #logs == 1)
+result = profile.get(ctx, { "1", "4" })
+assert(result["1"].name == "Alice" and not result["4"] and #logs == 1)
 next_response = response({ account("4", "Dave") })
-assert(profile.names(ctx, { "4" })["4"] == "Dave")
+assert(profile.get(ctx, { "4" })["4"].name == "Dave")
 assert(#requests == 4)
 next_response = { ok = function() return false end, status = function() return 503 end }
-assert(not profile.names(ctx, { "5" })["5"] and #logs == 2)
+assert(not profile.get(ctx, { "5" })["5"] and #logs == 2)
 next_response = response({ account("5", "Eve") })
-assert(profile.names(ctx, { "5" })["5"] == "Eve")
+assert(profile.get(ctx, { "5" })["5"].name == "Eve")
 print("workshop profile tests passed")

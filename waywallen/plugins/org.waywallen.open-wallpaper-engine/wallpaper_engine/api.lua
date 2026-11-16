@@ -20,6 +20,11 @@ local SORTS = {
     top_rated = { query_type = 0 },
 }
 
+local ARTIST_SORTS = { recent = "creationorder" }
+M.artist_sorts = {
+    { key = "recent", label = tr("Most recent") },
+}
+
 -- Workshop type tags -> waywallen wp_type. Application is omitted (unrenderable, unless wine..?).
 M.TYPE_WP = {
     Scene = "scene",
@@ -135,8 +140,76 @@ M.filters = {
     },
 }
 
+function M.artist_id(value)
+    local id = tostring(value or "")
+    if #id < 17 or #id > 20 or not id:match("^%d+$") then return "" end
+    return id
+end
+
+local function file_details(ctx, ids)
+    local form = { itemcount = tostring(#ids) }
+    for index, id in ipairs(ids) do form["publishedfileids[" .. index - 1 .. "]"] = id end
+    local response = ctx.http:post(FILEDETAILS):form(form):timeout(20):send()
+    if not response:ok() then error("Steam Workshop details http " .. tostring(response:status())) end
+    local body = response:json() or {}
+    return (body.response or {}).publishedfiledetails or {}
+end
+
+local function artist_files(ctx, artist, query)
+    local http = session.ensure_http(ctx)
+    local response = http:get("https://steamcommunity.com/profiles/" .. artist .. "/myworkshopfiles/")
+        :query(query):timeout(20):send()
+    if not response:ok() then error("Steam Workshop artist http " .. tostring(response:status())) end
+    local ids, seen, total, empty = {}, {}, nil, false
+    local elements = ctx.html.query(response:text() or "",
+        ".workshopItemPreviewHolder[id], .workshopBrowsePagingInfo, #no_items")
+    for _, element in ipairs(elements) do
+        local id = (element.attrs.id or ""):match("^sharedfile_(%d+)$")
+        if id then
+            if seen[id] or #ids >= NUMPERPAGE then error("Invalid Steam Workshop artist listing") end
+            seen[id] = true
+            ids[#ids + 1] = id
+        elseif element.attrs.id == "no_items" then
+            empty = true
+        else
+            local count = element.text:match("of%s+([%d,]+)%s+entr")
+            if count then total = tonumber((count:gsub(",", ""))) end
+        end
+    end
+    if not total then
+        if empty and #ids == 0 then return { items = {}, total = 0, numperpage = NUMPERPAGE } end
+        error("Steam Workshop artist listing is unavailable")
+    end
+    if (#ids == 0 and total > 0) or total < #ids then error("Invalid Steam Workshop artist pagination") end
+    local by_id, items = {}, {}
+    if #ids > 0 then
+        for _, item in ipairs(file_details(ctx, ids)) do
+            local id = tostring(item.publishedfileid or "")
+            if not seen[id] then error("Steam returned an unexpected Workshop item") end
+            if not item.result or tonumber(item.result) == 1 then
+                if M.artist_id(item.creator) ~= artist
+                    or (item.consumer_app_id and tostring(item.consumer_app_id) ~= M.APPID) then
+                    error("Steam returned an item outside the requested artist scope")
+                end
+                by_id[id] = item
+            end
+        end
+    end
+    for _, id in ipairs(ids) do if by_id[id] then items[#items + 1] = by_id[id] end end
+    return { items = items, total = total, numperpage = NUMPERPAGE }
+end
+
 function M.search(ctx, params)
     local sort = SORTS[params.sort] or SORTS.trend_week
+    local artist_sort
+    if params.artist_id then
+        if M.artist_id(params.artist_id) == "" then
+            error("Invalid Steam artist id")
+        end
+        artist_sort = ARTIST_SORTS[params.sort and params.sort ~= "" and params.sort or "recent"]
+        if not artist_sort then error("Unsupported Workshop artist sort") end
+        if (params.query or "") ~= "" then error("Workshop artist browsing does not support text search") end
+    end
 
     -- Only wallpapers: never return applications, presets or asset packs.
     -- Content rating defaults to Everyone; explicit selections replace that default.
@@ -180,18 +253,24 @@ function M.search(ctx, params)
 
     local query = {
         appid = M.APPID,
-        query_type = tostring(sort.query_type),
-        page = tostring(params.page or 1),
         numperpage = tostring(NUMPERPAGE),
-        search_text = params.query or "",
-        return_tags = "true",
-        return_previews = "true",
-        return_vote_data = "true",
-        return_short_description = "true",
-        format = "json",
     }
-    if sort.days then
-        query.days = tostring(sort.days)
+    if params.artist_id then
+        query.p = tostring(params.page or 1)
+        query.browsefilter = "myfiles"
+        query.section = "items"
+        query.sortmethod = artist_sort
+        query.l = "english"
+    else
+        query.page = tostring(params.page or 1)
+        query.query_type = tostring(sort.query_type)
+        query.search_text = params.query or ""
+        query.return_tags = "true"
+        query.return_previews = "true"
+        query.return_vote_data = "true"
+        query.return_short_description = "true"
+        query.format = "json"
+        if sort.days then query.days = tostring(sort.days) end
     end
     for i, tag in ipairs(required) do
         query["requiredtags[" .. (i - 1) .. "]"] = tag
@@ -202,6 +281,8 @@ function M.search(ctx, params)
         ei = ei + 1
     end
 
+    if params.artist_id then return artist_files(ctx, params.artist_id, query) end
+
     local rsp = session.authorized(ctx, function(access_token, http)
         query.access_token = access_token
         return http:get(QUERYFILES):query(query):timeout(20):send()
@@ -211,6 +292,9 @@ function M.search(ctx, params)
     end
     local body = rsp:json() or {}
     local response = body.response or {}
+    if response.result and tonumber(response.result) ~= 1 then
+        error("Steam Workshop query failed with result " .. tostring(response.result))
+    end
     return {
         items = response.publishedfiledetails or {},
         total = response.total or 0,
@@ -219,16 +303,7 @@ function M.search(ctx, params)
 end
 
 function M.details(ctx, id)
-    local rsp = ctx.http
-        :post(FILEDETAILS)
-        :form({ itemcount = "1", ["publishedfileids[0]"] = tostring(id) })
-        :timeout(20)
-        :send()
-    if not rsp:ok() then
-        error("steam workshop http " .. tostring(rsp:status()))
-    end
-    local body = rsp:json() or {}
-    local list = (body.response or {}).publishedfiledetails or {}
+    local list = file_details(ctx, { tostring(id) })
     return list[1] or {}
 end
 

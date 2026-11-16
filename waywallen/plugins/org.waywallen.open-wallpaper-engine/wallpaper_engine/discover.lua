@@ -11,7 +11,7 @@ function M.search(ctx, params)
     for _, item in ipairs(result.items) do
         creators[#creators + 1] = tostring(item.creator or "")
     end
-    local authors = profile.names(ctx, creators)
+    local authors = profile.get(ctx, creators)
     local items = {}
     for _, item in ipairs(result.items) do
         cached_details[tostring(item.publishedfileid or "")] = item
@@ -31,7 +31,9 @@ function M.details(ctx, id)
         item = api.details(ctx, key)
         cached_details[key] = item
     end
-    return map.details(item)
+    local creator = tostring(item.creator or "")
+    local authors = profile.get(ctx, { creator })
+    return map.details(item, authors[creator])
 end
 
 return M

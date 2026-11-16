@@ -31,15 +31,15 @@ local function preview_url(item)
     return first.url or ""
 end
 
--- `authors` maps a creator's steamid64 to a persona name. A creator missing
--- from it keeps the empty author the Workshop grid has always shown.
 function M.search_item(item, authors)
     local creator = tostring(item.creator or "")
+    local author = authors and authors[creator] or {}
     return {
         id = tostring(item.publishedfileid or ""),
         title = item.title or "",
         preview_url = preview_url(item),
-        author = authors and authors[creator] or "",
+        author = author.name or "",
+        author_avatar_url = author.avatar_url or "",
         wp_type = wp_type(item),
     }
 end
@@ -57,8 +57,14 @@ local function fields(item)
     return out
 end
 
-function M.details(item)
+function M.details(item, author)
+    local creator = api.artist_id(item.creator)
+    author = author or {}
     return {
+        author_id = creator,
+        author = author.name or creator,
+        author_avatar_url = author.avatar_url or "",
+        author_url = author.url or (creator ~= "" and "https://steamcommunity.com/profiles/" .. creator .. "/" or ""),
         description = item.description or item.short_description or item.file_description or "",
         size = tostring(item.file_size or ""),
         tags = tag_names(item),
