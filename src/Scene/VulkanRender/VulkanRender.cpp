@@ -83,9 +83,9 @@ namespace rstd
 template<>
 struct Impl<vrento::vulkan::SessionSurfaceFactory, ViewerSurfaceFactory>
     : ImplBase<ViewerSurfaceFactory> {
-    auto create(VkInstance instance)
+    auto create(const vvk::Instance& instance)
         -> Result<vrento::vulkan::SessionSurface, vrento::vulkan::DeviceSessionError> {
-        return self().createSurface(instance);
+        return self().createSurface(*instance);
     }
 };
 } // namespace rstd
@@ -707,7 +707,7 @@ auto VulkanRender::tryInstallSceneRenderState(Scene& scene, vulkan::SceneRenderS
     return pImpl->installSceneRenderState(scene, rstd::move(graph), snapshot, bench);
 }
 
-auto VulkanRender::tryPrepareResources(Scene& scene, const RenderSceneSnapshot& snapshot,
+auto VulkanRender::tryPrepareResources(Scene&                     scene, const RenderSceneSnapshot&,
                                        const ResourcePreparation& changes)
     -> Result<PrepareOutcome, RenderPrepareError> {
     auto ready = pImpl->preparationReady();
@@ -1289,7 +1289,7 @@ auto VulkanRender::Impl::continueSceneRenderPreparation(Scene&                  
             return Err(RenderPrepareError::Resources(ResourcePrepareOperation::Graphics,
                                                      rstd::move(prepared).unwrap_err()));
         m_graphics = Some(prepared.unwrap());
-        for (const auto& conflict : (*m_graphics)->conflicts())
+        for ([[maybe_unused]] const auto& conflict : (*m_graphics)->conflicts())
             rstd_debug("pipeline {} did not join layout family {}: {}",
                        conflict.pipeline.index,
                        conflict.family,
