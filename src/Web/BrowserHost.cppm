@@ -88,6 +88,9 @@ public:
     void SetPaused(bool paused);
     void ApplyUserProperty(ref<str> key, const owe::Json& value);
     void PushAudioData(slice<float> data);
+    // Forward one MPRIS snapshot to the page's WE media-integration
+    // listeners. The snapshot is cached and re-sent after each page load.
+    void PushMedia(const MediaInfo& media);
 
     bool ShouldExit() const;
     bool IsClosing() const;

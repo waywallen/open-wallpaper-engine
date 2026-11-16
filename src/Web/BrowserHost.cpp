@@ -147,6 +147,7 @@ struct BrowserHost::Impl {
     Option<AcceleratedPaintCallback> accel_cb;
     Option<CpuPaintCallback>         cpu_cb;
     Option<AudioDemandCallback>      audio_demand_cb;
+    Option<MediaInfo>                last_media;
     Atomic<bool>                     close_requested { false };
     bool                             initialised { false };
     bool                             pumping { false };
@@ -298,6 +299,11 @@ bool BrowserHost::OpenWallpaper(const WebManifest& manifest, ref<Path> workshop_
     impl_->client =
         new ClientHandler(manifest.user_props.clone(), impl_->osr, opts.initially_muted);
     impl_->client->SetAudioDemandCallback(impl_->audio_demand_cb.clone());
+    // A snapshot that arrived before the browser existed (or while the page
+    // was still loading) is replayed once the main frame finishes loading.
+    impl_->client->SetMediaReplayCallback(Some(MediaReplayCallback::make([this]() {
+        if (impl_->last_media) PushMedia(*impl_->last_media);
+    })));
     auto        entry = PathBuf::from(workshop_dir).join(manifest.entry_html.as_str());
     std::string url   = "file://" + CefPath(entry.as_path());
 
@@ -465,6 +471,24 @@ void BrowserHost::PushAudioData(slice<float> data) {
     frame->ExecuteJavaScript(to_string(snippet.as_str()), "weweb://internal/push_audio.js", 0);
 }
 
+void BrowserHost::PushMedia(const MediaInfo& media) {
+    if (IsClosing()) return;
+    // Cache even when no browser exists yet; OnLoadEnd replays it.
+    impl_->last_media = Some(MediaInfo { .title        = media.title.clone(),
+                                         .artist       = media.artist.clone(),
+                                         .album        = media.album.clone(),
+                                         .album_artist = media.album_artist.clone(),
+                                         .thumbnail    = media.thumbnail.clone(),
+                                         .state        = media.state });
+    if (! impl_->client) return;
+    auto browser = impl_->client->GetBrowser();
+    if (! browser) return;
+    auto frame = browser->GetMainFrame();
+    if (! frame) return;
+    auto snippet = BuildMediaSnippet(media);
+    frame->ExecuteJavaScript(to_string(snippet.as_str()), "weweb://internal/push_media.js", 0);
+}
+
 bool BrowserHost::ShouldExit() const {
     if (impl_->client) return impl_->client->IsClosed();
     return impl_->close_requested.load(Ordering::SeqCst);
@@ -487,6 +511,7 @@ bool BrowserHost::Shutdown() {
     impl_->accel_cb        = None();
     impl_->cpu_cb          = None();
     impl_->audio_demand_cb = None();
+    impl_->last_media      = None();
     if (impl_->initialised) {
         impl_->close_requested.store(true, Ordering::SeqCst);
         CefShutdown();

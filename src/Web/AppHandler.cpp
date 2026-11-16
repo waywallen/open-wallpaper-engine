@@ -263,6 +263,74 @@ void AppHandler::OnContextCreated(CefRefPtr<CefBrowser> /*browser*/, CefRefPtr<C
         "  };"
         "})();";
     frame->ExecuteJavaScript(kAudioApi, "weweb://internal/audio_api.js", 0);
+
+    // WE web media-integration API. Linux has no Windows-style global media
+    // session, so the host renderer forwards the daemon's MPRIS snapshots as
+    // these callbacks. The page registers listeners exactly as it would on
+    // Windows; the last pushed values are cached and replayed to late
+    // registrations (wallpapers often register from inline <script> tags
+    // after this API is installed). An empty stopped snapshot (no MPRIS
+    // player running) only updates playback, leaving the wallpaper's own
+    // placeholder metadata alone.
+    static const char kMediaApi[] =
+        "(function(){"
+        "  if (window.__weweb_media_installed) return;"
+        "  window.__weweb_media_installed = true;"
+        "  var integration = window.wallpaperMediaIntegration ||"
+        "      (window.wallpaperMediaIntegration = {});"
+        "  integration.PLAYBACK_STOPPED = 0;"
+        "  integration.PLAYBACK_PLAYING = 1;"
+        "  integration.PLAYBACK_PAUSED = 2;"
+        "  integration.playback = integration.playback ||"
+        "      { STOPPED: 0, PLAYING: 1, PAUSED: 2 };"
+        "  var listeners = { status: [], properties: [], thumbnail: [],"
+        "                    playback: [], timeline: [] };"
+        "  var cache = { status: { enabled: true }, properties: null,"
+        "                thumbnail: null, playback: null, timeline: null };"
+        "  function same(a, b){ return JSON.stringify(a) === JSON.stringify(b); }"
+        "  function emit(kind, value){"
+        "    if (cache[kind] && same(cache[kind], value)) return;"
+        "    cache[kind] = value;"
+        "    var list = listeners[kind];"
+        "    for (var i = 0; i < list.length; i++){"
+        "      try { list[i](value); } catch (e) {}"
+        "    }"
+        "  }"
+        "  function register(kind){"
+        "    return function(cb){"
+        "      if (typeof cb !== 'function') return;"
+        "      if (listeners[kind].indexOf(cb) >= 0) return;"
+        "      listeners[kind].push(cb);"
+        "      if (cache[kind]){ try { cb(cache[kind]); } catch (e) {} }"
+        "    };"
+        "  }"
+        "  window.wallpaperRegisterMediaStatusListener = register('status');"
+        "  window.wallpaperRegisterMediaPropertiesListener = register('properties');"
+        "  window.wallpaperRegisterMediaThumbnailListener = register('thumbnail');"
+        "  window.wallpaperRegisterMediaPlaybackListener = register('playback');"
+        "  window.wallpaperRegisterMediaTimelineListener = register('timeline');"
+        "  window.__weweb_pushMedia = function(m){"
+        "    if (!m || typeof m !== 'object') return;"
+        "    var hasMeta = !!(m.title || m.artist || m.albumTitle ||"
+        "                    m.albumArtist || m.thumbnail);"
+        "    var state = typeof m.state === 'number' ? m.state : 0;"
+        "    if (hasMeta || state !== 0){"
+        "      emit('properties', {"
+        "        title: m.title || '', artist: m.artist || '', subTitle: '',"
+        "        albumTitle: m.albumTitle || '', albumArtist: m.albumArtist || '',"
+        "        genres: '', contentType: 'music'"
+        "      });"
+        "      if (typeof m.thumbnail === 'string'){"
+        "        emit('thumbnail', {"
+        "          thumbnail: m.thumbnail, primaryColor: '', secondaryColor: '',"
+        "          tertiaryColor: '', textColor: '', highContrastColor: ''"
+        "        });"
+        "      }"
+        "    }"
+        "    emit('playback', { state: state });"
+        "  };"
+        "})();";
+    frame->ExecuteJavaScript(kMediaApi, "weweb://internal/media_api.js", 0);
 }
 
 void AppHandler::OnContextReleased(CefRefPtr<CefBrowser> /*browser*/, CefRefPtr<CefFrame> frame,
