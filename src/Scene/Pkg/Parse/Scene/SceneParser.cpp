@@ -78,8 +78,8 @@ auto owe::SceneParser::Parse(ref<str> scene_id, ref<wpscene::SceneDocument> docu
                      options.capabilities.geometry_shader_supported,
                      rstd::move(options.image_ready),
                      rstd::move(options.texture_memory));
-    context.load_bench                     = options.load_bench;
-    context.general_settings               = options.general_settings;
+    context.load_bench       = options.load_bench;
+    context.general_settings = options.general_settings;
     for (const auto& record : document->objects) {
         const auto& object = record.metadata;
         if (object.has_id || (object.kind != wpscene::SceneObjectKind::Unknown &&
