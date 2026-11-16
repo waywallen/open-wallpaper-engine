@@ -336,6 +336,7 @@ private:
         return m_render->framePending() || (m_pipeline && (*m_pipeline)->pending().frame);
     }
     void applyPendingChanges();
+    void applyMediaStatus();
 
     SceneRuntimeController&     m_main;
     Option<Arc<SceneLoadState>> m_scene_load;
@@ -359,7 +360,8 @@ private:
     double                                    m_frame_delta {};
     Option<Instant>                           m_maintenance_deadline;
     Vec<RenderMsg::SetUserProperty_payload>   m_pending_properties;
-    Option<RenderMsg::SetMediaStatus_payload> m_pending_media;
+    Option<MediaStatus>                       m_media_status;
+    bool                                      m_media_status_pending {};
     bool                                      m_pending_view_config {};
     Option<RenderMsg::SwapchainReady_payload> m_pending_swapchain;
 
@@ -512,7 +514,7 @@ void SceneRenderController::applyPendingChanges() {
     }
     auto properties = rstd::move(m_pending_properties);
     for (auto& property : properties) on(rstd::move(property));
-    if (m_pending_media) on(m_pending_media.take().unwrap());
+    applyMediaStatus();
 }
 
 void SceneRenderController::onDraw() {
@@ -645,7 +647,6 @@ void SceneRenderController::on(RenderMsg::SetScene_payload&& m) {
     detachSceneAudioResponseDemandCallback();
     m_pipeline = None();
     m_pending_properties.clear();
-    m_pending_media       = None();
     m_scene               = nullptr;
     m_uniform_input       = nullptr;
     m_scene_owner         = Some(rstd::move(m.scene));
@@ -653,11 +654,6 @@ void SceneRenderController::on(RenderMsg::SetScene_payload&& m) {
     m_scene               = m_scene_owner->get();
     m_uniform_input       = m_uniform_input_owner->as_ptr().as_raw_ptr();
     m_uniform_input->SetMouseParallax(m_mouse_parallax);
-    m_pipeline = Some(Box<SceneRenderPipeline>::make(
-        *m_scene,
-        *m_uniform_input,
-        *m_render,
-        SceneRenderPipelineOptions { m_fillmode, m_main.isGenGraphviz() }));
     m_scene_audio_response.end();
     m_first_frame_ok = false;
     if (m_scene) {
@@ -665,6 +661,13 @@ void SceneRenderController::on(RenderMsg::SetScene_payload&& m) {
         m_scene->AudioDemandMut()->SetCallback(
             CloneAudioResponseDemandCallback(m_audio_response_demand_callback));
     }
+    m_media_status_pending = m_media_status.is_some();
+    applyMediaStatus();
+    m_pipeline = Some(Box<SceneRenderPipeline>::make(
+        *m_scene,
+        *m_uniform_input,
+        *m_render,
+        SceneRenderPipelineOptions { m_fillmode, m_main.isGenGraphviz() }));
     rebuildRenderGraph(
         vulkan::RenderGraphResourceRetention::ReleaseSceneTextures, true, load_bench);
 }
@@ -726,20 +729,25 @@ void SceneRenderController::on(RenderMsg::SetUserProperty_payload&& m) {
 }
 
 void SceneRenderController::on(RenderMsg::SetMediaStatus_payload&& m) {
-    if (! m_scene) return;
-    if (frameBusy()) {
-        m_pending_media = Some(rstd::move(m));
-        return;
-    }
+    m_media_status         = Some(rstd::move(m.status));
+    m_media_status_pending = true;
+    applyMediaStatus();
+}
 
-    owe::script::SetSceneMediaStatus(*m_scene, ToScriptMediaStatus(m.status));
+void SceneRenderController::applyMediaStatus() {
+    if (! m_scene || frameBusy() || ! m_media_status ||
+        ! rstd::exchange(m_media_status_pending, false))
+        return;
+    const auto& status = *m_media_status;
+
+    owe::script::SetSceneMediaStatus(*m_scene, ToScriptMediaStatus(status));
 
     (void)SceneUserPropertyApplier::ApplyTexture(
-        *m_scene, "$mediaThumbnail"_str, RuntimeTextureProperty(m.status.art_url.as_str()));
+        *m_scene, "$mediaThumbnail"_str, RuntimeTextureProperty(status.art_url.as_str()));
     (void)SceneUserPropertyApplier::ApplyTexture(
         *m_scene,
         "$mediaPreviousThumbnail"_str,
-        RuntimeTextureProperty(m.status.previous_art_url.as_str()));
+        RuntimeTextureProperty(status.previous_art_url.as_str()));
     if (renderInited() && (m_pipeline.is_some() && (*m_pipeline)->hasGraph())) {
         auto result = (*m_pipeline)->refreshMaterials();
         if (result.is_err()) ReportScenePreparationError(result.unwrap_err());
