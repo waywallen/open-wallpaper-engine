@@ -26,6 +26,13 @@ void ClientHandler::SetAudioDemandCallback(Option<AudioDemandCallback> cb) {
     if (auto callback = audio_demand_cb_.clone(); callback) (*callback)->operator()(audio_demand_);
 }
 
+void ClientHandler::SetMediaReplayCallback(Option<MediaReplayCallback> cb) {
+    if (IsClosing()) return;
+    media_replay_cb_ = rstd::move(cb);
+    // A snapshot may already be cached before the browser even exists; the
+    // load-end hook replays it once the page is ready.
+}
+
 void ClientHandler::SetAudioMuted(bool muted) {
     audio_muted_ = muted;
     if (auto browser = GetBrowser()) browser->GetHost()->SetAudioMuted(muted);
@@ -143,6 +150,10 @@ void ClientHandler::OnLoadEnd(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame>
                               int /*httpStatusCode*/) {
     if (IsClosing() || ! frame || ! frame->IsMain() || ! browser_ || ! browser_->IsSame(browser))
         return;
+    // MPRIS snapshots are unsolicited, so one can arrive while the page is
+    // still loading (the DOM is not ready, listeners not registered yet).
+    // Replaying the cached snapshot here matches InjectUserProperties below.
+    if (auto callback = media_replay_cb_.clone(); callback) (*callback)->operator()();
     bool expected = false;
     if (! property_injected_.compare_exchange_strong(
             expected, true, Ordering::SeqCst, Ordering::SeqCst))

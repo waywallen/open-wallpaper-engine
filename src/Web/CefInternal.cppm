@@ -112,6 +112,7 @@ public:
     ClientHandler& operator=(const ClientHandler&) = delete;
 
     void                  SetAudioDemandCallback(Option<AudioDemandCallback> cb);
+    void                  SetMediaReplayCallback(Option<MediaReplayCallback> cb);
     void                  SetAudioMuted(bool muted);
     void                  RequestClose();
     void                  CloseBrowsers();
@@ -176,6 +177,7 @@ private:
     bool                        creation_pending_ { true };
     usize                       pending_popups_ {};
     Option<AudioDemandCallback> audio_demand_cb_;
+    Option<MediaReplayCallback> media_replay_cb_;
     int                         audio_context_generation_ { 0 };
     bool                        audio_demand_ { false };
     bool                        audio_muted_ { false };
@@ -186,6 +188,7 @@ private:
 String BuildPropertyListenerSnippet(const owe::Json& props);
 String BuildPropertyPatchSnippet(ref<str> key, const owe::Json& value);
 String BuildAudioResponseSnippet(slice<float> data);
+String BuildMediaSnippet(const MediaInfo& media);
 void   InjectUserProperties(CefRefPtr<CefBrowser> browser, const owe::Json& props);
 
 } // namespace weweb

@@ -177,7 +177,9 @@ class HostMsg final {
               (OpenAudioGate), (RuntimeMute, (bool muted;)),
               (PointerMove, (i32 x; i32 y; bool left_down;)),
               (PointerButton, (i32 x; i32 y; i32 button; bool down;)),
-              (PointerAxis, (i32 x; i32 y; i32 delta_x; i32 delta_y;)))
+              (PointerAxis, (i32 x; i32 y; i32 delta_x; i32 delta_y;)),
+              (Media, (String title; String artist; String album; String album_artist;
+                       String thumbnail; i32 state;)))
 };
 
 using HostSender   = rstd::sync::mpmc::Sender<HostMsg>;
@@ -237,6 +239,10 @@ void set_audio_response_demand(HostState& s, bool active) {
     if (subscriptions && ! (*subscriptions)->set("audio"_str, active)) {
         rstd_warn("waywallen-weweb-renderer: failed to update audio subscription");
     }
+}
+
+String bridge_string(const char* value) {
+    return value ? String::make(rstd::cppstd::as_str(value).unwrap()) : String {};
 }
 
 // Linux input-event-code → CEF cef_mouse_button_type_t. -1 for codes
@@ -361,6 +367,18 @@ void drain_host_messages(HostState& s) {
                                          value.delta_y.to_primitive());
                 }
             }
+            RSTD_CASE_PAYLOAD(Media, value) {
+                if (s.host) {
+                    s.host->PushMedia(weweb::MediaInfo {
+                        .title        = rstd::move(value.title),
+                        .artist       = rstd::move(value.artist),
+                        .album        = rstd::move(value.album),
+                        .album_artist = rstd::move(value.album_artist),
+                        .thumbnail    = rstd::move(value.thumbnail),
+                        .state        = value.state.to_primitive(),
+                    });
+                }
+            }
         }
     }
 }
@@ -445,6 +463,18 @@ void apply_control(HostState& s, ReaderState& reader, ww_bridge_control_t& msg) 
                                  i32(pa.y),
                                  i32(static_cast<int32_t>(pa.delta_x * kPxPerNotch)),
                                  i32(static_cast<int32_t>(pa.delta_y * kPxPerNotch))));
+        break;
+    }
+    case WW_EVT_IN_MPRIS: {
+        // The daemon pushes full snapshots; just forward them to the page.
+        const auto& mpris = msg.u.mpris.snapshot;
+        enqueue_host_message(s,
+                             HostMsg::Media(bridge_string(mpris.title),
+                                            bridge_string(mpris.artist),
+                                            bridge_string(mpris.album),
+                                            bridge_string(mpris.album_artist),
+                                            bridge_string(mpris.art_url),
+                                            i32(static_cast<int32_t>(mpris.state))));
         break;
     }
     case WW_EVT_IN_EVENT_SUBSCRIPTIONS_APPLIED: {
@@ -798,6 +828,7 @@ int run(int argc, char** argv) {
     *state.subscriptions.lock().unwrap() = Some(subscriptions.clone());
     auto event_kinds                     = BTreeSet<String>::make();
     event_kinds.insert("pointer"_Str);
+    event_kinds.insert("mpris"_Str);
     if (state.audio_response_demand.load(rstd::sync::atomic::Ordering::Acquire)) {
         event_kinds.insert("audio"_Str);
     }
