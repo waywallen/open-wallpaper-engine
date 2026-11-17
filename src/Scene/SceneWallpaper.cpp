@@ -61,6 +61,7 @@ class RenderMsg final {
               (SetAudioPcmWindow, (audio::PcmWindow window;)), (EndAudioResponse),
               (Stop, (bool stop;)), (Draw), (SwapchainReady, (bool ready; u32 width; u32 height;)),
               (RequestPreparedPassDiagnostics, (RenderPassDiagnosticCallback cb;)),
+              (RequestFrameCapture, (FrameCaptureCallback cb;)),
               (RequestPreparationDiagnostics, (ScenePreparationDiagnosticCallback cb;)), (Shutdown))
 };
 
@@ -286,6 +287,7 @@ public:
     void on(RenderMsg::SwapchainReady_payload&&);
     void on(RenderMsg::RequestPreparedPassDiagnostics_payload&&);
     void on(RenderMsg::RequestPreparationDiagnostics_payload&&);
+    void on(RenderMsg::RequestFrameCapture_payload&&);
 
     ExSwapchain* exSwapchain() const { return m_render->exSwapchain(); }
     int          takeLastFrameSyncFd() { return m_render->takeLastFrameSyncFd(); }
@@ -430,6 +432,7 @@ void SceneRenderController::start() {
             RSTD_MATCH(rstd::move(message)) {
                 RSTD_CASE_PAYLOAD(Init, value) { on(rstd::move(value)); }
                 RSTD_CASE_PAYLOAD(BeginSceneLoad, value) {
+                    if (m_scene_load) m_render->cancelFrameCapture();
                     if (m_scene_load) (*m_scene_load)->active.store(false);
                     m_scene_load = Some(rstd::move(value.load));
                 }
@@ -454,7 +457,9 @@ void SceneRenderController::start() {
                 RSTD_CASE_PAYLOAD(SwapchainReady, value) { on(rstd::move(value)); }
                 RSTD_CASE_PAYLOAD(RequestPreparedPassDiagnostics, value) { on(rstd::move(value)); }
                 RSTD_CASE_PAYLOAD(RequestPreparationDiagnostics, value) { on(rstd::move(value)); }
+                RSTD_CASE_PAYLOAD(RequestFrameCapture, value) { on(rstd::move(value)); }
                 RSTD_CASE(Shutdown) {
+                    m_render->cancelFrameCapture();
                     if (m_scene_load) (*m_scene_load)->active.store(false);
                     frame_timer.Stop();
                     frame_timer.SetCallback(None());
@@ -862,6 +867,11 @@ void SceneRenderController::on(RenderMsg::RequestPreparationDiagnostics_payload&
         m_pipeline ? Some((*m_pipeline)->diagnostics()) : None<ScenePreparationDiagnostics>();
     (void)m_main_tx->send(
         MainMsg::PreparationDiagnostics(rstd::move(m.cb), rstd::move(diagnostics)));
+}
+
+void SceneRenderController::on(RenderMsg::RequestFrameCapture_payload&& m) {
+    m_render->requestFrameCapture(rstd::move(m.cb));
+    if (m_tx) (void)m_tx->send(RenderMsg::Draw());
 }
 
 void SceneRenderController::on(RenderMsg::RequestPreparedPassDiagnostics_payload&& m) {
@@ -1485,6 +1495,15 @@ void SceneWallpaper::setOnClearColor(ClearColorCallback cb) {
 
 void SceneWallpaper::setOnFirstFrame(FirstFrameCallback cb) {
     m_runtime->post(MainMsg::SetFirstFrameCallback(rstd::move(cb)));
+}
+
+void SceneWallpaper::requestFrameCapture(FrameCaptureCallback callback) {
+    if (! inited()) {
+        callback->call_once(Err(FrameCaptureError { FrameCaptureErrorKind::NotReady,
+                                                    "SceneWallpaper is not initialized"_Str }));
+        return;
+    }
+    m_runtime->post(RenderMsg::RequestFrameCapture(rstd::move(callback)));
 }
 
 void SceneWallpaper::setOnUserPropertyDiagnostics(UserPropertyDiagnosticCallback cb) {

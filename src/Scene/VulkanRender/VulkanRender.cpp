@@ -52,6 +52,13 @@ struct FrameSynchronizationOwner {
     Option<owe::ExSwapchainOwner> output;
 };
 
+enum class FrameSynchronizationKind
+{
+    Window,
+    Internal,
+    External
+};
+
 struct HostOutputFrame {
     vrento::vulkan::SurfaceTarget                 target;
     Arc<FrameSynchronizationOwner>                synchronization;
@@ -144,16 +151,13 @@ const rstd::array<Extension, 8> base_device_exts {
     Extension { false, CStr::from_ptr(VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME).to_str().unwrap() },
 };
 #else
-const rstd::array<Extension, 9> base_device_exts {
+const rstd::array<Extension, 7> base_device_exts {
     Extension { false, CStr::from_ptr(VK_EXT_DEPTH_CLIP_ENABLE_EXTENSION_NAME).to_str().unwrap() },
     Extension { false, CStr::from_ptr(VK_EXT_MEMORY_BUDGET_EXTENSION_NAME).to_str().unwrap() },
     Extension { false, CStr::from_ptr(VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME).to_str().unwrap() },
     Extension {
         false,
         CStr::from_ptr(VK_EXT_SHADER_VIEWPORT_INDEX_LAYER_EXTENSION_NAME).to_str().unwrap() },
-    Extension { true, CStr::from_ptr(VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME).to_str().unwrap() },
-    Extension { true,
-                CStr::from_ptr(VK_KHR_EXTERNAL_SEMAPHORE_FD_EXTENSION_NAME).to_str().unwrap() },
     Extension { true, CStr::from_ptr(VK_KHR_TIMELINE_SEMAPHORE_EXTENSION_NAME).to_str().unwrap() },
     Extension { false, CStr::from_ptr(VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME).to_str().unwrap() },
     // Optional. When present we can report the picked physical device's
@@ -265,15 +269,19 @@ struct VulkanRender::Impl {
     Option<vrento::vulkan::GraphExecutionErrorSnapshot> m_last_frame_error;
     Option<HostOutputFrame>                             m_output;
     bool                                                m_frame_submitted {};
+    bool                                                m_export_output { true };
     auto prepareFontUploads(vrento::texture::Submission&,
                             Vec<vrento::resource_registry::PreparedTextureUpdate>&)
         -> Result<empty, resource::ResourceError>;
-    bool beginFrame(vrento::texture::Submission);
-    bool prepareOutputFrame(Scene&);
-    bool executeFrame();
-    void reportFrameError(vrento::vulkan::GraphExecutionErrorSnapshot);
-    void failOutput(bool uncertain = false);
-    auto createFrameSynchronization(bool external) -> Option<Arc<FrameSynchronizationOwner>>;
+    bool                         beginFrame(vrento::texture::Submission);
+    bool                         prepareOutputFrame(Scene&);
+    bool                         executeFrame();
+    auto                         readFrameCapture() -> FrameCaptureResult;
+    Option<FrameCaptureCallback> m_capture_callback;
+    void                         reportFrameError(vrento::vulkan::GraphExecutionErrorSnapshot);
+    void                         failOutput(bool uncertain = false);
+    auto                         createFrameSynchronization(FrameSynchronizationKind)
+        -> Option<Arc<FrameSynchronizationOwner>>;
     void closeOutput();
     void ackFontUploads();
     void drawFrameSwapchain(Scene&);
@@ -458,19 +466,22 @@ auto VulkanRender::Impl::prepareFontUploads(
     return Ok(empty {});
 }
 
-auto VulkanRender::Impl::createFrameSynchronization(bool external)
+auto VulkanRender::Impl::createFrameSynchronization(FrameSynchronizationKind kind)
     -> Option<Arc<FrameSynchronizationOwner>> {
+    const bool            offscreen = kind != FrameSynchronizationKind::Window;
     auto                  owner = Arc<FrameSynchronizationOwner>::make(FrameSynchronizationOwner {
         *m_session,
         Arc<vvk::Semaphore>::make(),
         Arc<vvk::Semaphore>::make(),
-        external ? Some(m_ex_swapchain->clone()) : None<ExSwapchainOwner>() });
+        offscreen ? Some(m_ex_swapchain->clone()) : None<ExSwapchainOwner>() });
     VkSemaphoreCreateInfo info { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
     VkExportSemaphoreCreateInfo exported { VK_STRUCTURE_TYPE_EXPORT_SEMAPHORE_CREATE_INFO };
     exported.handleTypes = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_SYNC_FD_BIT;
-    if (external && m_device->handle().Dispatch().vkGetSemaphoreFdKHR) info.pNext = &exported;
+    if (kind == FrameSynchronizationKind::External &&
+        m_device->handle().Dispatch().vkGetSemaphoreFdKHR)
+        info.pNext = &exported;
     auto result =
-        m_device->handle().CreateSemaphore(info, external ? *owner->signal : *owner->acquire);
+        m_device->handle().CreateSemaphore(info, offscreen ? *owner->signal : *owner->acquire);
     if (result != VK_SUCCESS) return None();
     return Some(rstd::move(owner));
 }
@@ -522,6 +533,11 @@ void VulkanRender::Impl::reportFrameError(vrento::vulkan::GraphExecutionErrorSna
     m_last_frame_error = Some(rstd::move(error));
 }
 void VulkanRender::Impl::failOutput(bool uncertain) {
+    if (m_capture_callback) {
+        auto callback = m_capture_callback.take().unwrap();
+        callback->call_once(
+            Err(FrameCaptureError { FrameCaptureErrorKind::Device, "frame rendering failed"_Str }));
+    }
     if (m_frame) {
         auto error = m_frame->error();
         if (error) reportFrameError(rstd::move(error).unwrap());
@@ -587,7 +603,103 @@ bool VulkanRender::Impl::executeFrame() {
             return false;
         }
     }
-    return m_frame->state() == FrameState::Completed;
+    if (m_frame->state() != FrameState::Completed) return false;
+    if (m_capture_callback) {
+        auto callback = m_capture_callback.take().unwrap();
+        callback->call_once(readFrameCapture());
+    }
+    return true;
+}
+
+auto VulkanRender::Impl::readFrameCapture() -> FrameCaptureResult {
+    auto failure = [](ref<str>              message,
+                      FrameCaptureErrorKind kind = FrameCaptureErrorKind::Device) {
+        return Err(FrameCaptureError { kind, String::make(message) });
+    };
+    auto source   = m_texture_output.source();
+    auto prepared = source ? m_rendering_resources.resources.Prepared().Resolve(*source)
+                           : None<ref<resource_registry::PreparedTexture>>();
+    if (! prepared)
+        return failure("final frame texture unavailable"_str, FrameCaptureErrorKind::NotReady);
+    auto active = (*prepared)->ActiveTexture();
+    if (active.is_err()) return failure("final frame texture is not ready"_str);
+    auto view        = active->view;
+    auto description = view.texture().description();
+    if (description.samples != 1 || description.format != vrento::TextureFormat::RGBA8)
+        return failure("frame capture requires a resolved RGBA8 output"_str,
+                       FrameCaptureErrorKind::Unsupported);
+    auto       range  = view.description().range;
+    const auto width  = rstd::cmp::max(1u, description.extent.width >> range.first_mip);
+    const auto height = rstd::cmp::max(1u, description.extent.height >> range.first_mip);
+    const u64  size   = u64(width) * u64(height) * u64(4);
+    if (width != m_extent.width || height != m_extent.height)
+        return failure("final frame extent differs from output"_str,
+                       FrameCaptureErrorKind::Unsupported);
+    if (size > u64(256 * 1024 * 1024))
+        return failure("frame capture exceeds 256 MiB"_str, FrameCaptureErrorKind::InvalidInput);
+
+    auto&              queue   = m_rendering_resources.resources.TextureContext();
+    auto               session = queue.session();
+    VkBufferCreateInfo info { VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO };
+    info.size  = size.to_primitive();
+    info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    auto allocated =
+        session.device().memory_allocator().create_buffer(info, vvk::MemoryRequest::Readback());
+    if (allocated.is_err()) return failure("cannot allocate frame readback buffer"_str);
+    auto readback = Arc<vvk::AllocatedBuffer>::make(rstd::move(allocated).unwrap());
+    auto started  = queue.Begin();
+    if (started.is_err()) return failure("cannot begin frame readback"_str);
+    auto work = rstd::move(started).unwrap();
+    auto used = work.commands()->UseTexture({ view,
+                                              vrento::texture::Access::TransferSource,
+                                              vrento::texture::Stages::Transfer,
+                                              false,
+                                              None(),
+                                              true });
+    if (used.is_err()) return failure("cannot acquire final texture for readback"_str);
+    auto native = vrento::vulkan::native_recording(work, session);
+    auto image  = vrento::vulkan::native_texture(view.texture());
+    if (native.is_err() || image.is_err())
+        return failure("cannot access frame readback resources"_str);
+    work.retain(readback.clone());
+    VkBufferImageCopy copy {};
+    copy.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, range.first_mip, range.first_layer, 1 };
+    copy.imageExtent      = { width, height, 1 };
+    auto& dispatch        = session.device().handle().Dispatch();
+    dispatch.vkCmdCopyImageToBuffer(native.unwrap(),
+                                    image.unwrap(),
+                                    VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                                    readback->handle(),
+                                    1,
+                                    &copy);
+    VkBufferMemoryBarrier host { VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER };
+    host.srcAccessMask       = VK_ACCESS_TRANSFER_WRITE_BIT;
+    host.dstAccessMask       = VK_ACCESS_HOST_READ_BIT;
+    host.srcQueueFamilyIndex = host.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    host.buffer                                         = readback->handle();
+    host.size                                           = VK_WHOLE_SIZE;
+    dispatch.vkCmdPipelineBarrier(native.unwrap(),
+                                  VK_PIPELINE_STAGE_TRANSFER_BIT,
+                                  VK_PIPELINE_STAGE_HOST_BIT,
+                                  0,
+                                  0,
+                                  nullptr,
+                                  1,
+                                  &host,
+                                  0,
+                                  nullptr);
+    auto submitted = queue.Submit(rstd::move(work));
+    if (submitted.is_err()) return failure("cannot submit frame readback"_str);
+    auto complete = queue.wait(submitted.unwrap());
+    if (complete.is_err()) return failure("frame readback completion failed"_str);
+    auto memory = readback->allocation();
+    auto mapped = memory.map();
+    if (mapped.is_err()) return failure("cannot map frame readback"_str);
+    if (memory.invalidate().is_err()) return failure("cannot invalidate frame readback"_str);
+    CapturedFrame frame { .width = u32(width), .height = u32(height), .stride = u32(width * 4) };
+    frame.rgba.extend_from_slice(slice<u8>::from_raw_parts(static_cast<const byte*>(mapped->data()),
+                                                           usize(size.to_primitive())));
+    return Ok(rstd::move(frame));
 }
 void VulkanRender::Impl::closeOutput() {
     const bool submitted =
@@ -646,6 +758,22 @@ bool VulkanRender::maintainResources() {
     return pImpl->m_rendering_resources.resources.Collect(memory.as_ref());
 }
 bool VulkanRender::frameSubmitted() const { return pImpl->m_frame_submitted; }
+
+void VulkanRender::requestFrameCapture(FrameCaptureCallback callback) {
+    if (pImpl->m_capture_callback) {
+        callback->call_once(Err(FrameCaptureError { FrameCaptureErrorKind::Busy,
+                                                    "a frame capture is already pending"_Str }));
+        return;
+    }
+    pImpl->m_capture_callback = Some(rstd::move(callback));
+}
+
+void VulkanRender::cancelFrameCapture() {
+    if (! pImpl->m_capture_callback) return;
+    auto callback = pImpl->m_capture_callback.take().unwrap();
+    callback->call_once(
+        Err(FrameCaptureError { FrameCaptureErrorKind::Cancelled, "frame capture cancelled"_Str }));
+}
 
 auto VulkanRender::Impl::preparationReady() -> Result<PrepareOutcome, RenderPrepareError> {
     if (! m_inited) return Err(RenderPrepareError::State(PrepareStateError::NotInitialized));
@@ -779,7 +907,8 @@ bool VulkanRender::Impl::init(RenderInitInfo info, SceneLoadBenchRecorderView lo
     if (m_inited) return true;
     if (m_session) destroy();
 
-    m_redraw_cb = rstd::move(info.redraw_callback);
+    m_redraw_cb     = rstd::move(info.redraw_callback);
+    m_export_output = info.offscreen_export;
     VkExtent2D extent { info.width, info.height };
     m_extent = extent;
     if (extent.width * extent.height < 500 * 500) {
@@ -792,6 +921,15 @@ bool VulkanRender::Impl::init(RenderInitInfo info, SceneLoadBenchRecorderView lo
     Vec<Extension> device_exts;
     for (const auto& extension : base_inst_exts) inst_exts.emplace_back(extension);
     for (const auto& extension : base_device_exts) device_exts.emplace_back(extension);
+#if ! __is_target_os(macos)
+    const bool external_output = ! info.offscreen || info.offscreen_export;
+    device_exts.push(
+        { external_output,
+          CStr::from_ptr(VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME).to_str().unwrap() });
+    device_exts.push(
+        { external_output,
+          CStr::from_ptr(VK_KHR_EXTERNAL_SEMAPHORE_FD_EXTENSION_NAME).to_str().unwrap() });
+#endif
     if (info.video_hwdec.as_str() != "none"_str) {
         AppendVideoDeviceExtensions(device_exts);
     }
@@ -802,7 +940,7 @@ bool VulkanRender::Impl::init(RenderInitInfo info, SceneLoadBenchRecorderView lo
         }
         device_exts.push(
             { true, CStr::from_ptr(VK_KHR_SWAPCHAIN_EXTENSION_NAME).to_str().unwrap() });
-    } else {
+    } else if (info.offscreen_export) {
         // Iteration 1a: offscreen FDs are real Linux DMA-BUFs so they can be
         // imported by arbitrary external consumers. These extensions are
         // strictly required on the offscreen path; if a driver lacks them
@@ -934,12 +1072,16 @@ bool VulkanRender::Impl::init(RenderInitInfo info, SceneLoadBenchRecorderView lo
                 return false;
             }
         } else {
-            auto output = m_rendering_resources.resources.TryCreateLocalSwapchain(
-                *m_device,
-                extent.width,
-                extent.height,
-                (info.offscreen_tiling == TexTiling::OPTIMAL ? VK_IMAGE_TILING_OPTIMAL
-                                                             : VK_IMAGE_TILING_LINEAR));
+            auto output =
+                ! info.offscreen_export
+                    ? m_rendering_resources.resources.TryCreateHeadlessSurface(extent.width,
+                                                                               extent.height)
+                    : m_rendering_resources.resources.TryCreateLocalSwapchain(
+                          *m_device,
+                          extent.width,
+                          extent.height,
+                          (info.offscreen_tiling == TexTiling::OPTIMAL ? VK_IMAGE_TILING_OPTIMAL
+                                                                       : VK_IMAGE_TILING_LINEAR));
             if (output.is_err()) {
                 rstd_error("local output creation failed: {}",
                            DescribeNativeFailure(output.as_ref().unwrap_err()));
@@ -966,6 +1108,11 @@ bool VulkanRender::Impl::initRes() {
 }
 
 void VulkanRender::Impl::destroy() {
+    if (m_capture_callback) {
+        auto callback = m_capture_callback.take().unwrap();
+        callback->call_once(Err(FrameCaptureError { FrameCaptureErrorKind::Cancelled,
+                                                    "renderer closed before frame capture"_Str }));
+    }
     m_last_frame_error = None();
     if (! m_session && ! m_inited) return;
     if (m_device && m_device->handle()) {
@@ -1045,7 +1192,7 @@ void VulkanRender::Impl::drawFrameSwapchain(Scene& scene) {
     auto& rr = m_rendering_resources;
     if (! m_output) {
         if (waitForPreparedUploads(rr).is_err()) return;
-        auto synchronization = createFrameSynchronization(false);
+        auto synchronization = createFrameSynchronization(FrameSynchronizationKind::Window);
         if (! synchronization) return;
         auto           owner = synchronization.take().unwrap();
         rstd::uint32_t image_index {};
@@ -1104,7 +1251,9 @@ void VulkanRender::Impl::drawFrameOffscreen(Scene& scene) {
             (*m_ex_swapchain)->AsSwapchain().height() != m_extent.height)
             return;
         if (waitForPreparedUploads(rr).is_err()) return;
-        auto synchronization = createFrameSynchronization(true);
+        auto synchronization =
+            createFrameSynchronization(m_export_output ? FrameSynchronizationKind::External
+                                                       : FrameSynchronizationKind::Internal);
         if (! synchronization) return;
         auto acquired = (*m_ex_swapchain)->AsSwapchain().acquireRenderTarget();
         if (! acquired.acquired()) {
@@ -1121,7 +1270,7 @@ void VulkanRender::Impl::drawFrameOffscreen(Scene& scene) {
     if (! prepareOutputFrame(scene)) return;
     if (! executeFrame()) return;
     int sync_fd = -1;
-    if (m_device->handle().Dispatch().vkGetSemaphoreFdKHR) {
+    if (m_export_output && m_device->handle().Dispatch().vkGetSemaphoreFdKHR) {
         VkSemaphoreGetFdInfoKHR info { VK_STRUCTURE_TYPE_SEMAPHORE_GET_FD_INFO_KHR };
         info.semaphore  = **m_output->synchronization->signal;
         info.handleType = VK_EXTERNAL_SEMAPHORE_HANDLE_TYPE_SYNC_FD_BIT_KHR;

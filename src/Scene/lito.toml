@@ -13,6 +13,8 @@ sources = [
   "src/Scene/Audio/SceneAudioResponse.cpp",
   "src/Scene/Lighting/Lighting.cppm",
   "src/Scene/LoadBench.cppm",
+  "src/Scene/FrameCapture.cppm",
+  "src/Scene/FrameCapture.cpp",
   "src/Scene/Particle/Particle.cppm",
   "src/Scene/Particle/ParticleProgram.cppm",
   "src/Scene/Pkg/AssetVersion.cppm",

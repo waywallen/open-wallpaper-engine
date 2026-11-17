@@ -18,22 +18,24 @@ struct Resolution {
 };
 
 struct SceneViewerArgs {
-    PathBuf     assets_dir;
-    PathBuf     scene_path;
-    PathBuf     cache_path;
-    PathBuf     user_properties_path;
-    String      mouse_position;
-    String      load_bench_output;
-    String      texture_memory_output;
-    Option<u64> random_seed;
-    Resolution  resolution;
-    i32         fps;
-    u32         msaa_samples;
-    bool        enable_valid_layer;
-    bool        async_pipelines;
-    bool        texture_system;
-    bool        graphviz;
-    bool        stdin_json;
+    PathBuf         assets_dir;
+    PathBuf         scene_path;
+    PathBuf         cache_path;
+    PathBuf         user_properties_path;
+    Option<PathBuf> screenshot_path;
+    f64             screenshot_timeout;
+    String          mouse_position;
+    String          load_bench_output;
+    String          texture_memory_output;
+    Option<u64>     random_seed;
+    Resolution      resolution;
+    i32             fps;
+    u32             msaa_samples;
+    bool            enable_valid_layer;
+    bool            async_pipelines;
+    bool            texture_system;
+    bool            graphviz;
+    bool            stdin_json;
 };
 
 SceneViewerArgs ParseSceneViewerArgs(int argc, char** argv);
@@ -65,19 +67,51 @@ auto OptionalValue(const Matches& matches, const ArgKey<T>& key) -> Option<T> {
     return Some(T(***value));
 }
 
-auto ResolutionParser(ref<rstd::ffi::OsStr> raw) -> Result<Resolution, ValueError> {
+struct ParsedResolution {
+    Resolution value;
+    bool       valid;
+};
+
+auto ResolutionParser(ref<rstd::ffi::OsStr> raw) -> Result<ParsedResolution, ValueError> {
     auto text = raw.to_str();
     if (text.is_none()) return Err(ValueError::InvalidUtf8());
 
     auto parts = text->split_once("x"_str);
-    if (! parts) return Ok(Resolution { 1280, 720 });
+    if (! parts) return Ok(ParsedResolution { { 1280, 720 }, false });
     auto [width_text, height_text] = *parts;
     if (width_text.starts_with("+"_str) || height_text.starts_with("+"_str))
-        return Ok(Resolution { 1280, 720 });
+        return Ok(ParsedResolution { { 1280, 720 }, false });
     auto width  = rstd::from_str<u32>(width_text);
     auto height = rstd::from_str<u32>(height_text);
-    if (width.is_err() || height.is_err()) return Ok(Resolution { 1280, 720 });
-    return Ok(Resolution { width->to_primitive(), height->to_primitive() });
+    if (width.is_err() || height.is_err()) return Ok(ParsedResolution { { 1280, 720 }, false });
+    const bool valid =
+        *width > u32() && *height > u32() && *width <= u32(65535) && *height <= u32(65535) &&
+        u64(width->to_primitive()) * u64(height->to_primitive()) <= u64(64 * 1024 * 1024);
+    return Ok(ParsedResolution { { width->to_primitive(), height->to_primitive() }, valid });
+}
+
+auto ScreenshotPathParser(ref<rstd::ffi::OsStr> raw) -> Result<PathBuf, ValueError> {
+    if (raw.is_empty())
+        return Err(ValueError::Message("screenshot output path must not be empty"_Str));
+    for (auto byte : raw.as_encoded_bytes()) {
+        if (byte == u8())
+            return Err(ValueError::Message("screenshot output path contains a NUL byte"_Str));
+    }
+    auto path = PathBuf::from(raw);
+    if (path.as_path().file_name().is_none())
+        return Err(ValueError::Message("screenshot output path must name a file"_Str));
+    return Ok(rstd::move(path));
+}
+
+auto ScreenshotTimeoutParser(ref<rstd::ffi::OsStr> raw) -> Result<f64, ValueError> {
+    auto text = raw.to_str();
+    if (text.is_none()) return Err(ValueError::InvalidUtf8());
+    auto value = rstd::from_str<f64>(*text);
+    if (value.is_err() || ! value->is_finite() || *value <= f64() || *value > f64(86400) ||
+        rstd::time::Duration::from_secs_f64(value->to_primitive()).is_zero())
+        return Err(ValueError::Message(
+            "screenshot timeout must be positive and at most 86400 seconds"_Str));
+    return Ok(*value);
 }
 
 auto ParseMousePosition(ref<str> input) -> Option<array<double, 2>> {
@@ -154,12 +188,24 @@ SceneViewerArgs ParseSceneViewerArgs(int argc, char** argv) {
                             .help("Write scene load probe report to FILE"_str)
                             .value_name("FILE"_str)
                             .default_value(""_str));
-    auto resolution = command.add_arg(
-        Arg<Resolution>::value("resolution"_str, parse_with<Resolution>(ResolutionParser))
-            .short_name(u8('R'))
-            .long_name("resolution"_str)
-            .help("Set the resolution, eg. 1920x1080"_str)
-            .default_value("1280x720"_str));
+    auto resolution =
+        command.add_arg(Arg<ParsedResolution>::value("resolution"_str,
+                                                     parse_with<ParsedResolution>(ResolutionParser))
+                            .short_name(u8('R'))
+                            .long_name("resolution"_str)
+                            .help("Set the resolution, eg. 1920x1080"_str)
+                            .default_value("1280x720"_str));
+    auto screenshot = command.add_arg(
+        Arg<PathBuf>::value("screenshot"_str, parse_with<PathBuf>(ScreenshotPathParser))
+            .long_name("screenshot"_str)
+            .value_name("FILE"_str)
+            .help("Write the first rendered frame to PNG without opening a window, then exit"_str));
+    auto screenshot_timeout = command.add_arg(
+        Arg<f64>::value("screenshot-timeout"_str, parse_with<f64>(ScreenshotTimeoutParser))
+            .long_name("screenshot-timeout"_str)
+            .value_name("SECONDS"_str)
+            .help("Maximum screenshot load and capture time in seconds"_str)
+            .default_value("30"_str));
 
     auto texture_system = command.add_arg(
         Arg<bool>::flag("texture-system"_str)
@@ -173,18 +219,28 @@ SceneViewerArgs ParseSceneViewerArgs(int argc, char** argv) {
 
     auto parsed = owe::cli::ParseArgs(rstd::move(command), argc, argv);
     if (parsed.is_err()) rstd::process::exit(i32(parsed.unwrap_err().code));
-    auto matches = rstd::move(parsed).unwrap();
+    auto            matches = rstd::move(parsed).unwrap();
+    Option<PathBuf> screenshot_path;
+    if (auto value = matches.get_one(screenshot).unwrap(); value)
+        screenshot_path = Some((*value)->clone());
+    if (screenshot_path && ! Value(matches, resolution).valid) {
+        rstd::io::eprintln("--screenshot: expected WIDTHxHEIGHT with positive dimensions up to "
+                           "65535 and at most 64 Mi pixels");
+        rstd::process::exit(i32(2));
+    }
 
     return SceneViewerArgs {
         .assets_dir            = PathBuf::from(Value(matches, assets).as_str()),
         .scene_path            = PathBuf::from(Value(matches, scene).as_str()),
         .cache_path            = PathBuf::from(Value(matches, cache_path).as_str()),
         .user_properties_path  = PathBuf::from(Value(matches, user_properties).as_str()),
+        .screenshot_path       = rstd::move(screenshot_path),
+        .screenshot_timeout    = Value(matches, screenshot_timeout),
         .mouse_position        = Value(matches, mouse_position).clone(),
         .load_bench_output     = Value(matches, load_bench_output).clone(),
         .texture_memory_output = Value(matches, texture_memory_output).clone(),
         .random_seed           = OptionalValue(matches, random_seed),
-        .resolution            = Value(matches, resolution),
+        .resolution            = Value(matches, resolution).value,
         .fps                   = Value(matches, fps),
         .msaa_samples          = Value(matches, msaa),
         .enable_valid_layer    = Flag(matches, valid_layer),

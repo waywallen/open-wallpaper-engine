@@ -40,6 +40,16 @@ struct UserData {
     bool                 mouse_position_locked { false };
 };
 
+struct ViewerWindow {
+    GLFWwindow* window {};
+    bool        initialized {};
+
+    ~ViewerWindow() {
+        if (window) glfwDestroyWindow(window);
+        if (initialized) glfwTerminate();
+    }
+};
+
 extern "C" {
 #if __is_target_os(macos)
 void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
@@ -84,6 +94,33 @@ int main(int argc, char** argv) {
 
     auto args                = viewer::ParseSceneViewerArgs(argc, argv);
     auto [w_width, w_height] = args.resolution;
+    const bool screenshot    = args.screenshot_path.is_some();
+    const auto started       = Instant::now();
+    auto       compile_only  = rstd::env::var_os("WP_COMPILE_ONLY"_str);
+    if (screenshot) {
+        if (compile_only && ! compile_only->is_empty()) {
+            eprintln("--screenshot cannot be used with WP_COMPILE_ONLY");
+            return 2;
+        }
+        if (args.fps <= i32() || args.fps > i32(65535)) {
+            eprintln("--screenshot requires --fps between 1 and 65535");
+            return 2;
+        }
+        auto path   = args.screenshot_path->as_path();
+        auto target = rstd::fs::metadata(path);
+        if (target.is_ok() && ! target->is_file()) {
+            eprintln("--screenshot: '{}' is not a regular file", path.as_os_str().display());
+            return 2;
+        }
+        if (auto parent = path.parent(); parent && ! parent->is_empty()) {
+            auto directory = rstd::fs::metadata(*parent);
+            if (directory.is_err() || ! directory->is_dir()) {
+                eprintln("--screenshot: parent directory '{}' does not exist or is not a directory",
+                         parent->as_os_str().display());
+                return 2;
+            }
+        }
+    }
 
     auto load_bench = owe::CreateSceneLoadBench(args.load_bench_output.as_str());
     Option<rstd::bench::probe::ProbeRecorder> startup_recorder;
@@ -92,55 +129,56 @@ int main(int argc, char** argv) {
                                              load_bench ? &(**load_bench).ids() : nullptr },
                                            &owe::SceneLoadProbeIds::viewer_startup);
 
-    viewer::InitGlfwPlatformHint(/*force_x11=*/false);
 #if __is_target_os(macos)
-    auto loader_result = vvk::VulkanLoader::Open();
-    if (loader_result.is_err()) {
-        eprintln("Failed to load Vulkan");
-        return -1;
-    }
-    auto vulkan_loader = loader_result.unwrap_unchecked();
-    viewer::glfw::glfwInitVulkanLoader(vulkan_loader.global().vkGetInstanceProcAddr);
-    if (! glfwInit()) {
-        eprintln("Failed to initialize GLFW");
-        return -1;
-    }
-#else
-    glfwInit();
+    Option<vvk::VulkanLoader> vulkan_loader;
 #endif
-    glfwWindowHint(viewer::glfw::ClientApi, viewer::glfw::NoApi);
+    ViewerWindow viewer_window;
+    GLFWwindow*  window        = nullptr;
+    int          render_width  = w_width;
+    int          render_height = w_height;
+    if (! screenshot) {
+        viewer::InitGlfwPlatformHint(/*force_x11=*/false);
 #if __is_target_os(macos)
-    // Keep the backing framebuffer in physical pixels. The window remains
-    // sized in Cocoa points, while the CAMetalLayer/Vulkan swapchain use the
-    // 2x (or display-specific) backing dimensions.
-    glfwWindowHint(viewer::glfw::CocoaRetinaFramebuffer, viewer::glfw::TrueValue);
+        auto loader_result = vvk::VulkanLoader::Open();
+        if (loader_result.is_err()) {
+            eprintln("Failed to load Vulkan");
+            return -1;
+        }
+        vulkan_loader = Some(rstd::move(loader_result).unwrap());
+        viewer::glfw::glfwInitVulkanLoader(vulkan_loader->global().vkGetInstanceProcAddr);
 #endif
-    // Bulk-scan path: WP_HEADLESS=1 hides the window so a scan loop over
-    // hundreds of pkgs doesn't spam the desktop. Compile/render still
-    // runs against the offscreen surface — stderr captures shader errors.
-    if (auto hl = rstd::env::var_os("WP_HEADLESS"_str);
-        hl && ! hl->is_empty() && hl->as_os_str().as_encoded_bytes()[usize()] == u8('1')) {
-        glfwWindowHint(viewer::glfw::Visible, viewer::glfw::FalseValue);
-    }
-    GLFWwindow* window = glfwCreateWindow(w_width, w_height, "WP", nullptr, nullptr);
+        if (! glfwInit()) {
+            eprintln("Failed to initialize GLFW");
+            return -1;
+        }
+        viewer_window.initialized = true;
+        glfwWindowHint(viewer::glfw::ClientApi, viewer::glfw::NoApi);
 #if __is_target_os(macos)
-    if (window == nullptr) {
-        eprintln("Failed to create GLFW window");
-        glfwTerminate();
-        return -1;
-    }
+        // Preserve physical framebuffer pixels on Retina displays.
+        glfwWindowHint(viewer::glfw::CocoaRetinaFramebuffer, viewer::glfw::TrueValue);
 #endif
-    int render_width  = w_width;
-    int render_height = w_height;
+        if (auto hl = rstd::env::var_os("WP_HEADLESS"_str);
+            hl && ! hl->is_empty() && hl->as_os_str().as_encoded_bytes()[usize()] == u8('1')) {
+            glfwWindowHint(viewer::glfw::Visible, viewer::glfw::FalseValue);
+        }
+        window = glfwCreateWindow(w_width, w_height, "WP", nullptr, nullptr);
+        if (window == nullptr) {
+            eprintln("Failed to create GLFW window");
+            return -1;
+        }
+        viewer_window.window = window;
 #if __is_target_os(macos)
-    glfwGetFramebufferSize(window, &render_width, &render_height);
-    if (render_width <= 0) render_width = w_width;
-    if (render_height <= 0) render_height = w_height;
+        glfwGetFramebufferSize(window, &render_width, &render_height);
+        if (render_width <= 0) render_width = w_width;
+        if (render_height <= 0) render_height = w_height;
 #endif
+    }
     UserData data;
 
     owe::RenderInitInfo info;
     info.enable_valid_layer = args.enable_valid_layer;
+    info.offscreen          = screenshot;
+    info.offscreen_export   = ! screenshot;
     if (args.async_pipelines)
         info.pipeline_preparation = vrento::vulkan::PipelinePreparationMode::Deferred;
     info.width        = static_cast<rstd::uint16_t>(render_width);
@@ -148,14 +186,12 @@ int main(int argc, char** argv) {
     info.msaa_samples = args.msaa_samples.to_primitive();
 
     auto& sf_info = info.surface_info;
-    {
+    if (! screenshot) {
         uint32_t glfwExtCount = 0;
         auto     exts         = glfwGetRequiredInstanceExtensions(&glfwExtCount);
 #if __is_target_os(macos)
         if (exts == nullptr || glfwExtCount == 0) {
             eprintln("GLFW did not provide Vulkan instance extensions");
-            glfwDestroyWindow(window);
-            glfwTerminate();
             return -1;
         }
 #endif
@@ -177,25 +213,21 @@ int main(int argc, char** argv) {
 #endif
     }
 
-#if ! __is_target_os(macos)
-    if (window == nullptr) {
-        println("Failed to create GLFW window");
-        glfwTerminate();
-        return -1;
-    }
-#endif
-
-    auto  texture_memory = args.texture_system ? owe::TextureMemorySession::System()
-                                               : owe::TextureMemorySession::VirtualMemory();
-    auto* psw            = new owe::SceneWallpaper(texture_memory.options());
-    data.psw             = psw;
-
+    auto         texture_memory = args.texture_system ? owe::TextureMemorySession::System()
+                                                      : owe::TextureMemorySession::VirtualMemory();
     Atomic<bool> audio_response_demand { false };
+    auto         wallpaper = Some(Box<owe::SceneWallpaper>::make(texture_memory.options()));
+    auto*        psw       = &**wallpaper;
+    data.psw               = psw;
+
     psw->setAudioResponseDemandCallback([&audio_response_demand](bool active) {
         audio_response_demand.store(active, Ordering::Release);
     });
 
-    psw->init();
+    if (! psw->init()) {
+        eprintln("Failed to initialize scene renderer");
+        return 1;
+    }
 
     owe::SceneWallpaperConfig config;
     config.assets_dir      = rstd::move(args.assets_dir);
@@ -253,15 +285,13 @@ int main(int argc, char** argv) {
         startup_recorder = None();
     }
     load_bench = None();
-    psw->configure(rstd::move(config));
-    psw->initVulkan(rstd::move(info));
-
-    glfwSetWindowUserPointer(window, &data);
-
-    glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
-    glfwSetMouseButtonCallback(window, mouse_button_callback);
-    glfwSetCursorPosCallback(window, cursor_position_callback);
-    glfwSetCursorEnterCallback(window, cursor_enter_callback);
+    if (window) {
+        glfwSetWindowUserPointer(window, &data);
+        glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
+        glfwSetMouseButtonCallback(window, mouse_button_callback);
+        glfwSetCursorPosCallback(window, cursor_position_callback);
+        glfwSetCursorEnterCallback(window, cursor_enter_callback);
+    }
 
     auto locked_mouse          = viewer::ParseMousePosition(args.mouse_position.as_str());
     data.mouse_position_locked = locked_mouse.is_some();
@@ -269,6 +299,7 @@ int main(int argc, char** argv) {
         if (! locked_mouse) return;
         psw->mouseEnter(true);
         psw->mouseInput((*locked_mouse)[usize()], (*locked_mouse)[usize(1)]);
+        if (! window) return;
         int window_width  = 0;
         int window_height = 0;
         glfwGetWindowSize(window, &window_width, &window_height);
@@ -279,6 +310,18 @@ int main(int argc, char** argv) {
         }
     };
     apply_locked_mouse();
+
+    Option<rstd::sync::mpmc::Receiver<owe::FrameCaptureResult>> capture_receiver;
+    if (screenshot) {
+        auto [sender, receiver] = rstd::sync::mpmc::sync_channel<owe::FrameCaptureResult>(usize(1));
+        capture_receiver        = Some(rstd::move(receiver));
+        psw->requestFrameCapture(owe::FrameCaptureCallback::make(
+            [sender = rstd::move(sender)](owe::FrameCaptureResult result) mutable {
+                (void)sender.try_send(rstd::move(result));
+            }));
+    }
+    psw->configure(rstd::move(config));
+    psw->initVulkan(rstd::move(info));
 
     viewer::StdinJsonControl stdin_control(args.stdin_json);
 #if __is_target_os(macos)
@@ -325,12 +368,49 @@ int main(int argc, char** argv) {
 #endif
     };
 
+    int exit_code = 0;
+    if (screenshot) {
+        const auto timeout = Duration::from_secs_f64(args.screenshot_timeout.to_primitive());
+        exit_code          = 1;
+        while (true) {
+            if (started.elapsed() >= timeout) {
+                eprintln("--screenshot: timed out after {} seconds", args.screenshot_timeout);
+                break;
+            }
+            auto captured = capture_receiver->try_recv();
+            if (captured.is_ok()) {
+                auto result = rstd::move(captured).unwrap();
+                if (result.is_err()) {
+                    eprintln("--screenshot: {}", result.as_ref().unwrap_err().message.as_str());
+                    break;
+                }
+                auto frame   = rstd::move(result).unwrap();
+                auto written = owe::WriteFrameCapturePng(frame, args.screenshot_path->as_path());
+                if (written.is_err()) {
+                    eprintln("--screenshot: {}", written.as_ref().unwrap_err().message.as_str());
+                } else if (started.elapsed() >= timeout) {
+                    eprintln("--screenshot: timed out after {} seconds", args.screenshot_timeout);
+                } else {
+                    exit_code = 0;
+                }
+                break;
+            }
+            if (captured.unwrap_err() == rstd::sync::mpmc::TryRecvError::Disconnected) {
+                eprintln("--screenshot: capture callback disconnected without a result");
+                break;
+            }
+            stdin_control.poll(*psw);
+            apply_locked_mouse();
+            update_audio();
+            rstd::thread::sleep(Duration::from_millis(u64(5)));
+        }
+    }
     // Bulk-scan path: WP_COMPILE_ONLY=N waits N seconds after scene load
     // to let the async shader-compile pass drain, then exits. Skips the
     // render loop so no swapchain present is required (which would deadlock
     // with a hidden window). Use together with WP_HEADLESS=1.
-    if (auto co = rstd::env::var_os("WP_COMPILE_ONLY"_str); co && ! co->is_empty()) {
-        auto text    = co->as_os_str().to_str();
+    else if (compile_only && ! compile_only->is_empty()) {
+        auto text    = compile_only->as_os_str().to_str();
         auto seconds = text ? rstd::from_str<i32>(*text).unwrap_or(i32(2)) : i32(2);
         if (seconds <= i32()) seconds = i32(2);
 #if __is_target_os(macos)
@@ -361,7 +441,7 @@ int main(int argc, char** argv) {
             update_audio();
         }
     }
-    delete psw;
+    wallpaper = None();
     if (! args.texture_memory_output.is_empty()) {
         auto            stats = texture_memory.statistics();
         rstd::json::Map fields;
@@ -391,8 +471,5 @@ int main(int argc, char** argv) {
         if (rstd::fs::write(path.as_path(), report.as_str().as_bytes()).is_err())
             eprintln("failed to write texture memory statistics");
     }
-    // wgl.Clear();
-    glfwDestroyWindow(window);
-    glfwTerminate();
-    return 0;
+    return exit_code;
 }

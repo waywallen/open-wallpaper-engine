@@ -93,6 +93,8 @@ public:
     void pause();
     void pause(uint32_t fade_ms);
     void requestFrame();
+    // Captures the next completed frame. The callback runs on the render thread.
+    void requestFrameCapture(FrameCaptureCallback);
     void mouseInput(double x, double y);
     // button: 0=left, 1=right, 2=middle (GLFW numbering). down=true on
     // press, false on release.

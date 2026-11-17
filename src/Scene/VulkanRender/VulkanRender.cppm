@@ -6,6 +6,7 @@ import rstd;
 import wescene.load_bench;
 import wescene.vulkan;
 import wescene.scene;
+export import wescene.frame_capture;
 import wescene.resource_registry;
 
 export import :scene_render_resources;
@@ -40,6 +41,8 @@ struct RenderInitInfo {
     };
     bool enable_valid_layer { false };
     bool offscreen { false };
+    // Disable external-memory export for an internal headless output surface.
+    bool offscreen_export { true };
 
     Option<array<rstd::uint8_t, VK_UUID_SIZE>> uuid;
     TexTiling                                  offscreen_tiling { TexTiling::OPTIMAL };
@@ -135,6 +138,8 @@ public:
     void drawFrame(Scene&);
     bool framePending() const;
     bool frameSubmitted() const;
+    void requestFrameCapture(FrameCaptureCallback);
+    void cancelFrameCapture();
     bool maintainResources();
 
     void configureRenderTargets(Scene&);
