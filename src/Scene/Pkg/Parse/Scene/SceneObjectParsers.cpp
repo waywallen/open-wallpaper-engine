@@ -665,12 +665,12 @@ BuildContext(Scene& scene, fs::VFS& vfs, ref<str> scene_id, const wpscene::Scene
              bool directional_shadow, bool geometry_shader_supported,
              Option<ImageReadyCallback> image_ready, TextureMemoryOptions texture_memory) {
     SceneParseContext context(scene, vfs);
+    context.user_properties = user_properties;
     PrepareAnimationBindings(context, sc.general.field_bindings);
     InitContext(
         context, vfs, sc, ortho_extent, rstd::move(image_ready), rstd::move(texture_memory));
     ParseCamera(context, sc);
     context.layer_resources->pkg_version  = sc.pkg_version;
-    context.user_properties               = user_properties;
     context.layer_resources->shader_cache = Arc<ShaderCache>::make(rstd::move(shader_cache_dir));
     context.layer_resources->geometry_shader_limits    = geometry_limits;
     context.layer_resources->geometry_shader_supported = geometry_shader_supported;

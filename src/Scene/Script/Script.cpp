@@ -249,6 +249,13 @@ auto ScriptBindingContext::ForLayer(owe::SceneNode* layer, ref<str> property,
     return context;
 }
 
+auto ScriptBindingContext::ForParticleInstance(owe::SceneNode* layer, ref<str> property)
+    -> ScriptBindingContext {
+    auto context        = ForLayer(layer, property);
+    context.object_kind = ScriptPropertyObjectKind::ParticleInstance;
+    return context;
+}
+
 auto ScriptBindingContext::ForAnimationLayer(owe::SceneNode* layer, ref<str> property,
                                              Arc<owe::SceneAnimationPlayback> animation)
     -> ScriptBindingContext {
@@ -3118,6 +3125,26 @@ void JsRuntime::SetAudioResponseDemand(Option<Arc<AudioResponseDemand>> demand) 
 
 namespace
 {
+void DispatchUserProperties(JSContext* ctx, JsRuntime::Impl* rt, FieldScript* script,
+                            JSValueConst changes) {
+    auto* field = script->m_impl.get();
+    if (! field->alive || field->init_deferred) return;
+    JSValue fn = JS_GetPropertyStr(ctx, field->module_ns, "applyUserProperties");
+    if (JS_IsFunction(ctx, fn)) {
+        EngineBindingGuard binding_guard(ctx, rt->host);
+        BindFieldScriptContext(ctx, *field, rt->host.default_layer);
+        if (! JS_IsUndefined(rt->wrapped_scene)) BindThisScene(ctx, rt->wrapped_scene);
+        rt->host.active_field_script = script;
+        JSValue arg                  = JS_DupValue(ctx, changes);
+        JSValue result               = JS_Call(ctx, fn, JS_UNDEFINED, 1, &arg);
+        JS_FreeValue(ctx, arg);
+        if (JS_IsException(result))
+            rt->LogError(ctx, field->sha.as_str(), "applyUserProperties threw");
+        JS_FreeValue(ctx, result);
+    }
+    JS_FreeValue(ctx, fn);
+}
+
 void DispatchGeneralSettings(JSContext* ctx, JsRuntime::Impl* rt, FieldScript* script,
                              const Json& settings) {
     auto* field = script->m_impl.get();
@@ -3178,20 +3205,7 @@ void JsRuntime::SetUserProperty(ref<str> key, const Json& property) {
     const auto script_count = m_impl->scripts.len();
     for (usize index {}; index < script_count; ++index) {
         auto* fs = m_impl->scripts[index].get();
-        auto* I  = fs->m_impl.get();
-        if (! I->alive || I->init_deferred) continue;
-        JSValue fn = JS_GetPropertyStr(ctx, I->module_ns, "applyUserProperties");
-        if (JS_IsFunction(ctx, fn)) {
-            BindFieldScriptContext(ctx, *I, m_impl->host.default_layer);
-            m_impl->host.active_field_script = fs;
-            JSValue arg                      = JS_DupValue(ctx, changed);
-            JSValue r                        = JS_Call(ctx, fn, JS_UNDEFINED, 1, &arg);
-            JS_FreeValue(ctx, arg);
-            if (JS_IsException(r))
-                m_impl->LogError(ctx, I->sha.as_str(), "applyUserProperties threw");
-            JS_FreeValue(ctx, r);
-        }
-        JS_FreeValue(ctx, fn);
+        DispatchUserProperties(ctx, m_impl.get(), fs, changed);
     }
     m_impl->host.active_field_script = nullptr;
     JS_FreeValue(ctx, changed);
@@ -3643,23 +3657,43 @@ void RunFieldScriptInit(JSContext* ctx, JsRuntime::Impl* rt, FieldScript* fs) {
         I->init_in_progress = false;
         return;
     }
-    if (! JS_IsFunction(ctx, I->init_fn)) {
-        I->init_in_progress = false;
-        I->init_done        = true;
-        return;
+    if (JS_IsFunction(ctx, I->init_fn)) {
+        EngineBindingGuard binding_guard(ctx, rt->host);
+        BindFieldScriptContext(ctx, *I, rt->host.default_layer);
+        if (! JS_IsUndefined(rt->wrapped_scene)) BindThisScene(ctx, rt->wrapped_scene);
+        rt->host.active_field_script = fs;
+        JSValue arg                  = JS_DupValue(ctx, I->current_value);
+        JSValue result               = JS_Call(ctx, I->init_fn, JS_UNDEFINED, 1, &arg);
+        JS_FreeValue(ctx, arg);
+        if (JS_IsException(result)) rt->LogError(ctx, I->sha.as_str(), "init threw");
+        JS_FreeValue(ctx, result);
     }
-
-    EngineBindingGuard binding_guard(ctx, rt->host);
-    BindFieldScriptContext(ctx, *I, rt->host.default_layer);
-    if (! JS_IsUndefined(rt->wrapped_scene)) BindThisScene(ctx, rt->wrapped_scene);
-    rt->host.active_field_script = fs;
-    JSValue arg                  = JS_DupValue(ctx, I->current_value);
-    JSValue r                    = JS_Call(ctx, I->init_fn, JS_UNDEFINED, 1, &arg);
-    JS_FreeValue(ctx, arg);
-    if (JS_IsException(r)) rt->LogError(ctx, I->sha.as_str(), "init threw");
-    JS_FreeValue(ctx, r);
     I->init_in_progress = false;
     I->init_done        = true;
+    JSValue global      = JS_GetGlobalObject(ctx);
+    JSValue engine      = JS_GetPropertyStr(ctx, global, "engine");
+    JSValue properties  = JS_GetPropertyStr(ctx, engine, "userProperties");
+    if (JS_IsObject(properties)) {
+        JSValue         snapshot = JS_NewObject(ctx);
+        JSPropertyEnum* entries { nullptr };
+        rstd::uint32_t  count {};
+        if (JS_GetOwnPropertyNames(
+                ctx, &entries, &count, properties, JS_GPN_STRING_MASK | JS_GPN_ENUM_ONLY) == 0) {
+            for (rstd::uint32_t index {}; index < count; ++index) {
+                JS_SetProperty(ctx,
+                               snapshot,
+                               entries[index].atom,
+                               JS_GetProperty(ctx, properties, entries[index].atom));
+                JS_FreeAtom(ctx, entries[index].atom);
+            }
+            js_free(ctx, entries);
+            DispatchUserProperties(ctx, rt, fs, snapshot);
+        }
+        JS_FreeValue(ctx, snapshot);
+    }
+    JS_FreeValue(ctx, properties);
+    JS_FreeValue(ctx, engine);
+    JS_FreeValue(ctx, global);
 }
 
 JSValue AwaitModuleEvaluation(JSContext* ctx, JSValue value) {
@@ -3813,6 +3847,9 @@ FieldScript* JsRuntime::MakeFieldScript(ref<str> source, ref<str> script_sha,
     JSValue wrapped_object { JS_UNDEFINED };
     switch (context.object_kind) {
     case ScriptPropertyObjectKind::Layer: wrapped_object = WrapLayerNode(ctx, node, true); break;
+    case ScriptPropertyObjectKind::ParticleInstance:
+        wrapped_object = WrapParticleInstance(ctx, node);
+        break;
     case ScriptPropertyObjectKind::Effect:
         wrapped_object = WrapEffect(ctx, rstd::move(context.effect), node);
         break;

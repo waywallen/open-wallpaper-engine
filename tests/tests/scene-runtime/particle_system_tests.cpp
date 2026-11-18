@@ -714,6 +714,52 @@ TEST(ParticleInstanceModifiers, SharesStateAndFiltersDisabledOverrides) {
     EXPECT_TRUE(unfiltered.ControlpointsEnabled());
 }
 
+TEST(ParticleInstanceModifiers, PreservesNormalizedSpawnColors) {
+    for (bool legacy : { false, true }) {
+        owe::Scene scene;
+        auto       state  = Arc<owe::wpscene::ParticleInstanceoverride>::make();
+        state->enabled    = true;
+        state->overColor  = legacy;
+        state->overColorn = ! legacy;
+        state->color      = { 127.5f, 63.75f, 31.875f };
+        state->colorn     = { 0.5f, 0.25f, 0.125f };
+        owe::ParticleSubSystem subsystem(scene,
+                                         Arc<owe::SceneMesh>::make(),
+                                         u32(2),
+                                         f64(1.0),
+                                         u32(1),
+                                         f64(1.0),
+                                         owe::ParticleSubSystem::SpawnType::STATIC,
+                                         owe::ParticleAnimationSpec {});
+        subsystem.AddInitializer(owe::ParticleParser::GenInitializer(
+            owe::ParseJson(R"({"name":"lifetimerandom","min":10,"max":10})"_str).unwrap(), u32(1)));
+        subsystem.AddInitializer(owe::ParticleParser::GenOverride(owe::ParticleInstanceModifiers(
+            state.clone(), owe::wpscene::Particle::EFlags { 0 }, true)));
+        subsystem.AddEmitter(
+            Box<dyn<particle::ParticleEmitterProgram>>::make(owe::SphereEmitterProgram(
+                subsystem.SpawnPipeline(),
+                owe::ParticleSphereEmitterArgs { .emit_speed = 1.0f, .instantaneous = u32(1) },
+                usize())));
+        subsystem.Finalize();
+        subsystem.Tick(f64(), false);
+        state->color  = { 63.75f, 127.5f, 191.25f };
+        state->colorn = { 0.25f, 0.5f, 0.75f };
+        subsystem.Tick(f64(1.0), false);
+        auto& storage = subsystem.System().Instance(usize()).Storage();
+        auto  colors  = storage.Values(subsystem.Attributes().color);
+        auto  initial = storage.Values(subsystem.Attributes().initial_color);
+        ASSERT_EQ(colors.len(), usize(2));
+        auto states = subsystem.System().Instance(usize()).Binding().Read().States();
+        for (usize index {}; index < colors.len(); ++index) {
+            const auto expected = states[index].spawn_sequence == u64()
+                                      ? Eigen::Vector3f { 0.5f, 0.25f, 0.125f }
+                                      : Eigen::Vector3f { 0.25f, 0.5f, 0.75f };
+            EXPECT_TRUE(colors[index].isApprox(expected));
+            EXPECT_TRUE(initial[index].isApprox(expected));
+        }
+    }
+}
+
 TEST(ParticleSubSystem, ResolvesWorldControlpointOverridesThroughOwnerTransform) {
     owe::Scene             scene;
     auto                   mesh = Arc<owe::SceneMesh>::make();

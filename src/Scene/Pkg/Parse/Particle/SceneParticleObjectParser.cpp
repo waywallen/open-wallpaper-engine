@@ -209,6 +209,57 @@ struct ParticleNodeControl {
     }
 };
 
+void WireParticleInstanceScripts(SceneLayerBuildContext& context, SceneNode& node,
+                                 const wpscene::FieldBindings& bindings) {
+    auto control = node.ParticleControlHandle();
+    if (control.is_none()) return;
+    for (const auto& binding : bindings.Entries()) {
+        if (binding.script.is_none()) continue;
+        auto values = (*control)->Get(binding.field.as_str());
+        if (values.len() != usize(1) && values.len() != usize(3)) continue;
+        auto kind = values.len() == usize(1) ? script::FieldKind::Scalar : script::FieldKind::Vec3;
+        Json initial;
+        if (kind == script::FieldKind::Scalar) {
+            initial = rstd::into<Json>(f32(values[usize()]));
+        } else {
+            Vec<Json> components;
+            for (auto value : values) components.push(rstd::into<Json>(f32(value)));
+            initial = Json::Array(rstd::move(components));
+        }
+        const auto& source  = *binding.script;
+        auto        sha     = utils::genSha1(rstd::as_bytes(source.source.as_str().as_bytes()));
+        auto&       scripts = EnsureScriptScene(context);
+        auto*       field_script = scripts.runtime().MakeFieldScript(
+            source.source.as_str(),
+            sha.as_str(),
+            kind,
+            binding.ScriptProperties(),
+            initial,
+            script::ScriptBindingContext::ForParticleInstance(&node, binding.field.as_str()),
+            context.script_initialization);
+        if (! field_script) continue;
+        SetScriptInitializationOrder(context, *field_script, &node);
+        TrackFieldScript(context, field_script);
+        scripts.AddActuator(
+            { field_script,
+              [control = (*control).clone(), field = binding.field.clone(), kind](
+                  const script::ScriptValue& value) mutable {
+                  if (kind == script::FieldKind::Scalar) {
+                      auto scalar = ScriptValueAsFloat(value);
+                      if (scalar.is_some())
+                          control->Apply(
+                              field.as_str(),
+                              slice<float>::from_raw_parts(rstd::addressof(*scalar), usize(1)));
+                  } else {
+                      auto vector = ScriptValueAsVec3(value, Eigen::Vector3f::Zero());
+                      if (vector.is_some())
+                          control->Apply(field.as_str(),
+                                         slice<float>::from_raw_parts(vector->data(), usize(3)));
+                  }
+              } });
+    }
+}
+
 void LoadControlPoint(SceneLayerBuildContext& context, ParticleSubSystem& system,
                       const wpscene::Particle& particle, ParticleInstanceModifiers modifiers) {
     auto points = system.ControlpointsMut();
@@ -656,6 +707,10 @@ void BuildParticleObjectNode(ParticleObjectParseServices& services,
             .state    = override_state.clone(),
             .playback = playback_state.clone(),
         }));
+        if (services.wire_scripts) {
+            if (auto* bindings = override.FieldBindingsView())
+                WireParticleInstanceScripts(services.construction_context, *spNode, *bindings);
+        }
         AssignNodeFieldAnimations(
             services.construction_context, *spNode.as_ptr(), wppartobj.field_bindings);
     }

@@ -162,6 +162,7 @@ enum class ScriptPropertyObjectKind
     Effect,
     Material,
     AnimationLayer,
+    ParticleInstance,
 };
 
 struct ScriptBindingContext {
@@ -179,6 +180,7 @@ struct ScriptBindingContext {
 
     static auto ForLayer(owe::SceneNode*, ref<str>,
                          Option<Arc<owe::SceneAnimationPlayback>> = None()) -> ScriptBindingContext;
+    static auto ForParticleInstance(owe::SceneNode*, ref<str>) -> ScriptBindingContext;
     static auto ForAnimationLayer(owe::SceneNode*, ref<str>, Arc<owe::SceneAnimationPlayback>)
         -> ScriptBindingContext;
     static auto ForAnimationLayer(owe::SceneNode*, ref<str>, Arc<owe::SceneAnimationLayer>,

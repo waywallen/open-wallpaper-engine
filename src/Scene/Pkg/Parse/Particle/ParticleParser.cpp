@@ -182,8 +182,6 @@ struct MapSequenceBetweenControlPointsProgram {
     }
 };
 
-inline float UiColorToLinear(float value) { return value * value; }
-
 inline float UiScalarToLinear(float value) { return value; }
 
 } // namespace
@@ -369,9 +367,6 @@ struct OverrideSpawnProgram {
             auto            color = modifiers.Color();
             Eigen::Vector3f value { color[usize(0)], color[usize(1)], color[usize(2)] };
             if (modifiers.UsesLegacyColor()) value /= 255.0f;
-            value                         = { UiColorToLinear(value[0]),
-                                              UiColorToLinear(value[1]),
-                                              UiColorToLinear(value[2]) };
             columns.colors[index]         = value;
             columns.initial_colors[index] = value;
         }

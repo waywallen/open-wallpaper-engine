@@ -80,7 +80,14 @@ bool SceneHasScripts(slice<SceneObjectVar> scene_objs) {
         for (const auto& binding : SceneObjectFieldBindings(scene_objs[index]).Entries()) {
             if (binding.script.is_some()) return true;
         }
-        const auto&                          object = scene_objs[index];
+        const auto& object = scene_objs[index];
+        if (object.is_Particle()) {
+            if (auto* bindings = object.as_Particle().value.instanceoverride.FieldBindingsView()) {
+                for (const auto& binding : bindings->Entries()) {
+                    if (binding.script.is_some()) return true;
+                }
+            }
+        }
         slice<wpscene::PuppetAnimationLayer> layers;
         if (object.is_Image()) layers = object.as_Image().value.puppet_layers.as_slice();
         if (object.is_Model()) layers = object.as_Model().value.puppet_layers.as_slice();

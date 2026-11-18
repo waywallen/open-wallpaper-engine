@@ -203,6 +203,39 @@ TEST(ScriptInitialization, DispatchesGeneralSettingsToInitialAndNewScripts) {
     EXPECT_EQ(LastScalar(later), 1.0);
 }
 
+TEST(ScriptInitialization, ReplaysUserPropertiesToInitialAndDeferredScripts) {
+    auto      root = Arc<owe::SceneNode>::make();
+    JsRuntime runtime;
+    runtime.SetUserProperty("colorful"_str, owe::IntoJson(true));
+    runtime.SetUserProperty("brightness"_str, owe::IntoJson(0.5));
+    for (auto mode :
+         { FieldScriptInitialization::Automatic, FieldScriptInitialization::Deferred }) {
+        auto* script = runtime.MakeFieldScript(
+            R"JS(
+                let initialized = false, ready = false, events = 0;
+                export function init() { initialized = true; }
+                export function applyUserProperties(properties) {
+                    events++;
+                    ready = initialized && properties.colorful === true && properties.brightness === 0.5;
+                    delete properties.colorful;
+                }
+                export function update() { return (ready ? 10 : 0) + events; }
+            )JS"_str,
+            "test/initial_user_properties"_str,
+            FieldKind::Scalar,
+            owe::MakeObject(),
+            owe::IntoJson(0),
+            root.as_ptr(),
+            mode);
+        ASSERT_NE(script, nullptr);
+        runtime.SetSceneRoot(root.as_ptr());
+        if (mode == FieldScriptInitialization::Deferred)
+            ASSERT_TRUE(runtime.InitializeFieldScript(*script));
+        runtime.TickAll();
+        EXPECT_EQ(LastScalar(script), 11.0);
+    }
+}
+
 TEST(ScriptValueCoercion, PreservesVec4InitialAndReturnValues) {
     JsRuntime rt;
     auto*     script = rt.MakeFieldScript(
@@ -2853,7 +2886,7 @@ TEST(ScriptScene, DeferredFieldScriptInitializesAfterItsLayerIsAttached) {
     EXPECT_FALSE(script->initialization_deferred());
     EXPECT_FALSE(runtime.InitializeFieldScript(*script));
     runtime.TickAll();
-    EXPECT_DOUBLE_EQ(LastScalar(script), 111.0);
+    EXPECT_DOUBLE_EQ(LastScalar(script), 1.0);
 }
 
 TEST(ScriptScene, DeferredModuleEvaluationWaitsForItsLayer) {

@@ -1414,6 +1414,89 @@ TEST(ParticleMaterial, MeshMatchesAvailableGeometryStage) {
     }
 }
 
+TEST(ParticleScripts, InstanceBindingsUseParticleContextAndUserProperties) {
+    using namespace rstd::prelude;
+    auto document = owe::wpscene::ParseSceneDocumentJson(R"JSON({
+        "camera": {},
+        "general": {"orthogonalprojection": {"width": 1920, "height": 1080}},
+        "objects": [{"id": 1, "name": "particle", "particle": "particles/runtime.json",
+            "instanceoverride": {
+                "colorn": {"value": "0.1 0.2 0.3", "scriptproperties": {"brightness": {"user": "brightness", "value": 0.5}},
+                    "script": "import * as WEColor from 'WEColor'; export let scriptProperties = createScriptProperties().addSlider({name:'brightness', label:'Brightness', value:1, min:0, max:1}).finish(); let colorful = false; export function init(value) { if (Math.abs(thisObject.colorn.x - value.x) < 0.001 && thisLayer.instance.colorn.y === thisObject.colorn.y) thisLayer.origin = new Vec3(37, 0, 0); return value; } export function applyUserProperties(p) { if (p.hasOwnProperty('colorful')) colorful = p.colorful; } export function update(value) { return colorful ? WEColor.hsv2rgb(new Vec3(engine.runtime * 0.025, 0.75, scriptProperties.brightness)) : value; }"},
+                "rate": {"value": 0.5, "script": "let initial, created = false; export function init(value) { initial = value; return value; } export function update() { if (!created) { thisScene.createLayer({particle:'particles/runtime.json', name:'dynamic-color', instanceoverride:{colorn:{value:'0.1 0.2 0.3', script:'export function init(value) { thisLayer.origin = new Vec3(71, 0, 0); return value; } export function update() { return new Vec3(0.7, 0.8, 0.9); }'}}}); created = true; } return initial * 2; }"}
+            }}]
+    })JSON"_str,
+                                                         owe::wpscene::kSceneVersionUnknown);
+    ASSERT_TRUE(document.is_some());
+    auto temporary = rstd::fs::TempDir::make("owe-particle-scripts"_str).unwrap();
+    auto root      = rstd::path::PathBuf::from(temporary.path().as_os_str().to_os_string());
+    ASSERT_TRUE(rstd::fs::create_dir(root.join("particles"_str).as_path()).is_ok());
+    ASSERT_TRUE(rstd::fs::create_dir(root.join("materials"_str).as_path()).is_ok());
+    ASSERT_TRUE(
+        rstd::fs::write(
+            root.join("particles/runtime.json"_str).as_path(),
+            R"({"material":"materials/runtime-particle.json","maxcount":16,"emitter":[{"name":"sphererandom","rate":1}],"initializer":[{"name":"lifetimerandom","min":10,"max":10}]})"_bytes)
+            .is_ok());
+    ASSERT_TRUE(
+        rstd::fs::write(
+            root.join("materials/runtime-particle.json"_str).as_path(),
+            R"({"passes":[{"shader":"genericparticle","blending":"additive","textures":["particle/halo"]}]})"_bytes)
+            .is_ok());
+    auto assets = owe::fs::make_physical_fs(
+        owe::fs::Path(rstd::cppstd::as_str(WAYWALLEN_ASSETS_DIR).unwrap()));
+    auto local = owe::fs::make_physical_fs(temporary.path());
+    ASSERT_TRUE(assets.is_ok());
+    ASSERT_TRUE(local.is_ok());
+    auto vfs = Box<owe::fs::VFS>::make();
+    ASSERT_TRUE(vfs->mount("/assets"_str, rstd::move(assets).unwrap()).is_ok());
+    ASSERT_TRUE(vfs->mount("/assets"_str, rstd::move(local).unwrap()).is_ok());
+    auto properties = owe::ParseJson(R"({"colorful":true,"brightness":0.5})"_str).unwrap();
+    wavsen::audio::SoundManager sound;
+    owe::SceneParser            parser;
+    auto                        parsed =
+        parser.Parse("particle-scripts"_str,
+                     ref<owe::wpscene::SceneDocument>::from_raw_parts(rstd::addressof(*document)),
+                     mut_ref<owe::fs::VFS>::from_raw_parts(vfs.get()),
+                     mut_ref<wavsen::audio::SoundManager>::from_raw_parts(rstd::addressof(sound)),
+                     { .user_properties = properties.as_object() });
+    ASSERT_TRUE(parsed.is_ok());
+    auto scene = rstd::move(parsed).unwrap();
+    scene.scene->InstallExtension(rstd::move(vfs));
+    auto* node = scene.scene->RootMut()->FindByName("particle"_str);
+    ASSERT_NE(node, nullptr);
+    EXPECT_FLOAT_EQ(node->Translate().x(), 37.0f);
+    auto control = node->ParticleControlHandle();
+    ASSERT_TRUE(control.is_some());
+    owe::script::FrameInputs frame;
+    frame.runtime = 2.0f;
+    owe::script::TickSceneScripts(*scene.scene, frame);
+    auto color = (*control)->Get("colorn"_str);
+    ASSERT_EQ(color.len(), usize(3));
+    EXPECT_NEAR(color[usize()], 0.5f, 1e-6f);
+    EXPECT_NEAR(color[usize(1)], 0.2375f, 1e-6f);
+    EXPECT_NEAR(color[usize(2)], 0.125f, 1e-6f);
+    EXPECT_FLOAT_EQ((*control)->Get("rate"_str)[usize()], 1.0f);
+    auto* dynamic = scene.scene->RootMut()->FindByName("dynamic-color"_str);
+    ASSERT_NE(dynamic, nullptr);
+    EXPECT_FLOAT_EQ(dynamic->Translate().x(), 71.0f);
+    auto dynamic_control = dynamic->ParticleControlHandle();
+    ASSERT_TRUE(dynamic_control.is_some());
+    owe::script::TickSceneScripts(*scene.scene, frame);
+    auto dynamic_color = (*dynamic_control)->Get("colorn"_str);
+    ASSERT_EQ(dynamic_color.len(), usize(3));
+    EXPECT_NEAR(dynamic_color[usize()], 0.7f, 1e-6f);
+    EXPECT_NEAR(dynamic_color[usize(1)], 0.8f, 1e-6f);
+    EXPECT_NEAR(dynamic_color[usize(2)], 0.9f, 1e-6f);
+    owe::script::SetSceneUserProperty(
+        *scene.scene, "brightness"_str, rstd::into<owe::Json>(f64(0.8)));
+    frame.runtime = 4.0f;
+    owe::script::TickSceneScripts(*scene.scene, frame);
+    color = (*control)->Get("colorn"_str);
+    EXPECT_NEAR(color[usize()], 0.8f, 1e-6f);
+    EXPECT_NEAR(color[usize(1)], 0.56f, 1e-6f);
+    EXPECT_NEAR(color[usize(2)], 0.2f, 1e-6f);
+}
+
 TEST(SceneDynamicLayer, CreatesUnregisteredParticleWithoutInitialParticles) {
     using namespace rstd::prelude;
     auto document = owe::wpscene::ParseSceneDocumentJson(R"JSON({
