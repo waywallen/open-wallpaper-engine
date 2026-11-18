@@ -102,6 +102,11 @@ using vrento::TextureSample;
 
 using vrento::VideoPlaybackSnapshot;
 
+struct VideoPlaybackEndState {
+    u64 seek_sequence {};
+    u64 ended_count {};
+};
+
 class VideoPlaybackState {
 public:
     VideoPlaybackState()                                             = default;
@@ -110,49 +115,67 @@ public:
     auto operator=(const VideoPlaybackState&) -> VideoPlaybackState& = delete;
     auto operator=(VideoPlaybackState&&) -> VideoPlaybackState&      = delete;
 
-    void Play() { m_playing.store(true, Ordering::Release); }
-    void Pause() { m_playing.store(false, Ordering::Release); }
+    void Play() {
+        auto state = m_state.lock().unwrap();
+        if (state->ended) Seek(*state, f64());
+        state->control.playing = true;
+    }
+    void Pause() { m_state.lock().unwrap()->control.playing = false; }
     void Stop() {
-        Pause();
-        Seek(f64());
+        auto state             = m_state.lock().unwrap();
+        state->control.playing = false;
+        Seek(*state, f64());
     }
     void Seek(f64 seconds) {
-        if (! seconds.is_finite() || seconds < f64()) seconds = f64();
-        m_current_time.store(seconds, Ordering::Release);
-        m_seek_seconds.store(seconds, Ordering::Release);
-        m_seek_sequence.fetch_add(u64(1), Ordering::AcqRel);
+        auto state = m_state.lock().unwrap();
+        Seek(*state, seconds);
     }
     void SetRate(f64 rate) {
         if (! rate.is_finite() || rate <= f64()) return;
-        m_rate.store(rate, Ordering::Release);
+        m_state.lock().unwrap()->control.rate = rate;
     }
+    void SetLoop(bool loop) { m_state.lock().unwrap()->control.loop = loop; }
 
-    auto Snapshot() const -> VideoPlaybackSnapshot {
-        return VideoPlaybackSnapshot {
-            .playing       = m_playing.load(Ordering::Acquire),
-            .rate          = m_rate.load(Ordering::Acquire),
-            .seek_sequence = m_seek_sequence.load(Ordering::Acquire),
-            .seek_seconds  = m_seek_seconds.load(Ordering::Acquire),
-        };
-    }
+    auto Snapshot() const -> VideoPlaybackSnapshot { return m_state.lock().unwrap()->control; }
 
     void PublishTime(f64 current, Option<f64> duration) {
-        m_current_time.store(current, Ordering::Release);
-        m_duration.store(duration.unwrap_or(f64(-1.0)), Ordering::Release);
+        auto state      = m_state.lock().unwrap();
+        state->current  = current;
+        state->duration = duration;
     }
-    auto CurrentTime() const -> f64 { return m_current_time.load(Ordering::Acquire); }
-    auto Duration() const -> Option<f64> {
-        auto value = m_duration.load(Ordering::Acquire);
-        return value >= f64() ? Some(value) : None<f64>();
+    void PublishEnded(u64 seek_sequence) {
+        auto state = m_state.lock().unwrap();
+        if (state->control.seek_sequence != seek_sequence || state->ended) return;
+        ++state->ended_count;
+        if (! state->control.loop) {
+            state->ended           = true;
+            state->control.playing = false;
+        }
     }
+    auto EndState() const -> VideoPlaybackEndState {
+        auto state = m_state.lock().unwrap();
+        return { state->control.seek_sequence, state->ended_count };
+    }
+    auto CurrentTime() const -> f64 { return m_state.lock().unwrap()->current; }
+    auto Duration() const -> Option<f64> { return m_state.lock().unwrap()->duration; }
 
 private:
-    Atomic<bool> m_playing { true };
-    Atomic<f64>  m_rate { f64(1.0) };
-    Atomic<u64>  m_seek_sequence {};
-    Atomic<f64>  m_seek_seconds {};
-    Atomic<f64>  m_current_time {};
-    Atomic<f64>  m_duration { f64(-1.0) };
+    struct State {
+        VideoPlaybackSnapshot control;
+        f64                   current {};
+        Option<f64>           duration;
+        bool                  ended { false };
+        u64                   ended_count {};
+    };
+    static void Seek(State& state, f64 seconds) {
+        if (! seconds.is_finite() || seconds < f64()) seconds = f64();
+        state.current              = seconds;
+        state.control.seek_seconds = seconds;
+        ++state.control.seek_sequence;
+        state.ended       = false;
+        state.ended_count = u64();
+    }
+    mutable rstd::sync::Mutex<State> m_state;
 };
 
 struct SharedVideoPlayback {
@@ -371,6 +394,7 @@ struct Impl<vrento::VideoPlayback, owe::SharedVideoPlayback> : ImplBase<owe::Sha
     void PublishTime(f64 current, Option<f64> duration) const {
         this->self().state->PublishTime(current, duration);
     }
+    void PublishEnded(u64 seek_sequence) const { this->self().state->PublishEnded(seek_sequence); }
 };
 } // namespace rstd
 

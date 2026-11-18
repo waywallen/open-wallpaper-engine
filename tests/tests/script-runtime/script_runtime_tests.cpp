@@ -1641,6 +1641,7 @@ TEST(ScriptVideoTexture, ControlsStableNativePlaybackState) {
         R"JS(
             const video = thisLayer.getVideoTexture();
             video.pause();
+            video.loop = false;
             video.rate = 1.5;
             video.setCurrentTime(4);
             export function update() {
@@ -1657,10 +1658,147 @@ TEST(ScriptVideoTexture, ControlsStableNativePlaybackState) {
     rt.TickAll();
     auto state = playback->Snapshot();
     EXPECT_FALSE(state.playing);
+    EXPECT_FALSE(state.loop);
     EXPECT_EQ(state.rate, f64(1.5));
     EXPECT_EQ(state.seek_sequence, u64(1));
     EXPECT_EQ(state.seek_seconds, f64(4.0));
     EXPECT_EQ(LastScalar(fs), 14.0);
+}
+
+TEST(ScriptVideoTexture, EndedCallbacksRestartPlaybackAndIgnoreStaleSeeks) {
+    auto root = Arc<owe::SceneNode>::make();
+    auto node = Arc<owe::SceneNode>::make(
+        Eigen::Vector3f::Zero(), Eigen::Vector3f::Ones(), Eigen::Vector3f::Zero(), "front"_str);
+    auto playback = Arc<owe::VideoPlaybackState>::make();
+    node->SetVideoControl(playback.clone());
+    root->AppendChild(node.clone());
+    JsRuntime runtime;
+    auto*     script = runtime.MakeFieldScript(
+        R"JS(
+            const video = thisLayer.getVideoTexture();
+            let calls = 0;
+            export function init() {
+                video.loop = false;
+                video.addEndedCallback(() => {
+                    if (thisLayer.name === 'front' && !video.isPlaying()) calls++;
+                    video.setCurrentTime(0);
+                    video.play();
+                });
+            }
+            export function update() { return calls; }
+        )JS"_str,
+        "test/video_ended_restart"_str,
+        FieldKind::Scalar,
+        owe::MakeObject(),
+        owe::IntoJson(0),
+        node.as_ptr());
+    ASSERT_NE(script, nullptr);
+    runtime.SetSceneRoot(root.as_ptr());
+    auto first = playback->Snapshot().seek_sequence;
+    playback->PublishEnded(first);
+    EXPECT_FALSE(playback->Snapshot().playing);
+    runtime.TickAll();
+    EXPECT_EQ(LastScalar(script), 1.0);
+    EXPECT_TRUE(playback->Snapshot().playing);
+    EXPECT_EQ(playback->Snapshot().seek_sequence, first + u64(1));
+    playback->PublishEnded(first);
+    runtime.TickAll();
+    EXPECT_EQ(LastScalar(script), 1.0);
+    playback->PublishEnded(playback->Snapshot().seek_sequence);
+    runtime.TickAll();
+    EXPECT_EQ(LastScalar(script), 2.0);
+    EXPECT_TRUE(playback->Snapshot().playing);
+}
+
+TEST(ScriptVideoTexture, LoopCallbacksAllowRegistrationDuringDispatch) {
+    auto root     = Arc<owe::SceneNode>::make();
+    auto playback = Arc<owe::VideoPlaybackState>::make();
+    root->SetVideoControl(playback.clone());
+    JsRuntime runtime;
+    auto*     script = runtime.MakeFieldScript(
+        R"JS(
+            const video = thisLayer.getVideoTexture();
+            let calls = 0, registered = false;
+            export function init() {
+                video.addEndedCallback(() => {
+                    calls++;
+                    if (!registered) {
+                        video.addEndedCallback(() => calls += 100);
+                        registered = true;
+                    }
+                });
+            }
+            export function update() { return calls; }
+        )JS"_str,
+        "test/video_ended_registration"_str,
+        FieldKind::Scalar,
+        owe::MakeObject(),
+        owe::IntoJson(0),
+        root.as_ptr());
+    ASSERT_NE(script, nullptr);
+    runtime.SetSceneRoot(root.as_ptr());
+    playback->PublishEnded(u64());
+    runtime.TickAll();
+    EXPECT_EQ(LastScalar(script), 1.0);
+    EXPECT_TRUE(playback->Snapshot().playing);
+    playback->PublishEnded(u64());
+    playback->PublishEnded(u64());
+    runtime.TickAll();
+    EXPECT_EQ(LastScalar(script), 203.0);
+    runtime.TickAll();
+    EXPECT_EQ(LastScalar(script), 203.0);
+}
+
+TEST(ScriptVideoTexture, SeekAndLayerInvalidationDiscardPendingCallbacks) {
+    auto root   = Arc<owe::SceneNode>::make();
+    auto target = Arc<owe::SceneNode>::make(
+        Eigen::Vector3f::Zero(), Eigen::Vector3f::Ones(), Eigen::Vector3f::Zero(), "video"_str);
+    auto playback = Arc<owe::VideoPlaybackState>::make();
+    target->SetVideoControl(playback.clone());
+    root->AppendChild(target.clone());
+    JsRuntime runtime;
+    auto*     script = runtime.MakeFieldScript(
+        R"JS(
+            let calls = 0;
+            export function init() {
+                thisScene.getLayer('video').getVideoTexture().addEndedCallback(() => calls++);
+            }
+            export function update() { return calls; }
+        )JS"_str,
+        "test/video_ended_invalidation"_str,
+        FieldKind::Scalar,
+        owe::MakeObject(),
+        owe::IntoJson(0),
+        root.as_ptr());
+    ASSERT_NE(script, nullptr);
+    runtime.SetSceneRoot(root.as_ptr());
+    playback->PublishEnded(u64());
+    playback->Seek(f64());
+    runtime.TickAll();
+    EXPECT_EQ(LastScalar(script), 0.0);
+    playback->PublishEnded(playback->Snapshot().seek_sequence);
+    runtime.InvalidateLayer(*target);
+    runtime.TickAll();
+    EXPECT_EQ(LastScalar(script), 0.0);
+    runtime.InvalidateLayer(*root);
+    runtime.TickAll();
+}
+
+TEST(ScriptVideoTexture, NonLoopingEndIsIdempotentAndPlayRestarts) {
+    owe::VideoPlaybackState playback;
+    playback.SetLoop(false);
+    playback.PublishEnded(u64());
+    playback.PublishEnded(u64());
+    EXPECT_EQ(playback.EndState().ended_count, u64(1));
+    EXPECT_FALSE(playback.Snapshot().playing);
+    playback.Play();
+    EXPECT_TRUE(playback.Snapshot().playing);
+    EXPECT_EQ(playback.Snapshot().seek_sequence, u64(1));
+    EXPECT_EQ(playback.EndState().ended_count, u64());
+    playback.PublishEnded(u64());
+    EXPECT_TRUE(playback.Snapshot().playing);
+    playback.PublishEnded(u64(1));
+    EXPECT_FALSE(playback.Snapshot().playing);
 }
 
 // ---------------------------------------------------------------------------

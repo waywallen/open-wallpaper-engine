@@ -18,6 +18,7 @@ struct Playback {
         vrento::VideoPlaybackSnapshot snapshot;
         f64                           current;
         Option<f64>                   duration;
+        u64                           ended_count {};
     };
     mutable rstd::sync::Mutex<State> state;
     auto                             Snapshot() const -> vrento::VideoPlaybackSnapshot {
@@ -28,6 +29,12 @@ struct Playback {
         locked->current  = time;
         locked->duration = length;
     }
+    void PublishEnded(u64 sequence) const {
+        auto locked = state.lock().unwrap();
+        if (locked->snapshot.seek_sequence != sequence) return;
+        ++locked->ended_count;
+        if (! locked->snapshot.loop) locked->snapshot.playing = false;
+    }
 };
 } // namespace owe_test::video
 namespace rstd
@@ -37,6 +44,7 @@ struct Impl<vrento::VideoPlayback, Arc<owe_test::video::Playback>>
     : ImplBase<Arc<owe_test::video::Playback>> {
     auto Snapshot() const -> vrento::VideoPlaybackSnapshot { return self()->Snapshot(); }
     void PublishTime(f64 time, Option<f64> duration) const { self()->PublishTime(time, duration); }
+    void PublishEnded(u64 sequence) const { self()->PublishEnded(sequence); }
 };
 } // namespace rstd
 
@@ -86,7 +94,8 @@ TEST(MediaRegistry, ContinuousPlaybackKeepsStableTexture) {
     data.video_source = Some(rstd::io::ReadRange::make(rstd::move(source), u64(), size).unwrap());
     slot.mipmaps.push(rstd::move(data));
     image.slots.push(rstd::move(slot));
-    auto control     = Arc<Playback>::make();
+    auto control                                     = Arc<Playback>::make();
+    control->state.lock().unwrap()->snapshot.playing = false;
     auto playback    = Arc<dyn<vrento::VideoPlayback>>::make(control.clone());
     auto preparation = media.Prepare(context, image, Some(playback.clone()));
     if (preparation.is_err())
@@ -137,6 +146,40 @@ TEST(MediaRegistry, ContinuousPlaybackKeepsStableTexture) {
         context.Poll().unwrap();
         rstd_assert(prepared.view.texture().identity() == identity);
     };
+    auto blocked = context
+                       .BeginProducerWrite({
+                           .view  = prepared.view,
+                           .final = { tex::Access::Sampled, tex::Stages::Fragment },
+                           .owner = Arc<dyn<rstd::any::Any>>::make(control.clone()),
+                       })
+                       .unwrap();
+    for (unsigned attempt {}; attempt < 2; ++attempt)
+        rstd_assert(! prepared.producer->Pump(context, 1.0 / 30.0).unwrap());
+    rstd_assert(prepared.producer->ContentRevision() == u64());
+    blocked.cancel();
+    tick();
+    rstd_assert(prepared.producer->ContentRevision() != u64());
+    auto first_frame = prepared.producer->ContentRevision();
+    for (unsigned frame {}; frame < 4; ++frame) tick();
+    rstd_assert(prepared.producer->ContentRevision() == first_frame);
+    f64 seek_target;
+    {
+        auto state = control->state.lock().unwrap();
+        rstd_assert(state->current == f64());
+        seek_target = f64(0.5).min(*state->duration * f64(0.5));
+        ++state->snapshot.seek_sequence;
+        state->snapshot.seek_seconds = seek_target;
+    }
+    for (unsigned frame {}; frame < 60 && prepared.producer->ContentRevision() == first_frame;
+         ++frame)
+        tick();
+    rstd_assert(prepared.producer->ContentRevision() != first_frame);
+    rstd_assert(control->state.lock().unwrap()->current == seek_target);
+    auto seek_frame = prepared.producer->ContentRevision();
+    for (unsigned frame {}; frame < 4; ++frame) tick();
+    rstd_assert(prepared.producer->ContentRevision() == seek_frame);
+    rstd_assert(control->state.lock().unwrap()->ended_count == u64());
+    control->state.lock().unwrap()->snapshot.playing = true;
     for (unsigned frame {}; frame < 12; ++frame) tick();
     rstd_assert(prepared.producer->ContentRevision() != u64());
     control->state.lock().unwrap()->snapshot.playing = false;
@@ -155,6 +198,27 @@ TEST(MediaRegistry, ContinuousPlaybackKeepsStableTexture) {
         if (control->state.lock().unwrap()->current < f64(1.0)) looped = true;
     }
     rstd_assert(looped);
+    u64 before_end;
+    {
+        auto state = control->state.lock().unwrap();
+        rstd_assert(state->ended_count > u64());
+        before_end              = state->ended_count;
+        state->snapshot.loop    = false;
+        state->snapshot.playing = true;
+        ++state->snapshot.seek_sequence;
+        state->snapshot.seek_seconds = *state->duration - f64(0.15);
+    }
+    for (unsigned frame {}; frame < 30; ++frame) tick();
+    {
+        auto state = control->state.lock().unwrap();
+        rstd_assert(! state->snapshot.playing);
+        rstd_assert(state->ended_count == before_end + u64(1));
+        rstd_assert(state->current == *state->duration);
+    }
+    auto last_frame = prepared.producer->ContentRevision();
+    for (unsigned frame {}; frame < 4; ++frame) tick();
+    rstd_assert(prepared.producer->ContentRevision() == last_frame);
+    rstd_assert(control->state.lock().unwrap()->ended_count == before_end + u64(1));
     media.Drain(u64(5'000'000'000)).unwrap();
     media.Clear();
     vrento::resource_registry::ResourceRegistries registries;

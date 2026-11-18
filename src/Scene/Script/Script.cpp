@@ -200,24 +200,32 @@ bool HasAudioBuffers(const EngineHostState& host) {
 // FieldScript impl.
 // ---------------------------------------------------------------------------
 
+struct VideoEndedCallback {
+    Arc<VideoPlaybackState>       playback;
+    Option<Arc<ScriptLayerState>> target;
+    VideoPlaybackEndState         seen;
+    JSValue                       function { JS_UNDEFINED };
+};
+
 struct FieldScript::Impl {
-    JsRuntime::Impl* rt { nullptr };
-    JSContext*       ctx { nullptr };
-    String           sha;
-    FieldKind        kind { FieldKind::Unknown };
-    JSValue          module_ns { JS_UNDEFINED };
-    JSValue          init_fn { JS_UNDEFINED };
-    JSValue          update_fn { JS_UNDEFINED };
-    JSValue          animation_event_fn { JS_UNDEFINED };
-    JSValue          deferred_module { JS_UNDEFINED };
-    Option<Json>     deferred_properties;
-    Option<Json>     deferred_initial_value;
-    bool             update_takes_arg { false };
-    bool             init_done { false };
-    bool             init_in_progress { false };
-    bool             init_deferred { false };
-    rstd::uint64_t   initialization_order { 0 };
-    JSValue          current_value {
+    JsRuntime::Impl*        rt { nullptr };
+    JSContext*              ctx { nullptr };
+    String                  sha;
+    FieldKind               kind { FieldKind::Unknown };
+    JSValue                 module_ns { JS_UNDEFINED };
+    JSValue                 init_fn { JS_UNDEFINED };
+    JSValue                 update_fn { JS_UNDEFINED };
+    JSValue                 animation_event_fn { JS_UNDEFINED };
+    JSValue                 deferred_module { JS_UNDEFINED };
+    Vec<VideoEndedCallback> video_ended_callbacks;
+    Option<Json>            deferred_properties;
+    Option<Json>            deferred_initial_value;
+    bool                    update_takes_arg { false };
+    bool                    init_done { false };
+    bool                    init_in_progress { false };
+    bool                    init_deferred { false };
+    rstd::uint64_t          initialization_order { 0 };
+    JSValue                 current_value {
         JS_UNDEFINED
     }; // last `value` returned, kept as JSValue for the (value)-arg form
     ScriptValue last_value;
@@ -2674,7 +2682,8 @@ JSValue NodeGetAnimation(JSContext* ctx, JSValueConst this_val, int argc, JSValu
 static JSClassID s_video_texture_class_id = 0;
 
 struct VideoTextureHandle {
-    Arc<VideoPlaybackState> playback;
+    Arc<VideoPlaybackState>       playback;
+    Option<Arc<ScriptLayerState>> state;
 };
 
 void VideoTextureFinalizer(JSRuntime*, JSValue value) {
@@ -2688,6 +2697,7 @@ JSClassDef s_video_texture_class_def {
 
 VideoPlaybackState* GetVideoPlayback(JSValueConst value) {
     auto* handle = static_cast<VideoTextureHandle*>(JS_GetOpaque(value, s_video_texture_class_id));
+    if (handle && handle->state.is_some() && (*handle->state)->node == nullptr) return nullptr;
     return handle != nullptr ? handle->playback.as_ptr().as_raw_ptr() : nullptr;
 }
 
@@ -2714,6 +2724,37 @@ JSValue VideoTextureSetRate(JSContext* ctx, JSValueConst this_val, JSValueConst 
 
 JSValue VideoTextureGetVolume(JSContext* ctx, JSValueConst) { return JS_NewFloat64(ctx, 1.0); }
 JSValue VideoTextureSetVolume(JSContext*, JSValueConst, JSValueConst) { return JS_UNDEFINED; }
+
+JSValue VideoTextureGetLoop(JSContext* ctx, JSValueConst this_val) {
+    auto* playback = GetVideoPlayback(this_val);
+    return JS_NewBool(ctx, playback && playback->Snapshot().loop);
+}
+
+JSValue VideoTextureSetLoop(JSContext* ctx, JSValueConst this_val, JSValueConst value) {
+    auto loop = JS_ToBool(ctx, value);
+    if (loop >= 0) {
+        if (auto* playback = GetVideoPlayback(this_val)) playback->SetLoop(loop != 0);
+    }
+    return JS_UNDEFINED;
+}
+
+JSValue VideoTextureAddEndedCallback(JSContext* ctx, JSValueConst this_val, int argc,
+                                     JSValueConst* argv) {
+    if (argc == 0 || ! JS_IsFunction(ctx, argv[0]))
+        return JS_ThrowTypeError(ctx, "addEndedCallback requires a function");
+    auto* host     = static_cast<EngineHostState*>(JS_GetContextOpaque(ctx));
+    auto* playback = GetVideoPlayback(this_val);
+    auto* handle =
+        static_cast<VideoTextureHandle*>(JS_GetOpaque(this_val, s_video_texture_class_id));
+    if (! host || ! host->active_field_script || ! playback || ! handle) return JS_UNDEFINED;
+    host->active_field_script->m_impl->video_ended_callbacks.push({
+        .playback = handle->playback.clone(),
+        .target   = handle->state.clone(),
+        .seen     = playback->EndState(),
+        .function = JS_DupValue(ctx, argv[0]),
+    });
+    return JS_UNDEFINED;
+}
 
 JSValue VideoTexturePlay(JSContext*, JSValueConst this_val, int, JSValueConst*) {
     if (auto* playback = GetVideoPlayback(this_val)) playback->Play();
@@ -2756,12 +2797,14 @@ const JSCFunctionListEntry s_video_texture_proto_funcs[] = {
     JS_CGETSET_DEF("duration", VideoTextureGetDuration, NodeSetIgnore),
     JS_CGETSET_DEF("rate", VideoTextureGetRate, VideoTextureSetRate),
     JS_CGETSET_DEF("volume", VideoTextureGetVolume, VideoTextureSetVolume),
+    JS_CGETSET_DEF("loop", VideoTextureGetLoop, VideoTextureSetLoop),
     JS_CFUNC_DEF("play", 0, VideoTexturePlay),
     JS_CFUNC_DEF("stop", 0, VideoTextureStop),
     JS_CFUNC_DEF("pause", 0, VideoTexturePause),
     JS_CFUNC_DEF("setCurrentTime", 1, VideoTextureSetCurrentTime),
     JS_CFUNC_DEF("getCurrentTime", 0, VideoTextureGetCurrentTime),
     JS_CFUNC_DEF("isPlaying", 0, VideoTextureIsPlaying),
+    JS_CFUNC_DEF("addEndedCallback", 1, VideoTextureAddEndedCallback),
 };
 
 void InitVideoTextureClass(JSContext* ctx, JSRuntime* rt) {
@@ -2789,7 +2832,12 @@ JSValue NodeGetVideoTexture(JSContext* ctx, JSValueConst this_val, int, JSValueC
     }
     JSValue object = JS_NewObjectClass(ctx, s_video_texture_class_id);
     if (JS_IsException(object)) return object;
-    JS_SetOpaque(object, new VideoTextureHandle { .playback = rstd::move(*playback) });
+    auto* host = static_cast<EngineHostState*>(JS_GetContextOpaque(ctx));
+    JS_SetOpaque(object,
+                 new VideoTextureHandle {
+                     .playback = rstd::move(*playback),
+                     .state    = LayerStateForNode(host, node),
+                 });
     return object;
 }
 
@@ -3071,6 +3119,8 @@ JsRuntime::JsRuntime(): m_impl(Box<Impl>::make()) {
 
 void ReleaseFieldScriptValues(JSContext* ctx, FieldScript& script) {
     auto& field = *script.m_impl;
+    for (auto& callback : field.video_ended_callbacks) JS_FreeValue(ctx, callback.function);
+    field.video_ended_callbacks.clear();
     JS_FreeValue(ctx, field.update_fn);
     JS_FreeValue(ctx, field.animation_event_fn);
     JS_FreeValue(ctx, field.init_fn);
@@ -3371,9 +3421,55 @@ void JsRuntime::SetSceneRoot(owe::SceneNode* root) {
     for (const auto& entry : pending) RunFieldScriptInit(m_impl->ctx, m_impl.get(), entry.script);
 }
 
+namespace
+{
+void DispatchVideoEndedCallbacks(JSContext* ctx, JsRuntime::Impl& runtime) {
+    struct Pending {
+        FieldScript*                  owner;
+        Option<Arc<ScriptLayerState>> target;
+        JSValue                       function;
+    };
+    Vec<Pending> pending;
+    for (auto& script : runtime.scripts) {
+        auto& field = *script->m_impl;
+        if (! field.alive || field.init_deferred) continue;
+        field.video_ended_callbacks.retain([&](const VideoEndedCallback& callback) {
+            if (callback.target.is_none() || (*callback.target)->node != nullptr) return true;
+            JS_FreeValue(ctx, callback.function);
+            return false;
+        });
+        for (auto& callback : field.video_ended_callbacks) {
+            auto ended = callback.playback->EndState();
+            if (ended.seek_sequence != callback.seen.seek_sequence)
+                callback.seen = { ended.seek_sequence, u64() };
+            auto count    = ended.ended_count.saturating_sub(callback.seen.ended_count);
+            callback.seen = ended;
+            for (u64 index {}; index < count; ++index)
+                pending.push(
+                    { script.get(), callback.target.clone(), JS_DupValue(ctx, callback.function) });
+        }
+    }
+    for (auto& callback : pending) {
+        auto& field = *callback.owner->m_impl;
+        if (field.alive && (callback.target.is_none() || (*callback.target)->node != nullptr)) {
+            EngineBindingGuard guard(ctx, runtime.host);
+            BindFieldScriptContext(ctx, field, runtime.host.default_layer);
+            if (! JS_IsUndefined(runtime.wrapped_scene)) BindThisScene(ctx, runtime.wrapped_scene);
+            runtime.host.active_field_script = callback.owner;
+            JSValue result = JS_Call(ctx, callback.function, JS_UNDEFINED, 0, nullptr);
+            if (JS_IsException(result))
+                runtime.LogError(ctx, field.sha.as_str(), "video ended callback threw");
+            JS_FreeValue(ctx, result);
+        }
+        JS_FreeValue(ctx, callback.function);
+    }
+}
+} // namespace
+
 void JsRuntime::TickAll(slice<owe::SceneAnimationEventDispatch> animation_events) {
     JSContext* ctx = m_impl->ctx;
     SweepDeferred(ctx, &m_impl->host);
+    DispatchVideoEndedCallbacks(ctx, *m_impl);
     const auto script_count = usize(m_impl->scripts.len().to_primitive());
 
     // Node animations run before scripts; cached script returns must not erase their values.

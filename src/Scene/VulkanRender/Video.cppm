@@ -358,6 +358,8 @@ struct MediaRegistry::State {
         f64  pts_acc {};
         f64  last_pts { -1.0 };
         bool have_frame { false };
+        bool at_eof { false };
+        bool ended_notified { false };
         u64  applied_seek_sequence {};
         u64  attempted_seek_sequence {};
 
@@ -686,14 +688,17 @@ void MediaRegistry::State::Runtime::Pump(TextureContext& context, double dt_seco
         error = Some(MediaError::texture(tex::Error { tex::ErrorKind::DeviceMismatch }));
         return;
     }
-    auto& s            = *this;
-    auto  publish_time = [&] {
+    auto& s = *this;
+    auto  playback_state =
+        s.playback.is_some() ? (*s.playback)->Snapshot() : VideoPlaybackSnapshot {};
+    const bool playing      = playback_state.playing;
+    auto       publish_time = [&] {
         if (s.playback.is_some()) {
             (*s.playback)->PublishTime(s.pts_acc, (*s.decoder)->duration());
         }
     };
     if (s.playback.is_some()) {
-        auto state = (*s.playback)->Snapshot();
+        const auto& state = playback_state;
         if (state.seek_sequence != s.attempted_seek_sequence) {
             auto seeked               = (*s.decoder)->seek(state.seek_seconds);
             s.attempted_seek_sequence = state.seek_sequence;
@@ -707,15 +712,84 @@ void MediaRegistry::State::Runtime::Pump(TextureContext& context, double dt_seco
                 s.pts_acc               = state.seek_seconds;
                 s.last_pts              = f64(-1.0);
                 s.have_frame            = false;
+                s.at_eof                = false;
+                s.ended_notified        = false;
             }
         }
-        if (! state.playing) {
+        if (! state.playing && s.have_frame) {
             publish_time();
             return;
         }
         dt_seconds *= state.rate.to_primitive();
     }
-    s.pts_acc += f64(dt_seconds);
+    if (playing) s.pts_acc += f64(dt_seconds);
+
+    auto finish_playback = [&] {
+        auto duration = (*s.decoder)->duration();
+        if (! playing || (duration.is_some() && s.pts_acc < *duration)) return false;
+        if (! playback_state.loop && duration.is_some()) s.pts_acc = s.pts_acc.min(*duration);
+        if (! s.ended_notified && s.playback.is_some())
+            (*s.playback)->PublishEnded(playback_state.seek_sequence);
+        s.ended_notified = true;
+        return true;
+    };
+    auto restart_loop = [&] {
+        auto seeked = (*s.decoder)->seek(f64());
+        if (seeked.is_err()) {
+            error = Some(
+                MediaError::decoder(MediaOperation::Seek, rstd::move(seeked).unwrap_err().message));
+            return false;
+        }
+        auto duration    = (*s.decoder)->duration();
+        s.pts_acc        = duration.is_some() ? (s.pts_acc - *duration).max(f64()) : f64();
+        s.last_pts       = f64(-1.0);
+        s.have_frame     = false;
+        s.at_eof         = false;
+        s.ended_notified = false;
+        return true;
+    };
+    if (s.at_eof) {
+        if (! finish_playback() || ! playback_state.loop || ! restart_loop()) {
+            publish_time();
+            return;
+        }
+    }
+
+    auto runtime_owner = self.upgrade();
+    if (! runtime_owner) {
+        error = Some(MediaError::texture(tex::Error { tex::ErrorKind::Closed }));
+        return;
+    }
+    auto final         = native_access({ tex::Access::Sampled, tex::Stages::Fragment });
+    final.queue_family = device().graphics_queue().family_index;
+    auto reserved      = context.BeginProducerWrite({
+        .view         = typed_target,
+        .final        = { tex::Access::Sampled, tex::Stages::Fragment },
+        .native_final = Some(final),
+        .owner        = Arc<dyn<rstd::any::Any>>::make(rstd::move(runtime_owner)),
+    });
+    if (reserved.is_err()) {
+        auto failure = reserved.unwrap_err();
+        if (failure.kind != tex::ErrorKind::Busy)
+            error = Some(MediaError::texture(rstd::move(failure)));
+        return;
+    }
+    auto        write        = rstd::move(reserved).unwrap();
+    const auto& target_state = write.target();
+    if (target_state.initial.layout != VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL ||
+        (target_state.initial.queue_family != VK_QUEUE_FAMILY_IGNORED &&
+         target_state.initial.queue_family != device().graphics_queue().family_index)) {
+        error = Some(MediaError::texture(tex::Error { tex::ErrorKind::Invalid }));
+        return;
+    }
+    // A paused frame cannot be discarded and replaced by a later decoded frame.
+    auto ready = target_state.dependency.poll();
+    if (ready.is_err()) {
+        error = Some(MediaError::texture(ready.unwrap_err()));
+        return;
+    }
+    if (! ready.unwrap()) return;
+    const auto ip = target_state.image;
 
     const auto                fkind = (*s.decoder)->kind();
     wavsen::video::YuvToRgba* yuv   = nullptr;
@@ -731,6 +805,30 @@ void MediaRegistry::State::Runtime::Pump(TextureContext& context, double dt_seco
     if (! yuv && fkind != wavsen::video::FrameKind::VideoToolbox) {
         publish_time();
         return;
+    }
+    Option<wavsen::video::ConversionReservation> conversion_reservation;
+    if (fkind == wavsen::video::FrameKind::VulkanShared ||
+        fkind == wavsen::video::FrameKind::VaapiDrm) {
+        auto reserved = yuv->reserve({
+            .target = {
+                .image  = ip.handle,
+                .view   = ip.view,
+                .width  = u32(s.width),
+                .height = u32(s.height),
+                .kind   = wavsen::video::ConvertTarget::SampledLocal,
+            },
+        });
+        if (reserved.is_err()) {
+            error = Some(MediaError::decoder(MediaOperation::Convert,
+                                             rstd::move(reserved).unwrap_err().message));
+            publish_time();
+            return;
+        }
+        conversion_reservation = rstd::move(reserved).unwrap();
+        if (conversion_reservation.is_none()) {
+            publish_time();
+            return;
+        }
     }
     Option<wavsen::video::VkFrameLease>    vulkan_frame;
     Option<wavsen::video::VaapiFrameLease> vaapi_frame;
@@ -761,9 +859,9 @@ void MediaRegistry::State::Runtime::Pump(TextureContext& context, double dt_seco
             if (pulled.is_err()) {
                 r = Err(rstd::move(pulled).unwrap_err());
             } else {
-                auto value  = rstd::move(pulled).unwrap();
-                r           = Ok(value.status);
-                vaapi_frame = rstd::move(value.frame);
+                auto value = rstd::move(pulled).unwrap();
+                r          = Ok(value.status);
+                if (value.frame.is_some()) vaapi_frame = rstd::move(value.frame);
             }
             break;
         }
@@ -788,8 +886,14 @@ void MediaRegistry::State::Runtime::Pump(TextureContext& context, double dt_seco
         }
         auto kind = r.unwrap();
         if (kind == wavsen::video::NextFrame::Eof) {
-            s.pts_acc  = f64();
-            s.last_pts = f64(-1.0);
+            s.at_eof = true;
+            if (finish_playback() && playback_state.loop) {
+                if (! restart_loop()) {
+                    publish_time();
+                    return;
+                }
+                continue;
+            }
             break;
         }
         const bool decoder_looped = kind == wavsen::video::NextFrame::Looped;
@@ -830,7 +934,12 @@ void MediaRegistry::State::Runtime::Pump(TextureContext& context, double dt_seco
         if (decoder_looped) s.pts_acc = frame_pts.max(f64());
         s.last_pts = frame_pts;
         got_new    = true;
+        if (! playing && frame_pts >= s.pts_acc) break;
         if (decoder_looped) break;
+    }
+    if (! playing && got_new && ! s.at_eof && s.last_pts < s.pts_acc) {
+        publish_time();
+        return;
     }
     if (! got_new && s.have_frame) {
         publish_time();
@@ -865,69 +974,15 @@ void MediaRegistry::State::Runtime::Pump(TextureContext& context, double dt_seco
         static_cast<wavsen::video::ColorSpace>(cs_id.to_primitive()),
         static_cast<wavsen::video::ColorRange>(cr_id.to_primitive()));
 
-    auto runtime_owner = self.upgrade();
-    if (! runtime_owner) {
-        error = Some(MediaError::texture(tex::Error { tex::ErrorKind::Closed }));
-        return;
-    }
-    auto final         = native_access({ tex::Access::Sampled, tex::Stages::Fragment });
-    final.queue_family = device().graphics_queue().family_index;
-    auto reserved      = context.BeginProducerWrite({
-        .view         = typed_target,
-        .final        = { tex::Access::Sampled, tex::Stages::Fragment },
-        .native_final = Some(final),
-        .owner        = Arc<dyn<rstd::any::Any>>::make(rstd::move(runtime_owner)),
-    });
-    if (reserved.is_err()) {
-        auto failure = reserved.unwrap_err();
-        if (failure.kind != tex::ErrorKind::Busy)
-            error = Some(MediaError::texture(rstd::move(failure)));
-        return;
-    }
-    auto        write        = rstd::move(reserved).unwrap();
-    const auto& target_state = write.target();
-    if (target_state.initial.layout != VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL ||
-        (target_state.initial.queue_family != VK_QUEUE_FAMILY_IGNORED &&
-         target_state.initial.queue_family != device().graphics_queue().family_index)) {
-        error = Some(MediaError::texture(tex::Error { tex::ErrorKind::Invalid }));
-        return;
-    }
-    // wavsen cannot consume target waits; don't overwrite an unfinished renderer read.
-    auto ready = target_state.dependency.poll();
-    if (ready.is_err()) {
-        error = Some(MediaError::texture(ready.unwrap_err()));
-        return;
-    }
-    if (! ready.unwrap()) return;
-    const auto ip = target_state.image;
-
     Option<wavsen::video::ConversionSubmission> converted_frame;
     bool                                        submit_attempted  = false;
     rstd::Result<int, wavsen::video::Error>     cv                = rstd::Ok(-1);
     auto                                        failure_operation = MediaOperation::Convert;
     switch (fkind) {
     case wavsen::video::FrameKind::VulkanShared: {
-        auto reserved = yuv->reserve({
-            .target = {
-                .image  = ip.handle,
-                .view   = ip.view,
-                .width  = u32(s.width),
-                .height = u32(s.height),
-                .kind   = wavsen::video::ConvertTarget::SampledLocal,
-            },
-        });
-        if (reserved.is_err()) {
-            cv = Err(rstd::move(reserved).unwrap_err());
-            break;
-        }
-        auto reservation = rstd::move(reserved).unwrap();
-        if (reservation.is_none()) {
-            publish_time();
-            return;
-        }
         submit_attempted = true;
         auto submitted   = yuv->submit_av_vk_frame(
-            rstd::move(*reservation), rstd::move(*vulkan_frame), color_matrix);
+            rstd::move(*conversion_reservation), rstd::move(*vulkan_frame), color_matrix);
         if (submitted.is_err()) {
             cv = Err(rstd::move(submitted).unwrap_err());
         } else {
@@ -937,24 +992,6 @@ void MediaRegistry::State::Runtime::Pump(TextureContext& context, double dt_seco
         break;
     }
     case wavsen::video::FrameKind::VaapiDrm: {
-        auto reserved = yuv->reserve({
-            .target = {
-                .image  = ip.handle,
-                .view   = ip.view,
-                .width  = u32(s.width),
-                .height = u32(s.height),
-                .kind   = wavsen::video::ConvertTarget::SampledLocal,
-            },
-        });
-        if (reserved.is_err()) {
-            cv = Err(rstd::move(reserved).unwrap_err());
-            break;
-        }
-        auto reservation = rstd::move(reserved).unwrap();
-        if (reservation.is_none()) {
-            publish_time();
-            return;
-        }
         failure_operation = MediaOperation::Import;
         auto mapped       = rstd::move(*vaapi_frame).into_drm();
         if (mapped.is_err()) {
@@ -964,7 +1001,7 @@ void MediaRegistry::State::Runtime::Pump(TextureContext& context, double dt_seco
         failure_operation = MediaOperation::Convert;
         submit_attempted  = true;
         auto submitted    = yuv->submit_drm_prime(
-            rstd::move(*reservation), rstd::move(mapped).unwrap(), color_matrix);
+            rstd::move(*conversion_reservation), rstd::move(mapped).unwrap(), color_matrix);
         if (submitted.is_err()) {
             cv = Err(rstd::move(submitted).unwrap_err());
             break;
@@ -1101,10 +1138,11 @@ auto OpenMediaRuntime(Arc<MediaRegistry::State> state, const Image& image, tex::
         producer = registry->ensureProducer(runtime.width, runtime.height);
         if (! producer) opts.hwaccel = wavsen::video::HwAccel::None;
     }
+    // Keep EOF visible to playback control instead of rewinding inside the decoder.
     auto dec_r = wavsen::video::VideoDecoder::open_from_stream(rstd::move(factory),
                                                                u32(runtime.width),
                                                                u32(runtime.height),
-                                                               /*loop=*/true,
+                                                               /*loop=*/false,
                                                                producer,
                                                                opts);
     if (dec_r.is_err())
