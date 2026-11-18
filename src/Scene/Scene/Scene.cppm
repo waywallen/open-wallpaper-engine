@@ -354,6 +354,7 @@ struct SceneRenderTarget {
     i32                   physical_height {};
     bool                  allowReuse { false };
     bool                  withDepth { false };
+    bool                  sample_depth { false };
     SceneRenderTargetKind kind { SceneRenderTargetKind::Color };
     float                 depth_clear_value { 1.0f };
     bool                  has_mipmap { false };
@@ -394,14 +395,20 @@ struct SceneRenderTarget {
             .usage      = depth ? vrento::resource::TextureUsage::DepthAttachment
                                 : vrento::resource::TextureUsage::Color,
             .format     = depth ? TextureFormat::D32F : TextureFormat::RGBA8,
-            .sample     = sample,
+            .sample     = type == vrento::resource::TextureRequestKind::DepthAttachment
+                              ? TextureSample { TextureWrap::CLAMP_TO_EDGE,
+                                                TextureWrap::CLAMP_TO_EDGE,
+                                                TextureFilter::NEAREST,
+                                                TextureFilter::NEAREST }
+                              : sample,
             .mip_levels = type == vrento::resource::TextureRequestKind::DepthAttachment
                               ? u32(1)
                               : u32(mipmap_level),
             .samples    = samples
         };
-        if (kind == SceneRenderTargetKind::DepthSampled &&
-            type == vrento::resource::TextureRequestKind::RenderTarget)
+        if ((kind == SceneRenderTargetKind::DepthSampled &&
+             type == vrento::resource::TextureRequestKind::RenderTarget) ||
+            (sample_depth && type == vrento::resource::TextureRequestKind::DepthAttachment))
             definition.usage = definition.usage | vrento::resource::TextureUsage::Sampled;
         auto content =
             vrento::resource::TextureContentFlag(vrento::resource::TextureContent::SourceDefined);
@@ -424,6 +431,7 @@ struct SceneRenderTarget {
                  .physical_height        = physical_height,
                  .allowReuse             = allowReuse,
                  .withDepth              = withDepth,
+                 .sample_depth           = sample_depth,
                  .kind                   = kind,
                  .depth_clear_value      = depth_clear_value,
                  .has_mipmap             = has_mipmap,
@@ -533,6 +541,7 @@ enum class SceneMaterialTextureSourceKind
     LayerStage,
     LayerOutput,
     EffectLocal,
+    DepthAttachment,
     MipMappedFramebuffer,
     UnsupportedSpecial,
 };
@@ -2252,9 +2261,7 @@ struct SceneImageEffectRef {
 
 // ============================================================================
 // ScenePostProcess.h
-// First-class global post-process. Each pass uses the scene's default
-// fullscreen NDC quad as its mesh - no camera, no transform, no image.
-// Runs after main scene-graph traversal and writes through SpecTex_Default.
+// Global synthetic draws and copies executed after scene traversal.
 // ============================================================================
 
 struct ScenePostProcessPass {
@@ -2274,6 +2281,7 @@ class ScenePostProcessStep {
 
 struct ScenePostProcess {
     String                    name;
+    Option<String>            single_sample_depth_target;
     Vec<ScenePostProcessStep> steps;
 };
 
@@ -3325,6 +3333,7 @@ public:
                                                             ref<str> texture);
     bool SetMaterialLayerPreviousSource(SceneMaterial& material, u32 slot, SceneNodeId layer,
                                         ref<str> composite_target);
+    bool SetMaterialDepthAttachmentSource(SceneMaterial& material, u32 slot, ref<str> target);
     void ResolveMaterialTextureSources(SceneMaterial& material);
     SceneMaterialShaderVariantMutation
          SetMaterialShaderVariant(SceneMaterial& material, SceneShaderVariantMutation mutation);

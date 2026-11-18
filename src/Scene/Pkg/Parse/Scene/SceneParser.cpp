@@ -103,6 +103,7 @@ auto owe::SceneParser::Parse(ref<str> scene_id, ref<wpscene::SceneDocument> docu
     }
     {
         auto span = SceneLoadSpan(options.load_bench, &SceneLoadProbeIds::parse_post_process);
+        BuildVolumetricPostProcess(context, vfs_owner);
         if (metadata.general.bloom) BuildBloomPostProcess(context, vfs_owner, metadata.general);
     }
 

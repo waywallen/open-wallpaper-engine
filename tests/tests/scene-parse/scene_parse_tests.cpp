@@ -2607,6 +2607,63 @@ TEST(SceneLightParsing, RecognizesPrefixedKindsAndFullConeAngles) {
     EXPECT_NEAR(lights[rstd::usize()]->desc().outer_cone_cos, std::cos(77.94f * deg_to_rad), 1e-5f);
 }
 
+TEST(SceneVolumetricParsing, BuildsDepthIntegrationBlurAndComposite) {
+    using namespace rstd::prelude;
+    auto document = owe::wpscene::ParseSceneDocumentJson(R"({
+        "camera": {"center": [0,0,0], "eye": [0,0,9], "up": [0,1,0]},
+        "general": {"isOrtho": false, "orthogonalprojection": {"width":1920,"height":1080}},
+        "objects": [{"id":39,"name":"Volume","light":"lpoint","origin":[9,9,1],
+            "radius":50,"density":10,"volumetricsexponent":10,"intensity":20.96,
+            "castshadow":false,"castvolumetrics":true,"visible":true}]
+    })"_str,
+                                                         owe::wpscene::kSceneVersionUnknown);
+    ASSERT_TRUE(document);
+    owe::fs::VFS vfs;
+    auto         assets = owe::fs::make_physical_fs(
+        owe::fs::Path(rstd::cppstd::as_str(WAYWALLEN_ASSETS_DIR).unwrap()));
+    ASSERT_TRUE(assets);
+    ASSERT_TRUE(vfs.mount("/assets"_str, rstd::move(assets).unwrap()));
+    wavsen::audio::SoundManager sound;
+    owe::SceneParser            parser;
+    auto parsed = parser.Parse("volume"_str,
+                               ref<owe::wpscene::SceneDocument>::from_raw_parts(&*document),
+                               mut_ref<owe::fs::VFS>::from_raw_parts(&vfs),
+                               mut_ref<wavsen::audio::SoundManager>::from_raw_parts(&sound));
+    ASSERT_TRUE(parsed);
+    auto& scene = *parsed->scene;
+    ASSERT_EQ(scene.Lights().len(), usize(1));
+    EXPECT_FLOAT_EQ(scene.Lights()[usize()]->desc().volumetric_density, 10.0f);
+    EXPECT_FLOAT_EQ(scene.Lights()[usize()]->desc().volumetric_exponent, 10.0f);
+    auto processes = scene.PostProcesses();
+    ASSERT_EQ(processes.len(), usize(1));
+    EXPECT_EQ(processes[usize()]->name, "__volumetrics"_str);
+    auto& steps = processes[usize()]->steps;
+    ASSERT_EQ(steps.len(), usize(6));
+    auto depth = scene.RenderTarget("_rt_volumetricsSingle"_str).unwrap();
+    EXPECT_EQ(depth->kind, owe::SceneRenderTargetKind::DepthSampled);
+    EXPECT_FLOAT_EQ(depth->bind.scale, 0.125f);
+    EXPECT_TRUE(depth->force_clear);
+    EXPECT_TRUE(scene.RenderTarget(owe::SpecTex_Default).unwrap()->sample_depth);
+    const auto* back = steps[usize()].as_Pass().value.node->Mesh()->Material();
+    EXPECT_TRUE(back->Pipeline().depth_write);
+    EXPECT_TRUE(back->Pipeline().depth_test);
+    EXPECT_EQ(back->Pipeline().cull_mode, owe::CullMode::Front);
+    const auto* integration = steps[usize(2)].as_Pass().value.node->Mesh()->Material();
+    EXPECT_EQ(integration->texture_sources[usize(1)].kind,
+              owe::SceneMaterialTextureSourceKind::DepthAttachment);
+    EXPECT_EQ(integration->texture_sources[usize(1)].key, owe::SpecTex_Default);
+    EXPECT_EQ(integration->textures[usize(3)], "_rt_volumetricsSingle"_str);
+    EXPECT_EQ(
+        *integration->customShader.variant->Description().input_combos.get("QUALITY"_str).unwrap(),
+        "2"_str);
+    auto volume_node = steps[usize(2)].as_Pass().value.node.clone();
+    auto volume_id   = scene.ResourceIndex().nodeId(*volume_node);
+    ASSERT_TRUE(volume_id);
+    EXPECT_EQ(scene.NodeSources(*volume_id).len(), usize(2));
+    EXPECT_EQ(steps[usize(5)].as_Pass().value.node->Mesh()->Material()->Pipeline().alpha_write,
+              Some(false));
+}
+
 TEST(SceneShadowParsing, RequiresRendererCapabilityBeforeRegisteringDerivedResources) {
     auto document = owe::wpscene::ParseSceneDocumentJson(
         R"JSON({

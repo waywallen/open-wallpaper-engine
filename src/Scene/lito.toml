@@ -46,6 +46,7 @@ sources = [
   "src/Scene/Pkg/Parse/Scene/SceneParser.cppm",
   "src/Scene/Pkg/Parse/Scene/SceneParser.cpp",
   "src/Scene/Pkg/Parse/Scene/ScenePostProcess.cpp",
+  "src/Scene/Pkg/Parse/Scene/SceneVolumetrics.cpp",
   "src/Scene/Pkg/Parse/Scene/SceneScriptBinding.cpp",
   "src/Scene/Pkg/Parse/Scene/SceneStages.cppm",
   "src/Scene/Pkg/Parse/Scene/SceneTextObjectParser.cpp",

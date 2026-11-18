@@ -39,6 +39,8 @@ public:
         float cascade_distances[3] { 0.0f, 0.0f, 0.0f };
         bool  cast_shadow { false };
         bool  cast_volumetrics { false };
+        float volumetric_density { 0.0f };
+        float volumetric_exponent { 1.0f };
     };
 
     explicit SceneLight(const Desc& d)

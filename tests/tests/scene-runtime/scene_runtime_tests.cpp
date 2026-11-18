@@ -343,6 +343,63 @@ TEST(AudioUniformSource, ExposesLogicalSpectrumValues) {
     }
 }
 
+TEST(VolumetricUniformSource, FollowsCameraAndLightVisibility) {
+    using O = owe::VolumetricUniformOutput;
+    owe::Scene scene;
+    auto       camera = Arc<owe::SceneCamera>::make(
+        owe::SceneCamera::MakePerspective(16.0 / 9.0, 0.01, 10000.0, 50.0));
+    camera->SetLookAt({ 0.0, 0.0, 9.0 }, Eigen::Vector3d::Zero(), Eigen::Vector3d::UnitY());
+    scene.RegisterCamera("volume-camera"_Str, camera.clone());
+    ASSERT_TRUE(scene.SetActiveCamera("volume-camera"_str));
+    auto node = Arc<owe::SceneNode>::make();
+    node->SetTranslate({ 9.0f, 9.0f, 1.0f });
+    node->SetScale({ 1.0f, 1.88825f, 1.0f });
+    owe::SceneLight::Desc desc;
+    desc.radius              = 50.0f;
+    desc.intensity           = 20.96f;
+    desc.volumetric_density  = 10.0f;
+    desc.volumetric_exponent = 10.0f;
+    auto light               = scene.RegisterLight(Box<owe::SceneLight>::make(desc));
+    light->setNode(node.as_ptr());
+    owe::VolumetricUniformSource fullscreen(
+        ref<owe::Scene>::from_raw_parts(&scene), node.clone(), owe::VolumetricDrawKind::Fullscreen);
+    owe::VolumetricUniformSource front(
+        ref<owe::Scene>::from_raw_parts(&scene), node.clone(), owe::VolumetricDrawKind::Front);
+    auto capture = [&](const auto& source, O output) {
+        return scene_test::Capture(owe::SceneFrame {}, source, output);
+    };
+    EXPECT_FLOAT_EQ(capture(fullscreen, O::OriginDensity)[usize(3)], 10.0f);
+    EXPECT_FLOAT_EQ(capture(front, O::OriginDensity)[usize(3)], 0.0f);
+    auto transform = capture(fullscreen, O::LightTransform);
+    EXPECT_FLOAT_EQ(transform[usize()], 50.0f);
+    EXPECT_FLOAT_EQ(transform[usize(5)], 50.0f);
+    EXPECT_FLOAT_EQ(transform[usize(12)], 9.0f);
+    EXPECT_FLOAT_EQ(capture(fullscreen, O::Parameters)[usize()], 49.5f);
+    EXPECT_FLOAT_EQ(capture(fullscreen, O::ColorExponent)[usize(3)], 10.0f);
+    camera->SetLookAt({ 0.0, 0.0, 100.0 }, Eigen::Vector3d::Zero(), Eigen::Vector3d::UnitY());
+    EXPECT_FLOAT_EQ(capture(fullscreen, O::OriginDensity)[usize(3)], 0.0f);
+    EXPECT_FLOAT_EQ(capture(front, O::OriginDensity)[usize(3)], 10.0f);
+    light->setRuntimeVisible(false);
+    EXPECT_FLOAT_EQ(capture(front, O::OriginDensity)[usize(3)], 0.0f);
+    light->setRuntimeVisible(true);
+    node->SetVisible(false);
+    EXPECT_FLOAT_EQ(capture(front, O::OriginDensity)[usize(3)], 0.0f);
+}
+
+TEST(VolumetricUniformSource, MissingLightPublishesFiniteNeutralValues) {
+    owe::Scene                   scene;
+    owe::VolumetricUniformSource source(ref<owe::Scene>::from_raw_parts(&scene),
+                                        Arc<owe::SceneNode>::make(),
+                                        owe::VolumetricDrawKind::Fullscreen);
+    auto                         parameters =
+        scene_test::Capture(owe::SceneFrame {}, source, owe::VolumetricUniformOutput::Parameters);
+    EXPECT_FLOAT_EQ(parameters[usize()], 1.0f);
+    EXPECT_FLOAT_EQ(parameters[usize(3)], 0.0f);
+    auto density = scene_test::Capture(
+        owe::SceneFrame {}, source, owe::VolumetricUniformOutput::OriginDensity);
+    EXPECT_FLOAT_EQ(density[usize(3)], 0.0f);
+}
+
 TEST(LightUniformSource, ExposesLogicalVec3Array) {
     owe::Scene              scene;
     owe::LightUniformSource source(ref<owe::Scene>::from_raw_parts(&scene));

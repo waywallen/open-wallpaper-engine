@@ -583,6 +583,74 @@ TEST(SceneRenderGraph, OrdersShadowAtlasWriterBeforeReceiver) {
     EXPECT_TRUE(atlas_read);
 }
 
+TEST(SceneRenderGraph, SamplesCurrentDepthAndSupportsDepthOnlyPostProcess) {
+    owe::Scene scene;
+    scene.RegisterRenderTarget(
+        "_rt_default"_Str,
+        owe::SceneRenderTarget { .width = i32(1920), .height = i32(1080), .withDepth = true });
+    scene.RegisterRenderTarget(
+        "_rt_depth"_Str,
+        owe::SceneRenderTarget { .width       = i32(240),
+                                 .height      = i32(135),
+                                 .kind        = owe::SceneRenderTargetKind::DepthSampled,
+                                 .force_clear = true });
+    auto pp                        = Box<owe::ScenePostProcess>::make();
+    pp->name                       = "depth-consumer"_Str;
+    pp->single_sample_depth_target = Some("_rt_default"_Str);
+    auto add                       = [&](owe::SceneMaterial material, ref<str> output) {
+        auto node = Arc<owe::SceneNode>::make();
+        auto mesh = Arc<owe::SceneMesh>::make();
+        mesh->AddMaterial(rstd::move(material));
+        mesh->Submeshes().push(owe::SceneMesh::Submesh {});
+        node->AddMesh(rstd::move(mesh));
+        pp->steps.push(owe::ScenePostProcessStep::Pass(
+            owe::ScenePostProcessPass { node.clone(), String::make(output) }));
+    };
+    auto back = GraphMaterial();
+    back.SetDepthWrite(true);
+    back.SetDepthTest(true);
+    add(rstd::move(back), "_rt_depth"_str);
+    auto consumer = GraphMaterial(usize(2));
+    consumer.textures.push("_rt_default"_Str);
+    consumer.textures.push("_rt_depth"_Str);
+    ASSERT_TRUE(scene.SetMaterialDepthAttachmentSource(consumer, u32(), "_rt_default"_str));
+    add(rstd::move(consumer), "_rt_default"_str);
+    (void)scene.RegisterPostProcess(rstd::move(pp));
+    auto graph = owe::BuildSceneRenderState(scene);
+    ASSERT_TRUE(graph);
+    ASSERT_TRUE(graph->graph.compile());
+    ASSERT_EQ(graph->draws.len(), usize(2));
+    EXPECT_TRUE(graph->draws[usize()].source->parameters().depth_only);
+    EXPECT_TRUE(graph->draws[usize()].source->parameters().output_use.is_none());
+    const auto& bindings = graph->draws[usize(1)].source->parameters().texture_bindings;
+    ASSERT_EQ(bindings.len(), usize(2));
+    ASSERT_TRUE(bindings[usize()].request);
+    EXPECT_EQ(bindings[usize()].request->kind, owe::resource::TextureRequestKind::DepthAttachment);
+    auto plan    = graph->textures.resourcePlan(graph->graph).unwrap();
+    bool sampled = false;
+    for (const auto& texture : plan.textures) {
+        if (texture.request().kind != owe::resource::TextureRequestKind::DepthAttachment) continue;
+        if (texture.access == owe::resource::ResourceAccess::Read ||
+            texture.access == owe::resource::ResourceAccess::ReadWrite)
+            sampled = true;
+        EXPECT_TRUE(owe::resource::HasTextureUsage(texture.request().definition->usage,
+                                                   owe::resource::TextureUsage::Sampled));
+    }
+    EXPECT_TRUE(sampled);
+    EXPECT_TRUE(scene.ResizeRenderTarget("_rt_default"_str, i32(1280), i32(720)));
+    (void)graph->draws[usize(1)].source->finalizeResourceRequests(scene);
+    const auto& refreshed =
+        graph->draws[usize(1)].source->parameters().texture_bindings[usize()].request;
+    ASSERT_TRUE(refreshed);
+    EXPECT_EQ(refreshed->kind, owe::resource::TextureRequestKind::DepthAttachment);
+    EXPECT_EQ(refreshed->definition->width, i32(1280));
+    scene.RenderTargetMut("_rt_default"_str).unwrap()->sample_count = 4;
+    auto multisampled = owe::BuildSceneRenderState(scene);
+    ASSERT_TRUE(multisampled);
+    EXPECT_TRUE(multisampled->draws.is_empty());
+    EXPECT_TRUE(multisampled->graph.compile());
+}
+
 TEST(SceneRenderGraph, InitializesOnlyThePreviousFrameInColorFeedback) {
     owe::Scene scene;
     for (auto key : { "_rt_default"_str, "_rt_force"_str, "_rt_state"_str })

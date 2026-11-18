@@ -133,15 +133,13 @@ void ParseSpecTexName(String& name, const wpscene::Material& wpmat, const Shader
         } else if (text.starts_with(WE_QUARTER_COMPO_BUFFER_PREFIX)) {
         } else if (text.starts_with(WE_FULL_COMPO_BUFFER_PREFIX)) {
         } else if (text.starts_with(WE_EIGHT_COMPO_BUFFER_PREFIX)) {
+        } else if (scene.RenderTarget(name.as_str()).is_some()) {
         } else if (text.starts_with(WE_VOLUMETRICS_PREFIX) ||
                    text.starts_with(WE_QUARTER_FORCE_RG_PREFIX) ||
                    text.starts_with(WE_BLOOM_PREFIX) ||
                    text.starts_with(WE_QUARTER_FRAME_BUFFER_PREFIX) ||
                    text.starts_with(WE_EIGHTH_FRAME_BUFFER_PREFIX)) {
             name.clear();
-        } else if (scene.RenderTarget(name.as_str()).is_some()) {
-            // an effect-local fbo registered with a non-conventional name
-            // (e.g. WE DOF's `_rt__coc_<addr>`) — already a valid RT.
         } else {
             rstd_warn("ignoring unsupported special tex \"{}\"", name);
             name.clear();

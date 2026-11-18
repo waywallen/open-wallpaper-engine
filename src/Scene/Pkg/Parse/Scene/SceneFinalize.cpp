@@ -114,6 +114,15 @@ void RegisterLayerUniformSources(Scene& scene, const Arc<UniformSceneState>& uni
     for (const auto& draft : result.particle_trail_uniform_configs) {
         (void)RegisterParticleTrailUniformSource(scene, draft.node, draft.uniform_state);
     }
+    for (const auto& draft : result.volumetric_uniform_configs) {
+        auto node_id = scene.ResourceIndex().nodeId(*draft.node);
+        if (! node_id) continue;
+        auto source = registrar->Register(Box<dyn<UniformSource>>::make(VolumetricUniformSource {
+            ref<Scene>::from_raw_parts(&scene), draft.light_node.clone(), draft.kind }));
+        (void)writer->AttachNode(*node_id, source, i32());
+        auto textures = registrar->Register(Box<dyn<UniformSource>>::make(TextureUniformSource {}));
+        (void)writer->AttachNode(*node_id, textures, i32());
+    }
 }
 
 bool RegisterRuntimePuppetUniformSources(Scene& scene, SceneLayerResources& resources,

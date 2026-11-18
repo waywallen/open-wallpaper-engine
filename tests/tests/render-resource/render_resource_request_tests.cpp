@@ -259,6 +259,35 @@ float ReadFloat(const rstd::vec::Vec<rstd::u8>& bytes, rstd::usize offset) {
 
 } // namespace
 
+TEST(SceneDepthTexture, PreservesExplicitSourceAndRefreshesExtent) {
+    owe::Scene scene;
+    scene.RegisterRenderTarget(
+        "_rt_surface"_Str,
+        owe::SceneRenderTarget { .width = i32(1280), .height = i32(720), .withDepth = true });
+    owe::SceneMaterial material;
+    material.textures.push("_rt_surface"_Str);
+    ASSERT_TRUE(scene.SetMaterialDepthAttachmentSource(material, u32(), "_rt_surface"_str));
+    scene.ResolveMaterialTextureSources(material);
+    EXPECT_EQ(material.texture_sources[usize()].kind,
+              owe::SceneMaterialTextureSourceKind::DepthAttachment);
+    auto depth =
+        scene.TargetResource("_rt_surface"_str, owe::resource::TextureRequestKind::DepthAttachment)
+            .unwrap();
+    EXPECT_EQ(depth.definition().definition->format, owe::TextureFormat::D32F);
+    EXPECT_TRUE(owe::resource::HasTextureUsage(depth.definition().definition->usage,
+                                               owe::resource::TextureUsage::Sampled));
+    EXPECT_TRUE(scene.ResizeRenderTarget("_rt_surface"_str, i32(1920), i32(1080)));
+    auto resized =
+        scene.TargetResource("_rt_surface"_str, owe::resource::TextureRequestKind::DepthAttachment)
+            .unwrap();
+    EXPECT_EQ(resized.definition().definition->width, i32(1920));
+    EXPECT_EQ(resized.definition().definition->height, i32(1080));
+    material.textures[usize()] = "replacement"_Str;
+    scene.ResolveMaterialTextureSources(material);
+    EXPECT_NE(material.texture_sources[usize()].kind,
+              owe::SceneMaterialTextureSourceKind::DepthAttachment);
+}
+
 TEST(SceneDrawPolicy, ConfiguresAlphaToCoverageWithoutColorBlending) {
     VkPipelineColorBlendAttachmentState blend {};
     owe::vulkan::SetBlend(owe::BlendMode::AlphaToCoverage, blend);

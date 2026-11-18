@@ -376,6 +376,8 @@ void ParseLightObj(SceneParseContext& context, wpscene::LightObject& light_obj) 
     desc.cascade_distances[2] = light_obj.cascadedistance2;
     desc.cast_shadow          = light_obj.castshadow;
     desc.cast_volumetrics     = light_obj.castvolumetrics;
+    desc.volumetric_density   = light_obj.density;
+    desc.volumetric_exponent  = light_obj.volumetricsexponent;
 
     auto light = context.scene->RegisterLight(Box<SceneLight>::make(desc));
     light->setNode(node.as_ptr());

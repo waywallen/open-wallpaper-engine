@@ -869,6 +869,89 @@ auto ColorUniformSource::Evaluate(ref<dyn<UniformUpdateContext>>,
     return writer.Finish();
 }
 
+auto VolumetricUniformSource::Describe(mut_ref<dyn<UniformBindingSink>> sink) const
+    -> Result<empty, UniformError> {
+    using O = VolumetricUniformOutput;
+    const array<BindingEntry<O>, 7> entries {
+        BindingEntry<O> { O::EyePosition, "g_EyePosition"_str, UniformValueShape::Float(u32(3)) },
+        BindingEntry<O> { O::ViewProjection,
+                          "g_ViewProjectionMatrix"_str,
+                          UniformValueShape::Matrix(u32(4), u32(4)) },
+        BindingEntry<O> { O::LightTransform,
+                          "g_AltViewProjectionMatrix"_str,
+                          UniformValueShape::Matrix(u32(4), u32(4)) },
+        BindingEntry<O> { O::InverseViewProjection,
+                          "g_EffectModelMatrix"_str,
+                          UniformValueShape::Matrix(u32(4), u32(4)) },
+        BindingEntry<O> { O::Parameters, "g_RenderVar1"_str, UniformValueShape::Float(u32(4)) },
+        BindingEntry<O> { O::OriginDensity, "g_RenderVar2"_str, UniformValueShape::Float(u32(4)) },
+        BindingEntry<O> { O::ColorExponent, "g_RenderVar4"_str, UniformValueShape::Float(u32(4)) },
+    };
+    return BindEntries(sink, entries);
+}
+
+auto VolumetricUniformSource::Version(ref<dyn<UniformUpdateContext>> context) const -> u64 {
+    return context->Frame()->revision;
+}
+
+auto VolumetricUniformSource::Evaluate(ref<dyn<UniformUpdateContext>>,
+                                       mut_ref<dyn<UniformValueSink>> sink) const
+    -> Result<empty, UniformError> {
+    using O = VolumetricUniformOutput;
+    UniformWriter     writer(sink);
+    auto              camera = m_scene->ActiveCameraHandle();
+    const SceneLight* light  = nullptr;
+    for (const auto& candidate : m_scene->Lights())
+        if (candidate->node() == m_light_node.as_ptr().as_raw_ptr())
+            light = candidate.as_ptr().as_raw_ptr();
+    if (! light || ! camera) {
+        writer.Write(O::EyePosition, array<float, 3> {});
+        const auto identity = ShaderValue::fromMatrix(Matrix4d::Identity());
+        writer.Write(O::ViewProjection, identity);
+        writer.Write(O::LightTransform, identity);
+        writer.Write(O::InverseViewProjection, identity);
+        writer.Write(O::Parameters, array<float, 4> { 1.0f, 1.0f, 1.0f, 0.0f });
+        writer.Write(O::OriginDensity, array<float, 4> {});
+        writer.Write(O::ColorExponent, array<float, 4> { 0.0f, 0.0f, 0.0f, 1.0f });
+        return writer.Finish();
+    }
+    const auto& desc = light->desc();
+    m_light_node->UpdateTrans();
+    const Vector3d origin = m_light_node->ModelTrans().block<3, 1>(0, 3);
+    Matrix4d       model  = Matrix4d::Identity();
+    model.block<3, 3>(0, 0) *= desc.radius;
+    model.block<3, 1>(0, 3) = origin;
+    const Matrix4d vp       = (**camera).GetViewProjectionMatrix();
+    const Vector3d eye      = (**camera).GetPosition();
+    writer.Write(O::EyePosition,
+                 array<float, 3> { static_cast<float>(eye.x()),
+                                   static_cast<float>(eye.y()),
+                                   static_cast<float>(eye.z()) });
+    writer.Write(O::ViewProjection, ShaderValue::fromMatrix(vp));
+    writer.Write(O::LightTransform, ShaderValue::fromMatrix(model));
+    writer.Write(O::InverseViewProjection, ShaderValue::fromMatrix(Matrix4d(vp.inverse())));
+    writer.Write(
+        O::Parameters,
+        array<float, 4> {
+            desc.radius * 0.99f, desc.inner_cone_cos, desc.outer_cone_cos, desc.intensity });
+    bool visible = light->runtimeVisible();
+    for (auto* node = light->node(); node; node = node->Parent()) visible &= node->Visible();
+    const bool inside =
+        ((**camera).GetPosition() - origin).norm() <= desc.radius + (**camera).NearClip() * 2.0;
+    const bool  selected = m_kind == VolumetricDrawKind::Back ||
+                           (inside == (m_kind == VolumetricDrawKind::Fullscreen));
+    const float density  = visible && selected ? desc.volumetric_density : 0.0f;
+    writer.Write(O::OriginDensity,
+                 array<float, 4> { static_cast<float>(origin.x()),
+                                   static_cast<float>(origin.y()),
+                                   static_cast<float>(origin.z()),
+                                   density });
+    const Vector3f color = m_light_node->IsColorOverridden() ? m_light_node->Color() : desc.color;
+    writer.Write(O::ColorExponent,
+                 array<float, 4> { color.x(), color.y(), color.z(), desc.volumetric_exponent });
+    return writer.Finish();
+}
+
 auto LightUniformSource::Describe(mut_ref<dyn<UniformBindingSink>> sink) const
     -> Result<empty, UniformError> {
     return BindGlobalProducer(sink, GlobalUniformProducer::Light);

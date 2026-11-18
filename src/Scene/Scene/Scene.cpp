@@ -2631,7 +2631,8 @@ void Scene::ResolveMaterialTextureSources(SceneMaterial& material) {
     for (rstd::size_t index = 0; index < material.textures.len().to_primitive(); ++index) {
         const auto& texture = material.textures[usize(index)];
         auto&       source  = material.texture_sources[usize(index)];
-        if (source.kind == SceneMaterialTextureSourceKind::LayerPrevious &&
+        if ((source.kind == SceneMaterialTextureSourceKind::LayerPrevious ||
+             source.kind == SceneMaterialTextureSourceKind::DepthAttachment) &&
             source.binding_key == texture.as_str()) {
             continue;
         }
@@ -2710,6 +2711,20 @@ void Scene::ResolveMaterialTextureSources(SceneMaterial& material) {
             source.kind = SceneMaterialTextureSourceKind::UnsupportedSpecial;
         }
     }
+}
+
+bool Scene::SetMaterialDepthAttachmentSource(SceneMaterial& material, u32 slot, ref<str> target) {
+    auto index = usize(slot.to_primitive());
+    auto rt    = RenderTargetMut(target);
+    if (index >= material.textures.len() || ! rt || ! (**rt).withDepth) return false;
+    (**rt).sample_depth = true;
+    material.texture_sources.resize(material.textures.len(), SceneMaterialTextureSource {});
+    auto& source       = material.texture_sources[index];
+    source             = {};
+    source.kind        = SceneMaterialTextureSourceKind::DepthAttachment;
+    source.key         = String::make(target);
+    source.binding_key = material.textures[index].clone();
+    return true;
 }
 
 bool Scene::SetMaterialLayerPreviousSource(SceneMaterial& material, u32 slot, SceneNodeId layer,

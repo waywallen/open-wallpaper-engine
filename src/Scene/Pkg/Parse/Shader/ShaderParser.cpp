@@ -127,8 +127,8 @@ inline void ForEachDeclLine(ref<str> src, slice<ref<str>> storage_kws, Fn&& fn) 
 }
 
 inline bool IsSamplerType(ref<str> t) {
-    return t == "sampler2D"_str || t == "sampler3D"_str || t == "samplerCube"_str ||
-           t == "sampler2DComparison"_str || t == "sampler2DShadow"_str;
+    return t == "sampler2D"_str || t == "sampler2DBackBuffer"_str || t == "sampler3D"_str ||
+           t == "samplerCube"_str || t == "sampler2DComparison"_str || t == "sampler2DShadow"_str;
 }
 
 // Replace every occurrence of `needle` in `body` with `repl`. The placeholder
@@ -247,6 +247,8 @@ float4 mod(float4 a, float  b) { return a - b * floor(a / b); }
 // matches what WE shaders rely on for `texture(g_T, v_TexCoord)` when
 // v_TexCoord is vec4).
 #define texSample2D(t, uv)         ((t).Sample(t##_ww_sampler, (uv)))
+#define texSample2DBackBuffer(t, uv, res) texSample2D(t, uv)
+#define texLoad2D(t, uv, res) ((t).Load(int3(int2((uv) * (res)), 0)))
 #define texSample2DLod(t, uv, lod) ((t).SampleLevel(t##_ww_sampler, (uv), (lod)))
 #define DECLARE_SAMPLER2D_PARAMETER(t) Texture2D<float4> t, SamplerState t##_ww_sampler
 #define MAKE_SAMPLER2D_ARGUMENT(t)     t, t##_ww_sampler
@@ -1923,7 +1925,7 @@ constexpr array<rstd::uint8_t, 8> kShaderCacheMagic { rstd::uint8_t('O'), rstd::
                                                       rstd::uint8_t('P'), rstd::uint8_t('V'),
                                                       rstd::uint8_t('3'), rstd::uint8_t(0) };
 constexpr rstd::uint32_t          kShaderCacheFormatVersion = 3;
-constexpr rstd::uint32_t          kShaderCacheAbiVersion    = 20;
+constexpr rstd::uint32_t          kShaderCacheAbiVersion    = 21;
 // 8-byte magic, six u32 fields, and four SHA-1 digests total 112 bytes.
 constexpr rstd::uint32_t kShaderCacheHeaderSize = static_cast<rstd::uint32_t>(
     kShaderCacheMagic.len().to_primitive() + 6 * sizeof(rstd::uint32_t) +

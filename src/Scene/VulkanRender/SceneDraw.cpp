@@ -76,8 +76,25 @@ void SceneDraw::captureGeometry() {
 }
 
 PassInvalidationFlags SceneDraw::finalizeResourceRequests(Scene& scene) {
-    PassInvalidationFlags flags = PassInvalidationNone;
-    for (auto& binding : m_desc.texture_bindings) {
+    PassInvalidationFlags flags    = PassInvalidationNone;
+    auto*                 material = ResolvePassMaterial(m_desc, updates_);
+    for (usize index {}; index < m_desc.texture_bindings.len(); ++index) {
+        auto& binding = m_desc.texture_bindings[index];
+        if (material && index < material->texture_sources.len() &&
+            material->texture_sources[index].kind ==
+                SceneMaterialTextureSourceKind::DepthAttachment) {
+            auto target  = scene.RenderTarget(material->texture_sources[index].key.as_str());
+            auto request = target
+                               ? scene.TargetResource(material->texture_sources[index].key.as_str(),
+                                                      resource::TextureRequestKind::DepthAttachment,
+                                                      u32((**target).sample_count))
+                               : None<resource::TextureResourceRef>();
+            if (SetTextureRequestIfChanged(binding.request,
+                                           request ? Some(request->definition().clone())
+                                                   : None<TextureRequest>()))
+                flags |= ToPassInvalidationFlags(PassInvalidation::Resources);
+            continue;
+        }
         auto name = binding.name.as_str();
         if (name.is_empty() || ! IsSpecTex(name)) continue;
         if (SetTextureRequestIfChanged(binding.request, TextureRequestFromScene(scene, name))) {

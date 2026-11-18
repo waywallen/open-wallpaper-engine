@@ -240,6 +240,48 @@ static void AddMaterialTextureReads(SceneMaterial& material, ref<str> pass_outpu
             pdesc.texture_bindings.push(vulkan::TextureBindingRequest {});
             continue;
         }
+        if (source.kind == SceneMaterialTextureSourceKind::DepthAttachment) {
+            auto target = extra.scene->RenderTarget(source.key.as_str());
+            if (! target || (**target).sample_count != 1) {
+                extra.error = Some(fg::Error { fg::ErrorKind::MissingResource, pass });
+                return;
+            }
+            auto resource = extra.scene->TargetResource(
+                source.key.as_str(), resource::TextureRequestKind::DepthAttachment);
+            if (! resource) {
+                extra.error = Some(fg::Error { fg::ErrorKind::MissingResource, pass });
+                return;
+            }
+            const auto& request = resource->definition();
+            auto        version = SelectTexture(
+                extra, { .key = request.name.clone(), .definition = resource->clone() });
+            if (! extra.depth_initialized_outputs.contains(source.key.as_str())) {
+                auto clear_pass = fg::PassId { extra.next_pass++ };
+                Remember(extra, extra.graph.add_pass(clear_pass, {}, "clear-depth"_Str));
+                version = Remember(extra, extra.textures.output(extra.graph, clear_pass, version));
+                vrento::vulkan::GraphicsClearDesc clear;
+                clear.resources.attachments.depth = Some(vrento::vulkan::GraphicsAttachment {
+                    .target = version.clone(),
+                    .load   = vrento::vulkan::AttachmentLoad::Clear,
+                    .clear  = { (**target).depth_clear_value, 0.0f, 0.0f, 0.0f },
+                });
+                auto declared =
+                    vrento::vulkan::declare_input(extra.graph, clear_pass, rstd::move(clear), 1);
+                if (declared.is_err()) {
+                    extra.error = Some(declared.unwrap_err());
+                    return;
+                }
+                extra.descriptions.push(rstd::move(declared).unwrap());
+                PublishTexture(extra, version);
+                (void)extra.depth_initialized_outputs.insert(source.key.clone());
+            }
+            pdesc.texture_bindings.push(vulkan::TextureBindingRequest {
+                .name    = request.name.clone(),
+                .use     = Some(Use(extra, version)),
+                .request = Some(request.clone()),
+            });
+            continue;
+        }
         if (source.kind == SceneMaterialTextureSourceKind::LayerOutput) {
             auto* link = extra.render_scene != nullptr && source.wallpaper_layer >= i32()
                              ? extra.render_scene->linkSource(WallpaperLayerId {
@@ -443,6 +485,17 @@ static SceneNodeLayer* ToGraphPass(SceneNode* node, ref<str> output, ExtraInfo& 
                 auto output_state = extra.textures.find(output_node);
                 if (! output_state) {
                     extra.error = Some(fg::Error { fg::ErrorKind::MissingResource, pass });
+                    return;
+                }
+                if (output_target.kind == SceneRenderTargetKind::DepthSampled) {
+                    pdesc.depth_only           = true;
+                    pdesc.has_depth_attachment = true;
+                    pdesc.depth_use            = Some(Use(extra, output_node));
+                    pdesc.depth_request        = Some(output_state->spec.request().clone());
+                    pdesc.clear_depth = output_target.force_clear || output_node.first_output();
+                    if (! pdesc.clear_depth)
+                        Remember(extra, extra.textures.reuse_storage(extra.graph, output_node));
+                    PublishTexture(extra, output_node);
                     return;
                 }
                 const bool first_output_write = output_node.first_output();
@@ -928,6 +981,13 @@ auto owe::BuildSceneRenderState(Scene& scene, const RenderSceneSnapshot& render_
     auto post_processes = scene.PostProcesses();
     for (usize index {}; index < post_processes.len(); ++index) {
         const auto& pp = post_processes[index];
+        if (pp->single_sample_depth_target) {
+            auto target = scene.RenderTarget(pp->single_sample_depth_target->as_str());
+            if (! target || (**target).sample_count != 1) {
+                rstd_warn("post-process '{}' requires single-sample depth", pp->name);
+                continue;
+            }
+        }
         for (auto& step : pp->steps) {
             if (step.is_Pass()) {
                 auto&    sp     = step.as_Pass().value;

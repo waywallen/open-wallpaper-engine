@@ -104,6 +104,24 @@ enum class ParticleTrailUniformOutput : rstd::uint32_t
     RenderVar0,
 };
 
+enum class VolumetricUniformOutput : rstd::uint32_t
+{
+    EyePosition,
+    ViewProjection,
+    LightTransform,
+    InverseViewProjection,
+    Parameters,
+    OriginDensity,
+    ColorExponent,
+};
+
+enum class VolumetricDrawKind
+{
+    Back,
+    Front,
+    Fullscreen,
+};
+
 enum class PuppetUniformOutput : rstd::uint32_t
 {
     Bones,
@@ -390,6 +408,23 @@ public:
 
 private:
     ref<Scene> m_scene;
+};
+
+class VolumetricUniformSource {
+public:
+    VolumetricUniformSource(ref<Scene> scene, Arc<SceneNode> light_node, VolumetricDrawKind kind)
+        : m_scene(scene), m_light_node(rstd::move(light_node)), m_kind(kind) {}
+
+    auto Describe(mut_ref<dyn<UniformBindingSink>>) const -> Result<empty, UniformError>;
+    auto Version(ref<dyn<UniformUpdateContext>>) const -> u64;
+    auto Evaluate(ref<dyn<UniformUpdateContext>>, mut_ref<dyn<UniformValueSink>>) const
+        -> Result<empty, UniformError>;
+    auto AcquireBindingLease() const -> Option<Box<dyn<UniformBindingLease>>> { return None(); }
+
+private:
+    ref<Scene>         m_scene;
+    Arc<SceneNode>     m_light_node;
+    VolumetricDrawKind m_kind;
 };
 
 class ShadowUniformSource {

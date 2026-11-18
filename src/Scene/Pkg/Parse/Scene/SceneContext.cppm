@@ -112,6 +112,12 @@ struct ParticleTrailUniformConfigDraft {
     Arc<ParticleTrailUniformState> uniform_state;
 };
 
+struct VolumetricUniformConfigDraft {
+    Arc<SceneNode>     node;
+    Arc<SceneNode>     light_node;
+    VolumetricDrawKind kind;
+};
+
 struct SceneLayerNodeDraft {
     u32                                            parent_id { 0 };
     Option<Arc<SceneNode>>                         node;
@@ -133,6 +139,7 @@ struct SceneLayerBuildResult {
     Vec<SceneUniformConfigDraft>         uniform_configs;
     Vec<TextUniformConfigDraft>          text_uniform_configs;
     Vec<ParticleTrailUniformConfigDraft> particle_trail_uniform_configs;
+    Vec<VolumetricUniformConfigDraft>    volumetric_uniform_configs;
 };
 
 struct SceneLayerResources {
@@ -388,5 +395,6 @@ void ProcessObjects(SceneParseContext&, mut_ref<SceneObjectVar[]>, wavsen::audio
 
 void FinalizeScene(SceneParseContext&);
 void BuildBloomPostProcess(SceneParseContext&, fs::VFS&, const wpscene::SceneGeneral&);
+void BuildVolumetricPostProcess(SceneParseContext&, fs::VFS&);
 
 } // namespace owe
