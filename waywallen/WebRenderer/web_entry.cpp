@@ -178,8 +178,7 @@ class HostMsg final {
               (PointerMove, (i32 x; i32 y; bool left_down;)),
               (PointerButton, (i32 x; i32 y; i32 button; bool down;)),
               (PointerAxis, (i32 x; i32 y; i32 delta_x; i32 delta_y;)),
-              (Media, (String title; String artist; String album; String album_artist;
-                       String thumbnail; i32 state;)))
+              (Media, (weweb::MediaInfo info;)))
 };
 
 using HostSender   = rstd::sync::mpmc::Sender<HostMsg>;
@@ -369,14 +368,7 @@ void drain_host_messages(HostState& s) {
             }
             RSTD_CASE_PAYLOAD(Media, value) {
                 if (s.host) {
-                    s.host->PushMedia(weweb::MediaInfo {
-                        .title        = rstd::move(value.title),
-                        .artist       = rstd::move(value.artist),
-                        .album        = rstd::move(value.album),
-                        .album_artist = rstd::move(value.album_artist),
-                        .thumbnail    = rstd::move(value.thumbnail),
-                        .state        = value.state.to_primitive(),
-                    });
+                    s.host->PushMedia(value.info);
                 }
             }
         }
@@ -406,6 +398,17 @@ void submit_bridge_slot(HostState& s, ww_wescene::BridgeProducerCore& core,
 }
 
 // --- Reader thread ----------------------------------------------------------
+
+weweb::MediaInfo media_info(const auto& media) {
+    return weweb::MediaInfo {
+        .title        = bridge_string(media.title),
+        .artist       = bridge_string(media.artist),
+        .album        = bridge_string(media.album),
+        .album_artist = bridge_string(media.album_artist),
+        .thumbnail    = bridge_string(media.art_url),
+        .state        = static_cast<int>(media.state),
+    };
+}
 
 void apply_control(HostState& s, ReaderState& reader, ww_bridge_control_t& msg) {
     switch (msg.op) {
@@ -466,15 +469,18 @@ void apply_control(HostState& s, ReaderState& reader, ww_bridge_control_t& msg) 
         break;
     }
     case WW_EVT_IN_MPRIS: {
-        // The daemon pushes full snapshots; just forward them to the page.
-        const auto& mpris = msg.u.mpris.snapshot;
-        enqueue_host_message(s,
-                             HostMsg::Media(bridge_string(mpris.title),
-                                            bridge_string(mpris.artist),
-                                            bridge_string(mpris.album),
-                                            bridge_string(mpris.album_artist),
-                                            bridge_string(mpris.art_url),
-                                            i32(static_cast<int32_t>(mpris.state))));
+        enqueue_host_message(s, HostMsg::Media(media_info(msg.u.mpris.snapshot)));
+        break;
+    }
+    case WW_EVT_IN_MPRIS_V2: {
+        const auto& snapshot = msg.u.mpris_v2.snapshot;
+        auto        media    = media_info(snapshot.media);
+        media.timeline       = Some(weweb::MediaTimeline {
+            .position = f64(static_cast<double>(snapshot.timeline.position_us) / 1'000'000.0),
+            .duration = f64(static_cast<double>(snapshot.timeline.duration_us) / 1'000'000.0),
+            .rate     = f64(snapshot.timeline.rate),
+        });
+        enqueue_host_message(s, HostMsg::Media(rstd::move(media)));
         break;
     }
     case WW_EVT_IN_EVENT_SUBSCRIPTIONS_APPLIED: {
@@ -828,7 +834,7 @@ int run(int argc, char** argv) {
     *state.subscriptions.lock().unwrap() = Some(subscriptions.clone());
     auto event_kinds                     = BTreeSet<String>::make();
     event_kinds.insert("pointer"_Str);
-    event_kinds.insert("mpris"_Str);
+    event_kinds.insert("mpris-v2"_Str);
     if (state.audio_response_demand.load(rstd::sync::atomic::Ordering::Acquire)) {
         event_kinds.insert("audio"_Str);
     }

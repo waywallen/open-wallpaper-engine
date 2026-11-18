@@ -122,6 +122,22 @@ String BuildMediaSnippet(const MediaInfo& media) {
     object.insert("albumArtist"_Str, owe::Json::String(media.album_artist.clone()));
     object.insert("thumbnail"_Str, owe::Json::String(PageImageSrc(media.thumbnail.as_str())));
     object.insert("state"_Str, rstd::into<owe::Json>(i32(media.state)));
+    if (media.timeline) {
+        const auto& timeline = *media.timeline;
+        auto        position = timeline.position;
+        if (position >= f64()) {
+            if (media.state == 1) {
+                position += f64(timeline.sampled_at.elapsed().as_secs_f64()) * timeline.rate;
+            }
+            position = position.max(f64());
+            if (timeline.duration >= f64()) position = position.min(timeline.duration);
+        }
+        auto value = rstd::json::Map::make();
+        value.insert("position"_Str, rstd::into<owe::Json>(position));
+        value.insert("duration"_Str, rstd::into<owe::Json>(timeline.duration));
+        value.insert("rate"_Str, rstd::into<owe::Json>(timeline.rate));
+        object.insert("timeline"_Str, owe::Json::Object(rstd::move(value)));
+    }
 
     auto snippet = "(function(){if(!window.__weweb_pushMedia)return;window.__weweb_pushMedia("_Str;
     snippet.push_str(owe::DumpString(owe::Json::Object(rstd::move(object))).as_str());

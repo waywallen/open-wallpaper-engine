@@ -302,7 +302,7 @@ bool BrowserHost::OpenWallpaper(const WebManifest& manifest, ref<Path> workshop_
     // A snapshot that arrived before the browser existed (or while the page
     // was still loading) is replayed once the main frame finishes loading.
     impl_->client->SetMediaReplayCallback(Some(MediaReplayCallback::make([this]() {
-        if (impl_->last_media) PushMedia(*impl_->last_media);
+        ReplayMedia();
     })));
     auto        entry = PathBuf::from(workshop_dir).join(manifest.entry_html.as_str());
     std::string url   = "file://" + CefPath(entry.as_path());
@@ -474,18 +474,25 @@ void BrowserHost::PushAudioData(slice<float> data) {
 void BrowserHost::PushMedia(const MediaInfo& media) {
     if (IsClosing()) return;
     // Cache even when no browser exists yet; OnLoadEnd replays it.
-    impl_->last_media = Some(MediaInfo { .title        = media.title.clone(),
-                                         .artist       = media.artist.clone(),
-                                         .album        = media.album.clone(),
-                                         .album_artist = media.album_artist.clone(),
-                                         .thumbnail    = media.thumbnail.clone(),
-                                         .state        = media.state });
+    impl_->last_media = Some(
+        MediaInfo { .title        = media.title.clone(),
+                    .artist       = media.artist.clone(),
+                    .album        = media.album.clone(),
+                    .album_artist = media.album_artist.clone(),
+                    .thumbnail    = media.thumbnail.clone(),
+                    .state        = media.state,
+                    .timeline = media.timeline ? Some(MediaTimeline(*media.timeline)) : None() });
+    ReplayMedia();
+}
+
+void BrowserHost::ReplayMedia() {
+    if (IsClosing() || ! impl_->last_media) return;
     if (! impl_->client) return;
     auto browser = impl_->client->GetBrowser();
     if (! browser) return;
     auto frame = browser->GetMainFrame();
     if (! frame) return;
-    auto snippet = BuildMediaSnippet(media);
+    auto snippet = BuildMediaSnippet(*impl_->last_media);
     frame->ExecuteJavaScript(to_string(snippet.as_str()), "weweb://internal/push_media.js", 0);
 }
 

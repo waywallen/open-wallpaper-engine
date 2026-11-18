@@ -100,6 +100,7 @@ public:
     bool Shutdown();
 
 private:
+    void ReplayMedia();
     struct Impl;
     Box<Impl> impl_;
 };

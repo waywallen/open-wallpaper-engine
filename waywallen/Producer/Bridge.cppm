@@ -87,6 +87,7 @@ export using ::WW_EVT_IN_POINTER_AXIS;
 export using ::WW_EVT_IN_POINTER_BUTTON;
 export using ::WW_EVT_IN_POINTER_MOTION;
 export using ::WW_EVT_IN_MPRIS;
+export using ::WW_EVT_IN_MPRIS_V2;
 export using ::WW_EVT_IN_REQUEST_FRAME;
 export using ::WW_EVT_IN_AUDIO_WINDOW;
 export using ::WW_EVT_IN_EVENT_SUBSCRIPTIONS_APPLIED;

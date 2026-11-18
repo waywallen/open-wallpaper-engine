@@ -47,15 +47,22 @@ using CpuPaintCallback         = Arc<dyn<Fn<void(const CpuPaintFrame&)>>>;
 using AudioDemandCallback = Arc<dyn<Fn<void(bool)>>>;
 using MediaReplayCallback = Arc<dyn<Fn<void()>>>;
 
-// One MPRIS snapshot forwarded to the page's media-integration listeners.
+struct MediaTimeline {
+    f64                 position { -1.0 };
+    f64                 duration { -1.0 };
+    f64                 rate { 1.0 };
+    rstd::time::Instant sampled_at { rstd::time::Instant::now() };
+};
+
 // `state` follows WE's PLAYBACK_STOPPED/PLAYING/PAUSED values (0/1/2).
 struct MediaInfo {
-    String title;
-    String artist;
-    String album;
-    String album_artist;
-    String thumbnail;
-    int    state { 0 };
+    String                title;
+    String                artist;
+    String                album;
+    String                album_artist;
+    String                thumbnail;
+    int                   state { 0 };
+    Option<MediaTimeline> timeline;
 };
 
 } // namespace weweb
