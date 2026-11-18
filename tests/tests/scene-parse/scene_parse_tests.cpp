@@ -2368,6 +2368,56 @@ TEST(ImageColorBlendParsing, EffectLayerPreservesLinearDodgeAttachmentOwner) {
     EXPECT_TRUE((*camera)->CameraSnapshot().projection.allFinite());
 }
 
+TEST(ModelMaterialParsing, SamplerFormatsIncludeNormalMapsAndDefaultTextures) {
+    auto path = rstd::path::PathBuf::from(rstd::cppstd::as_str(WAYWALLEN_WORKSHOP_DIR).unwrap())
+                    .join("3453730450/scene.pkg"_str);
+    if (! rstd::fs::exists(path.as_path()).unwrap())
+        GTEST_SKIP() << "workshop 3453730450 is not available";
+    auto         pkg    = owe::fs::WPPkgFs::open(path.as_path()).unwrap();
+    auto         assets = owe::fs::make_physical_fs(
+                              owe::fs::Path(rstd::cppstd::as_str(WAYWALLEN_ASSETS_DIR).unwrap()))
+                              .unwrap();
+    owe::fs::VFS vfs;
+    ASSERT_TRUE(vfs.mount("/assets"_str, rstd::move(assets)).is_ok());
+    ASSERT_TRUE(vfs.mount("/assets"_str, pkg.mount_handle()).is_ok());
+    auto document = owe::wpscene::ParseSceneDocumentJson(R"({
+        "camera": {}, "general": {"orthogonalprojection": {"width":128,"height":128}},
+        "objects": [{"id":1,"name":"Moon","model":"models/model/model.mdl"}]
+    })"_str,
+                                                         owe::wpscene::kSceneVersionUnknown)
+                        .unwrap();
+    wavsen::audio::SoundManager sound;
+    owe::SceneParser            parser;
+    auto                        parsed =
+        parser
+            .Parse(
+                "model-sampler-formats"_str,
+                rstd::ref<owe::wpscene::SceneDocument>::from_raw_parts(rstd::addressof(document)),
+                rstd::mut_ref<owe::fs::VFS>::from_raw_parts(rstd::addressof(vfs)),
+                rstd::mut_ref<wavsen::audio::SoundManager>::from_raw_parts(rstd::addressof(sound)))
+            .unwrap();
+    auto* node = parsed.scene->RootMut()->FindByName("Moon"_str);
+    ASSERT_NE(node, nullptr);
+    ASSERT_NE(node->Mesh(), nullptr);
+    auto* material = node->Mesh()->Material();
+    ASSERT_NE(material, nullptr);
+    ASSERT_TRUE(material->customShader.variant.is_some());
+    const auto& combos = material->customShader.variant->Description().resolved_combos;
+    const rstd::array<rstd::array<rstd::ref<rstd::str>, 2>, 4> expected {
+        rstd::array<rstd::ref<rstd::str>, 2> { "TEX0FORMAT"_str, "FORMAT_RGBA8888"_str },
+        rstd::array<rstd::ref<rstd::str>, 2> { "TEX1FORMAT"_str, "FORMAT_RG88"_str },
+        rstd::array<rstd::ref<rstd::str>, 2> { "TEX2FORMAT"_str, "FORMAT_RGBA8888"_str },
+        rstd::array<rstd::ref<rstd::str>, 2> { "TEX4FORMAT"_str, "FORMAT_R8"_str },
+    };
+    for (auto value : expected) {
+        auto format = combos.get(value[rstd::usize()]);
+        ASSERT_TRUE(format.is_some());
+        EXPECT_EQ(**format, value[rstd::usize(1)]);
+    }
+    EXPECT_FALSE(combos.contains_key("TEX3FORMAT"_str));
+    EXPECT_EQ(material->textures[rstd::usize(4)], "gradient/gradient_toon_smooth"_str);
+}
+
 TEST(ModelMaterialParsing, OpaqueSubmeshesPrecedeBlendedSubmeshes) {
     const auto path =
         rstd::path::PathBuf::from(rstd::cppstd::as_str(WAYWALLEN_WORKSHOP_DIR).unwrap())

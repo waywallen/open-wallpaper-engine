@@ -25,6 +25,25 @@ using rstd::sync::Arc;
 using namespace owe;
 using namespace Eigen;
 
+namespace
+{
+auto TextureFormatCombo(TextureFormat format) -> Option<ref<str>> {
+    switch (format) {
+    case TextureFormat::R8: return Some("FORMAT_R8"_str);
+    case TextureFormat::RG8: return Some("FORMAT_RG88"_str);
+    case TextureFormat::RGB8: return Some("FORMAT_RGB888"_str);
+    case TextureFormat::RGBA8:
+    case TextureFormat::RGBA8_SRGB: return Some("FORMAT_RGBA8888"_str);
+    case TextureFormat::BC1: return Some("FORMAT_DXT1"_str);
+    case TextureFormat::BC2: return Some("FORMAT_DXT3"_str);
+    case TextureFormat::BC3:
+    case TextureFormat::BC3_SRGB: return Some("FORMAT_DXT5"_str);
+    case TextureFormat::R16F: return Some("FORMAT_R16F"_str);
+    default: return None();
+    }
+}
+} // namespace
+
 namespace owe
 {
 BlendMode ParseBlendMode(ref<str> str) {
@@ -418,12 +437,9 @@ auto BuildMaterial(fs::VFS& vfs, ShaderCache& shader_cache,
                 return parsed_header.is_ok() ? rstd::move(parsed_header).unwrap_unchecked()
                                              : ImageHeader {};
             }();
-            if (i == usize()) {
-                if (texh.format == TextureFormat::R8)
-                    (void)shader_info_ref.combos.insert("TEX0FORMAT"_Str, "FORMAT_R8"_Str);
-                else if (texh.format == TextureFormat::RG8)
-                    (void)shader_info_ref.combos.insert("TEX0FORMAT"_Str, "FORMAT_RG88"_Str);
-            }
+            if (auto format = TextureFormatCombo(texh.format); format.is_some())
+                (void)shader_info_ref.combos.insert(rstd::format("TEX{}FORMAT", i),
+                                                    rstd::into(*format));
             if (texh.mipmap_larger) {
                 resolution = {
                     i32(texh.width), i32(texh.height), i32(texh.mapWidth), i32(texh.mapHeight)

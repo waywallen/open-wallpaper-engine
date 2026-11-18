@@ -148,7 +148,12 @@ bool Emitter::FromJson(const owe::Json& json) {
     owe::GetJsonValue(json, "rate"_str, rate, false);
     owe::GetJsonValue(json, "directions"_str, directions, false);
     owe::GetJsonValue(json, "origin"_str, origin, false);
-    owe::GetJsonValue(json, "sign"_str, sign, false);
+    auto authored_sign = array<float, 3> {
+        static_cast<float>(sign[usize()].to_primitive()),
+        static_cast<float>(sign[usize(1)].to_primitive()),
+        static_cast<float>(sign[usize(2)].to_primitive()),
+    };
+    owe::GetJsonValue(json, "sign"_str, authored_sign, false);
     owe::GetJsonValue(json, "audioprocessingmode"_str, audioprocessingmode, false);
     owe::GetJsonValue(json, "audioamount"_str, audioamount, false);
     owe::GetJsonValue(json, "audioexponent"_str, audioexponent, false);
@@ -164,9 +169,9 @@ bool Emitter::FromJson(const owe::Json& json) {
     owe::GetJsonValue(json, "flags"_str, _raw_flags, false);
     flags = EFlags(_raw_flags.to_primitive());
 
-    sign = rstd::move(sign).map([](i32 value) {
-        if (value > i32()) return i32(1);
-        if (value < i32()) return i32(-1);
+    sign = rstd::move(authored_sign).map([](float value) {
+        if (value > 0.0f) return i32(1);
+        if (value < 0.0f) return i32(-1);
         return i32();
     });
     return true;

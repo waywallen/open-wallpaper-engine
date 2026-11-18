@@ -575,6 +575,24 @@ TEST(AnimationBinding, PreservesDeclarationOrderOfSameFrameEvents) {
     EXPECT_EQ(track.curve->c0[usize()].frame, i32());
 }
 
+TEST(ParticleDocument, EmitterSignAcceptsFractionalComponents) {
+    for (auto source : { R"({"name":"sphererandom","sign":"0.1 -0.1 0"})"_str,
+                         R"({"name":"sphererandom","sign":[0.1,-0.1,0]})"_str,
+                         R"({"name":"sphererandom","sign":"5 -8 0"})"_str }) {
+        owe::wpscene::Emitter emitter;
+        ASSERT_TRUE(emitter.FromJson(owe::ParseJson(source).unwrap()));
+        EXPECT_EQ(emitter.sign[usize()], i32(1));
+        EXPECT_EQ(emitter.sign[usize(1)], i32(-1));
+        EXPECT_EQ(emitter.sign[usize(2)], i32());
+        auto cloned = emitter.clone();
+        EXPECT_EQ(cloned.sign, emitter.sign);
+    }
+    owe::wpscene::Emitter emitter;
+    ASSERT_TRUE(emitter.FromJson(
+        owe::ParseJson(R"({"name":"sphererandom","sign":"0.1 0.1 0.1"})"_str).unwrap()));
+    for (auto value : emitter.sign) EXPECT_EQ(value, i32(1));
+}
+
 TEST(ParticleDocument, PreservesRendererDefaultsAndDeclarationOrder) {
     owe::fs::VFS vfs;
     auto         assets = owe::fs::make_physical_fs(
