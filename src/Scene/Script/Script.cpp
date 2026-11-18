@@ -739,17 +739,19 @@ void InstallLocalStorage(JSContext* ctx) {
     JS_FreeValue(ctx, g);
 }
 
-// Project normalised canvas coordinates into the scene's world units.
-// Hosts feed pointer Y top-down; the scene world uses Y-up, matching
-// link_mouse particles and SceneCamera's orthographic viewport.
+// Perspective cursor input is an unprojected point, not a ray hit on z=0.
+// Intersecting z=0 discards the ray depth used by camera-follow scripts.
 struct CursorWorld {
-    double x { 0 }, y { 0 };
+    double x { 0 }, y { 0 }, z { 0 };
 };
 
 CursorWorld CursorToWorld(const FrameInputs& fi, owe::Scene* scene) {
     if (scene != nullptr) {
-        const auto world = scene->ScreenToWorld({ fi.cursor_x, fi.cursor_y });
-        return CursorWorld { .x = world.x(), .y = world.y() };
+        auto camera = scene->ActiveCamera();
+        // WE's reversed-depth endpoint 0 is the far endpoint 1 in our projection.
+        auto       depth = camera && (**camera).IsPerspective() ? Some(1.0) : None<double>();
+        const auto world = scene->ScreenToWorld({ fi.cursor_x, fi.cursor_y }, depth);
+        return CursorWorld { .x = world.x(), .y = world.y(), .z = world.z() };
     }
     return CursorWorld {
         .x = double(fi.cursor_x) * double(fi.canvas_w),
@@ -790,11 +792,11 @@ void UpdateInputObject(JSContext* ctx) {
 
     const CursorWorld world = CursorToWorld(fi, host->scene);
     JSValue           wp    = JS_GetPropertyStr(ctx, input, "cursorWorldPosition");
-    if (JS_IsObject(wp)) SetVec3Fields(ctx, wp, world.x, world.y, 0.0);
+    if (JS_IsObject(wp)) SetVec3Fields(ctx, wp, world.x, world.y, world.z);
     JS_FreeValue(ctx, wp);
 
     JSValue lp = JS_GetPropertyStr(ctx, input, "cursorLocalPosition");
-    if (JS_IsObject(lp)) SetVec3Fields(ctx, lp, world.x, world.y, 0.0);
+    if (JS_IsObject(lp)) SetVec3Fields(ctx, lp, world.x, world.y, world.z);
     JS_FreeValue(ctx, lp);
 
     JS_SetPropertyStr(ctx, input, "mouseButtonsDown", JS_NewUint32(ctx, fi.mouse_buttons_down));
@@ -839,20 +841,22 @@ bool HitTestNode(owe::SceneNode* n, const CursorWorld& c) {
 }
 
 // Build the event object passed to cursor callbacks. WE scripts read
-// event.worldPosition (a Vec2 in scene units) and event.button (0/1/2).
+// event.worldPosition (a Vec3 in scene units) and event.button (0/1/2).
 JSValue MakeCursorEvent(JSContext* ctx, const CursorWorld& c, int button) {
     JSValue ev   = JS_NewObject(ctx);
     auto*   host = static_cast<EngineHostState*>(JS_GetContextOpaque(ctx));
     JSValue wp;
     if (! JS_IsUndefined(host->vec3_ctor)) {
-        JSValue args[3] { JS_NewFloat64(ctx, c.x), JS_NewFloat64(ctx, c.y), JS_NewFloat64(ctx, 0) };
+        JSValue args[3] { JS_NewFloat64(ctx, c.x),
+                          JS_NewFloat64(ctx, c.y),
+                          JS_NewFloat64(ctx, c.z) };
         wp = JS_CallConstructor(ctx, host->vec3_ctor, 3, args);
         for (auto& a : args) JS_FreeValue(ctx, a);
     } else {
         wp = JS_NewObject(ctx);
         JS_DefinePropertyValueStr(ctx, wp, "x", JS_NewFloat64(ctx, c.x), JS_PROP_C_W_E);
         JS_DefinePropertyValueStr(ctx, wp, "y", JS_NewFloat64(ctx, c.y), JS_PROP_C_W_E);
-        JS_DefinePropertyValueStr(ctx, wp, "z", JS_NewFloat64(ctx, 0), JS_PROP_C_W_E);
+        JS_DefinePropertyValueStr(ctx, wp, "z", JS_NewFloat64(ctx, c.z), JS_PROP_C_W_E);
     }
     JS_DefinePropertyValueStr(ctx, ev, "worldPosition", wp, JS_PROP_C_W_E);
     JS_DefinePropertyValueStr(ctx, ev, "button", JS_NewInt32(ctx, button), JS_PROP_C_W_E);

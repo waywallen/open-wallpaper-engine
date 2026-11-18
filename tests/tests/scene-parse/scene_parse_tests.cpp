@@ -2607,6 +2607,66 @@ TEST(SceneLightParsing, RecognizesPrefixedKindsAndFullConeAngles) {
     EXPECT_NEAR(lights[rstd::usize()]->desc().outer_cone_cos, std::cos(77.94f * deg_to_rad), 1e-5f);
 }
 
+TEST(SceneCameraScript, SkeletonMouseControlIsContinuousAndSettles) {
+    using namespace rstd::prelude;
+    auto file = rstd::format("{}/3292370168/scene.pkg",
+                             rstd::cppstd::as_str(WAYWALLEN_WORKSHOP_DIR).unwrap());
+    auto pkg  = owe::fs::WPPkgFs::open(owe::fs::Path(file.as_str()));
+    if (! pkg) GTEST_SKIP() << "workshop 3292370168 is not available";
+    auto original = owe::wpscene::LoadSceneDocumentFromPkg(owe::fs::Path(file.as_str()));
+    ASSERT_TRUE(original);
+    original->objects.retain([](const owe::wpscene::SceneObjectRecord& object) {
+        return object.metadata.id == i32(37);
+    });
+    ASSERT_EQ(original->objects.len(), usize(1));
+    owe::fs::VFS vfs;
+    auto         assets = owe::fs::make_physical_fs(
+        owe::fs::Path(rstd::cppstd::as_str(WAYWALLEN_ASSETS_DIR).unwrap()));
+    ASSERT_TRUE(assets);
+    ASSERT_TRUE(vfs.mount("/assets"_str, rstd::move(assets).unwrap()));
+    ASSERT_TRUE(vfs.mount("/assets"_str, pkg->mount_handle()));
+    wavsen::audio::SoundManager sound;
+    owe::SceneParser            parser;
+    auto parsed = parser.Parse("skeleton-mouse"_str,
+                               ref<owe::wpscene::SceneDocument>::from_raw_parts(&*original),
+                               mut_ref<owe::fs::VFS>::from_raw_parts(&vfs),
+                               mut_ref<wavsen::audio::SoundManager>::from_raw_parts(&sound));
+    ASSERT_TRUE(parsed);
+    auto& scene = *parsed->scene;
+    scene.TickCameraPaths();
+    auto                     camera = scene.ActiveCameraHandle().unwrap();
+    auto                     node   = camera->GetAttachedNode().unwrap();
+    owe::script::FrameInputs input;
+    input.frametime        = 1.0f / 60.0f;
+    input.cursor_x         = 0.5f;
+    input.cursor_in_window = true;
+    Vec<Eigen::Vector3f> rotations;
+    using Position = rstd::array<float, 2>;
+    for (auto position : rstd::array<Position, 7> { Position { 0.5f, 0.5f },
+                                                    Position { 0.5f, 0.49f },
+                                                    Position { 0.5f, 0.51f },
+                                                    Position { 0.5f, 0.5f },
+                                                    Position { 0.49f, 0.5f },
+                                                    Position { 0.51f, 0.5f },
+                                                    Position { 0.5f, 0.5f } }) {
+        input.cursor_x = position[usize()];
+        input.cursor_y = position[usize(1)];
+        for (int frame = 0; frame < 600; ++frame) {
+            input.runtime += input.frametime;
+            owe::script::TickSceneScripts(scene, input);
+            scene.TickCameraPaths();
+        }
+        EXPECT_LT(std::abs(node->Rotation().x()), 0.05f);
+        EXPECT_LT(std::abs(node->Rotation().y()), 0.05f);
+        rotations.push(Eigen::Vector3f(node->Rotation()));
+    }
+    EXPECT_GT(rotations[usize(1)].x() - rotations[usize()].x(), 0.0005f);
+    EXPECT_GT(rotations[usize()].x() - rotations[usize(2)].x(), 0.0005f);
+    EXPECT_GT(std::abs(rotations[usize(4)].y() - rotations[usize(5)].y()), 0.001f);
+    EXPECT_TRUE(rotations[usize()].isApprox(rotations[usize(3)], 1e-4));
+    EXPECT_TRUE(rotations[usize()].isApprox(rotations[usize(6)], 1e-4));
+}
+
 TEST(SceneVolumetricParsing, BuildsDepthIntegrationBlurAndComposite) {
     using namespace rstd::prelude;
     auto document = owe::wpscene::ParseSceneDocumentJson(R"({

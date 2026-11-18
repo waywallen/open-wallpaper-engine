@@ -2197,7 +2197,7 @@ auto Scene::ActiveCameraHandle() const -> Option<Arc<SceneCamera>> {
     return name.is_some() ? CameraHandle(*name) : None();
 }
 
-auto Scene::ScreenToWorld(array<float, 2> position) -> Eigen::Vector3d {
+auto Scene::ScreenToWorld(array<float, 2> position, Option<double> depth) -> Eigen::Vector3d {
     const Eigen::Vector3d fallback {
         static_cast<double>(position[usize()]) * m_ortho[usize()].to_primitive(),
         (1.0 - static_cast<double>(position[usize(1)])) * m_ortho[usize(1)].to_primitive(),
@@ -2211,13 +2211,14 @@ auto Scene::ScreenToWorld(array<float, 2> position) -> Eigen::Vector3d {
     if (! inverse.allFinite()) return fallback;
     const double          x    = static_cast<double>(position[usize()]) * 2.0 - 1.0;
     const double          y    = 1.0 - static_cast<double>(position[usize(1)]) * 2.0;
-    const Eigen::Vector4d near = inverse * Eigen::Vector4d(x, y, 0.0, 1.0);
-    const Eigen::Vector4d far  = inverse * Eigen::Vector4d(x, y, 1.0, 1.0);
-    if (near.w() == 0.0 || far.w() == 0.0) return fallback;
-    const Eigen::Vector3d origin    = near.head<3>() / near.w();
+    const Eigen::Vector4d near = inverse * Eigen::Vector4d(x, y, depth.unwrap_or(0.0), 1.0);
+    if (near.w() == 0.0) return fallback;
+    const Eigen::Vector3d origin = near.head<3>() / near.w();
+    if (depth.is_some()) return origin.allFinite() ? origin : fallback;
+    const Eigen::Vector4d far = inverse * Eigen::Vector4d(x, y, 1.0, 1.0);
+    if (far.w() == 0.0) return fallback;
     const Eigen::Vector3d direction = far.head<3>() / far.w() - origin;
     if (f64(direction.z()).abs().to_primitive() < 1e-10) return fallback;
-    // Script cursor coordinates lie on the scene's z=0 plane.
     const Eigen::Vector3d world = origin - direction * (origin.z() / direction.z());
     return world.allFinite() ? world : fallback;
 }

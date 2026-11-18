@@ -1416,6 +1416,36 @@ TEST(ScriptCursor, GlobalInputRefreshesFrameFields) {
     EXPECT_EQ(fs->last_value().as_Scalar().value.v, 300'400.0);
 }
 
+TEST(ScriptCursor, PerspectiveWorldPositionKeepsFarPlaneDepth) {
+    owe::Scene scene;
+    auto       camera = Arc<owe::SceneCamera>::make(
+        owe::SceneCamera::MakePerspective(16.0 / 9.0, 0.1, 1000.0, 60.0));
+    camera->SetLookAt({ 0.0, 2.0, 10.0 }, { 0.0, 2.0, 9.0 }, Eigen::Vector3d::UnitY());
+    scene.RegisterCamera("perspective"_Str, camera.clone());
+    ASSERT_TRUE(scene.SetActiveCamera("perspective"_str));
+    JsRuntime runtime;
+    runtime.SetScene(&scene);
+    auto* script = runtime.MakeFieldScript(
+        "export function update() { return input.cursorWorldPosition.copy(); }"_str,
+        "test/perspective_cursor_depth"_str,
+        FieldKind::Vec3,
+        owe::MakeObject(),
+        owe::IntoJson("0 0 0"));
+    ASSERT_NE(script, nullptr);
+    auto frame     = MakeFi();
+    frame.cursor_x = 0.75f;
+    frame.cursor_y = 0.25f;
+    runtime.SetFrameInputs(frame);
+    runtime.TickAll();
+    ASSERT_TRUE(script->last_value().is_Vec3());
+    const auto&  value = script->last_value().as_Vec3().value;
+    const double half_height =
+        1000.0 * rstd::f64(rstd::f64::consts::PI / rstd::f64(6.0)).tan().to_primitive();
+    EXPECT_NEAR(value.x, half_height * (16.0 / 9.0) * 0.5, 1e-6);
+    EXPECT_NEAR(value.y, 2.0 + half_height * 0.5, 1e-6);
+    EXPECT_NEAR(value.z, -990.0, 1e-6);
+}
+
 TEST(ScriptCursor, WorldPositionFlipsTopDownInputY) {
     JsRuntime rt;
     rt.SetFrameInputs(MakeFi());

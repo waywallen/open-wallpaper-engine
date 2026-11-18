@@ -1690,6 +1690,25 @@ TEST(SceneCameraState, ViewOffsetPreservesBaseAndNodeAffineInverse) {
     EXPECT_TRUE((camera.GetViewMatrix() * child->ModelTrans()).isIdentity(1e-12));
 }
 
+TEST(SceneCameraProjection, ExplicitDepthUnprojectsWithoutWorldPlaneIntersection) {
+    owe::Scene scene;
+    auto       camera = Arc<owe::SceneCamera>::make(
+        owe::SceneCamera::MakePerspective(16.0 / 9.0, 0.1, 1000.0, 60.0));
+    camera->SetLookAt({ 0.0, 2.0, 10.0 }, { 0.0, 2.0, 9.0 }, Eigen::Vector3d::UnitY());
+    scene.RegisterCamera("perspective"_Str, camera.clone());
+    ASSERT_TRUE(scene.SetActiveCamera("perspective"_str));
+    for (double depth : { 0.0, 0.25, 0.75, 1.0 }) {
+        const auto            world = scene.ScreenToWorld({ 0.75f, 0.25f }, Some(depth));
+        const Eigen::Vector4d clip  = camera->GetViewProjectionMatrix() * world.homogeneous();
+        EXPECT_NEAR(clip.x() / clip.w(), 0.5, 1e-8);
+        EXPECT_NEAR(clip.y() / clip.w(), 0.5, 1e-8);
+        EXPECT_NEAR(clip.z() / clip.w(), depth, 1e-8);
+    }
+    EXPECT_TRUE(scene.ScreenToWorld({ 0.5f, 0.5f }).isApprox(Eigen::Vector3d(0.0, 2.0, 0.0)));
+    EXPECT_TRUE(
+        scene.ScreenToWorld({ 0.5f, 0.5f }, Some(0.0)).isApprox(Eigen::Vector3d(0.0, 2.0, 9.9)));
+}
+
 TEST(SceneCameraState, ViewOffsetMovesReflectionAndUniformEyeTogether) {
     auto camera =
         Arc<owe::SceneCamera>::make(owe::SceneCamera::MakePerspective(1.5, 0.1, 1000, 60));
