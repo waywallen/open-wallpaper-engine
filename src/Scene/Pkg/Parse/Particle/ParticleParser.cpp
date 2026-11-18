@@ -476,7 +476,8 @@ void ParticleSpawnInstruction::Initialize(ParticleSpawnColumns&          columns
 }
 
 ParticleSpawnInstruction ParticleParser::GenInitializer(const Json& wpj,
-                                                        u32         implicit_sequence_count) {
+                                                        u32         implicit_sequence_count,
+                                                        bool        orthographic_scene) {
     do {
         if (wpj.get("name"_str).is_none()) break;
         String name;
@@ -500,7 +501,8 @@ ParticleSpawnInstruction ParticleParser::GenInitializer(const Json& wpj,
             SingleRandom::ReadFromJson(wpj, r);
             return ParticleSpawnInstruction::Make(LifetimeRandomProgram { .config = r });
         } else if (name == "sizerandom"_str) {
-            SingleRandom r = { 0.0f, 20.0f };
+            SingleRandom r =
+                orthographic_scene ? SingleRandom { 5.0f, 50.0f } : SingleRandom { 0.001f, 1.0f };
             SingleRandom::ReadFromJson(wpj, r);
             return ParticleSpawnInstruction::Make(SizeRandomProgram { .config = r });
         } else if (name == "alpharandom"_str) {

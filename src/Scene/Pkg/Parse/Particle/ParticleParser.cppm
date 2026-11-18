@@ -15,7 +15,8 @@ export namespace owe
 {
 class ParticleParser {
 public:
-    static ParticleSpawnInstruction GenInitializer(const Json&, u32 implicit_sequence_count);
+    static ParticleSpawnInstruction GenInitializer(const Json&, u32 implicit_sequence_count,
+                                                   bool orthographic_scene = true);
     static Box<dyn<particle::ParticleUpdateProgram>>
     GenOperator(const Json&, ParticleInstanceModifiers, ParticleSubSystem&, usize operator_index);
     static Box<dyn<particle::ParticleEmitterProgram>> GenEmitter(const wpscene::Emitter&,

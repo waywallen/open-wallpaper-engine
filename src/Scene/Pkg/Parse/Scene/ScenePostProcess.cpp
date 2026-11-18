@@ -126,8 +126,7 @@ void BuildBloomPostProcess(SceneParseContext& context, fs::VFS& vfs,
         return true;
     };
 
-    // Scene HDR is authoring metadata, not an output capability. Wallpaper Engine uses
-    // this LDR chain for SDR output even when the scene has HDR authoring enabled.
+    // The authored HDR flag alone does not select the runtime post-processing mode.
     if (! add_pass("materials/util/downsample_quarter_bloom.json"_str,
                    array<MaterialPassBindItem, 1> { MaterialPassBindItem { "previous"_Str, i32() } }
                        .as_slice(),

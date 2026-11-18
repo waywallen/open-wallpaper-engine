@@ -239,7 +239,7 @@ void LoadControlPoint(SceneLayerBuildContext& context, ParticleSubSystem& system
     }
 }
 void LoadInitializer(ParticleSubSystem& system, const wpscene::Particle& particle,
-                     ParticleInstanceModifiers modifiers) {
+                     ParticleInstanceModifiers modifiers, bool orthographic_scene) {
     u32 implicit_sequence_count { 2 };
     for (const auto& emitter : particle.emitters) {
         if (emitter.max_emit_per_period > u32()) {
@@ -248,8 +248,9 @@ void LoadInitializer(ParticleSubSystem& system, const wpscene::Particle& particl
         }
     }
     for (const auto& initializer : particle.initializers) {
-        auto instruction = ParticleParser::GenInitializer(initializer, implicit_sequence_count);
-        auto count       = instruction.SequenceCount();
+        auto instruction = ParticleParser::GenInitializer(
+            initializer, implicit_sequence_count, orthographic_scene);
+        auto count = instruction.SequenceCount();
         if (count.is_some()) system.SetRopeSequenceCount(*count);
         system.AddInitializer(rstd::move(instruction));
     }
@@ -579,7 +580,10 @@ void BuildParticleObjectNode(ParticleObjectParseServices& services,
     if (child_data.controlpointstartindex.is_some())
         particleSub->SetParentControlpointStartIndex(*child_data.controlpointstartindex);
     LoadEmitter(*particleSub, particle_obj, modifiers);
-    LoadInitializer(*particleSub, particle_obj, modifiers.Clone());
+    LoadInitializer(*particleSub,
+                    particle_obj,
+                    modifiers.Clone(),
+                    services.construction_context.layer_resources->orthographic_scene);
     LoadOperator(*particleSub, particle_obj, modifiers.Clone());
     LoadControlPoint(services.construction_context, *particleSub, particle_obj, modifiers.Clone());
     {

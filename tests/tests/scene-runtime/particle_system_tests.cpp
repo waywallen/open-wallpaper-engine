@@ -444,6 +444,52 @@ TEST(ParticleRuntime, RemovesOnlyTheRequestedOwner) {
     EXPECT_FALSE(second_mesh.upgrade());
 }
 
+TEST(ParticleSubSystem, SizeRandomDefaultsFollowSceneUnits) {
+    struct Case {
+        ref<str> initializer;
+        bool     orthographic;
+        float    minimum;
+        float    maximum;
+    };
+    const array<Case, 6> cases {
+        Case { R"({"name":"sizerandom","min":1})"_str, false, 1.0f, 1.0f },
+        Case { R"({"name":"sizerandom"})"_str, false, 0.001f, 1.0f },
+        Case { R"({"name":"sizerandom"})"_str, true, 5.0f, 50.0f },
+        Case { R"({"name":"sizerandom","max":2})"_str, false, 0.001f, 2.0f },
+        Case { R"({"name":"sizerandom","min":2,"max":2})"_str, false, 2.0f, 2.0f },
+        Case { R"({"name":"sizerandom","min":2,"max":2})"_str, true, 2.0f, 2.0f },
+    };
+    for (const auto& value : cases) {
+        owe::Scene             scene;
+        owe::ParticleSubSystem subsystem(scene,
+                                         Arc<owe::SceneMesh>::make(),
+                                         u32(32),
+                                         f64(),
+                                         u32(1),
+                                         f64(1.0),
+                                         owe::ParticleSubSystem::SpawnType::STATIC,
+                                         owe::ParticleAnimationSpec {});
+        subsystem.AddInitializer(owe::ParticleParser::GenInitializer(
+            owe::ParseJson(R"({"name":"lifetimerandom","min":1,"max":1})"_str).unwrap(), u32(32)));
+        subsystem.AddInitializer(owe::ParticleParser::GenInitializer(
+            owe::ParseJson(value.initializer).unwrap(), u32(32), value.orthographic));
+        subsystem.AddEmitter(Box<dyn<particle::ParticleEmitterProgram>>::make(
+            owe::SphereEmitterProgram(subsystem.SpawnPipeline(),
+                                      owe::ParticleSphereEmitterArgs { .instantaneous = u32(32) },
+                                      usize())));
+        subsystem.Finalize();
+        subsystem.Tick(f64(), false);
+
+        auto sizes =
+            subsystem.System().Instance(usize()).Storage().Values(subsystem.Attributes().size);
+        ASSERT_EQ(sizes.len(), usize(32));
+        for (float size : sizes) {
+            EXPECT_GE(size, value.minimum);
+            EXPECT_LE(size, value.maximum);
+        }
+    }
+}
+
 TEST(ParticleSubSystem, PlaybackResetClearsAndRestartsIndependentStorage) {
     owe::Scene             scene;
     auto                   mesh = Arc<owe::SceneMesh>::make();
