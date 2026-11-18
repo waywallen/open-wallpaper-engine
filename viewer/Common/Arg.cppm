@@ -3,6 +3,7 @@ export module viewer.common:arg;
 export import rstd;
 import rstd.argparse;
 import wescene.cli;
+import wescene.render_cli;
 
 using namespace rstd::prelude;
 using namespace rstd::argparse;
@@ -12,10 +13,7 @@ using rstd::path::PathBuf;
 export namespace viewer
 {
 
-struct Resolution {
-    unsigned w;
-    unsigned h;
-};
+using Resolution = owe::cli::Resolution;
 
 struct SceneViewerArgs {
     PathBuf         assets_dir;
@@ -67,52 +65,10 @@ auto OptionalValue(const Matches& matches, const ArgKey<T>& key) -> Option<T> {
     return Some(T(***value));
 }
 
-struct ParsedResolution {
-    Resolution value;
-    bool       valid;
-};
-
-auto ResolutionParser(ref<rstd::ffi::OsStr> raw) -> Result<ParsedResolution, ValueError> {
-    auto text = raw.to_str();
-    if (text.is_none()) return Err(ValueError::InvalidUtf8());
-
-    auto parts = text->split_once("x"_str);
-    if (! parts) return Ok(ParsedResolution { { 1280, 720 }, false });
-    auto [width_text, height_text] = *parts;
-    if (width_text.starts_with("+"_str) || height_text.starts_with("+"_str))
-        return Ok(ParsedResolution { { 1280, 720 }, false });
-    auto width  = rstd::from_str<u32>(width_text);
-    auto height = rstd::from_str<u32>(height_text);
-    if (width.is_err() || height.is_err()) return Ok(ParsedResolution { { 1280, 720 }, false });
-    const bool valid =
-        *width > u32() && *height > u32() && *width <= u32(65535) && *height <= u32(65535) &&
-        u64(width->to_primitive()) * u64(height->to_primitive()) <= u64(64 * 1024 * 1024);
-    return Ok(ParsedResolution { { width->to_primitive(), height->to_primitive() }, valid });
-}
-
-auto ScreenshotPathParser(ref<rstd::ffi::OsStr> raw) -> Result<PathBuf, ValueError> {
-    if (raw.is_empty())
-        return Err(ValueError::Message("screenshot output path must not be empty"_Str));
-    for (auto byte : raw.as_encoded_bytes()) {
-        if (byte == u8())
-            return Err(ValueError::Message("screenshot output path contains a NUL byte"_Str));
-    }
-    auto path = PathBuf::from(raw);
-    if (path.as_path().file_name().is_none())
-        return Err(ValueError::Message("screenshot output path must name a file"_Str));
-    return Ok(rstd::move(path));
-}
-
-auto ScreenshotTimeoutParser(ref<rstd::ffi::OsStr> raw) -> Result<f64, ValueError> {
-    auto text = raw.to_str();
-    if (text.is_none()) return Err(ValueError::InvalidUtf8());
-    auto value = rstd::from_str<f64>(*text);
-    if (value.is_err() || ! value->is_finite() || *value <= f64() || *value > f64(86400) ||
-        rstd::time::Duration::from_secs_f64(value->to_primitive()).is_zero())
-        return Err(ValueError::Message(
-            "screenshot timeout must be positive and at most 86400 seconds"_Str));
-    return Ok(*value);
-}
+using owe::cli::ParsedResolution;
+using owe::cli::ResolutionParser;
+using owe::cli::ScreenshotPathParser;
+using owe::cli::ScreenshotTimeoutParser;
 
 auto ParseMousePosition(ref<str> input) -> Option<array<double, 2>> {
     auto parts = input.split_once(","_str);

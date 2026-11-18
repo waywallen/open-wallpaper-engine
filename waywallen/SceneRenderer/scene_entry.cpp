@@ -19,6 +19,7 @@ import rstd.argparse;
 import rstd.cppstd;
 import rstd.log;
 import wescene.cli;
+import wescene.render_cli;
 import wescene.fs;
 import wescene.json;
 import wescene.scene_wallpaper;
@@ -67,7 +68,11 @@ struct Options {
     String                       render_node;
     String                       video_hwdec;
 
-    String load_bench_output;
+    String          load_bench_output;
+    Option<PathBuf> screenshot_path;
+    f64             screenshot_timeout { 30.0 };
+    PathBuf         user_properties_path;
+    bool            enable_valid_layer { false };
     // 1 disables MSAA. Clamped against device caps in VulkanRender::init.
     uint32_t                                 msaa_samples { 1 };
     rstd::json::Map                          initial_user_properties;
@@ -82,6 +87,11 @@ constexpr const char* kMouseParallaxKey       = "waywallen.mouse_parallax";
 [[noreturn]] void die(ref<str> msg) {
     rstd_error("waywallen-wescene-renderer: {}", msg);
     rstd::process::exit(i32(1));
+}
+
+[[noreturn]] void invalid_args(ref<str> message) {
+    rstd_error("waywallen-wescene-renderer: {}", message);
+    rstd::process::exit(i32(2));
 }
 
 const char* diagnostic_code_name(owe::SceneUserPropertyDiagnosticCode code) {
@@ -237,6 +247,17 @@ const T& ArgValue(const rstd::argparse::Matches& matches, const rstd::argparse::
     return ***value;
 }
 
+template<typename T>
+auto OptionalArg(const rstd::argparse::Matches& matches, const rstd::argparse::ArgKey<T>& key)
+    -> Option<T> {
+    auto value = matches.get_one(key).unwrap();
+    if (! value) return None();
+    if constexpr (requires { (**value).clone(); })
+        return Some((**value).clone());
+    else
+        return Some(T(**value));
+}
+
 Options parse_args(int argc, char** argv) {
     using namespace rstd::argparse;
 
@@ -244,7 +265,7 @@ Options parse_args(int argc, char** argv) {
     auto ipc     = command.add_arg(Arg<String>::value("ipc"_str, string_parser())
                                        .long_name("ipc"_str)
                                        .help("Unix-domain socket path for daemon IPC"_str)
-                                       .required());
+                                       .default_value(""_str));
     auto path    = command.add_arg(Arg<String>::value("path"_str, string_parser())
                                        .long_name("path"_str)
                                        .help("Wallpaper Engine .pkg path (canonical resource)"_str)
@@ -274,9 +295,42 @@ Options parse_args(int argc, char** argv) {
                             .help("Write scene load probe report to FILE"_str)
                             .value_name("FILE"_str)
                             .default_value(""_str));
-    command.add_arg(Arg<String>::value("remaining"_str, string_parser())
-                        .num_args(NumArgs::any())
-                        .allow_hyphen_values());
+    auto screenshot = command.add_arg(
+        Arg<PathBuf>::value("screenshot"_str, parse_with<PathBuf>(owe::cli::ScreenshotPathParser))
+            .long_name("screenshot"_str)
+            .value_name("FILE"_str)
+            .help("Write the first rendered frame to PNG without daemon IPC, then exit"_str));
+    auto timeout = command.add_arg(
+        Arg<f64>::value("screenshot-timeout"_str,
+                        parse_with<f64>(owe::cli::ScreenshotTimeoutParser))
+            .long_name("screenshot-timeout"_str)
+            .value_name("SECONDS"_str)
+            .help("Maximum screenshot load and capture time in seconds (default 30)"_str));
+    auto resolution = command.add_arg(
+        Arg<owe::cli::ParsedResolution>::value(
+            "resolution"_str, parse_with<owe::cli::ParsedResolution>(owe::cli::ResolutionParser))
+            .short_name(u8('R'))
+            .long_name("resolution"_str)
+            .help("Screenshot resolution, eg. 1920x1080 (default 1280x720)"_str));
+    auto properties = command.add_arg(Arg<String>::value("user-properties"_str, string_parser())
+                                          .short_name(u8('P'))
+                                          .long_name("user-properties"_str)
+                                          .help("Screenshot user properties JSON file"_str));
+    auto fps        = command.add_arg(Arg<u32>::value("fps"_str, from_str_parser<u32>())
+                                          .short_name(u8('f'))
+                                          .long_name("fps"_str)
+                                          .help("Screenshot render FPS (default 30)"_str));
+    auto msaa       = command.add_arg(Arg<u32>::value("msaa"_str, from_str_parser<u32>())
+                                          .short_name(u8('M'))
+                                          .long_name("msaa"_str)
+                                          .help("Screenshot MSAA samples (default 1)"_str));
+    command.add_arg(Arg<bool>::flag("valid-layer"_str)
+                        .short_name(u8('V'))
+                        .long_name("valid-layer"_str)
+                        .help("Enable Vulkan validation for screenshots"_str));
+    auto remaining = command.add_arg(Arg<String>::value("remaining"_str, string_parser())
+                                         .num_args(NumArgs::any())
+                                         .allow_hyphen_values());
 
     auto parsed = owe::cli::ParseArgs(rstd::move(command), argc, argv);
     if (parsed.is_err()) rstd::process::exit(i32(parsed.unwrap_err().code));
@@ -290,7 +344,52 @@ Options parse_args(int argc, char** argv) {
     options.render_node    = ArgValue(matches, render_node).clone();
     options.video_hwdec    = ArgValue(matches, hwdec).clone();
 
-    options.load_bench_output = ArgValue(matches, load_bench_output).clone();
+    options.load_bench_output  = ArgValue(matches, load_bench_output).clone();
+    options.screenshot_path    = OptionalArg(matches, screenshot);
+    auto duration              = OptionalArg(matches, timeout);
+    auto extent                = OptionalArg(matches, resolution);
+    auto property_file         = OptionalArg(matches, properties);
+    auto frame_rate            = OptionalArg(matches, fps);
+    auto samples               = OptionalArg(matches, msaa);
+    options.enable_valid_layer = matches.contains("valid-layer"_str);
+    if (options.screenshot_path) {
+        auto extra = matches.get_many(remaining).unwrap();
+        if (extra && extra->next()) invalid_args("unexpected screenshot arguments"_str);
+        if (! options.ipc_path.is_empty())
+            invalid_args("--screenshot cannot be used with --ipc"_str);
+        if (options.initial_scene.is_empty()) invalid_args("--screenshot requires --path"_str);
+        if (options.initial_assets.is_empty()) invalid_args("--screenshot requires --assets"_str);
+        auto output = owe::cli::ValidateScreenshotOutput(options.screenshot_path->as_path());
+        if (output.is_err()) invalid_args(output.unwrap_err().as_str());
+        if (extent && ! extent->valid)
+            invalid_args(
+                "--resolution requires positive WIDTHxHEIGHT up to 65535 per side and 64 Mi pixels"_str);
+        options.width  = extent ? extent->value.w : 1280;
+        options.height = extent ? extent->value.h : 720;
+        if (duration) options.screenshot_timeout = *duration;
+        if (property_file) {
+            if (property_file->is_empty())
+                invalid_args("--user-properties must name a JSON file"_str);
+            options.user_properties_path = PathBuf::from(property_file->as_str());
+        }
+        if (frame_rate) {
+            if (*frame_rate < u32(1) || *frame_rate > u32(65535))
+                invalid_args("--fps must be between 1 and 65535"_str);
+            options.initial_fps = frame_rate->to_primitive();
+        }
+        if (samples) {
+            const auto count = samples->to_primitive();
+            if (! count || count > 64 || (count & (count - 1)))
+                invalid_args("--msaa must be a power of two between 1 and 64"_str);
+            options.msaa_samples = count;
+        }
+    } else {
+        if (options.ipc_path.is_empty())
+            invalid_args("--ipc is required unless --screenshot is specified"_str);
+        if (duration || extent || property_file || frame_rate || samples ||
+            options.enable_valid_layer)
+            invalid_args("screenshot options require --screenshot"_str);
+    }
     return options;
 }
 
@@ -463,6 +562,192 @@ bool resolve_render_node_to_uuid(ref<str> path, rstd::array<uint8_t, VK_UUID_SIZ
         err_msg = rstd::format("ww_bridge_vk_resolve_render_node returned {}", rc);
     }
     return false;
+}
+
+void prepare_scene_document(Options& opts, const Option<owe::SceneLoadBenchHandle>& load_bench) {
+    if (! opts.initial_scene.is_empty()) {
+        auto scene_doc = [&] {
+            if (load_bench.is_none())
+                return owe::wpscene::LoadSceneDocumentFromSource(opts.initial_scene.as_path());
+
+            auto& context  = **load_bench;
+            auto  recorder = context.session().recorder();
+            auto  loaded   = [&] {
+                auto span = recorder.span(context.ids().preload_scene_document);
+                return owe::wpscene::LoadSceneDocumentFromSource(opts.initial_scene.as_path());
+            }();
+            auto batch = recorder.drain();
+            if (batch.is_ok()) {
+                context.add_preload_batch(rstd::move(batch).unwrap_unchecked());
+            } else {
+                rstd_warn("waywallen-wescene-renderer: preload probe drain failed");
+            }
+            return loaded;
+        }();
+        if (scene_doc) {
+            opts.initial_scene_document =
+                Some(Arc<owe::wpscene::SceneDocument>::make(rstd::move(*scene_doc)));
+        }
+    }
+}
+
+auto initial_user_properties(Options& opts, ref<str> source) -> Result<empty, String> {
+    auto parsed_result = owe::ParseJson(source, { .allow_comments = true });
+    if (parsed_result.is_err())
+        return Err(rstd::format("invalid user properties JSON: {}", parsed_result.unwrap_err()));
+    auto parsed = parsed_result.unwrap();
+    if (! parsed.is_object()) return Err("user properties must be a JSON object"_Str);
+    auto object = parsed.as_object();
+    (*object)->iter().for_each([&](auto entry) {
+        auto [entry_key, entry_value] = entry;
+        auto        k                 = entry_key->as_str();
+        const auto& v                 = *entry_value;
+        if (k == as_str(kPropertyEnableAudioKey).unwrap()) {
+            bool enabled = true;
+            if (parse_user_property_bool(v, enabled)) {
+                opts.property_enable_audio = enabled;
+            } else {
+                rstd_warn("waywallen-wescene-renderer: invalid {} initial value; "
+                          "using true",
+                          kPropertyEnableAudioKey);
+            }
+            return;
+        }
+        if (k == as_str(kPlaybackSpeedKey).unwrap()) {
+            float rate = 1.0f;
+            if (parse_user_property_playback_rate(v, rate)) {
+                opts.initial_playback_rate = rate;
+            } else {
+                rstd_warn("waywallen-wescene-renderer: invalid {} initial value; "
+                          "using 100",
+                          kPlaybackSpeedKey);
+            }
+            return;
+        }
+        if (k == as_str(kMouseParallaxKey).unwrap()) {
+            bool enabled = true;
+            if (parse_user_property_bool(v, enabled)) {
+                opts.initial_mouse_parallax = enabled;
+            } else {
+                rstd_warn("waywallen-wescene-renderer: invalid {} initial value; "
+                          "using true",
+                          kMouseParallaxKey);
+            }
+            return;
+        }
+        opts.initial_user_properties.insert(String::make(k), v.clone());
+    });
+    return Ok(empty {});
+}
+
+auto scene_config(Options& opts, const Option<owe::SceneLoadBenchHandle>& load_bench)
+    -> owe::SceneWallpaperConfig {
+    owe::SceneWallpaperConfig wp_config;
+    wp_config.source_pkg_path = opts.initial_scene.clone();
+    wp_config.assets_dir      = opts.initial_assets.clone();
+    wp_config.cache_dir       = shader_cache_dir();
+    wp_config.scene_document  = opts.initial_scene_document.clone();
+    wp_config.load_bench      = load_bench.clone();
+    wp_config.user_properties = rstd::move(opts.initial_user_properties);
+    wp_config.fps             = opts.initial_fps;
+    wp_config.speed           = opts.initial_playback_rate;
+    wp_config.mouse_parallax  = opts.initial_mouse_parallax;
+    wp_config.volume          = f32(opts.initial_volume).clamp(f32(), f32(1.0f)).to_primitive();
+    wp_config.volume_scale    = 0.0f;
+    wp_config.muted           = ! (opts.settings_enable_audio && opts.property_enable_audio);
+    return wp_config;
+}
+
+auto render_init_info(const Options& opts) -> owe::RenderInitInfo {
+    owe::RenderInitInfo info;
+    info.offscreen          = true;
+    info.offscreen_tiling   = owe::TexTiling::OPTIMAL;
+    info.width              = static_cast<uint16_t>(opts.width);
+    info.height             = static_cast<uint16_t>(opts.height);
+    info.video_hwdec        = opts.video_hwdec.is_empty() ? "auto"_Str : opts.video_hwdec.clone();
+    info.video_render_node  = opts.render_node.clone();
+    info.msaa_samples       = opts.msaa_samples;
+    info.enable_valid_layer = opts.enable_valid_layer;
+    if (! opts.render_node.is_empty()) {
+        rstd::array<uint8_t, VK_UUID_SIZE> uuid {};
+        String                             error;
+        if (resolve_render_node_to_uuid(opts.render_node.as_str(), uuid, error)) {
+            info.uuid = Some(uuid);
+            rstd_info("waywallen-wescene-renderer: render_node={} pinning Vulkan device by UUID",
+                      opts.render_node);
+        } else {
+            rstd_warn("waywallen-wescene-renderer: render_node={} not honored: {}; falling back to "
+                      "default device",
+                      opts.render_node,
+                      error);
+        }
+    }
+    return info;
+}
+
+int screenshot(Options& opts, const Option<owe::SceneLoadBenchHandle>& load_bench) {
+    const auto started = rstd::time::Instant::now();
+    const auto timeout = Duration::from_secs_f64(opts.screenshot_timeout.to_primitive());
+    if (! opts.user_properties_path.is_empty()) {
+        auto source = rstd::fs::read_to_string(opts.user_properties_path.as_path());
+        if (source.is_err()) {
+            rstd_error("--user-properties: cannot read '{}': {}",
+                       opts.user_properties_path.as_path().as_os_str().display(),
+                       source.unwrap_err());
+            return 2;
+        }
+        auto parsed = initial_user_properties(opts, source->as_str());
+        if (parsed.is_err()) {
+            rstd_error("--user-properties: {}", parsed.unwrap_err());
+            return 2;
+        }
+    }
+    prepare_scene_document(opts, load_bench);
+    if (! opts.initial_scene_document) {
+        rstd_error("--screenshot: cannot load scene document from '{}'",
+                   opts.initial_scene.as_path().as_os_str().display());
+        return 1;
+    }
+    owe::SceneWallpaper wallpaper;
+    if (! wallpaper.init()) {
+        rstd_error("--screenshot: SceneWallpaper::init failed");
+        return 1;
+    }
+    auto [sender, receiver] = rstd::sync::mpmc::sync_channel<owe::FrameCaptureResult>(usize(1));
+    wallpaper.requestFrameCapture(owe::FrameCaptureCallback::make(
+        [sender = rstd::move(sender)](owe::FrameCaptureResult result) mutable {
+            (void)sender.try_send(rstd::move(result));
+        }));
+    auto config  = scene_config(opts, load_bench);
+    config.muted = true;
+    wallpaper.configure(rstd::move(config));
+    auto info             = render_init_info(opts);
+    info.offscreen_export = false;
+    wallpaper.initVulkan(rstd::move(info));
+    while (started.elapsed() < timeout) {
+        auto captured = receiver.try_recv();
+        if (captured.is_ok()) {
+            auto result = rstd::move(captured).unwrap();
+            if (result.is_err()) {
+                rstd_error("--screenshot: {}", result.unwrap_err());
+                return 1;
+            }
+            auto written = owe::WriteFrameCapturePng(*result, opts.screenshot_path->as_path());
+            if (written.is_err()) {
+                rstd_error("--screenshot: {}", written.unwrap_err());
+                return 1;
+            }
+            if (started.elapsed() < timeout) return 0;
+            break;
+        }
+        if (captured.unwrap_err() == rstd::sync::mpmc::TryRecvError::Disconnected) {
+            rstd_error("--screenshot: capture callback disconnected without a result");
+            return 1;
+        }
+        rstd::thread::sleep(Duration::from_millis(u64(5)));
+    }
+    rstd_error("--screenshot: timed out after {} seconds", opts.screenshot_timeout);
+    return 1;
 }
 
 // ---------------------------------------------------------------------------
@@ -819,6 +1104,8 @@ int run(int argc, char** argv) {
 
     auto load_bench = owe::CreateSceneLoadBench(opts.load_bench_output.as_str());
 
+    if (opts.screenshot_path) return screenshot(opts, load_bench);
+
     ::prctl(PR_SET_PDEATHSIG, SIGTERM);
 
     HostState host;
@@ -856,32 +1143,7 @@ int run(int argc, char** argv) {
                 kv_get(init.settings, "resolution"), static_cast<int32_t>(WW_RESOLUTION_AUTO)));
             opts.automatic_resolution = resolution == WW_RESOLUTION_AUTO;
             uint32_t custom_extent    = parse_u32(kv_get(init.settings, "custom_extent"), 1080u);
-            if (! opts.initial_scene.is_empty()) {
-                auto scene_doc = [&] {
-                    if (load_bench.is_none())
-                        return owe::wpscene::LoadSceneDocumentFromSource(
-                            opts.initial_scene.as_path());
-
-                    auto& context  = **load_bench;
-                    auto  recorder = context.session().recorder();
-                    auto  loaded   = [&] {
-                        auto span = recorder.span(context.ids().preload_scene_document);
-                        return owe::wpscene::LoadSceneDocumentFromSource(
-                            opts.initial_scene.as_path());
-                    }();
-                    auto batch = recorder.drain();
-                    if (batch.is_ok()) {
-                        context.add_preload_batch(rstd::move(batch).unwrap_unchecked());
-                    } else {
-                        rstd_warn("waywallen-wescene-renderer: preload probe drain failed");
-                    }
-                    return loaded;
-                }();
-                if (scene_doc) {
-                    opts.initial_scene_document =
-                        Some(Arc<owe::wpscene::SceneDocument>::make(rstd::move(*scene_doc)));
-                }
-            }
+            prepare_scene_document(opts, load_bench);
             const bool has_origin =
                 opts.initial_scene_document &&
                 (*opts.initial_scene_document)->metadata.canvas_extent.is_some();
@@ -935,58 +1197,9 @@ int run(int argc, char** argv) {
         // (the DB column verbatim) — decoupled from the schema-validated
         // plugin settings above so no name collision is possible.
         if (init.user_properties && *init.user_properties) {
-            auto parsed_result = owe::ParseJson(rstd::cppstd::as_str(init.user_properties).unwrap(),
-                                                { .allow_comments = true });
-            if (parsed_result.is_err()) {
-                rstd_warn("init.user_properties is invalid JSON; ignored: {}",
-                          parsed_result.unwrap_err());
-            } else {
-                auto parsed = parsed_result.unwrap();
-                if (! parsed.is_object()) {
-                    rstd_warn("init.user_properties is not a JSON object; ignored");
-                } else {
-                    auto object = parsed.as_object();
-                    (*object)->iter().for_each([&](auto entry) {
-                        auto [entry_key, entry_value] = entry;
-                        auto        k                 = entry_key->as_str();
-                        const auto& v                 = *entry_value;
-                        if (k == as_str(kPropertyEnableAudioKey).unwrap()) {
-                            bool enabled = true;
-                            if (parse_user_property_bool(v, enabled)) {
-                                opts.property_enable_audio = enabled;
-                            } else {
-                                rstd_warn("waywallen-wescene-renderer: invalid {} initial value; "
-                                          "using true",
-                                          kPropertyEnableAudioKey);
-                            }
-                            return;
-                        }
-                        if (k == as_str(kPlaybackSpeedKey).unwrap()) {
-                            float rate = 1.0f;
-                            if (parse_user_property_playback_rate(v, rate)) {
-                                opts.initial_playback_rate = rate;
-                            } else {
-                                rstd_warn("waywallen-wescene-renderer: invalid {} initial value; "
-                                          "using 100",
-                                          kPlaybackSpeedKey);
-                            }
-                            return;
-                        }
-                        if (k == as_str(kMouseParallaxKey).unwrap()) {
-                            bool enabled = true;
-                            if (parse_user_property_bool(v, enabled)) {
-                                opts.initial_mouse_parallax = enabled;
-                            } else {
-                                rstd_warn("waywallen-wescene-renderer: invalid {} initial value; "
-                                          "using true",
-                                          kMouseParallaxKey);
-                            }
-                            return;
-                        }
-                        opts.initial_user_properties.insert(String::make(k), v.clone());
-                    });
-                }
-            }
+            auto properties = initial_user_properties(opts, as_str(init.user_properties).unwrap());
+            if (properties.is_err())
+                rstd_warn("init.user_properties ignored: {}", properties.unwrap_err());
         }
 
         waywallen_renderer_init_free(&init);
@@ -1049,20 +1262,7 @@ int run(int argc, char** argv) {
         });
     }
 
-    owe::SceneWallpaperConfig wp_config;
-    wp_config.source_pkg_path = opts.initial_scene.clone();
-    wp_config.assets_dir      = opts.initial_assets.clone();
-    wp_config.cache_dir       = shader_cache_dir();
-    wp_config.scene_document  = opts.initial_scene_document.clone();
-    wp_config.load_bench      = load_bench.clone();
-    wp_config.user_properties = rstd::move(opts.initial_user_properties);
-    wp_config.fps             = opts.initial_fps;
-    wp_config.speed           = opts.initial_playback_rate;
-    wp_config.mouse_parallax  = opts.initial_mouse_parallax;
-    wp_config.volume          = effective_volume(host);
-    wp_config.volume_scale    = 0.0f;
-    wp_config.muted           = ! effective_audio_enabled(host);
-    wp.configure(rstd::move(wp_config));
+    wp.configure(scene_config(opts, load_bench));
 
     // The factory runs inside VulkanRender::init after the GPU is picked
     // and the VkDevice is created; that's when ww_bridge_pool_create can
@@ -1123,43 +1323,11 @@ int run(int argc, char** argv) {
         return Some(rstd::move(sw));
     };
 
-    rstd::array<uint8_t, VK_UUID_SIZE> chosen_uuid {};
-    bool                               have_uuid = false;
-    if (! opts.render_node.is_empty()) {
-        String err;
-        if (resolve_render_node_to_uuid(opts.render_node.as_str(), chosen_uuid, err)) {
-            have_uuid = true;
-            rstd_info("waywallen-wescene-renderer: render_node={} pinning Vulkan device by UUID",
-                      opts.render_node);
-        } else {
-            rstd_warn("waywallen-wescene-renderer: render_node={} not honored: {}; "
-                      "falling back to default device",
-                      opts.render_node,
-                      err);
-        }
-    }
-
-    {
-        owe::RenderInitInfo info;
-        info.offscreen         = true;
-        info.offscreen_tiling  = owe::TexTiling::OPTIMAL;
-        info.width             = static_cast<uint16_t>(opts.width);
-        info.height            = static_cast<uint16_t>(opts.height);
-        info.video_hwdec       = opts.video_hwdec.clone();
-        info.video_render_node = opts.render_node.clone();
-        info.msaa_samples      = opts.msaa_samples;
-        info.surface_info.createSurfaceOp =
-            Some(owe::CreateSurfaceCallback::make([](VkInstance, VkSurfaceKHR*) -> VkResult {
-                return VK_SUCCESS;
-            }));
-        info.ex_swapchain_factory =
-            Some(Box<dyn<FnOnce<Option<owe::ExSwapchainOwner>(
-                     const owe::RenderInitInfo::ExSwapchainHandles&)>>>::make(rstd::move(factory)));
-        if (have_uuid) {
-            info.uuid = Some(chosen_uuid);
-        }
-        wp.initVulkan(rstd::move(info));
-    }
+    auto info = render_init_info(opts);
+    info.ex_swapchain_factory =
+        Some(Box<dyn<FnOnce<Option<owe::ExSwapchainOwner>(
+                 const owe::RenderInitInfo::ExSwapchainHandles&)>>>::make(rstd::move(factory)));
+    wp.initVulkan(rstd::move(info));
 
     if (! wp.waitVulkanInited(/*timeout_ms*/ 10000))
         die("VulkanRender did not finish init within 10s"_str);

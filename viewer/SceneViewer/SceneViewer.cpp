@@ -11,6 +11,7 @@ import rstd.log;
 import wavsen.audio;
 import wescene.core;
 import wescene.json;
+import wescene.render_cli;
 import wescene.scene_wallpaper;
 import wescene.utils;
 import viewer.common;
@@ -106,19 +107,10 @@ int main(int argc, char** argv) {
             eprintln("--screenshot requires --fps between 1 and 65535");
             return 2;
         }
-        auto path   = args.screenshot_path->as_path();
-        auto target = rstd::fs::metadata(path);
-        if (target.is_ok() && ! target->is_file()) {
-            eprintln("--screenshot: '{}' is not a regular file", path.as_os_str().display());
+        auto output = owe::cli::ValidateScreenshotOutput(args.screenshot_path->as_path());
+        if (output.is_err()) {
+            eprintln("--screenshot: {}", output.unwrap_err());
             return 2;
-        }
-        if (auto parent = path.parent(); parent && ! parent->is_empty()) {
-            auto directory = rstd::fs::metadata(*parent);
-            if (directory.is_err() || ! directory->is_dir()) {
-                eprintln("--screenshot: parent directory '{}' does not exist or is not a directory",
-                         parent->as_os_str().display());
-                return 2;
-            }
         }
     }
 

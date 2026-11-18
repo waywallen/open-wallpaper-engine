@@ -9,6 +9,7 @@ module = "owe.core"
 archive = "owe-core"
 sources = [
   "src/Core/Cli.cppm",
+  "src/Core/RenderCli.cppm",
   "src/Core/Core.cppm",
   "src/Core/Fs.cppm",
   "src/Core/Fs/Fs.cppm",
