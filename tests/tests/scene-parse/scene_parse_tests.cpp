@@ -2093,6 +2093,71 @@ TEST(ImageAlignmentParsing, DisabledEffectsPreserveSourceDrawAnchor) {
     }
 }
 
+TEST(PuppetMaskParsing, ImageAndEffectMasksCullBackFaces) {
+    using namespace rstd::prelude;
+    auto path = rstd::format("{}/3493636545/scene.pkg",
+                             rstd::cppstd::as_str(WAYWALLEN_WORKSHOP_DIR).unwrap());
+    auto pkg  = owe::fs::WPPkgFs::open(owe::fs::Path(path.as_str()));
+    if (pkg.is_err()) GTEST_SKIP() << "workshop 3493636545 is not available";
+    auto assets = owe::fs::make_physical_fs(
+        owe::fs::Path(rstd::cppstd::as_str(WAYWALLEN_ASSETS_DIR).unwrap()));
+    ASSERT_TRUE(assets.is_ok());
+    owe::fs::VFS vfs;
+    ASSERT_TRUE(vfs.mount("/assets"_str, rstd::move(assets).unwrap()).is_ok());
+    ASSERT_TRUE(vfs.mount("/assets"_str, pkg->mount_handle()).is_ok());
+    auto document = owe::wpscene::ParseSceneDocumentJson(
+        R"JSON({
+            "camera": {},
+            "general": {"orthogonalprojection": {"width": 1920, "height": 1080}},
+            "objects": [
+                {"id": 1, "name": "Direct", "image": "models/图层 1.json",
+                 "size": "442 347"},
+                {"id": 2, "name": "Effect", "image": "models/图层 1.json",
+                 "size": "442 347",
+                 "effects": [{"file": "effects/opacity/effect.json", "visible": true}]}
+            ]
+        })JSON"_str,
+        owe::wpscene::kSceneVersionUnknown);
+    ASSERT_TRUE(document.is_some());
+    wavsen::audio::SoundManager sound;
+    owe::SceneParser            parser;
+    auto                        parsed =
+        parser.Parse("puppet-mask"_str,
+                     ref<owe::wpscene::SceneDocument>::from_raw_parts(rstd::addressof(*document)),
+                     mut_ref<owe::fs::VFS>::from_raw_parts(rstd::addressof(vfs)),
+                     mut_ref<wavsen::audio::SoundManager>::from_raw_parts(rstd::addressof(sound)));
+    ASSERT_TRUE(parsed.is_ok());
+    auto scene = rstd::move(parsed).unwrap();
+    for (ref<str> name : { "Direct"_str, "Effect"_str }) {
+        auto* node = scene.scene->RootMut()->FindByName(name);
+        ASSERT_NE(node, nullptr);
+        auto* mesh = node->Mesh();
+        if (name == "Effect"_str) {
+            ASSERT_TRUE(node->HasLayer());
+            auto& layer = node->Layer();
+            layer->ResolveEffect(*scene.scene->DefaultEffectMesh(), "effect"_str);
+            ASSERT_FALSE(layer->ResolvedEffects().is_empty());
+            auto* effect = layer->ResolvedEffects().last().unwrap().get();
+            ASSERT_FALSE(effect->Nodes().is_empty());
+            mesh = effect->Nodes().last().unwrap().get()->sceneNode->Mesh();
+        }
+        ASSERT_NE(mesh, nullptr);
+        ASSERT_NE(mesh->Material(), nullptr);
+        EXPECT_EQ(mesh->Material()->Pipeline().cull_mode, owe::CullMode::Back);
+        usize masks {};
+        for (const auto& submesh : mesh->Submeshes()) {
+            if (submesh.output_override != "_rt_puppet_mask"_str) continue;
+            ++masks;
+            const auto slot = rstd::as_cast<usize>(submesh.material_slot);
+            ASSERT_LT(slot, mesh->MaterialSlots().len());
+            const auto& material = mesh->MaterialSlots()[slot];
+            ASSERT_TRUE(material);
+            EXPECT_EQ(material->Pipeline().cull_mode, owe::CullMode::Back);
+        }
+        EXPECT_EQ(masks, usize(2));
+    }
+}
+
 TEST(PuppetUvParsing, ImageAndEffectMasksUseTheirBoundTextureSpace) {
     using namespace rstd::prelude;
     auto path = rstd::format("{}/3493636545/scene.pkg",

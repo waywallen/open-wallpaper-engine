@@ -525,7 +525,8 @@ void ParseImageObjImpl(SceneLayerBuildContext& context, wpscene::ImageObject& im
                 mask_wpmat.blending   = "translucent"_Str;
                 mask_wpmat.depthtest  = "disabled"_Str;
                 mask_wpmat.depthwrite = "disabled"_Str;
-                mask_wpmat.cullmode   = "nocull"_Str;
+                // Blink animations hide mask parts by turning them away from the camera.
+                mask_wpmat.cullmode = "normal"_Str;
                 mask_wpmat.textures.resize(usize(2), String {});
                 mask_wpmat.textures[usize(0)] = albedo_tex.clone();
                 mask_wpmat.textures[usize(1)] = mb.mat_json.clone();
@@ -928,7 +929,7 @@ void ParseImageObjImpl(SceneLayerBuildContext& context, wpscene::ImageObject& im
                             mask_wpmat.blending   = "translucent"_Str;
                             mask_wpmat.depthtest  = "disabled"_Str;
                             mask_wpmat.depthwrite = "disabled"_Str;
-                            mask_wpmat.cullmode   = "nocull"_Str;
+                            mask_wpmat.cullmode   = "normal"_Str;
                             mask_wpmat.textures.resize(usize(2), String {});
                             mask_wpmat.textures[usize(0)] = source_tex.clone();
                             mask_wpmat.textures[usize(1)] = mb.mat_json.clone();
