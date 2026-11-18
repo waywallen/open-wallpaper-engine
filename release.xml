@@ -1,3 +1,37 @@
+<release version="0.3.4" date="2026-11-18">
+  <description>
+    <p>Added:</p>
+    <ul>
+      <li>Native MPRIS media integration for web wallpapers. #187 by @Mucca03</li>
+      <li>Workshop artist browsing and author avatars.</li>
+      <li>SceneViewer screenshot export.</li>
+    </ul>
+    <p>Fixes:</p>
+    <ul>
+      <li>Preserve camera animation across viewport updates. #185 by @AkiraLyu</li>
+      <li>Perspective mouse camera control and composed framebuffer sampling.</li>
+      <li>Particle geometry shader selection, 2D and 3D size defaults, colors and instance script initialization.</li>
+      <li>Signed particle emission ranges and emitter parameter parsing.</li>
+      <li>SceneScript boolean return values, desktop device queries and legacy scene object IDs.</li>
+      <li>Replay current media metadata and timeline positions when wallpapers start.</li>
+      <li>Video texture ended callbacks and paused frame updates.</li>
+      <li>Model material sampler formats and default textures.</li>
+      <li>Planar reflection initialization and mixed-material model rendering.</li>
+      <li>Puppet clipping-mask culling during blink animations.</li>
+      <li>Point light volumetric rendering, depth integration and compositing.</li>
+      <li>Viewer surface factory compatibility.</li>
+    </ul>
+    <p>Improved:</p>
+    <ul>
+      <li>Localized Workshop detail fields. #184 by @wehrwolfmann</li>
+    </ul>
+    <p>Changed:</p>
+    <ul>
+      <li>Workshop source uses Lua entry API 5.</li>
+    </ul>
+  </description>
+</release>
+
 <release version="0.3.3" date="2026-11-08">
   <description>
     <p>Added:</p>
