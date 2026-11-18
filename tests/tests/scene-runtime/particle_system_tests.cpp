@@ -490,6 +490,110 @@ TEST(ParticleSubSystem, SizeRandomDefaultsFollowSceneUnits) {
     }
 }
 
+TEST(ParticleSubSystem, SphereEmittersPreserveSignedDistanceRanges) {
+    struct Case {
+        ref<str> emitter;
+        float    minimum;
+        float    maximum;
+    };
+    const array<Case, 10> cases {
+        Case {
+            R"({"name":"sphererandom","distancemin":0,"distancemax":-30,"directions":"1 1.5 2"})"_str,
+            0.0f,
+            30.0f },
+        Case {
+            R"({"name":"sphererandom","distancemin":-30,"distancemax":0,"directions":"1 1.5 2"})"_str,
+            0.0f,
+            30.0f },
+        Case {
+            R"({"name":"sphererandom","distancemin":-30,"distancemax":-10,"directions":"1 1.5 2"})"_str,
+            10.0f,
+            30.0f },
+        Case {
+            R"({"name":"sphererandom","distancemin":30,"distancemax":10,"directions":"1 1.5 2"})"_str,
+            10.0f,
+            30.0f },
+        Case {
+            R"({"name":"sphererandom","distancemin":10,"distancemax":30,"directions":"1 1.5 2"})"_str,
+            10.0f,
+            30.0f },
+        Case {
+            R"({"name":"sphererandom","distancemin":30,"distancemax":30,"directions":"1 1.5 2"})"_str,
+            30.0f,
+            30.0f },
+        Case {
+            R"({"name":"sphererandom","distancemin":0,"distancemax":0,"directions":"1 1.5 2"})"_str,
+            0.0f,
+            0.0f },
+        Case {
+            R"({"name":"sphererandom","distancemin":-10,"distancemax":30,"directions":"1 1.5 2"})"_str,
+            0.0f,
+            30.0f },
+        Case {
+            R"({"name":"sphererandom","distancemin":0,"distancemax":-30,"directions":"1 1.5 0"})"_str,
+            0.0f,
+            30.0f },
+        Case {
+            R"({"name":"sphererandom","distancemin":0,"distancemax":-30,"directions":"1 0 0"})"_str,
+            0.0f,
+            30.0f },
+    };
+    const Eigen::Vector3f origin { 7.0f, 11.0f, 13.0f };
+    for (const auto& value : cases) {
+        owe::wpscene::Emitter emitter;
+        ASSERT_TRUE(emitter.FromJson(owe::ParseJson(value.emitter).unwrap()));
+        emitter.instantaneous = u32(128);
+        emitter.origin        = { origin.x(), origin.y(), origin.z() };
+        emitter.speedmin = emitter.speedmax = 0.5f;
+        owe::Scene             scene;
+        owe::ParticleSubSystem subsystem(scene,
+                                         Arc<owe::SceneMesh>::make(),
+                                         u32(128),
+                                         f64(1.0),
+                                         u32(1),
+                                         f64(1.0),
+                                         owe::ParticleSubSystem::SpawnType::STATIC,
+                                         owe::ParticleAnimationSpec {});
+        subsystem.AddInitializer(owe::ParticleParser::GenInitializer(
+            owe::ParseJson(R"({"name":"lifetimerandom","min":10,"max":10})"_str).unwrap(), u32(1)));
+        subsystem.AddEmitter(owe::ParticleParser::GenEmitter(emitter, subsystem, usize()));
+        subsystem.Finalize();
+        subsystem.Tick(f64(), false);
+        auto& storage    = subsystem.System().Instance(usize()).Storage();
+        auto  positions  = storage.Values(subsystem.Attributes().position);
+        auto  velocities = storage.Values(subsystem.Attributes().velocity);
+        ASSERT_EQ(positions.len(), usize(128));
+        Eigen::Vector3f spread = Eigen::Vector3f::Zero();
+        for (usize index {}; index < positions.len(); ++index) {
+            Eigen::Vector3f offset     = positions[index] - origin;
+            Eigen::Vector3f normalized = offset;
+            for (usize axis {}; axis < usize(3); ++axis) {
+                auto component = axis.to_primitive();
+                if (emitter.directions[axis] == 0.0f) {
+                    EXPECT_FLOAT_EQ(offset[component], 0.0f);
+                } else {
+                    normalized[component] /= emitter.directions[axis];
+                }
+            }
+            EXPECT_TRUE(positions[index].allFinite());
+            EXPECT_TRUE(velocities[index].allFinite());
+            EXPECT_GE(normalized.norm(), value.minimum - 1e-4f);
+            EXPECT_LE(normalized.norm(), value.maximum + 1e-4f);
+            if (offset.squaredNorm() > 1e-8f) {
+                EXPECT_TRUE(velocities[index].isApprox(0.5f * offset.normalized(), 1e-4f));
+            } else {
+                EXPECT_TRUE(velocities[index].isZero());
+            }
+            spread = spread.cwiseMax(offset.cwiseAbs());
+        }
+        if (value.maximum > 0.0f) {
+            for (usize axis {}; axis < usize(3); ++axis) {
+                if (emitter.directions[axis] != 0.0f) EXPECT_GT(spread[axis.to_primitive()], 1.0f);
+            }
+        }
+    }
+}
+
 TEST(ParticleSubSystem, PlaybackResetClearsAndRestartsIndependentStorage) {
     owe::Scene             scene;
     auto                   mesh = Arc<owe::SceneMesh>::make();

@@ -112,18 +112,18 @@ auto ActiveAxisCount(const Eigen::Vector3d& directions) noexcept -> u32 {
 }
 
 auto RandomRadius(double min_distance, double max_distance, u32 dimensions) -> double {
-    min_distance = rstd::cmp::max(min_distance, 0.0);
-    max_distance = rstd::cmp::max(max_distance, min_distance);
     if (dimensions <= u32(1)) {
         return algorism::lerp(Random::get(0.0, 1.0), min_distance, max_distance);
     }
 
     double dimension = static_cast<double>(dimensions.to_primitive());
-    double low       = f64(min_distance).powf(f64(dimension)).to_primitive();
-    double high      = f64(max_distance).powf(f64(dimension)).to_primitive();
-    return f64(algorism::lerp(Random::get(0.0, 1.0), low, high))
-        .powf(f64(1.0 / dimension))
-        .to_primitive();
+    // Authored negative distance ranges must not collapse to the emitter origin.
+    auto measure = [dimension](double distance) {
+        return f64(distance).abs().powf(f64(dimension)).copysign(f64(distance)).to_primitive();
+    };
+    auto value =
+        f64(algorism::lerp(Random::get(0.0, 1.0), measure(min_distance), measure(max_distance)));
+    return value.abs().powf(f64(1.0 / dimension)).copysign(value).to_primitive();
 }
 
 auto RandomDirectedUnit(const Eigen::Vector3d& directions) -> Eigen::Vector3d {
