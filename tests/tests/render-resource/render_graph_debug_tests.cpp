@@ -398,6 +398,129 @@ TEST(RenderGraphResources, PreservesFrameBoundaryTextureVersions) {
     }
 }
 
+TEST(SceneRenderGraph, ReflectionSelectsSubmeshesByActiveMaterialInputs) {
+    owe::Scene scene;
+    scene.RegisterRenderTarget(
+        "_rt_default"_Str,
+        owe::SceneRenderTarget { .width = i32(64), .height = i32(32), .withDepth = true });
+    scene.EnablePlanarReflection();
+    auto node = Arc<owe::SceneNode>::make();
+    node->SetReflected(true);
+    auto mesh = Arc<owe::SceneMesh>::make();
+    for (usize index {}; index < usize(3); ++index) {
+        auto material = GraphMaterial(index == usize() ? usize(1) : usize());
+        material.name = rstd::format("part-{}", index);
+        material.SetDepthTest(true);
+        material.SetDepthWrite(true);
+        if (index != usize(1)) material.textures.push("_rt_Reflection"_Str);
+        mesh->AddMaterial(rstd::move(material));
+        owe::SceneMesh::Submesh submesh;
+        submesh.material_slot = rstd::as_cast<u32>(index);
+        mesh->Submeshes().push(rstd::move(submesh));
+    }
+    node->AddMesh(rstd::move(mesh));
+    scene.RootMut()->AppendChild(rstd::move(node));
+
+    auto graph = owe::BuildSceneRenderState(scene).unwrap();
+    ASSERT_TRUE(graph.graph.compile().is_ok());
+    auto          order = graph.graph.inspect().order.clone();
+    Option<usize> clear_index, last_reflection_index, receiver_index;
+    usize         reflection_draws {}, primary_draws {};
+    for (usize index {}; index < order.len(); ++index) {
+        const auto& pass = graph.graph.passes()[usize(order[index])];
+        if (pass.name == "reflection/clear"_str) clear_index = Some(index);
+        auto draw = graph.draw(pass.id);
+        if (! draw) continue;
+        const auto& parameters = (*draw)->parameters();
+        if (parameters.render_view == owe::SceneRenderViewKind::Reflection) {
+            ++reflection_draws;
+            EXPECT_NE(parameters.submesh_index, u32());
+            EXPECT_EQ(parameters.output, "_rt_Reflection"_str);
+            for (const auto& binding : parameters.texture_bindings)
+                if (binding.name == "_rt_Reflection"_str) EXPECT_FALSE(binding.use);
+            ASSERT_TRUE(clear_index);
+            EXPECT_LT(*clear_index, index);
+            EXPECT_EQ(parameters.clear_depth, reflection_draws == usize(1));
+            last_reflection_index = Some(index);
+        } else {
+            ++primary_draws;
+            if (parameters.submesh_index == u32()) receiver_index = Some(index);
+        }
+    }
+    EXPECT_EQ(reflection_draws, usize(2));
+    EXPECT_EQ(primary_draws, usize(3));
+    ASSERT_TRUE(last_reflection_index);
+    ASSERT_TRUE(receiver_index);
+    EXPECT_LT(*last_reflection_index, *receiver_index);
+    auto plan = graph.textures.resourcePlan(graph.graph).unwrap();
+    bool reflection_resource {};
+    for (const auto& texture : plan.textures) {
+        if (texture.request().name == "_rt_Reflection"_str) {
+            reflection_resource = true;
+            EXPECT_FALSE(texture.initialize_transparent);
+        }
+    }
+    EXPECT_TRUE(reflection_resource);
+}
+
+TEST(SceneRenderGraph, ClearsReflectionWhenNoCasterDraws) {
+    for (int mode = 0; mode < 3; ++mode) {
+        owe::Scene scene;
+        scene.RegisterRenderTarget(
+            "_rt_default"_Str,
+            owe::SceneRenderTarget { .width = i32(64), .height = i32(32), .withDepth = true });
+        scene.EnablePlanarReflection();
+        auto receiver = Arc<owe::SceneNode>::make();
+        receiver->SetReflected(true);
+        auto receiver_mesh = Arc<owe::SceneMesh>::make();
+        auto material      = GraphMaterial(usize(1));
+        material.name      = "receiver"_Str;
+        material.textures.push("_rt_Reflection"_Str);
+        receiver_mesh->AddMaterial(rstd::move(material));
+        receiver_mesh->Submeshes().push(owe::SceneMesh::Submesh {});
+        receiver->AddMesh(rstd::move(receiver_mesh));
+        scene.RootMut()->AppendChild(rstd::move(receiver));
+        if (mode != 0) {
+            auto caster = Arc<owe::SceneNode>::make();
+            caster->SetVisible(mode != 1);
+            caster->SetReflected(mode != 2);
+            auto mesh = Arc<owe::SceneMesh>::make();
+            mesh->AddMaterial(GraphMaterial());
+            mesh->Submeshes().push(owe::SceneMesh::Submesh {});
+            caster->AddMesh(rstd::move(mesh));
+            scene.RootMut()->AppendChild(rstd::move(caster));
+        }
+        auto graph = owe::BuildSceneRenderState(scene).unwrap();
+        ASSERT_TRUE(graph.graph.compile().is_ok());
+        Option<usize> clear_index, receiver_index;
+        auto          order = graph.graph.inspect().order.clone();
+        for (usize index {}; index < order.len(); ++index) {
+            const auto& pass = graph.graph.passes()[usize(order[index])];
+            if (pass.name == "reflection/clear"_str) clear_index = Some(index);
+            if (pass.name == "receiver"_str) receiver_index = Some(index);
+        }
+        ASSERT_TRUE(clear_index);
+        ASSERT_TRUE(receiver_index);
+        EXPECT_LT(*clear_index, *receiver_index);
+        for (const auto& draw : graph.draws)
+            EXPECT_EQ(draw.source->parameters().render_view, owe::SceneRenderViewKind::Primary);
+        auto plan = graph.textures.resourcePlan(graph.graph).unwrap();
+        bool reflection_write {}, reflection_read {};
+        for (const auto& texture : plan.textures) {
+            if (texture.request().name != "_rt_Reflection"_str) continue;
+            EXPECT_FALSE(texture.initialize_transparent);
+            reflection_write = reflection_write ||
+                               texture.access == owe::resource::ResourceAccess::Write ||
+                               texture.access == owe::resource::ResourceAccess::ReadWrite;
+            reflection_read  = reflection_read ||
+                               texture.access == owe::resource::ResourceAccess::Read ||
+                               texture.access == owe::resource::ResourceAccess::ReadWrite;
+        }
+        EXPECT_TRUE(reflection_write);
+        EXPECT_TRUE(reflection_read);
+    }
+}
+
 TEST(SceneRenderGraph, GroupsPerspectiveDepthDrawsWithoutCrossingOtherDraws) {
     owe::Scene scene;
     scene.RegisterRenderTarget(

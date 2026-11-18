@@ -354,6 +354,18 @@ static void AddMaterialTextureReads(SceneMaterial& material, ref<str> pass_outpu
     }
 }
 
+static bool SamplesRenderTarget(const SceneMaterial& material, ref<str> target) {
+    if (! material.customShader.shader) return false;
+    const auto& shader = **material.customShader.shader;
+    for (usize index {}; index < material.texture_sources.len(); ++index) {
+        if (shader.SamplerMember(index.to_primitive()).is_empty()) continue;
+        const auto& source = material.texture_sources[index];
+        if (source.kind == SceneMaterialTextureSourceKind::SceneSurface && source.key == target)
+            return true;
+    }
+    return false;
+}
+
 static SceneNodeLayer* ToGraphPass(SceneNode* node, ref<str> output, ExtraInfo& extra,
                                    bool                defer_effect = false,
                                    SceneRenderViewKind render_view  = SceneRenderViewKind::Primary);
@@ -382,7 +394,8 @@ static void LoadGraphEffects(SceneNodeLayer* effs, ExtraInfo& extra) {
 
 static SceneNodeLayer* ToGraphPass(SceneNode* node, ref<str> output, ExtraInfo& extra,
                                    bool defer_effect, SceneRenderViewKind render_view) {
-    auto& scene = *extra.scene;
+    auto&      scene       = *extra.scene;
+    const auto view_output = output;
 
     if (node->Mesh() == nullptr) return nullptr;
     auto* mesh = node->Mesh();
@@ -415,6 +428,10 @@ static SceneNodeLayer* ToGraphPass(SceneNode* node, ref<str> output, ExtraInfo& 
         if (material_slot >= slots.len().to_primitive() || ! slots[usize(material_slot)]) continue;
         SceneMaterial* material = slots[usize(material_slot)].as_ptr().as_raw_ptr();
         scene.ResolveMaterialTextureSources(*material);
+        // A reflection receiver must not exclude other submeshes of the same model.
+        if (render_view == SceneRenderViewKind::Reflection &&
+            SamplesRenderTarget(*material, view_output))
+            continue;
         Option<Arc<SceneMaterial>> material_override;
         if (imgeff != nullptr && submesh.output_override.is_empty() && ! submesh.preserve_output) {
             auto source_blend = imgeff->IntermediateSourceBlend();
@@ -810,22 +827,10 @@ static void EmitSceneNode(SceneNode* node, ref<str> inherited_output, ref<str> i
     }
 }
 
-static bool SamplesPlanarReflection(SceneNode& node) {
-    auto* mesh = node.Mesh();
-    if (mesh == nullptr) return false;
-    for (const auto& material : mesh->MaterialSlots()) {
-        if (! material) continue;
-        for (const auto& texture : material->textures) {
-            if (texture.as_str().starts_with(WE_REFLECTION_PREFIX)) return true;
-        }
-    }
-    return false;
-}
-
 static void EmitPlanarReflectionNode(SceneNode* node, ExtraInfo& extra,
                                      const HashSet<const SceneNode*>& emit_skip_subtrees) {
     if (node == nullptr || emit_skip_subtrees.contains(node)) return;
-    if (node->Reflected() && ! SamplesPlanarReflection(*node)) {
+    if (node->Reflected()) {
         ToGraphPass(node, WE_REFLECTION_PREFIX, extra, true, SceneRenderViewKind::Reflection);
     }
     for (auto& child : node->GetChildren()) {
@@ -970,6 +975,19 @@ auto owe::BuildSceneRenderState(Scene& scene, const RenderSceneSnapshot& render_
     EmitShadowPasses(extra);
 
     if (scene.PlanarReflectionEnabled()) {
+        auto reflection = SelectTexture(extra, MakeTextureDesc(extra, WE_REFLECTION_PREFIX));
+        if (extra.error) return Err(*extra.error);
+        auto clear = vrento::vulkan::declare_graphics_clear(
+            extra.graph,
+            { extra.next_pass++ },
+            reflection,
+            { color[usize()], color[usize(1)], color[usize(2)], 1.0f },
+            1,
+            "reflection/clear"_Str);
+        if (clear.is_err()) return Err(clear.unwrap_err());
+        PublishTexture(extra, clear->output.clone());
+        (void)Use(extra, clear->output);
+        extra.descriptions.push(rstd::move(clear->description));
         EmitPlanarReflectionNode(scene.RootMut().as_raw_ptr(), extra, emit_skip_subtrees);
     }
 
