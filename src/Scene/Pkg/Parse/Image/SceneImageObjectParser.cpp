@@ -623,23 +623,14 @@ void ParseImageObjImpl(SceneLayerBuildContext& context, wpscene::ImageObject& im
         auto active = scene.ActiveCamera();
         if (active.is_none()) return;
         // set camera to attatch effect
-        Arc<SceneCamera> layer_camera =
-            isPassthrough ? Arc<SceneCamera>::make(SceneCamera::MakeOrthographic(
-                                (**active).Width(), (**active).Height(), -1.0, 1.0))
-                          : Arc<SceneCamera>::make(SceneCamera::MakeOrthographic(
-                                rstd::as_cast<double>(effect_extent[usize()]),
-                                rstd::as_cast<double>(effect_extent[usize(1)]),
-                                -1.0,
-                                1.0));
-        if (isPassthrough) {
-            auto owned = (**active).AttachedNodeHandle();
-            if (owned.is_some()) {
-                layer_camera->AttachOwnedNode(rstd::move(*owned));
-            } else {
-                auto attached = (**active).GetAttachedNode();
-                if (attached.is_some()) layer_camera->AttatchNode(attached.unwrap());
-            }
-        } else {
+        Arc<SceneCamera> layer_camera = isPassthrough
+                                            ? Arc<SceneCamera>::make(**active)
+                                            : Arc<SceneCamera>::make(SceneCamera::MakeOrthographic(
+                                                  rstd::as_cast<double>(effect_extent[usize()]),
+                                                  rstd::as_cast<double>(effect_extent[usize(1)]),
+                                                  -1.0,
+                                                  1.0));
+        if (! isPassthrough) {
             // Attach the per-layer effect camera to spImgNode itself so the
             // camera follows the layer through any parent-container world
             // translation. Otherwise the layer's quad ends up off-center in
@@ -649,7 +640,10 @@ void ParseImageObjImpl(SceneLayerBuildContext& context, wpscene::ImageObject& im
         }
         if (! scene.RegisterNodeCamera(image_node_id, String::make(nodeAddr), layer_camera.clone()))
             return;
-        if (isPassthrough) scene.RegisterLinkedCamera("global"_Str, String::make(nodeAddr));
+        // Framebuffer sampling must follow the camera that produced the background.
+        if (isPassthrough)
+            scene.RegisterLinkedCamera(String::make(scene.CameraRegistry()->ActiveName().unwrap()),
+                                       String::make(nodeAddr));
         if (wpimgobj.composite_layer) {
             const auto group_camera       = rstd::format("{}_group", nodeAddr);
             auto       group_camera_owner = Arc<SceneCamera>::make(

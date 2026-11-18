@@ -2607,6 +2607,79 @@ TEST(SceneLightParsing, RecognizesPrefixedKindsAndFullConeAngles) {
     EXPECT_NEAR(lights[rstd::usize()]->desc().outer_cone_cos, std::cos(77.94f * deg_to_rad), 1e-5f);
 }
 
+TEST(ImageEffectCamera, PassthroughFollowsActiveProjectionAndTransforms) {
+    using namespace rstd::prelude;
+    for (bool perspective : { false, true }) {
+        auto json = rstd::format(R"JSON({{
+            "camera": {{"eye":"0 2 10","center":"0 0 0","up":"0 1 0"}},
+            "general": {{"orthogonalprojection":{},"fov":50,"nearz":0.03,"farz":3807}},
+            "objects": [
+                {{"id":1,"name":"compose","image":"models/util/composelayer.json",
+                  "origin":"0 0 0","scale":"0.0015 0.0015 0.002","size":"4500 4500",
+                  "copybackground":true,"effects":[{{"file":"effects/edgedetection/effect.json"}}]}},
+                {{"id":2,"name":"depth-compose","image":"models/util/composelayer_depthtest.json",
+                  "origin":"0 0 0","scale":"0.0015 0.0015 0.002","size":"4500 4500",
+                  "copybackground":true,"effects":[{{"file":"effects/edgedetection/effect.json"}}]}},
+                {{"id":3,"name":"image","image":"models/util/solidlayer.json",
+                  "origin":"0 0 0","size":"64 64",
+                  "effects":[{{"file":"effects/edgedetection/effect.json"}}]}}
+            ]
+        }})JSON",
+                                 perspective ? "null"_str : "{\"width\":1920,\"height\":1080}"_str);
+        auto document =
+            owe::wpscene::ParseSceneDocumentJson(json.as_str(), owe::wpscene::kSceneVersionUnknown);
+        ASSERT_TRUE(document);
+        auto assets = owe::fs::make_physical_fs(
+            owe::fs::Path(rstd::cppstd::as_str(WAYWALLEN_ASSETS_DIR).unwrap()));
+        ASSERT_TRUE(assets);
+        owe::fs::VFS vfs;
+        ASSERT_TRUE(vfs.mount("/assets"_str, rstd::move(assets).unwrap()));
+        auto effect_path = rstd::format("{}/effects/edgedetection",
+                                        rstd::cppstd::as_str(WAYWALLEN_ASSETS_DIR).unwrap());
+        auto effects     = owe::fs::make_physical_fs(owe::fs::Path(effect_path.as_str()));
+        ASSERT_TRUE(effects);
+        ASSERT_TRUE(vfs.mount("/assets"_str, rstd::move(effects).unwrap()));
+        wavsen::audio::SoundManager sound;
+        owe::SceneParser            parser;
+        auto parsed = parser.Parse("passthrough-camera"_str,
+                                   ref<owe::wpscene::SceneDocument>::from_raw_parts(&*document),
+                                   mut_ref<owe::fs::VFS>::from_raw_parts(&vfs),
+                                   mut_ref<wavsen::audio::SoundManager>::from_raw_parts(&sound));
+        ASSERT_TRUE(parsed);
+        auto& scene  = *parsed->scene;
+        auto  active = scene.ActiveCameraHandle().unwrap();
+        EXPECT_EQ(active->IsPerspective(), perspective);
+        auto check_cameras = [&] {
+            for (auto name : { "compose"_str, "depth-compose"_str }) {
+                auto* node = scene.RootMut()->FindByName(name);
+                ASSERT_NE(node, nullptr);
+                ASSERT_TRUE(node->HasLayer());
+                auto camera = scene.CameraHandle(node->Camera());
+                ASSERT_TRUE(camera);
+                EXPECT_EQ((*camera)->IsPerspective(), perspective);
+                EXPECT_TRUE((*camera)->GetViewProjectionMatrix().isApprox(
+                    active->GetViewProjectionMatrix(), 1e-10));
+            }
+        };
+        check_cameras();
+        scene.UpdateCameraFillMode(u32(1280), u32(1024), owe::FillMode::ASPECTCROP);
+        check_cameras();
+        auto transforms = scene.ActiveCameraTransforms().unwrap();
+        transforms.eye += Eigen::Vector3d(1, 2, 3);
+        transforms.center += Eigen::Vector3d(1, 2, 3);
+        ASSERT_TRUE(scene.SetActiveCameraTransforms(transforms));
+        check_cameras();
+        auto* image = scene.RootMut()->FindByName("image"_str);
+        ASSERT_NE(image, nullptr);
+        auto image_camera = scene.CameraHandle(image->Camera());
+        ASSERT_TRUE(image_camera);
+        EXPECT_FALSE((*image_camera)->IsPerspective());
+        EXPECT_FALSE((*image_camera)
+                         ->GetViewProjectionMatrix()
+                         .isApprox(active->GetViewProjectionMatrix(), 1e-10));
+    }
+}
+
 TEST(SceneCameraScript, SkeletonMouseControlIsContinuousAndSettles) {
     using namespace rstd::prelude;
     auto file = rstd::format("{}/3292370168/scene.pkg",

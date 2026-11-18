@@ -209,6 +209,7 @@ void Scene::UpdateCameraFillMode(u32 width, u32 height, FillMode fillmode) {
     gcam.Update();
     pcam.Update();
     UpdateLinkedCamera("global"_str);
+    UpdateLinkedCamera("global_perspective"_str);
     CaptureCameraPathViewports();
     // Reapply the current camera path sample to the updated viewport.
     TickCameraPaths();

@@ -182,6 +182,7 @@ globalThis.engine.AUDIO_RESOLUTION_64 = 64;
 // corpus only ever calls it, so callable-form is the safer default).
 globalThis.engine.isRunningInEditor = function() { return false; };
 globalThis.engine.isScreensaver     = function() { return false; };
+globalThis.engine.isMobileDevice    = function() { return false; };
 
 // --- SceneScript Core Foundational Math Classes & Host State ---
 const _Epsilon = 0.00001;

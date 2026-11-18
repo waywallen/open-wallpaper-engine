@@ -97,6 +97,26 @@ struct SoundControlProbe {
 
 } // namespace
 
+TEST(ScriptEngine, DesktopMobileQueryIsCallableInCallbacks) {
+    auto      root = Arc<owe::SceneNode>::make();
+    JsRuntime runtime;
+    runtime.SetSceneRoot(root.as_ptr());
+    auto* script = MakeProbe(runtime,
+                             "test/desktop_mobile_query",
+                             R"JS(
+        let initialized = 0, applied = 0;
+        export function init() { initialized = engine.isMobileDevice() ? 100 : 1; }
+        export function applyUserProperties() {
+            applied = engine.isMobileDevice() ? 100 : 10;
+        }
+        export function update() { return initialized + applied; }
+    )JS");
+    ASSERT_NE(script, nullptr);
+    runtime.SetUserProperty("enabled"_str, owe::IntoJson(true));
+    runtime.TickAll();
+    EXPECT_DOUBLE_EQ(LastScalar(script), 11.0);
+}
+
 TEST(ScriptReturnValue, BoolRequiresBoolean) {
     JsRuntime rt;
     auto*     script = rt.MakeFieldScript(
