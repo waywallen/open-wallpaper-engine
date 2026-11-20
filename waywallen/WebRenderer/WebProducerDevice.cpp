@@ -258,9 +258,20 @@ bool WebProducerDevice::PickPhysicalDevice() {
                  CStr::from_ptr(VK_EXT_PHYSICAL_DEVICE_DRM_EXTENSION_NAME).to_bytes()))
                 has_drm_props = true;
         }
-        if (! has_ext_mem_fd || ! has_dma_buf || ! has_modifier || ! has_ext_sem_fd ||
-            ! has_q_foreign || ! has_fmt_list)
+        // VK_EXT_image_drm_format_modifier is optional: without it CEF
+        // frames are imported as VK_IMAGE_TILING_LINEAR.
+        if (! has_ext_mem_fd || ! has_dma_buf || ! has_ext_sem_fd || ! has_q_foreign ||
+            ! has_fmt_list)
             continue;
+
+        if (! pinning) {
+            // Never auto-pick a software rasterizer (llvmpipe has no render
+            // node, so the bridge pool cannot be created on it).
+            VkPhysicalDeviceProperties2 dtype {};
+            dtype.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+            instance_dispatch_.vkGetPhysicalDeviceProperties2(pd, &dtype);
+            if (dtype.properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_CPU) continue;
+        }
 
         if (pinning) {
             if (! has_drm_props) continue;
@@ -276,8 +287,9 @@ bool WebProducerDevice::PickPhysicalDevice() {
                 continue;
         }
 
-        phys_         = pd;
-        queue_family_ = picked_qf;
+        phys_              = pd;
+        queue_family_      = picked_qf;
+        have_modifier_ext_ = has_modifier;
         VkPhysicalDeviceMemoryProperties2 mem_props2 {};
         mem_props2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_PROPERTIES_2;
         instance_dispatch_.vkGetPhysicalDeviceMemoryProperties2(phys_, &mem_props2);
@@ -314,21 +326,22 @@ bool WebProducerDevice::CreateDevice() {
     qi.queueCount       = 1;
     qi.pQueuePriorities = &prio;
 
-    const char* dev_exts[] = {
-        VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME,
-        VK_EXT_EXTERNAL_MEMORY_DMA_BUF_EXTENSION_NAME,
-        // Required by VK_EXT_image_drm_format_modifier on Vulkan 1.1
-        // (promoted to core in 1.2). Validation rejects the device otherwise.
-        VK_KHR_IMAGE_FORMAT_LIST_EXTENSION_NAME,
-        VK_EXT_IMAGE_DRM_FORMAT_MODIFIER_EXTENSION_NAME,
-        VK_KHR_EXTERNAL_SEMAPHORE_FD_EXTENSION_NAME,
-        VK_EXT_QUEUE_FAMILY_FOREIGN_EXTENSION_NAME,
-    };
+    const char* dev_exts[6];
+    uint32_t    dev_ext_count = 0;
+    dev_exts[dev_ext_count++] = VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME;
+    dev_exts[dev_ext_count++] = VK_EXT_EXTERNAL_MEMORY_DMA_BUF_EXTENSION_NAME;
+    // Required by VK_EXT_image_drm_format_modifier on Vulkan 1.1
+    // (promoted to core in 1.2). Validation rejects the device otherwise.
+    dev_exts[dev_ext_count++] = VK_KHR_IMAGE_FORMAT_LIST_EXTENSION_NAME;
+    if (have_modifier_ext_)
+        dev_exts[dev_ext_count++] = VK_EXT_IMAGE_DRM_FORMAT_MODIFIER_EXTENSION_NAME;
+    dev_exts[dev_ext_count++] = VK_KHR_EXTERNAL_SEMAPHORE_FD_EXTENSION_NAME;
+    dev_exts[dev_ext_count++] = VK_EXT_QUEUE_FAMILY_FOREIGN_EXTENSION_NAME;
     VkDeviceCreateInfo ci {};
     ci.sType                   = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
     ci.queueCreateInfoCount    = 1;
     ci.pQueueCreateInfos       = &qi;
-    ci.enabledExtensionCount   = static_cast<uint32_t>((sizeof(dev_exts) / sizeof(dev_exts[0])));
+    ci.enabledExtensionCount   = dev_ext_count;
     ci.ppEnabledExtensionNames = dev_exts;
 
     auto created =
@@ -536,6 +549,14 @@ WebProducerDevice::ImportedFrame WebProducerDevice::Import(const ::weweb::DmaBuf
     plane_layout.offset   = frame.planes[0].offset;
     plane_layout.rowPitch = frame.planes[0].stride;
 
+    if (! have_modifier_ext_ && modifier != DRM_FORMAT_MOD_LINEAR) {
+        eprint("WebProducerDevice: device lacks VK_EXT_image_drm_format_modifier but CEF frame "
+               "modifier is {}; cannot import\n",
+               modifier);
+        ::close(dup_fd);
+        return imp;
+    }
+
     VkImageDrmFormatModifierExplicitCreateInfoEXT mod_info {};
     mod_info.sType = VK_STRUCTURE_TYPE_IMAGE_DRM_FORMAT_MODIFIER_EXPLICIT_CREATE_INFO_EXT;
     mod_info.drmFormatModifier           = modifier;
@@ -544,7 +565,8 @@ WebProducerDevice::ImportedFrame WebProducerDevice::Import(const ::weweb::DmaBuf
 
     VkExternalMemoryImageCreateInfo ext_img {};
     ext_img.sType       = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO;
-    ext_img.pNext       = &mod_info;
+    // Without the modifier extension the (linear) layout is implicit.
+    ext_img.pNext       = have_modifier_ext_ ? static_cast<const void*>(&mod_info) : nullptr;
     ext_img.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT;
 
     VkImageCreateInfo ii {};
@@ -558,7 +580,8 @@ WebProducerDevice::ImportedFrame WebProducerDevice::Import(const ::weweb::DmaBuf
     ii.mipLevels     = 1;
     ii.arrayLayers   = 1;
     ii.samples       = VK_SAMPLE_COUNT_1_BIT;
-    ii.tiling        = VK_IMAGE_TILING_DRM_FORMAT_MODIFIER_EXT;
+    ii.tiling        = have_modifier_ext_ ? VK_IMAGE_TILING_DRM_FORMAT_MODIFIER_EXT
+                                          : VK_IMAGE_TILING_LINEAR;
     ii.usage         = VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
     ii.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
     ii.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
