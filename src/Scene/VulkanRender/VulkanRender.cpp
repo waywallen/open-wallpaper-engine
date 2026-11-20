@@ -952,8 +952,10 @@ bool VulkanRender::Impl::init(RenderInitInfo info, SceneLoadBenchRecorderView lo
         // to core in 1.2). Validation layer rejects the device otherwise.
         device_exts.push(
             { true, CStr::from_ptr(VK_KHR_IMAGE_FORMAT_LIST_EXTENSION_NAME).to_str().unwrap() });
+        // Optional: GPUs without it (e.g. RADV on GFX8/Tonga) export linear
+        // DMA-BUFs through the bridge pool's fallback path.
         device_exts.push(
-            { true,
+            { false,
               CStr::from_ptr(VK_EXT_IMAGE_DRM_FORMAT_MODIFIER_EXTENSION_NAME).to_str().unwrap() });
         device_exts.push(
             { true, CStr::from_ptr(VK_EXT_QUEUE_FAMILY_FOREIGN_EXTENSION_NAME).to_str().unwrap() });
