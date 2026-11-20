@@ -128,8 +128,14 @@ void ParseImageObjImpl(SceneLayerBuildContext& context, wpscene::ImageObject& im
         (! has_author_effect || has_bones) && ! wpimgobj.solid_layer;
     const bool color_blend_uses_layer_material =
         wpimgobj.colorBlendMode != i32() && layer_material_is_final;
+    const bool is_linked_source = context.layer_resources->linked_source_ids.contains(wpimgobj.id);
     const bool append_color_blend_final_effect =
         wpimgobj.colorBlendMode != i32() && ! color_blend_uses_layer_material;
+    // Other layers sample this layer's composite (`_rt_imageLayerComposite_<id>`). Its own blend
+    // mode is applied against the scene behind it, so it must not be part of that composite:
+    // publish a copy taken just before the blend effect instead (additive needs no scene read).
+    const bool publish_unblended_composite =
+        is_linked_source && append_color_blend_final_effect && wpimgobj.colorBlendMode != i32(31);
     Option<BlendMode> color_blend_attachment_override;
     if (append_color_blend_final_effect) {
         wpscene::ImageEffect colorEffect;
@@ -144,7 +150,6 @@ void ParseImageObjImpl(SceneLayerBuildContext& context, wpscene::ImageObject& im
         colorEffect.materials.push(rstd::move(colorMat));
         wpimgobj.effects.push(rstd::move(colorEffect));
     }
-    const bool is_linked_source = context.layer_resources->linked_source_ids.contains(wpimgobj.id);
     if (! has_author_effect && wpimgobj.composite_layer && ! is_linked_source) {
         AppendLayerCompositePassthroughEffect(vfs, wpimgobj);
     }
@@ -704,12 +709,113 @@ void ParseImageObjImpl(SceneLayerBuildContext& context, wpscene::ImageObject& im
             (void)scene.RegisterNodeRenderTarget(
                 image_node_id, String::make(effect_composite), rstd::move(target));
         }
+        const auto pre_blend_composite =
+            scene.NodeResourceKey(image_node_id, "layer_composite_pre_blend"_str);
+        if (publish_unblended_composite) {
+            SceneRenderTarget target {
+                .width                = effect_extent[usize()],
+                .height               = effect_extent[usize(1)],
+                .allowReuse           = false,
+                .force_clear          = true,
+                .clear_on_first_write = true,
+            };
+            if (point_source) {
+                auto& s     = target.sample;
+                s.magFilter = s.minFilter = TextureFilter::NEAREST;
+            }
+            (void)scene.RegisterNodeRenderTarget(
+                image_node_id, String::make(pre_blend_composite), rstd::move(target));
+        }
+
+        auto make_internal_passthrough =
+            [&](ref<str> input, SceneEffectTarget output, ref<str> name) {
+                Option<Arc<SceneImageEffect>> result;
+                wpscene::Material             passthrough_mat;
+                auto json = LoadJsonFile(vfs, "/assets/materials/util/effectpassthrough.json"_str);
+                if (! json || ! passthrough_mat.FromJson(*json)) {
+                    rstd_error("parse effectpassthrough.json failed for '{}'", wpimgobj.name);
+                    return result;
+                }
+                if (passthrough_mat.textures.is_empty())
+                    passthrough_mat.textures.push(rstd::into(input));
+                else
+                    passthrough_mat.textures[usize()] = rstd::into(input);
+
+                auto node = Arc<SceneNode>::make();
+                context.TrackCreatedNode(node);
+                ShaderInfo shader_info;
+                shader_info.baseConstSvs = NeutralColorUniforms(baseConstSvs.clone());
+                SceneMaterial          material;
+                UniformNodeConfigDraft uniform_config;
+                uniform_config.SetParallaxContract(
+                    wpimgobj.parallax, wpimgobj.id, ! wpimgobj.disablepropagation);
+                uniform_config.effect_projection_node = Some(spImgNode.clone());
+                uniform_config.effect_projection_size = {
+                    rstd::as_cast<float>(effect_extent[usize()]),
+                    rstd::as_cast<float>(effect_extent[usize(1)])
+                };
+                auto material_result = BuildMaterial(vfs,
+                                                     *context.layer_resources->shader_cache,
+                                                     context.layer_resources->shader_environment,
+                                                     passthrough_mat,
+                                                     *context.scene,
+                                                     rstd::move(shader_info),
+                                                     GeometryStageRequirement::None,
+                                                     context.load_bench);
+                if (material_result.is_err()) {
+                    rstd_error("effect passthrough failed to load for '{}'", wpimgobj.name);
+                    return result;
+                }
+                auto material_build = rstd::move(material_result).unwrap_unchecked();
+                material            = rstd::move(material_build.material);
+                shader_info         = rstd::move(material_build.shader_info);
+                LoadConstvalue(context, material, passthrough_mat, shader_info);
+                auto mesh = Arc<SceneMesh>::make();
+                mesh->AddMaterial(rstd::move(material));
+                RegisterMaterialBindings(*context.scene,
+                                         mesh->MaterialSlots().first_mut().unwrap().get_mut(),
+                                         passthrough_mat,
+                                         shader_info,
+                                         None(),
+                                         image_node_id);
+                RegisterLayerPreviousBindings(*context.scene,
+                                              *mesh->Material(),
+                                              passthrough_mat,
+                                              image_node_id,
+                                              effect_composite);
+                node->AddMesh(rstd::move(mesh));
+                scene.RegisterNode(*node);
+                SetUniformConfig(context, node, rstd::move(uniform_config));
+
+                result          = Some(Arc<SceneImageEffect>::make());
+                (*result)->name = rstd::into(name);
+                (*result)->AddNode(SceneImageEffectNode {
+                    .output    = rstd::move(output),
+                    .sceneNode = node.clone(),
+                });
+                return result;
+            };
 
         bool       last_effect_can_composite_final { false };
         const bool allow_transparent_previous_final = ! solid_composite_context;
         const bool passthrough_can_composite_final =
             isPassthrough || ! parse_geometry.requires_source_draw;
+        usize effect_index {};
         for (const auto& wpeffobj : wpimgobj.effects) {
+            const bool is_appended_color_blend =
+                append_color_blend_final_effect &&
+                effect_index++ + usize(1) == wpimgobj.effects.len();
+            if (is_appended_color_blend && publish_unblended_composite) {
+                auto pre_blend_copy = make_internal_passthrough(
+                    effect_composite,
+                    SceneEffectTarget::Named(pre_blend_composite.as_str()),
+                    "linked_layer_pre_blend_copy"_str);
+                if (pre_blend_copy) {
+                    (void)scene.RegisterEffect(
+                        image_node_id, *imgEffectLayer, (*pre_blend_copy).clone());
+                    imgEffectLayer->AddEffect(*pre_blend_copy);
+                }
+            }
             Arc<SceneImageEffect> imgEffect = Arc<SceneImageEffect>::make();
             imgEffect->name                 = rstd::into(wpeffobj.name.as_str());
             imgEffect->runtime_visible      = wpeffobj.visible;
@@ -1028,75 +1134,6 @@ void ParseImageObjImpl(SceneLayerBuildContext& context, wpscene::ImageObject& im
             }
         }
 
-        auto make_internal_passthrough =
-            [&](ref<str> input, SceneEffectTarget output, ref<str> name) {
-                Option<Arc<SceneImageEffect>> result;
-                wpscene::Material             passthrough_mat;
-                auto json = LoadJsonFile(vfs, "/assets/materials/util/effectpassthrough.json"_str);
-                if (! json || ! passthrough_mat.FromJson(*json)) {
-                    rstd_error("parse effectpassthrough.json failed for '{}'", wpimgobj.name);
-                    return result;
-                }
-                if (passthrough_mat.textures.is_empty())
-                    passthrough_mat.textures.push(rstd::into(input));
-                else
-                    passthrough_mat.textures[usize()] = rstd::into(input);
-
-                auto node = Arc<SceneNode>::make();
-                context.TrackCreatedNode(node);
-                ShaderInfo shader_info;
-                shader_info.baseConstSvs = NeutralColorUniforms(baseConstSvs.clone());
-                SceneMaterial          material;
-                UniformNodeConfigDraft uniform_config;
-                uniform_config.SetParallaxContract(
-                    wpimgobj.parallax, wpimgobj.id, ! wpimgobj.disablepropagation);
-                uniform_config.effect_projection_node = Some(spImgNode.clone());
-                uniform_config.effect_projection_size = {
-                    rstd::as_cast<float>(effect_extent[usize()]),
-                    rstd::as_cast<float>(effect_extent[usize(1)])
-                };
-                auto material_result = BuildMaterial(vfs,
-                                                     *context.layer_resources->shader_cache,
-                                                     context.layer_resources->shader_environment,
-                                                     passthrough_mat,
-                                                     *context.scene,
-                                                     rstd::move(shader_info),
-                                                     GeometryStageRequirement::None,
-                                                     context.load_bench);
-                if (material_result.is_err()) {
-                    rstd_error("effect passthrough failed to load for '{}'", wpimgobj.name);
-                    return result;
-                }
-                auto material_build = rstd::move(material_result).unwrap_unchecked();
-                material            = rstd::move(material_build.material);
-                shader_info         = rstd::move(material_build.shader_info);
-                LoadConstvalue(context, material, passthrough_mat, shader_info);
-                auto mesh = Arc<SceneMesh>::make();
-                mesh->AddMaterial(rstd::move(material));
-                RegisterMaterialBindings(*context.scene,
-                                         mesh->MaterialSlots().first_mut().unwrap().get_mut(),
-                                         passthrough_mat,
-                                         shader_info,
-                                         None(),
-                                         image_node_id);
-                RegisterLayerPreviousBindings(*context.scene,
-                                              *mesh->Material(),
-                                              passthrough_mat,
-                                              image_node_id,
-                                              effect_composite);
-                node->AddMesh(rstd::move(mesh));
-                scene.RegisterNode(*node);
-                SetUniformConfig(context, node, rstd::move(uniform_config));
-
-                result          = Some(Arc<SceneImageEffect>::make());
-                (*result)->name = rstd::into(name);
-                (*result)->AddNode(SceneImageEffectNode {
-                    .output    = rstd::move(output),
-                    .sceneNode = node.clone(),
-                });
-                return result;
-            };
-
         if (is_linked_source) {
             const auto link_output = scene.EnsureLinkRenderTarget(
                 WallpaperLayerId { .value = i32(wpimgobj.id) }, *spImgNode);
@@ -1107,9 +1144,11 @@ void ParseImageObjImpl(SceneLayerBuildContext& context, wpscene::ImageObject& im
             }
             scene.RegisterLayerLinkSource(WallpaperLayerId { .value = i32(wpimgobj.id) },
                                           *spImgNode);
-            auto publish = make_internal_passthrough(effect_composite,
-                                                     SceneEffectTarget::Named(link_output.as_str()),
-                                                     "linked_layer_publish"_str);
+            auto publish =
+                make_internal_passthrough(publish_unblended_composite ? pre_blend_composite.as_str()
+                                                                      : effect_composite.as_str(),
+                                          SceneEffectTarget::Named(link_output.as_str()),
+                                          "linked_layer_publish"_str);
             auto visible = make_internal_passthrough(link_output.as_str(),
                                                      SceneEffectTarget::Named(SpecTex_Default),
                                                      "linked_layer_visible_resolve"_str);
