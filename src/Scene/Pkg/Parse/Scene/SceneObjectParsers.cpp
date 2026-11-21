@@ -643,6 +643,54 @@ void ParseModelObj(SceneLayerBuildContext& context, wpscene::ModelObject& model)
 
 void IndexSceneDocument(SceneParseContext& context, ref<wpscene::SceneDocument> document,
                         slice<SceneObjectVar> objects) {
+    struct FboUse {
+        const wpscene::EffectFbo* description {};
+        usize                     writers {};
+        bool                      external_reader {};
+        bool                      compatible { true };
+    };
+    HashMap<String, FboUse> targets;
+    for (const auto& object : objects) {
+        object.visit([&](auto, const auto& payload) {
+            if constexpr (requires { payload.value.effects; }) {
+                for (const auto& effect : payload.value.effects) {
+                    for (const auto& fbo : effect.fbos) {
+                        auto use = targets.get_mut(fbo.name.as_str());
+                        if (! use) {
+                            (void)targets.insert(fbo.name.clone(), FboUse { .description = &fbo });
+                            use = targets.get_mut(fbo.name.as_str());
+                        }
+                        auto&       value   = **use;
+                        const auto& initial = *value.description;
+                        value.compatible =
+                            value.compatible && ! fbo.unique && initial.format == fbo.format &&
+                            initial.width == fbo.width && initial.height == fbo.height &&
+                            initial.scale == fbo.scale && initial.fit == fbo.fit;
+                        bool writes {}, reads {};
+                        for (const auto& pass : effect.passes) {
+                            writes = writes || pass.target == fbo.name;
+                            for (const auto& bind : pass.bind)
+                                reads = reads || bind.name == fbo.name;
+                            for (const auto& texture : pass.textures)
+                                reads = reads || texture == fbo.name;
+                        }
+                        for (const auto& command : effect.commands) {
+                            writes = writes || command.target == fbo.name;
+                            reads  = reads || command.source == fbo.name;
+                        }
+                        if (writes) ++value.writers;
+                        value.external_reader = value.external_reader || (reads && ! writes);
+                    }
+                }
+            }
+        });
+    }
+    targets.iter().for_each([&](auto entry) {
+        auto [name, use] = entry;
+        // Keep independent effect scratch buffers private; only publish an unambiguous producer.
+        if (use->compatible && use->external_reader && use->writers == usize(1))
+            context.layer_resources->shared_effect_targets.insert(name->clone());
+    });
     context.layer_resources->scene_has_scripts       = SceneHasScripts(objects);
     context.layer_resources->scene_layer_text_writes = SceneWritesLayerText(objects);
     for (const auto& record : document->objects) {

@@ -4,6 +4,7 @@ module;
 
 module wescene.pkg.parse;
 import :scene_context;
+import :mdl_parser;
 import eigen;
 import wescene.load_bench;
 import wescene.core;
@@ -12,6 +13,7 @@ import rstd;
 import rstd.log;
 import wescene.utils;
 import wescene.scene;
+import wescene.model_data;
 import wescene.scene_user_property;
 import wescene.text;
 import wescene.script;
@@ -437,6 +439,56 @@ struct RuntimeLayerFactory {
         return Commit(context, *parent, rstd::move(built));
     }
 
+    auto InstantiateModel(SceneNode* owner, const Json& config, const Arc<SceneModelData>& model)
+        -> Option<Arc<SceneNode>> {
+        auto vfs = scene->ExtensionMut<fs::VFS>();
+        if (! vfs) return None();
+        SceneLayerBuildContext context(*scene, **vfs, resources.clone());
+        PrepareContext(context);
+        const auto      id = NextObjectId();
+        array<float, 3> origin {}, angles {}, scale { 1.0f, 1.0f, 1.0f };
+        String          name;
+        bool            perspective {}, visible { true };
+        GetJsonValue(config, "name"_str, name, false);
+        GetJsonValue(config, "origin"_str, origin, false);
+        GetJsonValue(config, "angles"_str, angles, false);
+        GetJsonValue(config, "scale"_str, scale, false);
+        GetJsonValue(config, "perspective"_str, perspective, false);
+        GetJsonValue(config, "visible"_str, visible, false);
+        auto node = Arc<SceneNode>::make(Vector3f(origin.data()),
+                                         Vector3f(scale.data()),
+                                         Vector3f(angles.data()),
+                                         name.as_str());
+        context.TrackCreatedNode(node);
+        const auto node_id = scene->RegisterNode(*node);
+        node->ID()         = id;
+        node->SetPerspective(perspective);
+        node->SetVisible(visible);
+        auto  mesh   = model->Instantiate();
+        auto* parent = owner && owner->Parent() ? owner->Parent() : scene->RootMut().as_raw_ptr();
+        for (const auto& shape : model->Shapes()) {
+            auto material = MdlParser::ParseMaterial(shape.material.as_str(), **vfs);
+            if (! material) return Commit(context, *parent, None());
+            ShaderInfo info;
+            info.baseConstSvs = resources->global_base_uniforms.clone();
+            auto built        = BuildMaterial(**vfs,
+                                              *resources->shader_cache,
+                                              resources->shader_environment,
+                                              *material,
+                                              *scene,
+                                              rstd::move(info));
+            if (built.is_err()) return Commit(context, *parent, None());
+            LoadConstvalue(context, built->material, *material, built->shader_info);
+            auto slot = Arc<SceneMaterial>::make(rstd::move(built->material));
+            RegisterMaterialBindings(*scene, slot, *material, built->shader_info, None(), node_id);
+            WireMaterialShaderValueScripts(context, node, slot, *material, built->shader_info);
+            mesh->MaterialSlots().push(rstd::move(slot));
+        }
+        node->AddMesh(rstd::move(mesh));
+        SetUniformConfig(context, node, UniformNodeConfigDraft {});
+        return Commit(context, *parent, Some(SceneLayerNodeDraft { .node = Some(node.clone()) }));
+    }
+
     auto InstantiateImageAsset(SceneNode& parent, ref<str> asset) -> Option<Arc<SceneNode>> {
         auto vfs = scene->ExtensionMut<fs::VFS>();
         if (vfs.is_none()) return None();
@@ -570,8 +622,12 @@ void InstallRuntimeLayerFactory(SceneParseContext&                context,
             return factory->operator()(owner, request);
         }));
     (**scripts).runtime().SetLayerConfigFactory(script::JsRuntime::LayerConfigFactory::make(
-        [factory = rstd::move(factory)](SceneNode* owner, Json config) {
+        [factory = factory.clone()](SceneNode* owner, Json config) {
             return factory->InstantiateConfig(owner, config);
+        }));
+    (**scripts).runtime().SetModelLayerFactory(script::JsRuntime::ModelLayerFactory::make(
+        [factory = rstd::move(factory)](SceneNode* owner, Json config, Arc<SceneModelData> model) {
+            return factory->InstantiateModel(owner, config, model);
         }));
 }
 

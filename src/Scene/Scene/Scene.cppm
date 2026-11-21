@@ -361,6 +361,7 @@ struct SceneRenderTarget {
     unsigned              mipmap_level { 1 };
     // 1 disables MSAA; only screen RT is opted-in by VulkanRender at init.
     unsigned      sample_count { 1 };
+    TextureFormat format { TextureFormat::RGBA8 };
     TextureSample sample { TextureWrap::CLAMP_TO_EDGE,
                            TextureWrap::CLAMP_TO_EDGE,
                            TextureFilter::LINEAR,
@@ -394,7 +395,7 @@ struct SceneRenderTarget {
             .height     = PhysicalHeight(),
             .usage      = depth ? vrento::resource::TextureUsage::DepthAttachment
                                 : vrento::resource::TextureUsage::Color,
-            .format     = depth ? TextureFormat::D32F : TextureFormat::RGBA8,
+            .format     = depth ? TextureFormat::D32F : format,
             .sample     = type == vrento::resource::TextureRequestKind::DepthAttachment
                               ? TextureSample { TextureWrap::CLAMP_TO_EDGE,
                                                 TextureWrap::CLAMP_TO_EDGE,
@@ -437,6 +438,7 @@ struct SceneRenderTarget {
                  .has_mipmap             = has_mipmap,
                  .mipmap_level           = mipmap_level,
                  .sample_count           = sample_count,
+                 .format                 = format,
                  .sample                 = sample,
                  .bind                   = bind.clone(),
                  .force_clear            = force_clear,

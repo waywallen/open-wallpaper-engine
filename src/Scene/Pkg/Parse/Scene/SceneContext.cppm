@@ -90,6 +90,8 @@ void RegisterLayerPreviousBindings(Scene&, SceneMaterial&, const wpscene::Materi
                                    ref<str> composite_target);
 void ApplyTextureBinds(wpscene::Material&, slice<wpscene::MaterialPassBindItem>,
                        const EffectRenderTargets&);
+auto RegisterEffectRenderTarget(SceneLayerBuildContext&, SceneNodeId, SceneEffectId,
+                                const wpscene::EffectFbo&, SceneRenderTarget) -> String;
 void LoadConstvalue(SceneLayerBuildContext&, SceneMaterial&, const wpscene::Material&,
                     const ShaderInfo&, SceneShaderValueAnimationMap* = nullptr);
 
@@ -169,6 +171,7 @@ struct SceneLayerResources {
     HashSet<i32>                      hidden_link_source_ids;
     bool                              scene_has_scripts { false };
     bool                              scene_layer_text_writes { false };
+    HashSet<String>                   shared_effect_targets;
 };
 
 struct SceneLayerBuildContext {

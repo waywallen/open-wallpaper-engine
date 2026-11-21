@@ -303,9 +303,11 @@ OWE_IMPL_GET_JSON(RstdI32Array3);
 using RstdIntArray3   = array<int, 3>;
 using RstdFloatArray2 = array<float, 2>;
 using RstdFloatArray3 = array<float, 3>;
+using RstdFloatArray4 = array<float, 4>;
 OWE_IMPL_GET_JSON(RstdIntArray3);
 OWE_IMPL_GET_JSON(RstdFloatArray2);
 OWE_IMPL_GET_JSON(RstdFloatArray3);
+OWE_IMPL_GET_JSON(RstdFloatArray4);
 
 #undef OWE_IMPL_GET_JSON
 

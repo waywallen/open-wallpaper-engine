@@ -133,6 +133,13 @@ bool EffectFbo::FromJson(const owe::Json& json) {
     owe::GetJsonValue(json, "format"_str, format);
     owe::GetJsonValue(json, "scale"_str, scale);
     owe::GetJsonValue(json, "fit"_str, fit, false);
+    owe::GetJsonValue(json, "width"_str, width, false);
+    owe::GetJsonValue(json, "height"_str, height, false);
+    if (auto value = json.get("clear"_str); value.is_some()) {
+        array<float, 4> color {};
+        owe::GetJsonValue(**value, color);
+        clear = Some(color);
+    }
     owe::GetJsonValue(json, "unique"_str, unique, false);
     if (scale == u32()) {
         rstd_error("fbo scale can't be 0");

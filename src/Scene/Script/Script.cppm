@@ -7,6 +7,7 @@ import wescene.core;
 import wescene.json;
 import rstd;
 import wescene.scene;
+import wescene.model_data;
 
 using namespace rstd::prelude;
 using rstd::path::PathBuf;
@@ -313,6 +314,9 @@ public:
     void SetLayerFactory(LayerFactory factory);
     using LayerConfigFactory = Arc<dyn<FnMut<Option<Arc<owe::SceneNode>>(owe::SceneNode*, Json)>>>;
     void SetLayerConfigFactory(LayerConfigFactory factory);
+    using ModelLayerFactory = Arc<
+        dyn<FnMut<Option<Arc<owe::SceneNode>>(owe::SceneNode*, Json, Arc<owe::SceneModelData>)>>>;
+    void SetModelLayerFactory(ModelLayerFactory factory);
     void ClearLayerFactory();
     void ClearLayerConfigFactory();
 

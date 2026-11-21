@@ -850,15 +850,41 @@ Vector3f AlignmentOffset(ref<str> align, Vector2f size) {
 void ApplyTextureBindsImpl(wpscene::Material& wpmat, slice<wpscene::MaterialPassBindItem> binds,
                            const EffectRenderTargets& render_targets) {
     for (const auto& el : binds) {
-        auto target = render_targets.get(el.name.as_str());
-        if (target.is_none()) {
-            rstd_error("fbo {} not found", el.name);
-            continue;
-        }
-        const auto index = rstd::as_cast<usize>(el.index);
+        auto       target = render_targets.get(el.name.as_str());
+        const auto index  = rstd::as_cast<usize>(el.index);
         if (wpmat.textures.len() <= index) wpmat.textures.resize(index + usize(1), String {});
-        wpmat.textures[index] = (**target).clone();
+        wpmat.textures[index] = target.is_some() ? (**target).clone() : el.name.clone();
     }
+}
+
+String RegisterEffectRenderTarget(SceneLayerBuildContext& context, SceneNodeId owner,
+                                  SceneEffectId effect, const wpscene::EffectFbo& fbo,
+                                  SceneRenderTarget target) {
+    if (fbo.width > u32() && fbo.height > u32()) {
+        target.width  = rstd::as_cast<i32>(fbo.width);
+        target.height = rstd::as_cast<i32>(fbo.height);
+        target.bind   = {};
+    }
+    if (fbo.format == "rgba16161616f"_str)
+        target.format = TextureFormat::RGBA16F;
+    else if (fbo.format == "rgba32323232f"_str)
+        target.format = TextureFormat::RGBA32F;
+    else if (fbo.format == "r16f"_str)
+        target.format = TextureFormat::R16F;
+    else if (fbo.format == "r32f"_str)
+        target.format = TextureFormat::R32F;
+    if (fbo.clear.is_some() && *fbo.clear == array<float, 4> {})
+        target.initialize_transparent = true;
+    const bool shared = context.layer_resources->shared_effect_targets.contains(fbo.name.as_str());
+    auto       name =
+        shared ? fbo.name.clone() : context.scene->EffectResourceKey(effect, fbo.name.as_str());
+    if (shared) {
+        if (context.scene->RenderTarget(name.as_str()).is_none())
+            context.scene->RegisterRenderTarget(name.clone(), rstd::move(target));
+    } else {
+        (void)context.scene->RegisterNodeRenderTarget(owner, name.clone(), rstd::move(target));
+    }
+    return name;
 }
 
 String ResolveSceneTextureProperty(const SceneLayerBuildContext& context, ref<str> key) {

@@ -646,11 +646,12 @@ void ParseTextObjImpl(SceneLayerBuildContext& context, wpscene::TextObject& obj)
                 (void)render_targets.insert("previous"_Str, String::make(inRT));
 
                 for (const auto& wpfbo : wpeffobj.fbos) {
-                    const auto rtname = scene.EffectResourceKey(effect_id, wpfbo.name.as_str());
                     auto fbo_size = TextEffectFboExtent(initial_geometry, wpfbo.scale, wpfbo.fit);
-                    (void)scene.RegisterNodeRenderTarget(
+                    const auto rtname = RegisterEffectRenderTarget(
+                        context,
                         text_node_id,
-                        String::make(rtname),
+                        effect_id,
+                        wpfbo,
                         SceneRenderTarget { .width                = fbo_size[usize()],
                                             .height               = fbo_size[usize(1)],
                                             .allowReuse           = ! wpfbo.unique,

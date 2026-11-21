@@ -7,6 +7,7 @@ module;
 module wescene.script;
 import :programs;
 import :conversion;
+import :models;
 import eigen;
 import owe.scene_audio_response;
 import rstd;
@@ -14,6 +15,7 @@ import rstd.log;
 import rstd.cppstd;
 import wescene.types;
 import wescene.scene;
+import wescene.model_data;
 
 using rstd::ffi::CStr;
 
@@ -103,11 +105,13 @@ struct EngineHostState {
     PathBuf                         ls_path;
     // Set around every init/update/cursor invocation so host callbacks can
     // resolve the owning field binding.
-    FieldScript*                             active_field_script { nullptr };
-    Option<Arc<owe::SceneAnimationPlayback>> active_animation;
-    Vec<String>                              pending_registered_assets;
-    Option<JsRuntime::LayerFactory>          layer_factory;
-    Option<JsRuntime::LayerConfigFactory>    layer_config_factory;
+    FieldScript*                                       active_field_script { nullptr };
+    Option<Arc<owe::SceneAnimationPlayback>>           active_animation;
+    Vec<String>                                        pending_registered_assets;
+    Option<JsRuntime::LayerFactory>                    layer_factory;
+    Option<JsRuntime::LayerConfigFactory>              layer_config_factory;
+    Option<JsRuntime::ModelLayerFactory>               model_layer_factory;
+    HashMap<owe::SceneNode*, Arc<owe::SceneModelData>> layer_models;
     // SceneNode -> text-content setter. Populated by text layers in the
     // parser; consulted by NodeSetText so `thisLayer.text = "..."` reaches
     // TextLayouter::SetText. Missing entry means the layer is not text-
@@ -2095,6 +2099,14 @@ JSValue NodeSceneSetCameraTransforms(JSContext* ctx, JSValueConst, int argc, JSV
     return JS_UNDEFINED;
 }
 
+JSValue NodeSceneCreateModelData(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv) {
+    return models::Create(ctx, argc, argv);
+}
+
+JSValue NodeSceneDestroyModelData(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv) {
+    return models::Destroy(ctx, argc, argv);
+}
+
 JSValue NodeSceneCreateLayer(JSContext* ctx, JSValueConst /*this_val*/, int argc,
                              JSValueConst* argv) {
     auto* host = static_cast<EngineHostState*>(JS_GetContextOpaque(ctx));
@@ -2117,11 +2129,21 @@ JSValue NodeSceneCreateLayer(JSContext* ctx, JSValueConst /*this_val*/, int argc
             JS_FreeCString(ctx, asset);
         }
     } else if (argc > 0 && JS_IsObject(argv[0]) && host->layer_config_factory.is_some()) {
-        Option<Json> config;
+        Option<Json>                     config;
+        Option<Arc<owe::SceneModelData>> model;
         if (auto* source_node = GetLayerNode(argv[0]); source_node != nullptr) {
             auto initial = host->initial_layer_configs.get(source_node);
             if (initial.is_some()) config = Some((**initial).clone());
+            auto initial_model = host->layer_models.get(source_node);
+            if (initial_model.is_some()) model = Some((**initial_model).clone());
         } else {
+            JSValue value = JS_GetPropertyStr(ctx, argv[0], "model");
+            model         = models::Get(value);
+            if (JS_IsObject(value) && model.is_none()) {
+                JS_FreeValue(ctx, value);
+                return JS_ThrowTypeError(ctx, "model data is invalid or has been destroyed");
+            }
+            JS_FreeValue(ctx, value);
             JSValue global    = JS_GetGlobalObject(ctx);
             JSValue serialize = JS_GetPropertyStr(ctx, global, "__wwSerializeLayerConfig");
             JSValue encoded   = JS_Call(ctx, serialize, global, 1, argv);
@@ -2143,10 +2165,15 @@ JSValue NodeSceneCreateLayer(JSContext* ctx, JSValueConst /*this_val*/, int argc
         }
         if (config.is_some()) {
             auto initial = (*config).clone();
-            auto created = (**host->layer_config_factory)(fs->m_impl->node, rstd::move(*config));
+            auto created =
+                model.is_some() && host->model_layer_factory.is_some()
+                    ? (**host->model_layer_factory)(
+                          fs->m_impl->node, rstd::move(*config), (*model).clone())
+                    : (**host->layer_config_factory)(fs->m_impl->node, rstd::move(*config));
             if (created.is_some()) {
                 node = (*created).as_ptr();
                 (void)host->initial_layer_configs.insert(node, rstd::move(initial));
+                if (model.is_some()) (void)host->layer_models.insert(node, rstd::move(*model));
             }
         }
     }
@@ -2887,6 +2914,8 @@ const JSCFunctionListEntry s_layer_proto_funcs[] = {
     JS_CFUNC_DEF("getAnimation", 1, NodeGetAnimation),
     JS_CFUNC_DEF("getAnimationLayer", 1, NodeGetAnimationLayer),
     JS_CFUNC_DEF("createLayer", 1, NodeSceneCreateLayer),
+    JS_CFUNC_DEF("createModelData", 1, NodeSceneCreateModelData),
+    JS_CFUNC_DEF("destroyModelData", 1, NodeSceneDestroyModelData),
     JS_CFUNC_DEF("destroyLayer", 1, NodeSceneDestroyLayer),
     JS_CFUNC_DEF("getLayerIndex", 1, NodeSceneGetLayerIndex),
     JS_CFUNC_DEF("sortLayer", 2, NodeSceneSortLayer),
@@ -3115,6 +3144,7 @@ JsRuntime::JsRuntime(): m_impl(Box<Impl>::make()) {
     InitNamedAnimationLayerClass(m_impl->ctx, m_impl->rt);
     InitVideoTextureClass(m_impl->ctx, m_impl->rt);
     InstallEngineGlobal(m_impl->ctx);
+    models::Init(m_impl->ctx, m_impl->rt);
     // Bootstrap created stub `thisLayer` / `thisScene` on globalThis.
     // Capture them now so per-script binding can fall back to the stub
     // when no SceneNode is provided.
@@ -3374,6 +3404,7 @@ void JsRuntime::InvalidateLayerPointer(owe::SceneNode* pointer) {
     (void)host.node_origin_hooks.remove(pointer);
     (void)host.image_alignment_hooks.remove(pointer);
     (void)host.initial_layer_configs.remove(pointer);
+    (void)host.layer_models.remove(pointer);
 }
 
 void JsRuntime::SetInitializationOrder(FieldScript& script, rstd::uint64_t order) {
@@ -3725,9 +3756,16 @@ void JsRuntime::SetLayerConfigFactory(LayerConfigFactory factory) {
     m_impl->host.layer_config_factory = Some(rstd::move(factory));
 }
 
+void JsRuntime::SetModelLayerFactory(ModelLayerFactory factory) {
+    m_impl->host.model_layer_factory = Some(rstd::move(factory));
+}
+
 void JsRuntime::ClearLayerFactory() { m_impl->host.layer_factory = None(); }
 
-void JsRuntime::ClearLayerConfigFactory() { m_impl->host.layer_config_factory = None(); }
+void JsRuntime::ClearLayerConfigFactory() {
+    m_impl->host.layer_config_factory = None();
+    m_impl->host.model_layer_factory  = None();
+}
 
 // --- Module load + FieldScript construction ---------------------------------
 

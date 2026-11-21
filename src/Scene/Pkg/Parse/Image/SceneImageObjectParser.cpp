@@ -838,7 +838,7 @@ void ParseImageObjImpl(SceneLayerBuildContext& context, wpscene::ImageObject& im
                     // `_rt_` prefix (`_coc`, `_downscaled1`, ...). Force the
                     // prefix so IsSpecTex / render-target lookups treat them
                     // as render targets instead of disk textures.
-                    auto rtname = scene.EffectResourceKey(effect_id, wpfbo.name.as_str());
+                    String rtname;
                     if (wpimgobj.fullscreen) {
                         SceneRenderTarget target {
                             .width      = i32(2),
@@ -850,8 +850,8 @@ void ParseImageObjImpl(SceneLayerBuildContext& context, wpscene::ImageObject& im
                             .screen = true,
                             .scale  = 1.0 / static_cast<double>(wpfbo.scale.to_primitive()),
                         };
-                        (void)scene.RegisterNodeRenderTarget(
-                            image_node_id, String::make(rtname), rstd::move(target));
+                        rtname = RegisterEffectRenderTarget(
+                            context, image_node_id, effect_id, wpfbo, rstd::move(target));
                     } else {
                         auto fbo_size = [&]() -> array<i32, 2> {
                             if (wpfbo.fit > u32()) {
@@ -877,9 +877,11 @@ void ParseImageObjImpl(SceneLayerBuildContext& context, wpscene::ImageObject& im
                                     static_cast<float>(wpfbo.scale.to_primitive()));
                             return scaled_extent;
                         }();
-                        (void)scene.RegisterNodeRenderTarget(
+                        rtname = RegisterEffectRenderTarget(
+                            context,
                             image_node_id,
-                            String::make(rtname),
+                            effect_id,
+                            wpfbo,
                             SceneRenderTarget { .width      = fbo_size[usize()],
                                                 .height     = fbo_size[usize(1)],
                                                 .allowReuse = ! wpfbo.unique });

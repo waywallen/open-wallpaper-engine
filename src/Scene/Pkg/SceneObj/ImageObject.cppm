@@ -35,12 +35,15 @@ public:
 
 class EffectFbo {
 public:
-    bool   FromJson(const owe::Json&);
-    String name;
-    String format;
-    u32    scale { 1 };
-    u32    fit { 0 };
-    bool   unique { false };
+    bool                    FromJson(const owe::Json&);
+    String                  name;
+    String                  format;
+    u32                     scale { 1 };
+    u32                     fit { 0 };
+    u32                     width {};
+    u32                     height {};
+    Option<array<float, 4>> clear;
+    bool                    unique { false };
 };
 
 // objects[].instance — PKGV0018+. Embedded WE-format material binding
