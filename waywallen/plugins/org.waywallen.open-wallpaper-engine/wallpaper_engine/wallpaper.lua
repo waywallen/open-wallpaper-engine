@@ -1,4 +1,5 @@
 local project_util = import("wallpaper_engine.project")
+local language = import("wallpaper_engine.language")
 
 local M = {}
 
@@ -206,6 +207,7 @@ function M.properties(entry, ctx)
     local props = load_project_properties(entry, ctx)
     if not props then return nil end
     map_property_keys(props)
+    props = language.filter(props, ctx)
 
     local locale, locale_fallback = load_locale(ctx, entry.library_root)
     if locale or locale_fallback then
@@ -266,6 +268,11 @@ function M.apply(entry, ctx)
         end
     end
     if entry.wp_type == "scene" then
+        local props = load_project_properties(entry, ctx)
+        local selected = props and language.preferred_value(props, ctx) or nil
+        if selected then
+            default_user_properties["language"] = tostring(selected)
+        end
         local assets
         if entry.library_root and entry.library_root ~= "" then
             local candidate = entry.library_root .. project_util.ASSETS_REL
