@@ -963,7 +963,10 @@ void ParseImageObjImpl(SceneLayerBuildContext& context, wpscene::ImageObject& im
                 context.TrackCreatedNode(spEffNode);
                 scene.RegisterNode(*spEffNode);
                 ShaderInfo wpEffShaderInfo;
-                wpEffShaderInfo.baseConstSvs = baseConstSvs.clone();
+                // The chain has already consumed the layer's color and opacity.
+                wpEffShaderInfo.baseConstSvs = is_appended_color_blend
+                                                   ? NeutralColorUniforms(baseConstSvs.clone())
+                                                   : baseConstSvs.clone();
                 (void)wpEffShaderInfo.baseConstSvs.insert(
                     rstd::into(G_ETVP),
                     ShaderValue(ShaderValue::fromMatrix(Eigen::Matrix4f::Identity())));
@@ -1011,8 +1014,9 @@ void ParseImageObjImpl(SceneLayerBuildContext& context, wpscene::ImageObject& im
                     }
                 }
                 spMesh->AddMaterial(rstd::move(material));
-                track_image_property_material(
-                    spMesh->MaterialSlots().last_mut().unwrap().get_mut());
+                if (! is_appended_color_blend)
+                    track_image_property_material(
+                        spMesh->MaterialSlots().last_mut().unwrap().get_mut());
                 Option<ref<wpscene::Material>> binding_fallback;
                 if (user_texture_fallback.is_some()) {
                     binding_fallback = Some(ref<wpscene::Material>::from_raw_parts(

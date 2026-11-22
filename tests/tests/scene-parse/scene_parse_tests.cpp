@@ -2703,6 +2703,116 @@ TEST(ImageColorBlendParsing, EffectLayerPreservesLinearDodgeAttachmentOwner) {
     EXPECT_TRUE((*camera)->CameraSnapshot().projection.allFinite());
 }
 
+TEST(ImageColorBlendParsing, EffectCompositeDoesNotRepeatLayerModulation) {
+    using namespace rstd::prelude;
+    auto document = owe::wpscene::ParseSceneDocumentJson(R"({
+        "camera":{},"general":{"orthogonalprojection":{"width":128,"height":128}},
+        "objects":[
+            {"id":1,"name":"Overlay","image":"models/util/solidlayer.json",
+             "size":"64 64","color":"0 0 0","alpha":0.4,"brightness":10,
+             "colorBlendMode":11,"copybackground":true,
+             "effects":[{"file":"effects/scroll/effect.json","visible":true}]},
+            {"id":2,"name":"Additive","image":"models/util/solidlayer.json",
+             "size":"64 64","color":"0.2 0.4 0.6","alpha":0.3,"brightness":3,
+             "colorBlendMode":31,"copybackground":true,
+             "effects":[{"file":"effects/scroll/effect.json","visible":true}]}
+        ]
+    })"_str,
+                                                         owe::wpscene::kSceneVersionUnknown);
+    ASSERT_TRUE(document);
+    auto         assets = owe::fs::make_physical_fs(
+                              owe::fs::Path(rstd::cppstd::as_str(WAYWALLEN_ASSETS_DIR).unwrap()))
+                              .unwrap();
+    owe::fs::VFS vfs;
+    ASSERT_TRUE(vfs.mount("/assets"_str, rstd::move(assets)));
+    wavsen::audio::SoundManager sound;
+    owe::SceneParser            parser;
+    auto parsed = parser.Parse("effect-modulation"_str,
+                               ref<owe::wpscene::SceneDocument>::from_raw_parts(&*document),
+                               mut_ref<owe::fs::VFS>::from_raw_parts(&vfs),
+                               mut_ref<wavsen::audio::SoundManager>::from_raw_parts(&sound));
+    ASSERT_TRUE(parsed);
+    auto& scene = *parsed->scene;
+    for (ref<str> name : { "Overlay"_str, "Additive"_str }) {
+        auto* node = scene.RootMut()->FindByName(name);
+        ASSERT_NE(node, nullptr);
+        ASSERT_TRUE(node->HasLayer());
+        auto& layer = node->Layer();
+        layer->ResolveEffect(*scene.DefaultEffectMesh(), "effect"_str);
+        ASSERT_FALSE(layer->ResolvedEffects().is_empty());
+        const auto* effect = layer->ResolvedEffects().last().unwrap().get();
+        ASSERT_FALSE(effect->Nodes().is_empty());
+        const auto* material = effect->Nodes().last().unwrap().get()->sceneNode->Mesh()->Material();
+        ASSERT_NE(material, nullptr);
+        for (ref<str> uniform : { "g_Color4"_str,
+                                  "g_Color"_str,
+                                  "g_Alpha"_str,
+                                  "g_UserAlpha"_str,
+                                  "g_Brightness"_str }) {
+            auto value = material->customShader.constValues.get(uniform);
+            ASSERT_TRUE(value);
+            for (usize index {}; index < (**value).size(); ++index)
+                EXPECT_FLOAT_EQ((**value)[index], 1.0f);
+        }
+        auto source = node->Mesh()->Material()->customShader.constValues.get("g_Color"_str);
+        ASSERT_TRUE(source);
+        EXPECT_FLOAT_EQ((**source)[usize()], name == "Overlay"_str ? 0.0f : 0.2f);
+        EXPECT_EQ(material->Pipeline().blend_mode,
+                  name == "Overlay"_str ? owe::BlendMode::Translucent : owe::BlendMode::Additive);
+    }
+}
+
+TEST(ImageColorBlendParsing, UserModulationDoesNotTargetEffectComposite) {
+    using namespace rstd::prelude;
+    auto document = owe::wpscene::ParseSceneDocumentJson(R"({
+        "camera":{},"general":{"orthogonalprojection":{"width":128,"height":128}},
+        "objects":[{"id":1,"name":"Bound","image":"models/util/solidlayer.json",
+            "size":"64 64","color":{"value":"0 0 0","user":"tint"},
+            "alpha":{"value":0.4,"user":"fade"},"colorBlendMode":11,
+            "effects":[{"file":"effects/scroll/effect.json","visible":true}]}]
+    })"_str,
+                                                         owe::wpscene::kSceneVersionUnknown);
+    ASSERT_TRUE(document);
+    auto         assets = owe::fs::make_physical_fs(
+                              owe::fs::Path(rstd::cppstd::as_str(WAYWALLEN_ASSETS_DIR).unwrap()))
+                              .unwrap();
+    owe::fs::VFS vfs;
+    ASSERT_TRUE(vfs.mount("/assets"_str, rstd::move(assets)));
+    wavsen::audio::SoundManager sound;
+    owe::SceneParser            parser;
+    auto parsed = parser.Parse("bound-effect-modulation"_str,
+                               ref<owe::wpscene::SceneDocument>::from_raw_parts(&*document),
+                               mut_ref<owe::fs::VFS>::from_raw_parts(&vfs),
+                               mut_ref<wavsen::audio::SoundManager>::from_raw_parts(&sound));
+    ASSERT_TRUE(parsed);
+    auto& scene = *parsed->scene;
+    auto* node  = scene.RootMut()->FindByName("Bound"_str);
+    ASSERT_NE(node, nullptr);
+    ASSERT_TRUE(node->HasLayer());
+    auto& layer = node->Layer();
+    layer->ResolveEffect(*scene.DefaultEffectMesh(), "effect"_str);
+    ASSERT_FALSE(layer->ResolvedEffects().is_empty());
+    const auto* effect = layer->ResolvedEffects().last().unwrap().get();
+    ASSERT_FALSE(effect->Nodes().is_empty());
+    const auto* material = effect->Nodes().last().unwrap().get()->sceneNode->Mesh()->Material();
+    ASSERT_NE(material, nullptr);
+    for (const auto& binding : scene.ImageColorUserBindings("tint"_str))
+        for (const auto& target : binding.materials)
+            EXPECT_NE(target.as_ptr().as_raw_ptr(), material);
+    for (const auto& binding : scene.ImageAlphaUserBindings("fade"_str))
+        for (const auto& target : binding.materials)
+            EXPECT_NE(target.as_ptr().as_raw_ptr(), material);
+    auto color = owe::ParseJson(R"({"type":"color","value":"0.2 0.4 0.6"})"_str).unwrap();
+    auto alpha = owe::ParseJson(R"({"type":"slider","value":0.25})"_str).unwrap();
+    (void)owe::SceneUserPropertyApplier::Apply(scene, "tint"_str, color);
+    (void)owe::SceneUserPropertyApplier::Apply(scene, "fade"_str, alpha);
+    EXPECT_FLOAT_EQ(node->Color().x(), 0.2f);
+    EXPECT_FLOAT_EQ(node->UserAlpha(), 0.25f);
+    auto value = material->customShader.constValues.get("g_Color4"_str);
+    ASSERT_TRUE(value);
+    for (usize index {}; index < (**value).size(); ++index) EXPECT_FLOAT_EQ((**value)[index], 1.0f);
+}
+
 TEST(ModelMaterialParsing, SamplerFormatsIncludeNormalMapsAndDefaultTextures) {
     auto path = rstd::path::PathBuf::from(rstd::cppstd::as_str(WAYWALLEN_WORKSHOP_DIR).unwrap())
                     .join("3453730450/scene.pkg"_str);
