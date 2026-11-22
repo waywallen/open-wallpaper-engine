@@ -389,8 +389,11 @@ void ParseLightObj(SceneParseContext& context, wpscene::LightObject& light_obj) 
 
     AssignNodeFieldAnimations(context, *node.as_ptr(), light_obj.field_bindings);
     WireFieldScripts(context, node, light_obj.field_bindings);
-    RegisterNodeRef(
-        context, light_obj.id, SceneLayerNodeDraft { light_obj.parent, Some(node.clone()) });
+    RegisterNodeRef(context,
+                    light_obj.id,
+                    SceneLayerNodeDraft { .parent_id  = light_obj.parent,
+                                          .node       = Some(node.clone()),
+                                          .attachment = light_obj.attachment.clone() });
 }
 
 void ParseModelObjImpl(SceneLayerBuildContext& context, wpscene::ModelObject& model_obj) {

@@ -188,7 +188,8 @@ TEST(SceneObjectDependencies, PreserveDuplicatesOrderAndCloneStorage) {
     for (const auto* name :
          { &container.name, &sound.name, &light.name, &text.name, &model.name, &camera.name })
         EXPECT_EQ(*name, "shared-name"_str);
-    for (const auto* attachment : { &container.attachment, &text.attachment, &model.attachment })
+    for (const auto* attachment :
+         { &container.attachment, &light.attachment, &text.attachment, &model.attachment })
         EXPECT_EQ(*attachment, "joint"_str);
     owe::wpscene::ParticleObject particle;
     particle.name                        = "particle"_Str;
@@ -2724,6 +2725,54 @@ TEST(SceneLightParsing, RecognizesPrefixedKindsAndFullConeAngles) {
     const float deg_to_rad = rstd::f32::consts::PI.to_primitive() / 180.0f;
     EXPECT_NEAR(lights[rstd::usize()]->desc().inner_cone_cos, std::cos(72.29f * deg_to_rad), 1e-5f);
     EXPECT_NEAR(lights[rstd::usize()]->desc().outer_cone_cos, std::cos(77.94f * deg_to_rad), 1e-5f);
+}
+
+TEST(SceneLightParsing, FollowsTheSameModelAttachmentAsContainer) {
+    using namespace rstd::prelude;
+    auto file = rstd::format("{}/3708206626/scene.pkg",
+                             rstd::cppstd::as_str(WAYWALLEN_WORKSHOP_DIR).unwrap());
+    auto pkg  = owe::fs::WPPkgFs::open(owe::fs::Path(file.as_str()));
+    if (! pkg) GTEST_SKIP() << "workshop 3708206626 is not available";
+    auto document = owe::wpscene::ParseSceneDocumentJson(R"({
+        "camera": {},
+        "general": {"orthogonalprojection": {"width":1920,"height":1080}},
+        "objects": [
+            {"id":1,"name":"Stage","model":"models/StageAuto/StageAuto.mdl",
+             "origin":"0 -1 0","scale":"0.0075 0.0075 0.0075"},
+            {"id":2,"name":"Sun","light":"ldirectional","parent":1,
+             "attachment":"Stage","origin":"2 3 4","angles":"0 1.22173 2.02458"},
+            {"id":3,"name":"Reference","parent":1,"attachment":"Stage",
+             "origin":"2 3 4","angles":"0 1.22173 2.02458"}
+        ]
+    })"_str,
+                                                         owe::wpscene::kSceneVersionUnknown);
+    ASSERT_TRUE(document);
+    owe::fs::VFS vfs;
+    auto         assets = owe::fs::make_physical_fs(
+        owe::fs::Path(rstd::cppstd::as_str(WAYWALLEN_ASSETS_DIR).unwrap()));
+    ASSERT_TRUE(assets);
+    ASSERT_TRUE(vfs.mount("/assets"_str, rstd::move(assets).unwrap()));
+    ASSERT_TRUE(vfs.mount("/assets"_str, pkg->mount_handle()));
+    wavsen::audio::SoundManager sound;
+    owe::SceneParser            parser;
+    auto parsed = parser.Parse("light-attachment"_str,
+                               ref<owe::wpscene::SceneDocument>::from_raw_parts(&*document),
+                               mut_ref<owe::fs::VFS>::from_raw_parts(&vfs),
+                               mut_ref<wavsen::audio::SoundManager>::from_raw_parts(&sound));
+    ASSERT_TRUE(parsed);
+    auto& scene = *parsed->scene;
+    ASSERT_EQ(scene.Lights().len(), usize(1));
+    auto* sun       = scene.Lights()[usize()]->node();
+    auto* reference = scene.RootMut()->FindByName("Reference"_str);
+    ASSERT_NE(sun, nullptr);
+    ASSERT_NE(reference, nullptr);
+    owe::SceneNode unbound(
+        { 2.0f, 3.0f, 4.0f }, Eigen::Vector3f::Ones(), { 0.0f, 1.22173f, 2.02458f }, "Unbound"_str);
+    EXPECT_FALSE(reference->LocalFrame().isApprox(unbound.LocalFrame(), 1e-6));
+    EXPECT_TRUE(sun->LocalFrame().isApprox(reference->LocalFrame(), 1e-6));
+    sun->UpdateTrans();
+    reference->UpdateTrans();
+    EXPECT_TRUE(sun->ModelTrans().isApprox(reference->ModelTrans(), 1e-6));
 }
 
 TEST(ImageEffectCamera, PassthroughFollowsActiveProjectionAndTransforms) {

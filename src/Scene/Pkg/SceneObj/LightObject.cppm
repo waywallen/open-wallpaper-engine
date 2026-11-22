@@ -39,6 +39,7 @@ public:
     bool          muteineditor { false };
     bool          nointerpolation { false };
     u32           parent { 0 };
+    String        attachment;
     Vec<i32>      dependencies;
     owe::Json     instance;
     FieldBindings field_bindings;

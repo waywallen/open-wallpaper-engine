@@ -27,6 +27,7 @@ bool LightObject::FromJson(const owe::Json& json, fs::VFS&, SceneVersion /*v*/) 
     owe::GetJsonValue(json, "muteineditor"_str, muteineditor, false);
     owe::GetJsonValue(json, "nointerpolation"_str, nointerpolation, false);
     owe::GetJsonValue(json, "parent"_str, parent, false);
+    owe::GetJsonValue(json, "attachment"_str, attachment, false);
     owe::GetJsonValue(json, "ledsource"_str, ledsource, false);
     owe::GetJsonValue(json, "castshadow"_str, castshadow, false);
     owe::GetJsonValue(json, "castvolumetrics"_str, castvolumetrics, false);
