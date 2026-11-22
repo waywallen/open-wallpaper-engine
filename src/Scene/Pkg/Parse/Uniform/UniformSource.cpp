@@ -880,7 +880,7 @@ auto ColorUniformSource::Evaluate(ref<dyn<UniformUpdateContext>>,
 auto VolumetricUniformSource::Describe(mut_ref<dyn<UniformBindingSink>> sink) const
     -> Result<empty, UniformError> {
     using O = VolumetricUniformOutput;
-    const array<BindingEntry<O>, 7> entries {
+    const array<BindingEntry<O>, 10> entries {
         BindingEntry<O> { O::EyePosition, "g_EyePosition"_str, UniformValueShape::Float(u32(3)) },
         BindingEntry<O> { O::ViewProjection,
                           "g_ViewProjectionMatrix"_str,
@@ -894,6 +894,12 @@ auto VolumetricUniformSource::Describe(mut_ref<dyn<UniformBindingSink>> sink) co
         BindingEntry<O> { O::Parameters, "g_RenderVar1"_str, UniformValueShape::Float(u32(4)) },
         BindingEntry<O> { O::OriginDensity, "g_RenderVar2"_str, UniformValueShape::Float(u32(4)) },
         BindingEntry<O> { O::ColorExponent, "g_RenderVar4"_str, UniformValueShape::Float(u32(4)) },
+        BindingEntry<O> { O::ShadowProjection,
+                          "g_AltModelMatrix"_str,
+                          UniformValueShape::Matrix(u32(4), u32(4)) },
+        BindingEntry<O> {
+            O::ShadowTransform, "g_RenderVar0"_str, UniformValueShape::Float(u32(4)) },
+        BindingEntry<O> { O::Direction, "g_RenderVar3"_str, UniformValueShape::Float(u32(4)) },
     };
     return BindEntries(sink, entries);
 }
@@ -918,6 +924,9 @@ auto VolumetricUniformSource::Evaluate(ref<dyn<UniformUpdateContext>>,
         writer.Write(O::ViewProjection, identity);
         writer.Write(O::LightTransform, identity);
         writer.Write(O::InverseViewProjection, identity);
+        writer.Write(O::ShadowProjection, identity);
+        writer.Write(O::ShadowTransform, array<float, 4> {});
+        writer.Write(O::Direction, array<float, 4> {});
         writer.Write(O::Parameters, array<float, 4> { 1.0f, 1.0f, 1.0f, 0.0f });
         writer.Write(O::OriginDensity, array<float, 4> {});
         writer.Write(O::ColorExponent, array<float, 4> { 0.0f, 0.0f, 0.0f, 1.0f });
@@ -927,10 +936,15 @@ auto VolumetricUniformSource::Evaluate(ref<dyn<UniformUpdateContext>>,
     m_light_node->UpdateTrans();
     const Vector3d origin = m_light_node->ModelTrans().block<3, 1>(0, 3);
     Matrix4d       model  = Matrix4d::Identity();
-    model.block<3, 3>(0, 0) *= desc.radius;
-    model.block<3, 1>(0, 3) = origin;
-    const Matrix4d vp       = (**camera).GetViewProjectionMatrix();
-    const Vector3d eye      = (**camera).GetPosition();
+    const double   radius = rstd::cmp::max(0.001, static_cast<double>(light->radius()));
+    if (light->type() == SceneLightType::Spot) {
+        model = SpotLightViewProjection(*light).inverse();
+    } else {
+        model.block<3, 3>(0, 0) *= radius;
+        model.block<3, 1>(0, 3) = origin;
+    }
+    const Matrix4d vp  = (**camera).GetViewProjectionMatrix();
+    const Vector3d eye = (**camera).GetPosition();
     writer.Write(O::EyePosition,
                  array<float, 3> { static_cast<float>(eye.x()),
                                    static_cast<float>(eye.y()),
@@ -938,14 +952,35 @@ auto VolumetricUniformSource::Evaluate(ref<dyn<UniformUpdateContext>>,
     writer.Write(O::ViewProjection, ShaderValue::fromMatrix(vp));
     writer.Write(O::LightTransform, ShaderValue::fromMatrix(model));
     writer.Write(O::InverseViewProjection, ShaderValue::fromMatrix(Matrix4d(vp.inverse())));
-    writer.Write(
-        O::Parameters,
-        array<float, 4> {
-            desc.radius * 0.99f, desc.inner_cone_cos, desc.outer_cone_cos, desc.intensity });
+    writer.Write(O::ShadowProjection, ShaderValue::fromMatrix(SpotLightViewProjection(*light)));
+    const auto shadow = m_shadows->Find(m_light_node->ID());
+    writer.Write(O::ShadowTransform,
+                 shadow ? m_shadows->Transform((*shadow)->first_view) : array<float, 4> {});
+    const Vector3d direction = m_light_node->ModelTrans().block<3, 1>(0, 0).normalized();
+    writer.Write(O::Direction,
+                 array<float, 4> { static_cast<float>(direction.x()),
+                                   static_cast<float>(direction.y()),
+                                   static_cast<float>(direction.z()),
+                                   0.0f });
+    writer.Write(O::Parameters,
+                 array<float, 4> { light->radius() * 0.99f,
+                                   desc.inner_cone_cos,
+                                   desc.outer_cone_cos,
+                                   light->intensity() });
     bool visible = light->runtimeVisible();
     for (auto* node = light->node(); node; node = node->Parent()) visible &= node->Visible();
-    const bool inside =
-        ((**camera).GetPosition() - origin).norm() <= desc.radius + (**camera).NearClip() * 2.0;
+    const Vector3d delta  = (**camera).GetPosition() - origin;
+    const double   margin = f64((**camera).NearClip()).abs().to_primitive() * 2.0;
+    bool           inside = delta.norm() <= radius + margin;
+    if (light->type() == SceneLightType::Spot) {
+        const double axial  = delta.dot(direction);
+        const double cosine = rstd::cmp::min(
+            rstd::cmp::max(static_cast<double>(desc.outer_cone_cos), 0.001), 0.999999);
+        const double cone_width =
+            rstd::cmp::max(0.0, axial) * f64(1.0 - cosine * cosine).sqrt().to_primitive() / cosine;
+        inside = axial >= -margin && axial <= radius + margin &&
+                 (delta - direction * axial).norm() <= cone_width + margin;
+    }
     const bool  selected = m_kind == VolumetricDrawKind::Back ||
                            (inside == (m_kind == VolumetricDrawKind::Fullscreen));
     const float density  = visible && selected ? desc.volumetric_density : 0.0f;
@@ -1084,6 +1119,7 @@ auto SceneLightUniformSource::Evaluate(ref<dyn<UniformUpdateContext>>,
         const auto     transform = node.ModelTrans().cast<float>().eval();
         const Vector3f origin    = transform.block<3, 1>(0, 3);
         const auto&    desc      = light.desc();
+        const auto     shadow    = m_shadows->Find(node.ID());
         const Vector3f color =
             node.IsColorOverridden() ? Vector3f(node.Color() * light.intensity()) : light.color();
         switch (light.type()) {
@@ -1097,10 +1133,13 @@ auto SceneLightUniformSource::Evaluate(ref<dyn<UniformUpdateContext>>,
             write(O::SpotColor, index, color, light.radius());
             write(O::SpotOrigin, index, origin, desc.outer_cone_cos);
             write(O::SpotDirection, index, transform.block<3, 1>(0, 0), desc.inner_cone_cos);
-            write(O::SpotParams,
-                  index,
-                  Vector3f(light.exponent(), desc.cast_shadow ? 1.0f : 0.0f, 0.0f),
-                  0.0f);
+            write(
+                O::SpotParams,
+                index,
+                Vector3f(light.exponent(),
+                         desc.cast_shadow ? 1.0f : 0.0f,
+                         shadow ? static_cast<float>((*shadow)->first_view.to_primitive()) : -1.0f),
+                0.0f);
             break;
         case SceneLightType::Tube: {
             const Vector3f endpoint = transform.block<3, 3>(0, 0) * light.controlPoint() + origin;
@@ -1113,10 +1152,13 @@ auto SceneLightUniformSource::Evaluate(ref<dyn<UniformUpdateContext>>,
             write(O::DirectionalColor, index, color, 1.0f);
             // LightingV1 consumes the full basis vector, including attachment scale.
             write(O::DirectionalDirection, index, -transform.block<3, 1>(0, 0), 0.0f);
-            write(O::DirectionalShadow,
-                  index,
-                  Vector3f(desc.cast_shadow ? 1.0f : 0.0f, 0.0f, 0.0f),
-                  0.0f);
+            write(
+                O::DirectionalShadow,
+                index,
+                Vector3f(desc.cast_shadow ? 1.0f : 0.0f,
+                         shadow ? static_cast<float>((*shadow)->first_view.to_primitive()) : -1.0f,
+                         0.0f),
+                0.0f);
             break;
         }
         ++index;
@@ -1127,6 +1169,29 @@ auto SceneLightUniformSource::Evaluate(ref<dyn<UniformUpdateContext>>,
         if (! data.is_empty()) writer.Write(field.output, data.as_slice());
     }
     return writer.Finish();
+}
+
+auto SpotLightViewProjection(const SceneLight& light) -> Matrix4d {
+    // Shadow depth is reverse-Z, independent of the scene camera's clip range.
+    auto* node = light.node();
+    if (! node || ! f32(light.radius()).is_finite() || light.radius() <= 0.05f ||
+        ! f32(light.desc().outer_cone_cos).is_finite())
+        return Matrix4d::Identity();
+    node->UpdateTrans();
+    const auto& transform = node->ModelTrans();
+    if (! transform.allFinite() || transform.block<3, 1>(0, 0).squaredNorm() <= 1e-12 ||
+        transform.block<3, 1>(0, 1).squaredNorm() <= 1e-12 ||
+        transform.block<3, 1>(0, 2).squaredNorm() <= 1e-12)
+        return Matrix4d::Identity();
+    Matrix4d view          = Matrix4d::Identity();
+    view.block<1, 3>(0, 0) = transform.block<3, 1>(0, 2).normalized().transpose();
+    view.block<1, 3>(1, 0) = transform.block<3, 1>(0, 1).normalized().transpose();
+    view.block<1, 3>(2, 0) = -transform.block<3, 1>(0, 0).normalized().transpose();
+    view.block<3, 1>(0, 3) = -view.block<3, 3>(0, 0) * transform.block<3, 1>(0, 3);
+    const auto cosine =
+        rstd::cmp::min(rstd::cmp::max(light.desc().outer_cone_cos, 0.001f), 0.999999f);
+    const double fov = f64(static_cast<double>(cosine)).acos().to_primitive() * 2.0;
+    return Perspective(fov, 1.0, light.radius(), 0.05) * view;
 }
 
 auto ShadowUniformSource::Describe(mut_ref<dyn<UniformBindingSink>> sink) const
@@ -1151,80 +1216,81 @@ auto ShadowUniformSource::Evaluate(ref<dyn<UniformUpdateContext>>,
     }
     forward.normalize();
 
-    const SceneLight* light = nullptr;
-    for (const auto& candidate : m_scene->Lights()) {
-        if (candidate->type() == SceneLightType::Directional && candidate->desc().cast_shadow) {
-            light = candidate.as_ptr().as_raw_ptr();
-            break;
-        }
-    }
-    if (! light) return writer.Finish();
-    auto* light_node = light->node();
-    if (light_node == nullptr) return writer.Finish();
-    light_node->UpdateTrans();
-    const Matrix3d  light_frame = light_node->ModelTrans().block<3, 3>(0, 0);
-    Eigen::Vector3d view_x      = light_frame.col(2);
-    Eigen::Vector3d view_y      = light_frame.col(1);
-    Eigen::Vector3d view_z      = light_frame.col(0);
-    if (! view_x.allFinite() || ! view_y.allFinite() || ! view_z.allFinite() ||
-        view_x.squaredNorm() <= 1e-12 || view_y.squaredNorm() <= 1e-12 ||
-        view_z.squaredNorm() <= 1e-12) {
-        return writer.Finish();
-    }
-    view_x.normalize();
-    view_y.normalize();
-    view_z.normalize();
-
     array<float, 96> matrix_values {};
-    const double camera_far = rstd::cmp::max(0.001, f64(m_camera->FarClip()).abs().to_primitive());
-    const double shared_depth = static_cast<double>(light->desc().cascade_distances[1]) * 4.0;
-    for (usize cascade {}; cascade < usize(3); ++cascade) {
-        const float     authored = light->desc().cascade_distances[cascade.to_primitive()];
-        const double    distance = authored > 0.0f ? static_cast<double>(authored) : camera_far;
-        const auto      center   = camera_transform.eye + forward * (distance * 0.5);
-        Eigen::Matrix4d view     = Eigen::Matrix4d::Identity();
-        view.block<1, 3>(0, 0)   = view_x.transpose();
-        view.block<1, 3>(1, 0)   = view_y.transpose();
-        view.block<1, 3>(2, 0)   = view_z.transpose();
-        view(0, 3)               = -view_x.dot(center);
-        view(1, 3)               = -view_y.dot(center);
-        view(2, 3)               = -view_z.dot(center);
+    array<float, 24> atlas_values {};
+    for (usize view {}; view < m_shadows->ViewCount(); ++view) {
+        const auto transform = m_shadows->Transform(view);
+        for (usize component {}; component < usize(4); ++component)
+            atlas_values[view * usize(4) + component] = transform[component];
+    }
+    for (const auto& candidate : m_scene->Lights()) {
+        const auto* light      = candidate.as_ptr().as_raw_ptr();
+        auto*       light_node = light->node();
+        if (! light_node) continue;
+        const auto binding = m_shadows->Find(light_node->ID());
+        if (! binding) continue;
+        if (light->type() == SceneLightType::Spot) {
+            const Matrix4f matrix = SpotLightViewProjection(*light).cast<float>();
+            for (usize value {}; value < usize(16); ++value)
+                matrix_values[(*binding)->first_view * usize(16) + value] =
+                    matrix.data()[value.to_primitive()];
+            continue;
+        }
+        light_node->UpdateTrans();
+        const Matrix3d  light_frame = light_node->ModelTrans().block<3, 3>(0, 0);
+        Eigen::Vector3d view_x      = light_frame.col(2);
+        Eigen::Vector3d view_y      = light_frame.col(1);
+        Eigen::Vector3d view_z      = light_frame.col(0);
+        if (! view_x.allFinite() || ! view_y.allFinite() || ! view_z.allFinite() ||
+            view_x.squaredNorm() <= 1e-12 || view_y.squaredNorm() <= 1e-12 ||
+            view_z.squaredNorm() <= 1e-12) {
+            continue;
+        }
+        view_x.normalize();
+        view_y.normalize();
+        view_z.normalize();
 
-        const double half_extent = distance * 0.5;
-        // WE shares the middle cascade's depth range with the near cascade.
-        const double depth_span =
-            shared_depth > 0.0
-                ? (cascade < usize(2) ? shared_depth : rstd::cmp::max(shared_depth, distance * 1.5))
-                : rstd::cmp::max(80.0, distance * 1.5);
-        const Eigen::Matrix4f matrix = (Eigen::Ortho(-half_extent,
-                                                     half_extent,
-                                                     -half_extent,
-                                                     half_extent,
-                                                     -depth_span * 0.5,
-                                                     depth_span * 0.5) *
-                                        view)
-                                           .cast<float>();
-        for (usize value {}; value < usize(16); ++value) {
-            matrix_values[cascade * usize(16) + value] = matrix.data()[value.to_primitive()];
+        const double camera_far =
+            rstd::cmp::max(0.001, f64(m_camera->FarClip()).abs().to_primitive());
+        const double shared_depth = static_cast<double>(light->desc().cascade_distances[1]) * 4.0;
+        for (usize cascade {}; cascade < usize(3); ++cascade) {
+            const float     authored = light->desc().cascade_distances[cascade.to_primitive()];
+            const double    distance = authored > 0.0f ? static_cast<double>(authored) : camera_far;
+            const auto      center   = camera_transform.eye + forward * (distance * 0.5);
+            Eigen::Matrix4d view     = Eigen::Matrix4d::Identity();
+            view.block<1, 3>(0, 0)   = view_x.transpose();
+            view.block<1, 3>(1, 0)   = view_y.transpose();
+            view.block<1, 3>(2, 0)   = view_z.transpose();
+            view(0, 3)               = -view_x.dot(center);
+            view(1, 3)               = -view_y.dot(center);
+            view(2, 3)               = -view_z.dot(center);
+
+            const double half_extent = distance * 0.5;
+            // WE shares the middle cascade's depth range with the near cascade.
+            const double depth_span =
+                shared_depth > 0.0
+                    ? (cascade < usize(2) ? shared_depth
+                                          : rstd::cmp::max(shared_depth, distance * 1.5))
+                    : rstd::cmp::max(80.0, distance * 1.5);
+            const Eigen::Matrix4f matrix = (Eigen::Ortho(-half_extent,
+                                                         half_extent,
+                                                         -half_extent,
+                                                         half_extent,
+                                                         -depth_span * 0.5,
+                                                         depth_span * 0.5) *
+                                            view)
+                                               .cast<float>();
+            for (usize value {}; value < usize(16); ++value) {
+                matrix_values[((*binding)->first_view + cascade) * usize(16) + value] =
+                    matrix.data()[value.to_primitive()];
+            }
         }
     }
 
     auto matrices = UniformValue::fromMatrixArray(
         matrix_values.data(), u32(4), u32(4), usize(6), UniformMatrixStorage::ColumnMajor);
     writer.Write(ToUniformOutput(Output::ViewProjectionMatrices), matrices);
-    writer.Write(Output::AtlasTransforms,
-                 array<float, 12> { 0.0f,
-                                    0.0f,
-                                    1.0f / 3.0f,
-                                    1.0f,
-                                    1.0f / 3.0f,
-                                    0.0f,
-                                    1.0f / 3.0f,
-                                    1.0f,
-                                    2.0f / 3.0f,
-                                    0.0f,
-                                    1.0f / 3.0f,
-                                    1.0f });
+    writer.Write(Output::AtlasTransforms, atlas_values);
     return writer.Finish();
 }
 

@@ -274,7 +274,7 @@ uniform vec4 g_LightsConeExponent[4];
 uniform float g_LightsCastShadow[4];
 #if LIGHTS_SHADOW_MAPPING
 uniform mat4 g_ViewportViewProjectionMatrices[6];
-uniform vec4 g_ShadowAtlasTransforms[3];
+uniform vec4 g_ShadowAtlasTransforms[6];
 #endif
 
 float3 PerformLighting_V1(float3 worldPos, float3 albedo, float3 normal, float3 viewVector,
@@ -362,7 +362,7 @@ uniform vec4 g_LDirectional_Shadow[LIGHTS_DIRECTIONAL];
 #endif
 #if LIGHTS_SHADOW_MAPPING
 uniform mat4 g_ViewportViewProjectionMatrices[6];
-uniform vec4 g_ShadowAtlasTransforms[3];
+uniform vec4 g_ShadowAtlasTransforms[6];
 #endif
 
 float3 PerformLighting_V1(float3 worldPos, float3 albedo, float3 normal, float3 viewVector,
@@ -387,6 +387,14 @@ float3 PerformLighting_V1(float3 worldPos, float3 albedo, float3 normal, float3 
         float cone = smoothstep(g_LSpot_Origin[i].w, g_LSpot_Direction[i].w,
             dot(-normalize(delta), g_LSpot_Direction[i].xyz));
         float shadowFactor = 1.0;
+#if LIGHTS_SHADOW_MAPPING
+        if (g_LSpot_Params[i].y > 0.5 && g_LSpot_Params[i].z >= 0.0) {
+            int slot = int(g_LSpot_Params[i].z);
+            shadowFactor = PerformShadowMapping(
+                CalculateProjectedCoords(worldPos, g_ViewportViewProjectionMatrices[slot]),
+                g_ShadowAtlasTransforms[slot]);
+        }
+#endif
 #if !LIGHTS_SHADOW_MAPPING && OWE_IMAGE_LAYER && SCENE_ORTHO
         shadowFactor = 1.0 - step(0.5, g_LSpot_Params[i].y);
 #endif
@@ -414,13 +422,14 @@ float3 PerformLighting_V1(float3 worldPos, float3 albedo, float3 normal, float3 
         if (dot(g_LDirectional_Color[i].rgb, g_LDirectional_Color[i].rgb) <= 0.0) continue;
         float shadowFactor = 1.0;
 #if LIGHTS_SHADOW_MAPPING
-        if (g_LDirectional_Shadow[i].x > 0.5) {
+        if (g_LDirectional_Shadow[i].x > 0.5 && g_LDirectional_Shadow[i].y >= 0.0) {
+            int firstSlot = int(g_LDirectional_Shadow[i].y);
             float selectedCascade = 0.0;
             for (int cascade = 0; cascade < 3; ++cascade) {
                 float4 projected = CalculateProjectedCoordsCascades(
-                    worldPos, g_ViewportViewProjectionMatrices[cascade]);
+                    worldPos, g_ViewportViewProjectionMatrices[firstSlot + cascade]);
                 float active = (1.0 - projected.w) * (1.0 - selectedCascade);
-                float sampled = PerformShadowMapping(projected.xyz, g_ShadowAtlasTransforms[cascade]);
+                float sampled = PerformShadowMapping(projected.xyz, g_ShadowAtlasTransforms[firstSlot + cascade]);
                 shadowFactor = lerp(shadowFactor, sampled, active);
                 selectedCascade = saturate(selectedCascade + active);
             }
@@ -2059,7 +2068,7 @@ constexpr array<rstd::uint8_t, 8> kShaderCacheMagic { rstd::uint8_t('O'), rstd::
                                                       rstd::uint8_t('P'), rstd::uint8_t('V'),
                                                       rstd::uint8_t('3'), rstd::uint8_t(0) };
 constexpr rstd::uint32_t          kShaderCacheFormatVersion = 3;
-constexpr rstd::uint32_t          kShaderCacheAbiVersion    = 23;
+constexpr rstd::uint32_t          kShaderCacheAbiVersion    = 24;
 // 8-byte magic, six u32 fields, and four SHA-1 digests total 112 bytes.
 constexpr rstd::uint32_t kShaderCacheHeaderSize = static_cast<rstd::uint32_t>(
     kShaderCacheMagic.len().to_primitive() + 6 * sizeof(rstd::uint32_t) +

@@ -15,6 +15,44 @@ using rstd::sync::Arc;
 export namespace owe
 {
 
+struct ShadowLightBinding {
+    i32   object_id;
+    usize first_view;
+    usize view_count;
+};
+
+class ShadowAtlasLayout {
+public:
+    auto Add(i32 object_id, SceneLightType type) -> bool {
+        if (Find(object_id)) return false;
+        const auto count = type == SceneLightType::Directional ? usize(3) : usize(1);
+        if ((type != SceneLightType::Spot && type != SceneLightType::Directional) ||
+            m_view_count + count > usize(6))
+            return false;
+        m_lights.push(ShadowLightBinding { object_id, m_view_count, count });
+        m_view_count += count;
+        return true;
+    }
+    auto Find(i32 object_id) const -> Option<ref<ShadowLightBinding>> {
+        for (const auto& light : m_lights)
+            if (light.object_id == object_id)
+                return Some(ref<ShadowLightBinding>::from_raw_parts(&light));
+        return None();
+    }
+    auto ViewCount() const -> usize { return m_view_count; }
+    auto Transform(usize view) const -> array<float, 4> {
+        if (view >= m_view_count) return {};
+        const auto scale = 1.0f / static_cast<float>(m_view_count.to_primitive());
+        return { static_cast<float>(view.to_primitive()) * scale, 0.0f, scale, 1.0f };
+    }
+
+private:
+    Vec<ShadowLightBinding> m_lights;
+    usize                   m_view_count {};
+};
+
+auto SpotLightViewProjection(const SceneLight&) -> Eigen::Matrix4d;
+
 enum class TransformUniformOutput : rstd::uint32_t
 {
     ModelInverse,
@@ -115,6 +153,9 @@ enum class VolumetricUniformOutput : rstd::uint32_t
     Parameters,
     OriginDensity,
     ColorExponent,
+    ShadowProjection,
+    ShadowTransform,
+    Direction,
 };
 
 enum class VolumetricDrawKind
@@ -422,8 +463,9 @@ private:
 
 class SceneLightUniformSource {
 public:
-    SceneLightUniformSource(ref<Scene> scene, SceneLightingUniformConfig config)
-        : m_scene(scene), m_config(config) {}
+    SceneLightUniformSource(ref<Scene> scene, SceneLightingUniformConfig config,
+                            Arc<ShadowAtlasLayout> shadows = Arc<ShadowAtlasLayout>::make())
+        : m_scene(scene), m_config(config), m_shadows(rstd::move(shadows)) {}
 
     auto Describe(mut_ref<dyn<UniformBindingSink>>) const -> Result<empty, UniformError>;
     auto Version(ref<dyn<UniformUpdateContext>>) const -> u64;
@@ -434,12 +476,17 @@ public:
 private:
     ref<Scene>                 m_scene;
     SceneLightingUniformConfig m_config;
+    Arc<ShadowAtlasLayout>     m_shadows;
 };
 
 class VolumetricUniformSource {
 public:
-    VolumetricUniformSource(ref<Scene> scene, Arc<SceneNode> light_node, VolumetricDrawKind kind)
-        : m_scene(scene), m_light_node(rstd::move(light_node)), m_kind(kind) {}
+    VolumetricUniformSource(ref<Scene> scene, Arc<SceneNode> light_node, VolumetricDrawKind kind,
+                            Arc<ShadowAtlasLayout> shadows = Arc<ShadowAtlasLayout>::make())
+        : m_scene(scene),
+          m_light_node(rstd::move(light_node)),
+          m_kind(kind),
+          m_shadows(rstd::move(shadows)) {}
 
     auto Describe(mut_ref<dyn<UniformBindingSink>>) const -> Result<empty, UniformError>;
     auto Version(ref<dyn<UniformUpdateContext>>) const -> u64;
@@ -448,15 +495,16 @@ public:
     auto AcquireBindingLease() const -> Option<Box<dyn<UniformBindingLease>>> { return None(); }
 
 private:
-    ref<Scene>         m_scene;
-    Arc<SceneNode>     m_light_node;
-    VolumetricDrawKind m_kind;
+    ref<Scene>             m_scene;
+    Arc<SceneNode>         m_light_node;
+    VolumetricDrawKind     m_kind;
+    Arc<ShadowAtlasLayout> m_shadows;
 };
 
 class ShadowUniformSource {
 public:
-    ShadowUniformSource(Arc<SceneCamera> camera, ref<Scene> scene)
-        : m_camera(rstd::move(camera)), m_scene(scene) {}
+    ShadowUniformSource(Arc<SceneCamera> camera, ref<Scene> scene, Arc<ShadowAtlasLayout> shadows)
+        : m_camera(rstd::move(camera)), m_scene(scene), m_shadows(rstd::move(shadows)) {}
 
     auto Describe(mut_ref<dyn<UniformBindingSink>>) const -> Result<empty, UniformError>;
     auto Version(ref<dyn<UniformUpdateContext>>) const -> u64;
@@ -465,8 +513,9 @@ public:
     auto AcquireBindingLease() const -> Option<Box<dyn<UniformBindingLease>>> { return None(); }
 
 private:
-    Arc<SceneCamera> m_camera;
-    ref<Scene>       m_scene;
+    Arc<SceneCamera>       m_camera;
+    ref<Scene>             m_scene;
+    Arc<ShadowAtlasLayout> m_shadows;
 };
 
 class TextureUniformSource {

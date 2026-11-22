@@ -423,7 +423,7 @@ void ParseModelObjImpl(SceneLayerBuildContext& context, wpscene::ModelObject& mo
     node->SetPerspective(model_obj.perspective);
     node->SetReflected(model_obj.reflected);
     node->shadow.cast =
-        context.layer_resources->shader_environment.directional_shadow && model_obj.castshadow;
+        context.layer_resources->shader_environment.shadow_mapping && model_obj.castshadow;
     if (! model_obj.visible) {
         node->SetVisible(false);
         if (model_obj.id >= i32())
@@ -724,7 +724,7 @@ SceneParseContext
 BuildContext(Scene& scene, fs::VFS& vfs, ref<str> scene_id, const wpscene::SceneMetadata& sc,
              array<i32, 2> ortho_extent, Option<ref<rstd::json::Map>> user_properties,
              Option<rstd::path::PathBuf> shader_cache_dir, GeometryShaderLimits geometry_limits,
-             bool directional_shadow, bool geometry_shader_supported,
+             Arc<ShadowAtlasLayout> shadow_layout, bool geometry_shader_supported,
              Option<ImageReadyCallback> image_ready, TextureMemoryOptions texture_memory) {
     SceneParseContext context(scene, vfs);
     context.user_properties = user_properties;
@@ -736,8 +736,9 @@ BuildContext(Scene& scene, fs::VFS& vfs, ref<str> scene_id, const wpscene::Scene
     context.layer_resources->shader_cache = Arc<ShaderCache>::make(rstd::move(shader_cache_dir));
     context.layer_resources->geometry_shader_limits    = geometry_limits;
     context.layer_resources->geometry_shader_supported = geometry_shader_supported;
-    context.layer_resources->shader_environment.directional_shadow =
-        directional_shadow && sc.general.lightconfig.directionalshadow > u32();
+    context.layer_resources->shadow_layout             = rstd::move(shadow_layout);
+    context.layer_resources->shader_environment.shadow_mapping =
+        context.layer_resources->shadow_layout->ViewCount() > usize();
     context.layer_resources->shader_environment.lighting = {
         .point       = sc.general.lightconfig.point,
         .spot        = sc.general.lightconfig.spot,
@@ -763,11 +764,13 @@ BuildContext(Scene& scene, fs::VFS& vfs, ref<str> scene_id, const wpscene::Scene
             .initialize_transparent = true,
         });
 
-    if (context.layer_resources->shader_environment.directional_shadow) {
+    if (context.layer_resources->shader_environment.shadow_mapping) {
+        const auto view_count =
+            rstd::as_cast<u32>(context.layer_resources->shadow_layout->ViewCount());
         context.scene->RegisterRenderTarget(
             String::make(WE_SHADOW_ATLAS_PREFIX),
             SceneRenderTarget {
-                .width             = i32(768),
+                .width             = i32(256) * rstd::as_cast<i32>(view_count),
                 .height            = i32(256),
                 .kind              = SceneRenderTargetKind::DepthSampled,
                 .depth_clear_value = 0.0f,
@@ -783,7 +786,7 @@ BuildContext(Scene& scene, fs::VFS& vfs, ref<str> scene_id, const wpscene::Scene
                     },
             });
         auto viewports = Vec<SceneShadowViewport>::make();
-        for (u32 index {}; index < u32(3); ++index) {
+        for (u32 index {}; index < view_count; ++index) {
             viewports.push(SceneShadowViewport {
                 .x              = f32(256.0f * static_cast<float>(index.to_primitive())),
                 .y              = f32(256.0f),

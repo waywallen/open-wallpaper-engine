@@ -86,7 +86,8 @@ bool RegisterParticleTrailUniformSource(Scene& scene, const Arc<SceneNode>& node
 
 void RegisterLayerUniformSources(Scene& scene, const Arc<UniformSceneState>& uniform_state,
                                  const Arc<UniformCameraResolver>& camera_resolver,
-                                 const SceneLayerBuildResult&      result) {
+                                 const SceneLayerBuildResult&      result,
+                                 Arc<ShadowAtlasLayout>            shadows) {
     auto active_camera = scene.ActiveCameraHandle();
 
     auto camera_for = [&](const SceneNode& node) -> Option<Arc<SceneCamera>> {
@@ -118,8 +119,11 @@ void RegisterLayerUniformSources(Scene& scene, const Arc<UniformSceneState>& uni
     for (const auto& draft : result.volumetric_uniform_configs) {
         auto node_id = scene.ResourceIndex().nodeId(*draft.node);
         if (! node_id) continue;
-        auto source = registrar->Register(Box<dyn<UniformSource>>::make(VolumetricUniformSource {
-            ref<Scene>::from_raw_parts(&scene), draft.light_node.clone(), draft.kind }));
+        auto source = registrar->Register(Box<dyn<UniformSource>>::make(
+            VolumetricUniformSource { ref<Scene>::from_raw_parts(&scene),
+                                      draft.light_node.clone(),
+                                      draft.kind,
+                                      shadows.clone() }));
         (void)writer->AttachNode(*node_id, source, i32());
         auto textures = registrar->Register(Box<dyn<UniformSource>>::make(TextureUniformSource {}));
         (void)writer->AttachNode(*node_id, textures, i32());
@@ -195,22 +199,15 @@ void FinalizeUniformSources(SceneParseContext& context) {
         .sources  = rstd::move(audio_sources),
     });
 
-    bool shadow_light = false;
-    auto owned_lights = scene.Lights();
-    for (usize index {}; index < owned_lights.len(); ++index) {
-        const auto& light = *owned_lights[index];
-        if (! shadow_light && light.type() == SceneLightType::Directional &&
-            light.desc().cast_shadow) {
-            shadow_light = true;
-        }
-    }
     const auto light_source = registrar->Register(
         Box<dyn<UniformSource>>::make(LightUniformSource { ref<Scene>::from_raw_parts(&scene) }));
     auto lighting_sources = Vec<UniformSourceAttachment>::make();
     lighting_sources.push(UniformSourceAttachment { .source = light_source });
-    if (context.layer_resources->shader_environment.directional_shadow && shadow_light) {
+    if (context.layer_resources->shader_environment.shadow_mapping) {
         const auto shadow_source = registrar->Register(Box<dyn<UniformSource>>::make(
-            ShadowUniformSource { (*active_camera).clone(), ref<Scene>::from_raw_parts(&scene) }));
+            ShadowUniformSource { (*active_camera).clone(),
+                                  ref<Scene>::from_raw_parts(&scene),
+                                  context.layer_resources->shadow_layout.clone() }));
         lighting_sources.push(UniformSourceAttachment { .source = shadow_source });
     }
     (void)scene.RegisterUniformBlock(UniformBlockDefinition {
@@ -223,7 +220,9 @@ void FinalizeUniformSources(SceneParseContext& context) {
     const auto light_config = context.layer_resources->shader_environment.lighting;
     if (light_config.Enabled()) {
         auto source  = registrar->Register(Box<dyn<UniformSource>>::make(
-            SceneLightUniformSource { ref<Scene>::from_raw_parts(&scene), light_config }));
+            SceneLightUniformSource { ref<Scene>::from_raw_parts(&scene),
+                                      light_config,
+                                      context.layer_resources->shadow_layout.clone() }));
         auto sources = Vec<UniformSourceAttachment>::make();
         sources.push(UniformSourceAttachment { .source = source });
         (void)scene.RegisterUniformBlock(UniformBlockDefinition {
@@ -240,8 +239,11 @@ void FinalizeUniformSources(SceneParseContext& context) {
             entry.config.ride_parent_parallax = true;
         }
     }
-    RegisterLayerUniformSources(
-        scene, context.layer_resources->uniform_state, camera_resolver, context.layer_build);
+    RegisterLayerUniformSources(scene,
+                                context.layer_resources->uniform_state,
+                                camera_resolver,
+                                context.layer_build,
+                                context.layer_resources->shadow_layout.clone());
 
     HashMap<PuppetLayer*, UniformSourceId> puppet_sources;
     context.layer_resources->puppet_layers->by_node.iter().for_each([&](auto entry) {

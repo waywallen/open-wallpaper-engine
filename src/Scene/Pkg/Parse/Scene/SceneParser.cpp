@@ -36,18 +36,31 @@ auto owe::SceneParser::Parse(ref<str> scene_id, ref<wpscene::SceneDocument> docu
         return ExpandSceneObjects(document, vfs, options.user_properties);
     }();
     auto objects = rstd::move(expanded.objects);
-    bool has_directional_shadow_light { false };
-    bool has_directional_shadow_caster { false };
+    bool has_shadow_caster { false };
     for (const auto& object : objects) {
-        if (object.is_Light()) {
-            const auto& light = object.as_Light().value;
-            has_directional_shadow_light =
-                has_directional_shadow_light ||
-                ((light.light == "directional"_str || light.light == "ldirectional"_str) &&
-                 light.castshadow);
-        } else if (object.is_Model()) {
-            has_directional_shadow_caster =
-                has_directional_shadow_caster || object.as_Model().value.castshadow;
+        if (object.is_Model()) has_shadow_caster |= object.as_Model().value.castshadow;
+    }
+    auto shadows = Arc<ShadowAtlasLayout>::make();
+    if (options.capabilities.directional_shadow && has_shadow_caster) {
+        for (auto type : { SceneLightType::Spot, SceneLightType::Directional }) {
+            u32        count {};
+            const auto limit = type == SceneLightType::Spot
+                                   ? metadata.general.lightconfig.spotshadow
+                                   : metadata.general.lightconfig.directionalshadow;
+            for (const auto& object : objects) {
+                if (! object.is_Light()) continue;
+                const auto& light = object.as_Light().value;
+                const bool  matches =
+                    type == SceneLightType::Spot
+                        ? (light.light == "spot"_str || light.light == "lspot"_str)
+                        : (light.light == "directional"_str || light.light == "ldirectional"_str);
+                if (! matches || ! light.castshadow || count >= limit) continue;
+                if (! shadows->Add(i32(light.id), type)) {
+                    rstd_warn("shadow atlas: no viewport capacity for light '{}'", light.name);
+                    continue;
+                }
+                ++count;
+            }
         }
     }
 
@@ -73,8 +86,7 @@ auto owe::SceneParser::Parse(ref<str> scene_id, ref<wpscene::SceneDocument> docu
                          .max_total_output_components =
                              options.capabilities.max_geometry_total_output_components,
                      },
-                     options.capabilities.directional_shadow && has_directional_shadow_light &&
-                         has_directional_shadow_caster,
+                     rstd::move(shadows),
                      options.capabilities.geometry_shader_supported,
                      rstd::move(options.image_ready),
                      rstd::move(options.texture_memory));

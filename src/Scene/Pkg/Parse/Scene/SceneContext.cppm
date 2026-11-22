@@ -49,7 +49,7 @@ struct PuppetLayerRegistry {
 struct SceneShaderEnvironment {
     bool                       fog_distance { false };
     bool                       fog_height { false };
-    bool                       directional_shadow { false };
+    bool                       shadow_mapping { false };
     SceneLightingUniformConfig lighting;
 };
 
@@ -161,6 +161,7 @@ struct SceneLayerResources {
     Arc<ShaderCache>                  shader_cache { Arc<ShaderCache>::make() };
     ShaderValueMap                    global_base_uniforms;
     SceneShaderEnvironment            shader_environment;
+    Arc<ShadowAtlasLayout>            shadow_layout { Arc<ShadowAtlasLayout>::make() };
     GeometryShaderLimits              geometry_shader_limits;
     bool                              geometry_shader_supported { true };
     Arc<AudioResponseDemand>          audio_response_demand;
@@ -324,7 +325,8 @@ bool RegisterUniformNodeSources(Scene&, const Arc<UniformSceneState>&,
 bool RegisterParticleTrailUniformSource(Scene&, const Arc<SceneNode>&,
                                         const Arc<ParticleTrailUniformState>&);
 void RegisterLayerUniformSources(Scene&, const Arc<UniformSceneState>&,
-                                 const Arc<UniformCameraResolver>&, const SceneLayerBuildResult&);
+                                 const Arc<UniformCameraResolver>&, const SceneLayerBuildResult&,
+                                 Arc<ShadowAtlasLayout>);
 void InstallRuntimeLayerFactory(SceneParseContext&, const Arc<UniformCameraResolver>&);
 auto WorkshopAssetPath(const script::LayerAssetReference&) -> Option<String>;
 auto ResolveTextureSize(Scene&, ref<str>) -> Option<array<float, 2>>;
@@ -392,7 +394,8 @@ SceneParseContext
 BuildContext(Scene&, fs::VFS&, ref<str> scene_id, const wpscene::SceneMetadata&,
              array<i32, 2> ortho_extent, Option<ref<rstd::json::Map>> user_properties = None(),
              Option<rstd::path::PathBuf> shader_cache_dir = None(),
-             GeometryShaderLimits geometry_limits = {}, bool directional_shadow = false,
+             GeometryShaderLimits        geometry_limits  = {},
+             Arc<ShadowAtlasLayout>      shadow_layout    = Arc<ShadowAtlasLayout>::make(),
              bool geometry_shader_supported = true, Option<ImageReadyCallback> image_ready = None(),
              TextureMemoryOptions texture_memory = {});
 

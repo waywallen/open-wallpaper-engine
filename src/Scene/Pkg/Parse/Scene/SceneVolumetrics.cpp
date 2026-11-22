@@ -51,6 +51,36 @@ void MakeLightSphere(SceneMesh& mesh) {
     mesh.AddVertexArray(rstd::move(vertices));
     mesh.AddIndexArray(SceneIndexArray(indices.as_slice()));
 }
+
+void MakeLightFrustum(SceneMesh& mesh) {
+    constexpr usize segments { 32 };
+    Vec<float>      positions;
+    positions.extend_from_slice(array<float, 6> { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 1.0f }.as_slice());
+    for (usize index {}; index < segments; ++index) {
+        const auto angle = f32::consts::TAU * f32(static_cast<float>(index.to_primitive()) / 32.0f);
+        positions.extend_from_slice(array<float, 6> { angle.cos().to_primitive(),
+                                                      angle.sin().to_primitive(),
+                                                      0.0f,
+                                                      angle.cos().to_primitive(),
+                                                      angle.sin().to_primitive(),
+                                                      1.0f }
+                                        .as_slice());
+    }
+    Vec<rstd::uint32_t> indices;
+    for (usize index {}; index < segments; ++index) {
+        const auto a = static_cast<rstd::uint32_t>((index * usize(2) + usize(2)).to_primitive());
+        const auto b = static_cast<rstd::uint32_t>(
+            (((index + usize(1)) % segments) * usize(2) + usize(2)).to_primitive());
+        indices.extend_from_slice(array<rstd::uint32_t, 12> {
+            0u, b, a, 1u, a + 1u, b + 1u, a, b, a + 1u, b, b + 1u, a + 1u }
+                                      .as_slice());
+    }
+    SceneVertexArray vertices(MakeAttrSet({ VAttr::Position }), segments * usize(2) + usize(2));
+    vertices.SetVertex(WE_IN_POSITION, positions.as_slice());
+    mesh.SetPrimitive(MeshPrimitive::TRIANGLE);
+    mesh.AddVertexArray(rstd::move(vertices));
+    mesh.AddIndexArray(SceneIndexArray(indices.as_slice()));
+}
 } // namespace
 
 void BuildVolumetricPostProcess(SceneParseContext& context, fs::VFS& vfs) {
@@ -59,8 +89,12 @@ void BuildVolumetricPostProcess(SceneParseContext& context, fs::VFS& vfs) {
     for (const auto& light : scene.Lights()) {
         const auto& desc = light->desc();
         if (! desc.cast_volumetrics) continue;
-        if (desc.type != SceneLightType::Point || desc.cast_shadow) {
-            rstd_warn("volumetrics: only unshadowed point lights are supported");
+        if ((desc.type != SceneLightType::Point && desc.type != SceneLightType::Spot) ||
+            (desc.cast_shadow &&
+             (desc.type != SceneLightType::Spot || ! light->node() ||
+              ! context.layer_resources->shadow_layout->Find(light->node()->ID())))) {
+            rstd_warn("volumetrics: light '{}' has no supported shadow projection",
+                      light->node() ? light->node()->Name() : ""_str);
             continue;
         }
         if (! f32(desc.radius).is_finite() || desc.radius <= 0.0f ||
@@ -76,6 +110,8 @@ void BuildVolumetricPostProcess(SceneParseContext& context, fs::VFS& vfs) {
     if (light_nodes.is_empty()) return;
     auto target = scene.RenderTarget(SpecTex_Default);
     if (! target || ! (**target).withDepth) return;
+    const auto camera  = scene.ActiveCameraHandle();
+    const bool reverse = camera && (*camera)->NearClip() > (*camera)->FarClip();
 
     auto declare_rt = [&](ref<str> name, bool depth, bool clear) {
         SceneRenderTarget rt;
@@ -87,6 +123,7 @@ void BuildVolumetricPostProcess(SceneParseContext& context, fs::VFS& vfs) {
         rt.allowReuse  = true;
         rt.kind        = depth ? SceneRenderTargetKind::DepthSampled : SceneRenderTargetKind::Color;
         rt.force_clear = depth;
+        rt.depth_clear_value    = reverse ? 0.0f : 1.0f;
         rt.clear_on_first_write = clear;
         if (depth)
             rt.sample = { TextureWrap::CLAMP_TO_EDGE,
@@ -104,6 +141,8 @@ void BuildVolumetricPostProcess(SceneParseContext& context, fs::VFS& vfs) {
     pp->single_sample_depth_target = Some(String::make(SpecTex_Default));
     auto sphere                    = Arc<SceneMesh>::make();
     MakeLightSphere(*sphere);
+    auto frustum = Arc<SceneMesh>::make();
+    MakeLightFrustum(*frustum);
 
     auto add_pass = [&](ref<str> material_file,
                         ref<str>
@@ -115,10 +154,17 @@ void BuildVolumetricPostProcess(SceneParseContext& context, fs::VFS& vfs) {
             vfs, fs::Path(rstd::format("/assets/materials/util/{}", material_file).as_str()));
         wpscene::Material wpmat;
         if (! loaded || ! wpmat.FromJson(*loaded)) return false;
+        const SceneLight* light = nullptr;
+        if (kind)
+            for (const auto& candidate : scene.Lights())
+                if (candidate->node() == (*light_node).as_ptr().as_raw_ptr())
+                    light = candidate.as_ptr().as_raw_ptr();
+        const bool spot   = light && light->type() == SceneLightType::Spot;
+        const bool shadow = light && light->desc().cast_shadow;
         if (kind) {
-            (void)wpmat.combos.insert("POINTLIGHT"_Str, i32(1));
-            (void)wpmat.combos.insert("SHADOW"_Str, i32());
-            (void)wpmat.combos.insert("REVERSEDEPTH"_Str, i32());
+            (void)wpmat.combos.insert("POINTLIGHT"_Str, i32(spot ? 0 : 1));
+            (void)wpmat.combos.insert("SHADOW"_Str, i32(shadow ? 1 : 0));
+            (void)wpmat.combos.insert("REVERSEDEPTH"_Str, i32(reverse ? 1 : 0));
             (void)wpmat.combos.insert("QUALITY"_Str, i32(2));
             if (*kind == VolumetricDrawKind::Back) {
                 wpmat.depthtest  = "enabled"_Str;
@@ -126,6 +172,7 @@ void BuildVolumetricPostProcess(SceneParseContext& context, fs::VFS& vfs) {
                 wpmat.cullmode   = "front"_Str;
             } else {
                 wpmat.textures.resize(usize(4), String {});
+                if (shadow) wpmat.textures[usize()] = String::make(WE_SHADOW_ATLAS_PREFIX);
                 wpmat.textures[usize(1)] = String::make(SpecTex_Default);
                 wpmat.textures[usize(3)] = "_rt_volumetricsSingle"_Str;
             }
@@ -146,13 +193,19 @@ void BuildVolumetricPostProcess(SceneParseContext& context, fs::VFS& vfs) {
             return false;
         }
         auto result = rstd::move(built).unwrap();
+        if (kind && *kind == VolumetricDrawKind::Back && reverse) {
+            auto pipeline          = result.material.Pipeline();
+            pipeline.depth_compare = CompareOp::Greater;
+            result.material.SetPipeline(rstd::move(pipeline));
+        }
         LoadConstvalue(context, result.material, wpmat, result.shader_info);
         if (kind && *kind != VolumetricDrawKind::Back &&
             ! scene.SetMaterialDepthAttachmentSource(result.material, u32(1), SpecTex_Default))
             return false;
         auto mesh = Arc<SceneMesh>::make();
-        mesh->ChangeMeshDataFrom(
-            kind && *kind != VolumetricDrawKind::Fullscreen ? *sphere : *scene.DefaultEffectMesh());
+        mesh->ChangeMeshDataFrom(kind && *kind != VolumetricDrawKind::Fullscreen
+                                     ? (spot ? *frustum : *sphere)
+                                     : *scene.DefaultEffectMesh());
         mesh->AddMaterial(rstd::move(result.material));
         RegisterMaterialBindings(
             scene, mesh->MaterialSlots().first_mut().unwrap().get_mut(), wpmat, result.shader_info);

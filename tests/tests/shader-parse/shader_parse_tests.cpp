@@ -887,12 +887,15 @@ uniform sampler2D g_Texture3; // {"default":"util/second"}
 }
 
 TEST(ShaderParser, LightingRequirementInjectsSceneLightInterface) {
-    for (bool scene_lighting : { false, true }) {
+    for (int variant : { 0, 1, 2 }) {
+        const bool                  scene_lighting = variant != 0;
+        const bool                  shadows        = variant == 2;
         owe::SceneShaderVariantDesc desc;
         desc.scene_id    = "lighting-v1-interface-test"_Str;
         desc.shader_name = "lighting-v1-interface-test"_Str;
         (void)desc.input_combos.insert("SCENE_ORTHO"_Str, "1"_Str);
         (void)desc.input_combos.insert("OWE_IMAGE_LAYER"_Str, "1"_Str);
+        if (shadows) (void)desc.input_combos.insert("LIGHTS_SHADOW_MAPPING"_Str, "1"_Str);
         if (scene_lighting) {
             (void)desc.input_combos.insert("OWE_SCENE_LIGHTING"_Str, "1"_Str);
             (void)desc.input_combos.insert("LIGHTS_POINT"_Str, "1"_Str);
@@ -920,13 +923,16 @@ varying vec3 v_WorldPos;
 vec3 ComputePBRLightShadow(vec3 N, vec3 L, vec3 V, vec3 albedo, vec3 lightColor,
     float radius, float exponent, vec3 specularTint, vec3 baseReflectance,
     float roughness, float metallic, float shadowFactor) {
-    return lightColor;
+    return lightColor * shadowFactor;
 }
 vec3 ComputePBRLightShadowInfinite(vec3 N, vec3 L, vec3 V, vec3 albedo,
     vec3 lightColor, vec3 specularTint, vec3 baseReflectance, float roughness,
     float metallic, float shadowFactor) {
-    return lightColor;
+    return lightColor * shadowFactor;
 }
+vec3 CalculateProjectedCoords(vec3 pos, mat4 projection) { return mul(vec4(pos, 1.0), projection).xyz; }
+vec4 CalculateProjectedCoordsCascades(vec3 pos, mat4 projection) { return mul(vec4(pos, 1.0), projection); }
+float PerformShadowMapping(vec3 pos, vec4 atlas) { return pos.z * atlas.z; }
 #require LightingV1
 void main() {
     vec3 light = PerformLighting_V1(v_WorldPos, vec3(1.0), vec3(0.0, 1.0, 0.0),
@@ -944,15 +950,21 @@ void main() {
         Vec<owe::vulkan::Uni_ShaderSpv> spvs;
         owe::vulkan::ShaderReflected    reflected;
         ASSERT_TRUE(owe::vulkan::GenReflect((*result.shader)->codes.as_slice(), spvs, reflected));
-        ASSERT_EQ(reflected.blocks.len(), rstd::usize(1));
+        ASSERT_EQ(reflected.blocks.len(), rstd::usize(shadows ? 2 : 1));
         if (scene_lighting) {
-            const auto& block = reflected.blocks[rstd::usize()];
+            const auto& block = reflected.blocks[rstd::usize(shadows ? 1 : 0)];
             EXPECT_EQ(block.name.as_str(), owe::kSceneLightingUniformBlockName);
             EXPECT_EQ(block.set, 0u);
             EXPECT_EQ(block.binding, 3u);
             EXPECT_EQ(block.size, 1024u);
             for (const auto& field : owe::SceneLightUniformFields())
                 EXPECT_TRUE(block.member_map.contains_key(field.name));
+            if (shadows) {
+                const auto& shared = reflected.blocks[usize()];
+                EXPECT_EQ(shared.name.as_str(), owe::kLightingUniformBlockName);
+                EXPECT_EQ(shared.size, owe::kLightingUniformBlockSize.to_primitive());
+                EXPECT_TRUE(shared.member_map.contains_key("g_ShadowAtlasTransforms"_str));
+            }
             EXPECT_EQ((*result.shader)->uniform_blocks[rstd::usize()].scope,
                       owe::SceneShaderUniformBlockScope::Shared);
             continue;

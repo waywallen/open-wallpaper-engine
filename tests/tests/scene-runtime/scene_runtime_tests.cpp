@@ -690,7 +690,10 @@ TEST(ShadowUniformSource, UsesAuthoredCascadeExtentAndLightObjectFrame) {
     auto       light = Box<owe::SceneLight>::make(desc);
     light->setNode(light_node.as_ptr());
     (void)scene.RegisterLight(rstd::move(light));
-    owe::ShadowUniformSource source(rstd::move(camera), ref<owe::Scene>::from_raw_parts(&scene));
+    auto shadows = Arc<owe::ShadowAtlasLayout>::make();
+    ASSERT_TRUE(shadows->Add(light_node->ID(), owe::SceneLightType::Directional));
+    owe::ShadowUniformSource source(
+        rstd::move(camera), ref<owe::Scene>::from_raw_parts(&scene), rstd::move(shadows));
 
     owe::SceneFrame frame;
     auto            matrices =
@@ -708,11 +711,123 @@ TEST(ShadowUniformSource, UsesAuthoredCascadeExtentAndLightObjectFrame) {
     EXPECT_FLOAT_EQ(matrices[usize(48)], 0.0f);
 
     auto atlas = scene_test::Capture(frame, source, owe::ShadowUniformOutput::AtlasTransforms);
-    ASSERT_EQ(atlas.size(), usize(12));
+    ASSERT_EQ(atlas.size(), usize(24));
     EXPECT_FLOAT_EQ(atlas[usize()], 0.0f);
     EXPECT_FLOAT_EQ(atlas[usize(2)], 1.0f / 3.0f);
     EXPECT_FLOAT_EQ(atlas[usize(4)], 1.0f / 3.0f);
     EXPECT_FLOAT_EQ(atlas[usize(8)], 2.0f / 3.0f);
+}
+
+TEST(ShadowAtlasLayout, KeepsLightBindingsWithinTheCasterMatrixCapacity) {
+    owe::ShadowAtlasLayout layout;
+    EXPECT_FALSE(layout.Add(i32(1), owe::SceneLightType::Point));
+    EXPECT_TRUE(layout.Add(i32(2), owe::SceneLightType::Spot));
+    EXPECT_TRUE(layout.Add(i32(3), owe::SceneLightType::Directional));
+    EXPECT_EQ(layout.ViewCount(), usize(4));
+    EXPECT_EQ(layout.Find(i32(2)).unwrap()->first_view, usize());
+    EXPECT_EQ(layout.Find(i32(3)).unwrap()->first_view, usize(1));
+    EXPECT_FLOAT_EQ(layout.Transform(usize())[usize(2)], 0.25f);
+    EXPECT_FLOAT_EQ(layout.Transform(usize(3))[usize()], 0.75f);
+    EXPECT_FALSE(layout.Add(i32(4), owe::SceneLightType::Directional));
+    EXPECT_EQ(layout.ViewCount(), usize(4));
+    EXPECT_TRUE(layout.Find(i32(4)).is_none());
+}
+
+TEST(ShadowUniformSource, SpotAndDirectionalReceiversUseTheirOwnViewportRanges) {
+    owe::Scene scene;
+    auto camera  = Arc<owe::SceneCamera>::make(owe::SceneCamera::MakePerspective(1, 0.1, 1000, 50));
+    auto shadows = Arc<owe::ShadowAtlasLayout>::make();
+    ASSERT_TRUE(shadows->Add(i32(2), owe::SceneLightType::Spot));
+    ASSERT_TRUE(shadows->Add(i32(1), owe::SceneLightType::Directional));
+    auto directional  = Arc<owe::SceneNode>::make();
+    directional->ID() = i32(1);
+    scene.RootMut()->AppendChild(directional.clone());
+    auto dir_light = scene.RegisterLight(Box<owe::SceneLight>::make(
+        owe::SceneLight::Desc { .type = owe::SceneLightType::Directional, .cast_shadow = true }));
+    dir_light->setNode(directional.as_ptr());
+    auto spot  = Arc<owe::SceneNode>::make();
+    spot->ID() = i32(2);
+    spot->SetTranslate({ 0, 19, 0 });
+    spot->SetRotation({ 0, 0, -(f32::consts::PI / f32(2.0f)).to_primitive() });
+    scene.RootMut()->AppendChild(spot.clone());
+    auto spot_light = scene.RegisterLight(
+        Box<owe::SceneLight>::make(owe::SceneLight::Desc { .type   = owe::SceneLightType::Spot,
+                                                           .radius = 28.94f,
+                                                           .inner_cone_cos = 0.850811f,
+                                                           .outer_cone_cos = 0.173648f,
+                                                           .cast_shadow    = true }));
+    spot_light->setNode(spot.as_ptr());
+    owe::ShadowUniformSource source(
+        camera.clone(), ref<owe::Scene>::from_raw_parts(&scene), shadows.clone());
+    auto matrices = scene_test::Capture(
+        owe::SceneFrame {}, source, owe::ShadowUniformOutput::ViewProjectionMatrices);
+    ASSERT_EQ(matrices.size(), usize(96));
+    const auto spot_vp = owe::SpotLightViewProjection(*spot_light);
+    for (usize index {}; index < usize(16); ++index)
+        EXPECT_NEAR(matrices[index], spot_vp.data()[index.to_primitive()], 1e-6);
+    const Eigen::Vector4d projected = spot_vp * Eigen::Vector4d(0, 0, 0, 1);
+    EXPECT_NEAR(projected.x() / projected.w(), 0.0, 1e-5);
+    EXPECT_NEAR(projected.y() / projected.w(), 0.0, 1e-5);
+    EXPECT_GT(projected.z() / projected.w(), 0.0);
+    EXPECT_LT(projected.z() / projected.w(), 1.0);
+    owe::SceneLightUniformSource typed(ref<owe::Scene>::from_raw_parts(&scene),
+                                       { .spot = u32(1), .directional = u32(1) },
+                                       shadows.clone());
+    auto                         spot_params =
+        scene_test::Capture(owe::SceneFrame {}, typed, owe::SceneLightUniformOutput::SpotParams);
+    auto dir_params = scene_test::Capture(
+        owe::SceneFrame {}, typed, owe::SceneLightUniformOutput::DirectionalShadow);
+    EXPECT_FLOAT_EQ(spot_params[usize(2)], 0.0f);
+    EXPECT_FLOAT_EQ(dir_params[usize(1)], 1.0f);
+    spot->SetVisible(false);
+    dir_params = scene_test::Capture(
+        owe::SceneFrame {}, typed, owe::SceneLightUniformOutput::DirectionalShadow);
+    EXPECT_FLOAT_EQ(dir_params[usize(1)], 1.0f);
+}
+
+TEST(VolumetricUniformSource, SpotConeUsesShadowSlotAndRuntimeLightParameters) {
+    using O = owe::VolumetricUniformOutput;
+    owe::Scene scene;
+    auto camera = Arc<owe::SceneCamera>::make(owe::SceneCamera::MakePerspective(1, 0.01, 100, 50));
+    camera->SetLookAt({ 5, 0, 0 }, Eigen::Vector3d::Zero(), Eigen::Vector3d::UnitY());
+    scene.RegisterCamera("spot"_Str, camera.clone());
+    ASSERT_TRUE(scene.SetActiveCamera("spot"_str));
+    auto node  = Arc<owe::SceneNode>::make();
+    node->ID() = i32(7);
+    auto light = scene.RegisterLight(
+        Box<owe::SceneLight>::make(owe::SceneLight::Desc { .type      = owe::SceneLightType::Spot,
+                                                           .radius    = 10,
+                                                           .intensity = 3,
+                                                           .inner_cone_cos     = 0.9f,
+                                                           .outer_cone_cos     = 0.8f,
+                                                           .cast_shadow        = true,
+                                                           .volumetric_density = 2 }));
+    light->setNode(node.as_ptr());
+    auto shadows = Arc<owe::ShadowAtlasLayout>::make();
+    ASSERT_TRUE(shadows->Add(i32(7), owe::SceneLightType::Spot));
+    owe::VolumetricUniformSource fullscreen(ref<owe::Scene>::from_raw_parts(&scene),
+                                            node.clone(),
+                                            owe::VolumetricDrawKind::Fullscreen,
+                                            shadows.clone());
+    EXPECT_FLOAT_EQ(scene_test::Capture(owe::SceneFrame {}, fullscreen, O::OriginDensity)[usize(3)],
+                    2.0f);
+    EXPECT_FLOAT_EQ(
+        scene_test::Capture(owe::SceneFrame {}, fullscreen, O::ShadowTransform)[usize(2)], 1.0f);
+    EXPECT_FLOAT_EQ(scene_test::Capture(owe::SceneFrame {}, fullscreen, O::Direction)[usize()],
+                    1.0f);
+    const auto transform = scene_test::Capture(owe::SceneFrame {}, fullscreen, O::LightTransform);
+    const Eigen::Matrix4f frustum = Eigen::Map<const Eigen::Matrix4f>(transform.data());
+    EXPECT_TRUE((owe::SpotLightViewProjection(*light).cast<float>() * frustum)
+                    .isApprox(Eigen::Matrix4f::Identity(), 1e-5f));
+    camera->SetLookAt({ 0, 5, 0 }, Eigen::Vector3d::Zero(), Eigen::Vector3d::UnitZ());
+    EXPECT_FLOAT_EQ(scene_test::Capture(owe::SceneFrame {}, fullscreen, O::OriginDensity)[usize(3)],
+                    0.0f);
+    auto parameters       = light->ParametersOwner();
+    parameters->radius    = 20;
+    parameters->intensity = 4;
+    const auto values     = scene_test::Capture(owe::SceneFrame {}, fullscreen, O::Parameters);
+    EXPECT_FLOAT_EQ(values[usize()], 19.8f);
+    EXPECT_FLOAT_EQ(values[usize(3)], 4.0f);
 }
 
 TEST(TextureUniformSource, PublishesUnreducedTextureScale) {
@@ -1917,8 +2032,11 @@ TEST(ShadowUniformSource, CascadeCentersUseFinalCameraPosition) {
     auto       light = Box<owe::SceneLight>::make(desc);
     light->setNode(light_node.as_ptr());
     (void)scene.RegisterLight(rstd::move(light));
-    owe::ShadowUniformSource source(camera.clone(), ref<owe::Scene>::from_raw_parts(&scene));
-    auto                     translated = scene_test::Capture(
+    auto shadows = Arc<owe::ShadowAtlasLayout>::make();
+    ASSERT_TRUE(shadows->Add(light_node->ID(), owe::SceneLightType::Directional));
+    owe::ShadowUniformSource source(
+        camera.clone(), ref<owe::Scene>::from_raw_parts(&scene), rstd::move(shadows));
+    auto translated = scene_test::Capture(
         owe::SceneFrame {}, source, owe::ShadowUniformOutput::ViewProjectionMatrices);
     camera->SetViewOffset(Eigen::Vector3d::Zero());
     camera->SetLookAt(

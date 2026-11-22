@@ -516,7 +516,7 @@ auto BuildMaterial(fs::VFS& vfs, ShaderCache& shader_cache,
         }
     }
     if (shader_info_ref.combos.contains_key(WE_CB_LIGHTING)) {
-        if (environment.directional_shadow &&
+        if (environment.shadow_mapping &&
             (**shader_info_ref.combos.get(WE_CB_LIGHTING)).as_str() != "0"_str) {
             (void)shader_info_ref.combos.insert("LIGHTS_SHADOW_MAPPING"_Str, "1"_Str);
             (void)shader_info_ref.combos.insert("LIGHTS_SHADOW_MAPPING_QUALITY"_Str, "2"_Str);

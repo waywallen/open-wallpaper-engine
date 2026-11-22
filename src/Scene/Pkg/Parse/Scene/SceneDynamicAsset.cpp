@@ -379,8 +379,11 @@ struct RuntimeLayerFactory {
                 return None();
             }
         }
-        RegisterLayerUniformSources(
-            *scene, resources->uniform_state, camera_resolver, context.layer_build);
+        RegisterLayerUniformSources(*scene,
+                                    resources->uniform_state,
+                                    camera_resolver,
+                                    context.layer_build,
+                                    resources->shadow_layout.clone());
         if (! RegisterRuntimePuppetUniformSources(
                 *scene, *resources, context.created_nodes.as_slice())) {
             Rollback(context, rstd::addressof(parent));

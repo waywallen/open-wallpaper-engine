@@ -3375,6 +3375,10 @@ TEST(SceneVolumetricParsing, BuildsDepthIntegrationBlurAndComposite) {
     EXPECT_TRUE(back->Pipeline().depth_write);
     EXPECT_TRUE(back->Pipeline().depth_test);
     EXPECT_EQ(back->Pipeline().cull_mode, owe::CullMode::Front);
+    const auto active_camera = scene.ActiveCameraHandle().unwrap();
+    const bool reverse       = active_camera->NearClip() > active_camera->FarClip();
+    EXPECT_FLOAT_EQ(depth->depth_clear_value, reverse ? 0.0f : 1.0f);
+    if (reverse) EXPECT_EQ(back->Pipeline().depth_compare, owe::CompareOp::Greater);
     const auto* integration = steps[usize(2)].as_Pass().value.node->Mesh()->Material();
     EXPECT_EQ(integration->texture_sources[usize(1)].kind,
               owe::SceneMaterialTextureSourceKind::DepthAttachment);
@@ -3455,6 +3459,57 @@ TEST(SceneShadowParsing, RequiresRendererCapabilityBeforeRegisteringDerivedResou
     EXPECT_FLOAT_EQ((**atlas).depth_clear_value, 0.0f);
     EXPECT_TRUE((**atlas).sample.compare_enable);
     EXPECT_EQ((**atlas).sample.compare_op, owe::CompareOp::Greater);
+}
+
+TEST(SceneShadowParsing, SharesSpotAtlasWithDirectionalCascadesAndVolumetrics) {
+    using namespace rstd::prelude;
+    auto document = owe::wpscene::ParseSceneDocumentJson(R"({
+        "camera": {"eye":[0,0,5],"center":[0,0,0],"up":[0,1,0]},
+        "general": {"orthogonalprojection":null,
+            "lightconfig":{"spot":1,"spotshadow":1,"directional":1,"directionalshadow":1}},
+        "objects": [
+            {"id":1,"light":"ldirectional","castshadow":true,"cascadedistance0":10},
+            {"id":2,"light":"lspot","castshadow":true,"castvolumetrics":true,
+                "radius":29,"outercone":80,"innercone":30,"density":3.39},
+            {"id":3,"model":"models/editor/camera/camera.mdl","castshadow":true}
+        ]
+    })"_str,
+                                                         owe::wpscene::kSceneVersionUnknown);
+    ASSERT_TRUE(document);
+    owe::fs::VFS vfs;
+    auto         assets = owe::fs::make_physical_fs(
+        owe::fs::Path(rstd::cppstd::as_str(WAYWALLEN_ASSETS_DIR).unwrap()));
+    ASSERT_TRUE(assets);
+    ASSERT_TRUE(vfs.mount("/assets"_str, rstd::move(assets).unwrap()));
+    wavsen::audio::SoundManager sound;
+    owe::SceneParser            parser;
+    auto                        parsed =
+        parser.Parse("spot-shadow"_str,
+                     ref<owe::wpscene::SceneDocument>::from_raw_parts(&*document),
+                     mut_ref<owe::fs::VFS>::from_raw_parts(&vfs),
+                     mut_ref<wavsen::audio::SoundManager>::from_raw_parts(&sound),
+                     owe::SceneParseOptions { .capabilities = { .directional_shadow = true } });
+    ASSERT_TRUE(parsed);
+    auto& scene = *parsed->scene;
+    auto  atlas = scene.RenderTarget("_rt_shadowAtlas"_str);
+    ASSERT_TRUE(atlas);
+    EXPECT_EQ((**atlas).width, i32(1024));
+    EXPECT_EQ((**atlas).height, i32(256));
+    ASSERT_EQ(scene.ShadowDefinitions().len(), usize(1));
+    EXPECT_EQ(scene.ShadowDefinitions()[usize()].viewports.len(), usize(4));
+    ASSERT_EQ(scene.PostProcesses().len(), usize(1));
+    const auto& steps = scene.PostProcesses()[usize()]->steps;
+    ASSERT_EQ(steps.len(), usize(6));
+    const auto* volume = steps[usize(2)].as_Pass().value.node->Mesh()->Material();
+    EXPECT_EQ(volume->textures[usize()], "_rt_shadowAtlas"_str);
+    EXPECT_EQ(volume->texture_sources[usize(1)].kind,
+              owe::SceneMaterialTextureSourceKind::DepthAttachment);
+    const auto& combos = volume->customShader.variant->Description().input_combos;
+    EXPECT_EQ(*combos.get("POINTLIGHT"_str).unwrap(), "0"_str);
+    EXPECT_EQ(*combos.get("SHADOW"_str).unwrap(), "1"_str);
+    EXPECT_EQ(*combos.get("REVERSEDEPTH"_str).unwrap(), "0"_str);
+    EXPECT_FLOAT_EQ(scene.RenderTarget("_rt_volumetricsSingle"_str).unwrap()->depth_clear_value,
+                    1.0f);
 }
 
 TEST(ModelObjectJson, ReadsMaterialSkin) {

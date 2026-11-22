@@ -46,13 +46,13 @@ struct GlobalUniformField {
 inline constexpr u32      kGlobalUniformSet { u32(0) };
 inline constexpr u32      kDrawUniformSet { u32(1) };
 inline constexpr u32      kDrawUniformBinding { u32(0) };
-inline constexpr u64      kGlobalUniformSetIdentity { u64(0x5745474c4f424c03ULL) };
+inline constexpr u64      kGlobalUniformSetIdentity { u64(0x5745474c4f424c04ULL) };
 inline constexpr u64      kFrameUniformSchemaIdentity { u64(0x57454652414d4501ULL) };
 inline constexpr u64      kAudioUniformSchemaIdentity { u64(0x5745415544494f01ULL) };
-inline constexpr u64      kLightingUniformSchemaIdentity { u64(0x57454c4947485401ULL) };
+inline constexpr u64      kLightingUniformSchemaIdentity { u64(0x57454c4947485402ULL) };
 inline constexpr usize    kFrameUniformBlockSize { usize(48) };
 inline constexpr usize    kAudioUniformBlockSize { usize(3584) };
-inline constexpr usize    kLightingUniformBlockSize { usize(800) };
+inline constexpr usize    kLightingUniformBlockSize { usize(848) };
 inline constexpr ref<str> kGlobalUniformBlockName { "ww_GlobalUniforms"_str };
 inline constexpr ref<str> kAudioUniformBlockName { "ww_AudioUniforms"_str };
 inline constexpr ref<str> kLightingUniformBlockName { "ww_LightingUniforms"_str };
@@ -346,10 +346,10 @@ inline auto GlobalUniformFields() -> slice<GlobalUniformField> {
                              u32(368) },
         GlobalUniformField { G_SHADOWATLASTRANSFORMS,
                              {},
-                             "vec4[3]"_str,
+                             "vec4[6]"_str,
                              GlobalUniformProducer::Shadow,
                              UniformOutputId { u32(1) },
-                             UniformValueShape::Float(u32(12)),
+                             UniformValueShape::Float(u32(24)),
                              u32(752) },
     };
     return fields.as_slice();
