@@ -137,8 +137,10 @@ void AppHandler::OnBeforeCommandLineProcessing(const CefString&          process
         enable_shared();
         dis_vulkan();
 
-        cmd->AppendSwitchWithValue("ozone-platform", "wayland");
-        // cmd->AppendSwitchWithValue("ozone-platform-hint", "wayland");
+        cmd->AppendSwitchWithValue("ozone-platform",
+                                   m_ozone_platform == BrowserHost::OzonePlatform::X11
+                                       ? "x11"
+                                       : "wayland");
     }
 #else
     // macOS uses Chromium's native Metal and VideoToolbox paths. Forcing the

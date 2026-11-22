@@ -1,0 +1,21 @@
+[package]
+name = "owe-cli-common"
+version.workspace = true
+
+[features.waywallen]
+
+[lib]
+name = "owe-cli-common"
+module = "owe.cli"
+archive = "owe-cli-common"
+
+[dependencies]
+owe-audio = { workspace = true }
+rstd-std = { workspace = true }
+rstd-log = { workspace = true, condition = 'feature.waywallen && target.os == "linux"' }
+vvk = { workspace = true, pub = true, condition = 'feature.waywallen && target.os == "linux"' }
+wavsen = { workspace = true, pub = true }
+
+[external-dependencies.pkg-config.waywallen-bridge]
+workspace = true
+condition = 'feature.waywallen && target.os == "linux"'

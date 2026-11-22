@@ -134,6 +134,7 @@ conda activate "$ENV_PREFIX"
 set -u
 
 command -v llvm-objcopy >/dev/null || fail "llvm-objcopy not found"
+command -v wayland-scanner >/dev/null || fail "wayland-scanner not found"
 
 if [[ ! -d "$WAYWALLEN_SRC/.git" ]]; then
     if [[ -e "$WAYWALLEN_SRC" ]]; then
@@ -167,7 +168,8 @@ info "Building waywallen bridge"
     --config "tools.pkg-config.search-path=[\"$CONDA_PREFIX/lib/pkgconfig\"]"
 
 info "Building open-wallpaper-engine"
-OWE_WAYWALLEN_PLUGIN_BUNDLE_LAYOUT=ON "$LITO_BIN" install -p owe-waywallen-plugin \
+OWE_WAYWALLEN_PLUGIN_BUNDLE_LAYOUT=ON "$LITO_BIN" install \
+    -p owe-waywallen-plugin \
     --no-config \
     --profile "$LITO_PROFILE" \
     --prefix "$BUNDLE_DIR" \
@@ -182,8 +184,8 @@ package_path="$DIST_DIR/$PLUGIN_ID-$plugin_version-$system_name-$host_arch.zip"
 
 info "Packaging renderer debug symbols"
 rm -rf "$SYMBOLS_DIR"
-scene_bin="bin/waywallen-wescene-renderer"
-web_bin="lib/weweb/waywallen-weweb-renderer"
+scene_bin="bin/owe-scene"
+web_bin="bin/weweb/owe-web"
 for binary in "$scene_bin" "$web_bin"; do
     [[ -f "$BUNDLE_DIR/$binary" ]] || fail "missing renderer binary: $BUNDLE_DIR/$binary"
     mkdir -p "$SYMBOLS_DIR/$(dirname "$binary")"

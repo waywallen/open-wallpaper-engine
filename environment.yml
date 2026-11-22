@@ -35,7 +35,7 @@ dependencies:
   - lz4-c
   - zlib
 
-  # CEF build/link dependencies.
+  # CEF and vui-host dependencies (wayland includes wayland-scanner).
   - alsa-lib
   - gtk3
   - nss

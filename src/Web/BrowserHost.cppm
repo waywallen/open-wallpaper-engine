@@ -19,6 +19,8 @@ class ClientHandler;
 
 class BrowserHost {
 public:
+    enum class OzonePlatform { Wayland, X11 };
+
     struct InitOptions {
         PathBuf resources_dir;
         PathBuf locales_dir;
@@ -28,6 +30,7 @@ public:
         bool    enable_audio { true };
         bool    shared_texture_enabled { true };
         String  render_node_override;
+        OzonePlatform ozone_platform { OzonePlatform::Wayland };
     };
 
     struct OpenOptions {

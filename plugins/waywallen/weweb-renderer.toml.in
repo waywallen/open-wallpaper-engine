@@ -1,0 +1,26 @@
+
+# CEF (Wallpaper Engine *web*) renderer. web wp_type entries come from the
+# Lua entry above.
+[renderers.weweb-renderer]
+bin = "@OWE_WEWEB_BIN@"
+args = ["--waywallen"]
+types = ["web"]
+type_labels = { web = { msgid = "Web" } }
+priority = 100
+activity = "continuous"
+spawn_version = 10
+extras = ["workshop_id"]
+
+[renderers.weweb-renderer.settings]
+enable_audio = { type = "bool", default = true, identity = true, label = { msgid = "Enable audio" }, group = "audio", group_label = { msgid = "Audio" }, order = 5 }
+volume = { type = "u32", default = 100, min = 0, max = 100, step = 1, identity = false, label = { msgid = "Volume" }, group = "audio", group_label = { msgid = "Audio" }, order = 10 }
+# Hot-reloadable via SetWindowlessFrameRate on the live browser.
+fps = { type = "u32", default = 30, min = 1, max = 240, step = 1, identity = false, label = { msgid = "Frame rate" }, group = "render", group_label = { msgid = "Rendering" }, order = 20 }
+# Web has no native extent. All output sizes fit within orientation-independent 8K.
+resolution = { type = "i32", default = -2, choices = ["-2", "-1", "1", "2", "3", "4"], identity = true, label = { msgid = "Resolution" }, group = "render", group_label = { msgid = "Rendering" }, order = 25 }
+custom_extent = { type = "u32", default = 1080, min = 1, max = 8192, step = 1, identity = true, label = { msgid = "Custom resolution" }, group = "render", group_label = { msgid = "Rendering" }, order = 26 }
+shared_texture_enabled = { type = "bool", default = true, identity = true, label = { msgid = "Shared texture" }, group = "render", group_label = { msgid = "Rendering" }, order = 30 }
+render_node = { type = "string", default = "", identity = true, label = { msgid = "Render node" }, group = "render", group_label = { msgid = "Rendering" }, order = 35 }
+# CEF can only honour --remote-debugging-port at CefInitialize time;
+# changing it requires a respawn — identity = true.
+remote_debugging_port = { type = "u32", default = 0, min = 0, max = 65535, identity = true, label = { msgid = "Remote debugging port" }, group = "debug", group_label = { msgid = "Debugging" }, order = 40 }

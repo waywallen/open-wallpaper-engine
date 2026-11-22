@@ -8,16 +8,13 @@ members = [
   "src/Vulkan",
   "src/Scene",
   "src/Web",
-  "viewer/Common",
-  "viewer/SceneViewer",
-  "viewer/WebViewer",
-  "waywallen/Producer",
-  "waywallen/SceneRenderer",
-  "waywallen/WebRenderer",
-  "waywallen/plugins/org.waywallen.open-wallpaper-engine",
+  "cli/common",
+  "cli/scene",
+  "cli/web",
+  "plugins/waywallen",
   "tests",
 ]
-default-members = ["viewer/SceneViewer", "viewer/WebViewer"]
+default-members = ["cli/scene", "cli/web"]
 
 [workspace.package]
 version = "0.3.4"
@@ -30,10 +27,9 @@ owe-utils = { path = "src/Scene/Utils" }
 owe-vulkan = { path = "src/Vulkan" }
 owe-scene = { path = "src/Scene" }
 owe-web = { path = "src/Web" }
-owe-viewer-common = { path = "viewer/Common" }
-owe-waywallen-producer = { path = "waywallen/Producer" }
-owe-waywallen-scene-renderer = { path = "waywallen/SceneRenderer" }
-owe-waywallen-web-renderer = { path = "waywallen/WebRenderer" }
+owe-cli-common = { path = "cli/common" }
+owe-cli-scene = { path = "cli/scene" }
+owe-cli-web = { path = "cli/web" }
 rstd-std = { version = "0.1.9" }
 rstd-cppstd = { version = "0.1.9" }
 rstd-json = { version = "0.1.9" }
@@ -44,26 +40,12 @@ rstd-bench = { version = "0.1.9" }
 rstd-test = { version = "0.1.9" }
 licrypto = { version = "0.1.1" }
 liffto = { version = "0.1.0" }
-vvk = { version = "0.1.1" }
+vvk = { version = "0.1.2" }
+vui-host = { version = "0.1.0" }
 spirvto = { version = "0.1.0" }
 wavsen = { git = "https://github.com/hypengw/wavsen.git" }
-vrento = { git = "https://github.com/vecren/vrento.git" }
-vectext = { git = "https://github.com/vecren/vectext.git" }
-
-[workspace.external-dependencies.pkg-config.glfw]
-module = "glfw3"
-
-[workspace.external-dependencies.pkg-config.egl]
-module = "egl"
-
-[workspace.external-dependencies.pkg-config.gles]
-module = "glesv2"
-
-[workspace.external-dependencies.pkg-config.x11]
-module = "x11"
-
-[workspace.external-dependencies.pkg-config.wayland-egl]
-module = "wayland-egl"
+vrento = { version = "0.1.0" }
+vectext = { version = "0.1.0" }
 
 [workspace.external-dependencies.pkg-config.lz4]
 module = "liblz4"

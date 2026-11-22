@@ -24,11 +24,6 @@ sources = [
 
 [usage]
 public-include-directories = ["."]
-options = [
-  "-Wextra",
-  "-Wno-missing-field-initializers",
-  "-Wno-gnu-zero-variadic-macro-arguments",
-]
 
 [dependencies.owe-core]
 workspace = true

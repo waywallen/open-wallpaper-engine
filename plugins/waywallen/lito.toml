@@ -1,0 +1,11 @@
+[package]
+name = "owe-waywallen-plugin"
+version.workspace = true
+
+[runtime-dependencies.owe-cli-scene]
+workspace = true
+features = ["waywallen"]
+
+[runtime-dependencies.owe-cli-web]
+workspace = true
+features = ["waywallen"]

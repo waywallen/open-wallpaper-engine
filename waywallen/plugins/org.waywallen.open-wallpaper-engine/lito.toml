@@ -1,9 +1,0 @@
-[package]
-name = "owe-waywallen-plugin"
-version.workspace = true
-
-[runtime-dependencies.owe-waywallen-scene-renderer]
-workspace = true
-
-[runtime-dependencies.owe-waywallen-web-renderer]
-workspace = true

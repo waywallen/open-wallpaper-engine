@@ -164,11 +164,6 @@ public-definitions = [
   'WAYWALLEN_ASSETS_DIR="assets"',
   "FT_SIZEOF_LONG=8",
 ]
-options = [
-  "-Wextra",
-  "-Wno-missing-field-initializers",
-  "-Wno-gnu-zero-variadic-macro-arguments",
-]
 
 [dependencies.owe-core]
 workspace = true

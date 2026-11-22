@@ -1,6 +1,7 @@
 module;
 
 export module wescene.vulkan_render;
+import vvk;
 import wescene.types;
 import rstd;
 import wescene.load_bench;
@@ -29,7 +30,9 @@ export namespace owe
 {
 
 using ReDrawCB              = Option<Box<dyn<FnMut<void()>>>>;
-using CreateSurfaceCallback = Box<dyn<FnOnce<VkResult(VkInstance, VkSurfaceKHR*)>>>;
+using CreateSurfaceResult =
+    Result<vrento::vulkan::SessionSurface, vrento::vulkan::DeviceSessionError>;
+using CreateSurfaceCallback = Box<dyn<FnOnce<CreateSurfaceResult(const vvk::Instance&)>>>;
 
 struct VulkanSurfaceInfo {
     Option<CreateSurfaceCallback> createSurfaceOp;

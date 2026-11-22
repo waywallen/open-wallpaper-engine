@@ -11,13 +11,6 @@ sources = [
   "AudioResponse.cpp",
 ]
 
-[usage]
-options = [
-  "-Wextra",
-  "-Wno-missing-field-initializers",
-  "-Wno-gnu-zero-variadic-macro-arguments",
-]
-
 [dependencies.rstd-std]
 workspace = true
 pub = true

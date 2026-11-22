@@ -260,6 +260,7 @@ bool BrowserHost::Init(const InitOptions& opts) {
     impl_->app->SetMuteAudio(! opts.enable_audio);
     impl_->app->SetSharedTextureEnabled(opts.shared_texture_enabled);
     impl_->app->SetRenderNodeOverride(opts.render_node_override.as_str());
+    impl_->app->SetOzonePlatform(opts.ozone_platform);
 
     if (! CefInitialize(main_args, settings, impl_->app.get(), nullptr)) {
         eprintln("weweb: CefInitialize failed");

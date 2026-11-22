@@ -1,0 +1,30 @@
+[package]
+name = "owe-cli-scene"
+version.workspace = true
+
+[features.waywallen]
+enables = ["owe-cli-common/waywallen"]
+
+[[bin]]
+name = "owe-scene"
+module = "owe.cli.scene"
+
+[[when]]
+condition = 'target.os == "macos"'
+
+[when.usage]
+linker-options = ["-Wl,-sectcreate,__TEXT,__info_plist,cli/Info.plist"]
+
+[dependencies]
+owe-cli-common = { workspace = true }
+owe-core = { workspace = true }
+owe-scene = { workspace = true }
+owe-vulkan = { workspace = true, condition = 'feature.waywallen && target.os == "linux"' }
+rstd-std = { workspace = true }
+rstd-argparse = { workspace = true }
+rstd-bench = { workspace = true }
+rstd-cppstd = { workspace = true, condition = 'feature.waywallen && target.os == "linux"' }
+rstd-log = { workspace = true }
+vui-host = { workspace = true }
+vvk = { workspace = true }
+wavsen = { workspace = true }

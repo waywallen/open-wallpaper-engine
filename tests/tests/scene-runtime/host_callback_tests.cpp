@@ -2,6 +2,7 @@
 
 import rstd;
 import rstd.log;
+import vvk;
 import vrento;
 import wescene.scene_wallpaper;
 
@@ -183,15 +184,19 @@ TEST(HostCallbacks, OwnsSurfaceCallbackAndDeviceIdentity) {
         info.uuid                         = Some(uuid);
         uuid[usize()]                     = 7;
         info.surface_info.createSurfaceOp = Some(owe::CreateSurfaceCallback::make(
-            [owner = Box<Released>::make(&released)](VkInstance, VkSurfaceKHR*) {
-                return VK_SUCCESS;
+            [owner = Box<Released>::make(&released)](const vvk::Instance&)
+                -> owe::CreateSurfaceResult {
+                return Err(vrento::vulkan::DeviceSessionError {
+                    vrento::vulkan::DeviceSessionStage::Surface, VK_ERROR_SURFACE_LOST_KHR });
             }));
     }
     EXPECT_EQ((*info.uuid)[usize()], 42);
     EXPECT_EQ(released, 0);
     {
         auto callback = info.surface_info.createSurfaceOp.take().unwrap();
-        EXPECT_EQ(callback->call_once(VkInstance {}, nullptr), VK_SUCCESS);
+        auto result = callback->call_once(vvk::Instance {});
+        ASSERT_TRUE(result.is_err());
+        EXPECT_EQ(result.unwrap_err().result, VK_ERROR_SURFACE_LOST_KHR);
     }
     EXPECT_EQ(released, 1);
 }

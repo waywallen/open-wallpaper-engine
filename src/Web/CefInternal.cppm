@@ -4,6 +4,7 @@ import rstd;
 
 import wescene.json;
 
+import :browser_host;
 import :cef;
 import :frame;
 
@@ -25,6 +26,7 @@ public:
     void SetMuteAudio(bool m) { m_mute_audio = m; }
     void SetSharedTextureEnabled(bool enabled) { m_shared_texture_enabled = enabled; }
     void SetRenderNodeOverride(ref<str> path) { m_render_node_override = String::make(path); }
+    void SetOzonePlatform(BrowserHost::OzonePlatform platform) { m_ozone_platform = platform; }
 
     CefRefPtr<CefBrowserProcessHandler> GetBrowserProcessHandler() override { return this; }
     CefRefPtr<CefRenderProcessHandler>  GetRenderProcessHandler() override { return this; }
@@ -52,6 +54,7 @@ private:
     bool                          m_mute_audio { false };
     bool                          m_shared_texture_enabled { true };
     String                        m_render_node_override;
+    BrowserHost::OzonePlatform    m_ozone_platform { BrowserHost::OzonePlatform::Wayland };
     int                           m_next_audio_context_generation { 1 };
     HashMap<rstd::uintptr_t, int> m_audio_context_generations;
     CefRefCount                   ref_count_;

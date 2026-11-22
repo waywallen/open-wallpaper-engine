@@ -15,7 +15,7 @@ from urllib import request
 DEFAULT_REPO = "waywallen/open-wallpaper-engine"
 PLUGIN_ID = "org.waywallen.open-wallpaper-engine"
 DEFAULT_ARCHES = ("x86_64", "aarch64")
-PLUGIN_TEMPLATE_DIR = Path("waywallen/plugins") / PLUGIN_ID
+PLUGIN_TEMPLATE_DIR = Path("plugins") / PLUGIN_ID
 PLUGIN_TEMPLATE_NAMES = ("plugin.toml.in", "weweb-renderer.toml.in")
 
 

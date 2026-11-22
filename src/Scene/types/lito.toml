@@ -8,13 +8,6 @@ module = "wescene.types"
 archive = "owe-types"
 sources = ["types.cppm", "types.cpp"]
 
-[usage]
-options = [
-  "-Wextra",
-  "-Wno-missing-field-initializers",
-  "-Wno-gnu-zero-variadic-macro-arguments",
-]
-
 [dependencies.owe-core]
 workspace = true
 pub = true

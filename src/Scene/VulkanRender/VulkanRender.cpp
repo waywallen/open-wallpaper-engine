@@ -69,30 +69,17 @@ struct HostOutputFrame {
     Option<vrento::texture::Submission>           work;
 };
 
-struct ViewerSurfaceFactory {
+struct CallbackSurfaceFactory {
     owe::CreateSurfaceCallback create;
-    auto                       createSurface(VkInstance instance)
-        -> Result<vrento::vulkan::SessionSurface, vrento::vulkan::DeviceSessionError> {
-        VkSurfaceKHR surface {};
-        const auto   result = create->call_once(instance, &surface);
-        if (result != VK_SUCCESS)
-            return Err(vrento::vulkan::DeviceSessionError {
-                vrento::vulkan::DeviceSessionStage::Surface, result });
-        return Ok(vrento::vulkan::SessionSurface {
-            .handle   = surface,
-            .lifetime = Box<dyn<rstd::any::Any>>::make(rstd::move(create)),
-        });
-    }
 };
 
 namespace rstd
 {
 template<>
-struct Impl<vrento::vulkan::SessionSurfaceFactory, ViewerSurfaceFactory>
-    : ImplBase<ViewerSurfaceFactory> {
-    auto create(const vvk::Instance& instance)
-        -> Result<vrento::vulkan::SessionSurface, vrento::vulkan::DeviceSessionError> {
-        return self().createSurface(*instance);
+struct Impl<vrento::vulkan::SessionSurfaceFactory, CallbackSurfaceFactory>
+    : ImplBase<CallbackSurfaceFactory> {
+    auto create(const vvk::Instance& instance) -> owe::CreateSurfaceResult {
+        return self().create->call_once(instance);
     }
 };
 } // namespace rstd
@@ -965,13 +952,13 @@ bool VulkanRender::Impl::init(RenderInitInfo info, SceneLoadBenchRecorderView lo
         info.video_hwdec.as_str() == "none"_str ? WP_VULKAN_VERSION : VK_API_VERSION_1_3;
     {
         auto instance_span = SceneLoadSpan(load_bench, &SceneLoadProbeIds::vulkan_instance);
-        Option<ViewerSurfaceFactory> surface_factory;
+        Option<CallbackSurfaceFactory> surface_factory;
         if (! info.offscreen) {
             if (! info.surface_info.createSurfaceOp) {
                 rstd_error("missing vulkan surface callback");
                 return false;
             }
-            surface_factory = Some(ViewerSurfaceFactory {
+            surface_factory = Some(CallbackSurfaceFactory {
                 .create = rstd::move(info.surface_info.createSurfaceOp).unwrap(),
             });
         }
