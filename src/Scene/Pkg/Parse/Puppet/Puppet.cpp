@@ -338,8 +338,13 @@ static constexpr void genSingleInterpolationInfo(Puppet::Animation::Interpolatio
 
 Puppet::Animation::InterpolationInfo
 Puppet::Animation::getInterpolationInfo(double* cur_time) const {
-    InterpolationInfo _info;
+    InterpolationInfo _info {};
     auto&             _cur_time = *cur_time;
+    // A static clip has no intervals, even if its authored playback mode loops.
+    if (length <= 0) {
+        _cur_time = 0.0;
+        return _info;
+    }
 
     if (mode == PlayMode::Loop) {
         const auto frame_count = usize(static_cast<size_t>(length));

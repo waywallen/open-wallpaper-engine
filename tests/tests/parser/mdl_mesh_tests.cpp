@@ -65,6 +65,95 @@ static auto MakeReplacementPuppet() -> Arc<owe::Puppet> {
     return puppet;
 }
 
+TEST(Puppet, ZeroLengthClipsSampleTheirOnlyFrameInEveryMode) {
+    for (auto mode : { owe::Puppet::PlayMode::Loop,
+                       owe::Puppet::PlayMode::Mirror,
+                       owe::Puppet::PlayMode::Single }) {
+        auto  puppet     = MakeReplacementPuppet();
+        auto& animation  = puppet->anims[usize()];
+        animation.mode   = mode;
+        animation.length = 0;
+        animation.bone_tracks[usize()].frames.truncate(usize(1));
+        puppet->prepared();
+        for (double time : { -1.0, 0.0, 0.25, 10.0 }) {
+            auto       current = time;
+            const auto sample  = animation.getInterpolationInfo(&current);
+            EXPECT_EQ(sample.frame_a, usize());
+            EXPECT_EQ(sample.frame_b, usize());
+            EXPECT_DOUBLE_EQ(sample.t, 0.0);
+            EXPECT_DOUBLE_EQ(current, 0.0);
+        }
+        owe::PuppetLayer                 layer(puppet.clone());
+        owe::PuppetLayer::AnimationLayer authored { .id = 1 };
+        layer.prepared(
+            slice<owe::PuppetLayer::AnimationLayer>::from_raw_parts(&authored, usize(1)));
+        EXPECT_FLOAT_EQ(layer.boneTransform(1, 0.0)->translation().x(), 10.0f);
+        animation.bone_tracks.clear();
+        EXPECT_FLOAT_EQ(layer.boneTransform(1, 0.0)->translation().x(), 4.0f);
+    }
+}
+
+TEST(Puppet, NonzeroClipsKeepLoopMirrorAndSingleEndpoints) {
+    auto  puppet    = MakeReplacementPuppet();
+    auto& animation = puppet->anims[usize()];
+    for (auto mode : { owe::Puppet::PlayMode::Loop,
+                       owe::Puppet::PlayMode::Mirror,
+                       owe::Puppet::PlayMode::Single }) {
+        animation.mode = mode;
+        double current = 0.25;
+        auto   sample  = animation.getInterpolationInfo(&current);
+        EXPECT_EQ(sample.frame_a, usize());
+        EXPECT_EQ(sample.frame_b, usize(1));
+        EXPECT_DOUBLE_EQ(sample.t, 0.25);
+        current = 1.0;
+        sample  = animation.getInterpolationInfo(&current);
+        if (mode == owe::Puppet::PlayMode::Loop) {
+            EXPECT_EQ(sample.frame_a, usize());
+            EXPECT_EQ(sample.frame_b, usize(1));
+            EXPECT_DOUBLE_EQ(sample.t, 0.0);
+            EXPECT_DOUBLE_EQ(current, 0.0);
+        } else if (mode == owe::Puppet::PlayMode::Mirror) {
+            EXPECT_EQ(sample.frame_a, usize(1));
+            EXPECT_EQ(sample.frame_b, usize());
+            EXPECT_DOUBLE_EQ(sample.t, 0.0);
+            EXPECT_DOUBLE_EQ(current, 1.0);
+        } else {
+            EXPECT_EQ(sample.frame_a, usize());
+            EXPECT_EQ(sample.frame_b, usize(1));
+            EXPECT_DOUBLE_EQ(sample.t, 1.0);
+            EXPECT_DOUBLE_EQ(current, 1.0);
+        }
+    }
+}
+
+TEST(MdlPuppet, ZeroLengthTreasureClipCanBeEvaluated) {
+    auto path = rstd::format("{}/3371684680/scene.pkg",
+                             rstd::cppstd::as_str(WAYWALLEN_WORKSHOP_DIR).unwrap());
+    auto pkg  = owe::fs::WPPkgFs::open(owe::fs::Path(path.as_str()));
+    if (pkg.is_err()) GTEST_SKIP() << "workshop 3371684680 is not available";
+    owe::fs::VFS vfs;
+    ASSERT_TRUE(vfs.mount("/assets"_str, pkg->mount_handle()).is_ok());
+    owe::Mdl model;
+    ASSERT_TRUE(owe::MdlParser::Parse("models/treasure_chest/treasure_chest.mdl"_str, vfs, model));
+    ASSERT_TRUE(model.puppet.is_some());
+    auto puppet = (*model.puppet).clone();
+    bool found  = false;
+    for (const auto& animation : puppet->anims) {
+        if (animation.id != 25) continue;
+        found = true;
+        EXPECT_EQ(animation.length, 0);
+        EXPECT_EQ(animation.mode, owe::Puppet::PlayMode::Loop);
+        EXPECT_TRUE(animation.bone_tracks.is_empty());
+    }
+    ASSERT_TRUE(found);
+    owe::PuppetLayer                 layer(puppet.clone());
+    owe::PuppetLayer::AnimationLayer authored { .id = 25 };
+    layer.prepared(slice<owe::PuppetLayer::AnimationLayer>::from_raw_parts(&authored, usize(1)));
+    const auto transforms = layer.genFrame(0.0);
+    EXPECT_EQ(transforms.len(), puppet->bones.len());
+    for (const auto& transform : transforms) EXPECT_TRUE(transform.matrix().allFinite());
+}
+
 TEST(Puppet, VisibilityChangesKeepTheSamePlayback) {
     auto                             puppet = MakeReplacementPuppet();
     owe::PuppetLayer                 layer(puppet.clone());
