@@ -78,6 +78,19 @@ TEST(SceneShaderHash, PreservesStageOrderAndTracksRuntimeInterfaces) {
     EXPECT_NE(expected, owe::SceneShaderCodeHash(changed));
 }
 
+TEST(SceneShaderHash, FrozenStageHashPreservesExistingEncoding) {
+    auto check = [](const owe::ShaderCode& code) {
+        rstd::hash::DefaultHasher expected;
+        rstd::hash::hash_into(code.len().to_primitive(), expected);
+        for (auto word : code) rstd::hash::hash_into(word, expected);
+        EXPECT_EQ(owe::SceneShaderStageCodeHash(code), rstd::as_cast<usize>(expected.finish()));
+    };
+    check(owe::ShaderCode {});
+    auto code = owe::ShaderCode::from(array<rstd::uint32_t, 3> { 0x07230203u, 2u, 3u }.as_slice());
+    check(code);
+    check(code.clone());
+}
+
 TEST(ShaderBackend, NativeSourcePreprocessesAndCompiles) {
     String source =
         "#version 450\n#define POSITION vec4(0.0)\nvoid main(){gl_Position=POSITION;}\n"_Str;

@@ -2577,14 +2577,17 @@ TEST(PipelineCacheKey, PreservesShaderEncodingAndOwnedStages) {
     request.shader_stages.clear();
 
     PipelineKeyWriter writer;
-    WritePipelineShaderStages(writer, desc.shader_stages.as_slice());
-    auto encoded = rstd::move(writer).finish();
-    EXPECT_EQ(encoded.bytes,
-              Bytes({
-                  6, 1, 0, 0, 0, 0, 0, 0, 0, 2,    0,   0,   0,    0,    0,    0,    0,
-                  0, 5, 4, 0, 0, 0, 0, 0, 0, 0,    'm', 'a', 'i',  'n',  6,    2,    0,
-                  0, 0, 0, 0, 0, 0, 1, 3, 2, 0x23, 7,   1,   0xff, 0xff, 0xff, 0xff,
-              }));
+    auto              codes    = WritePipelineShaderStages(writer, desc.shader_stages.as_slice());
+    auto              encoded  = rstd::move(writer).finish();
+    auto              expected = Bytes({
+        6, 1, 0, 0, 0, 0, 0,   0,   0,   2,   0, 0, 0, 0, 0, 0, 0, 0, 5, 4, 0,
+        0, 0, 0, 0, 0, 0, 'm', 'a', 'i', 'n', 6, 2, 0, 0, 0, 0, 0, 0, 0, 2,
+    });
+    expected.extend_from_slice(
+        desc.shader_stages[usize()].spirv.content_hash().to_le_bytes().as_slice());
+    EXPECT_EQ(encoded.bytes, expected);
+    ASSERT_EQ(codes.len(), usize(1));
+    EXPECT_EQ(codes[usize()].data(), desc.shader_stages[usize()].spirv.data());
     auto fragment        = desc.shader_stages[usize()].clone();
     fragment.stage       = owe::ShaderType::FRAGMENT;
     fragment.entry_point = "fragment"_Str;

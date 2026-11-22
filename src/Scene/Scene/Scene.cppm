@@ -167,10 +167,7 @@ public:
 };
 
 inline usize SceneShaderStageCodeHash(const ShaderCode& code) {
-    DefaultHasher seed;
-    hash_into(code.len().to_primitive(), seed);
-    for (auto word : code) hash_into(word, seed);
-    return rstd::as_cast<usize>(seed.finish());
+    return rstd::as_cast<usize>(code.content_hash());
 }
 
 inline usize SceneShaderCodeHash(slice<ShaderCode> codes) {
