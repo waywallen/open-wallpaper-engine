@@ -2028,6 +2028,90 @@ TEST(PuppetScriptParsing, VisibilityScriptsInitializeTheirOwnPlayback) {
     EXPECT_NE((*first_playback).as_ptr(), (*second_playback).as_ptr());
 }
 
+TEST(SceneLayerVisibility, ReturnedBooleansSelectOneLayout) {
+    using namespace rstd::prelude;
+    auto document = owe::wpscene::ParseSceneDocumentJson(R"JSON({
+        "camera": {},
+        "general": {"orthogonalprojection":{"width":128,"height":128}},
+        "objects": [
+            {"id":1,"name":"both","image":"models/util/solidlayer.json","size":"16 16",
+             "visible":{"value":true,"script":"export function update() { return engine.userProperties.day && engine.userProperties.clock; }"}},
+            {"id":2,"name":"day","image":"models/util/solidlayer.json","size":"16 16",
+             "visible":{"value":true,"script":"export function update() { return engine.userProperties.day && !engine.userProperties.clock; }"}},
+            {"id":3,"name":"clock","image":"models/util/solidlayer.json","size":"16 16",
+             "visible":{"value":true,"script":"export function update() { return !engine.userProperties.day && engine.userProperties.clock; }"}},
+            {"id":4,"name":"neither","image":"models/util/solidlayer.json","size":"16 16",
+             "visible":{"value":true,"script":"export function update() { return !engine.userProperties.day && !engine.userProperties.clock; }"}}
+        ]
+    })JSON"_str,
+                                                         owe::wpscene::kSceneVersionUnknown);
+    ASSERT_TRUE(document.is_some());
+    owe::fs::VFS vfs;
+    auto         assets = owe::fs::make_physical_fs(
+        owe::fs::Path(rstd::cppstd::as_str(WAYWALLEN_ASSETS_DIR).unwrap()));
+    ASSERT_TRUE(assets.is_ok());
+    ASSERT_TRUE(vfs.mount("/assets"_str, rstd::move(assets).unwrap()).is_ok());
+    wavsen::audio::SoundManager sound;
+    owe::SceneParser            parser;
+    auto parsed = parser.Parse("layer-visibility"_str,
+                               ref<owe::wpscene::SceneDocument>::from_raw_parts(&*document),
+                               mut_ref<owe::fs::VFS>::from_raw_parts(&vfs),
+                               mut_ref<wavsen::audio::SoundManager>::from_raw_parts(&sound));
+    ASSERT_TRUE(parsed.is_ok());
+    auto                     scene = rstd::move(parsed).unwrap();
+    const array<ref<str>, 4> names { "both"_str, "day"_str, "clock"_str, "neither"_str };
+    for (bool day : { true, false, true }) {
+        for (bool clock : { true, false, true }) {
+            owe::script::SetSceneUserProperty(*scene.scene, "day"_str, rstd::into<owe::Json>(day));
+            owe::script::SetSceneUserProperty(
+                *scene.scene, "clock"_str, rstd::into<owe::Json>(clock));
+            owe::script::TickSceneScripts(*scene.scene, owe::script::FrameInputs {});
+            const array<bool, 4> expected {
+                day && clock, day && ! clock, ! day && clock, ! day && ! clock
+            };
+            for (usize index {}; index < names.len(); ++index) {
+                auto* node = scene.scene->RootMut()->FindByName(names[index]);
+                ASSERT_NE(node, nullptr);
+                EXPECT_EQ(node->Visible(), expected[index]);
+                EXPECT_EQ(scene.scene->IsLayerVisibilityElidable(
+                              owe::WallpaperLayerId { .value = i32(index.to_primitive() + 1) }),
+                          ! expected[index]);
+            }
+        }
+    }
+}
+
+TEST(SceneLayerVisibility, EmptyAndInvalidReturnsPreservePropertyWrites) {
+    using namespace rstd::prelude;
+    auto document = owe::wpscene::ParseSceneDocumentJson(R"JSON({
+        "camera": {}, "general": {}, "objects": [
+            {"id":1,"name":"undefined","visible":{"value":true,"script":"export function update() { thisLayer.visible = false; }"}},
+            {"id":2,"name":"null","visible":{"value":true,"script":"export function update() { thisLayer.visible = false; return null; }"}},
+            {"id":3,"name":"invalid","visible":{"value":false,"script":"export function update() { return 'visible'; }"}},
+            {"id":4,"name":"init","visible":{"value":true,"script":"export function init() { thisLayer.visible = false; }"}}
+        ]
+    })JSON"_str,
+                                                         owe::wpscene::kSceneVersionUnknown);
+    ASSERT_TRUE(document.is_some());
+    owe::fs::VFS                vfs;
+    wavsen::audio::SoundManager sound;
+    owe::SceneParser            parser;
+    auto parsed = parser.Parse("visibility-return"_str,
+                               ref<owe::wpscene::SceneDocument>::from_raw_parts(&*document),
+                               mut_ref<owe::fs::VFS>::from_raw_parts(&vfs),
+                               mut_ref<wavsen::audio::SoundManager>::from_raw_parts(&sound));
+    ASSERT_TRUE(parsed.is_ok());
+    auto scene = rstd::move(parsed).unwrap();
+    for (int frame = 0; frame < 2; ++frame) {
+        owe::script::TickSceneScripts(*scene.scene, owe::script::FrameInputs {});
+        for (auto name : { "undefined"_str, "null"_str, "invalid"_str, "init"_str }) {
+            auto* node = scene.scene->RootMut()->FindByName(name);
+            ASSERT_NE(node, nullptr);
+            EXPECT_FALSE(node->Visible()) << rstd::cppstd::as_string_view(name);
+        }
+    }
+}
+
 TEST(ImageEffectVisibility, InvalidScriptReturnPreservesUserBinding) {
     using namespace rstd::prelude;
     auto document = owe::wpscene::ParseSceneDocumentJson(R"JSON({

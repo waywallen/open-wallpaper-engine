@@ -485,11 +485,11 @@ void WireFieldScripts(SceneLayerBuildContext& context, const Arc<SceneNode>& nod
         auto                        field = binding.field.as_str();
         script::NodeTransformTarget tgt   = script::NodeTransformTarget::Translate;
         script::FieldKind           kind;
-        bool                        has_actuator = true;
-        bool                        is_alpha     = false;
-        bool                        is_color     = false;
-        bool                        is_volume    = false;
-        bool                        is_parallax  = false;
+        bool                        is_visible  = false;
+        bool                        is_alpha    = false;
+        bool                        is_color    = false;
+        bool                        is_volume   = false;
+        bool                        is_parallax = false;
         if (field == "origin"_str) {
             tgt  = script::NodeTransformTarget::Translate;
             kind = script::FieldKind::Vec3;
@@ -500,11 +500,8 @@ void WireFieldScripts(SceneLayerBuildContext& context, const Arc<SceneNode>& nod
             tgt  = script::NodeTransformTarget::Rotation;
             kind = script::FieldKind::Vec3;
         } else if (field == "visible"_str) {
-            // Side-effect-only script bound to visibility. update() may
-            // drive other layers via createLayer + property writes; we
-            // don't write a return value back to the node.
-            kind         = script::FieldKind::Bool;
-            has_actuator = false;
+            kind       = script::FieldKind::Bool;
+            is_visible = true;
         } else if (field == "alpha"_str) {
             kind     = script::FieldKind::Scalar;
             is_alpha = true;
@@ -537,8 +534,15 @@ void WireFieldScripts(SceneLayerBuildContext& context, const Arc<SceneNode>& nod
         if (! fs) continue;
         SetScriptInitializationOrder(context, *fs, node);
         TrackFieldScript(context, fs);
-        if (! has_actuator) continue;
-        if (is_alpha)
+        if (is_visible)
+            ss.AddActuator({ fs,
+                             [scene = context.scene,
+                              node  = node_sp.clone()](const script::ScriptValue& value) {
+                                 // Empty returns leave direct script property writes intact.
+                                 if (value.is_Bool())
+                                     scene->SetNodeVisible(*node, value.as_Bool().value.v);
+                             } });
+        else if (is_alpha)
             ss.AddActuator({ fs, script::MakeNodeAlphaApply(node_sp.clone()) });
         else if (is_color)
             ss.AddActuator({ fs, script::MakeNodeColorApply(node_sp.clone()) });

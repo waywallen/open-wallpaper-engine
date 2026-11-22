@@ -35,9 +35,6 @@ bool       ScriptScene::DiscardDeferredFieldScript(FieldScript& script) {
         if (actuator.script == &script) actuator.script = nullptr;
     return m_impl->rt.DiscardDeferredFieldScript(script);
 }
-// Empty = no scripts AND no actuators. Visibility-bound side-effect-only
-// scripts (audio bar fanout) don't register an actuator but still need
-// their TickAll to run, so emptiness must also consult the runtime.
 bool ScriptScene::empty() const noexcept {
     if (! m_impl->actuators.is_empty()) return false;
     return m_impl->rt.Empty();
