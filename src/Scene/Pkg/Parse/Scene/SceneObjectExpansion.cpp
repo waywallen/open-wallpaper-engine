@@ -227,13 +227,15 @@ bool PrepareSceneObject(T& object, Option<ref<rstd::json::Map>> user_properties,
     const bool linked         = ! object.visible && linked_source_ids->contains(object.id);
     const bool user_bound     = ! object.visible && ! object.visible_user.empty();
     const bool visible_script = ! object.visible && object.field_bindings.HasScript("visible"_str);
-    constexpr bool keep_text  = same_as<T, wpscene::TextObject>;
+    constexpr bool keep_drawable =
+        any<T, wpscene::TextObject, wpscene::ModelObject, wpscene::ParticleObject>;
     if constexpr (! same_as<T, wpscene::ImageObject>) {
         // Scripts may play a sound hidden by its own or its parent's user
         // binding. Keep its control node; SoundParser starts it silent and
         // opens the audio lazily when playback is requested.
         constexpr bool keep_sound = same_as<T, wpscene::SoundObject>;
-        if (! object.visible && ! linked && ! keep_text && ! keep_sound &&
+        // Initially hidden drawables still belong to the script-visible scene tree.
+        if (! object.visible && ! linked && ! keep_drawable && ! keep_sound &&
             ! (user_bound || visible_script))
             return false;
         if (linked) object.visible = true;

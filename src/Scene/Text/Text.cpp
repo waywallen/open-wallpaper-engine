@@ -567,6 +567,8 @@ struct TextLayouter::Impl {
         request.family       = font.family.is_empty() ? "sans"_str : font.family.as_str();
         request.source       = font.source;
         request.size         = size;
+        // Fallback glyphs must not change the primary font's baseline spacing.
+        request.line_metrics = vectext::TextLineMetrics::PrimaryFont;
         if (style.wrap_width > 0) request.width = Some(double(style.wrap_width));
         request.tabs       = vectext::TextTabs::Ignore;
         request.whitespace = vectext::TextWhitespace::TrimWrap;

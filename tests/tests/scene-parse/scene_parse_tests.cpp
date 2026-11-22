@@ -313,6 +313,70 @@ TEST(SceneObjectExpansion, PreservesHiddenTextLayers) {
     EXPECT_FALSE(objects[rstd::usize()].as_Text().value.visible);
 }
 
+TEST(SceneObjectExpansion, PreservesHiddenModelChildrenInAuthoredOrder) {
+    using namespace rstd::prelude;
+    auto parsed = owe::ParseJson(R"({"objects":[
+        {"id":1,"name":"group"},
+        {"id":2,"name":"first","model":"models/test.mdl","parent":1},
+        {"id":3,"name":"second","model":"models/test.mdl","parent":1,"visible":false},
+        {"id":4,"name":"third","model":"models/test.mdl","parent":1,"visible":false}
+    ]})"_str);
+    ASSERT_TRUE(parsed);
+    owe::fs::VFS vfs;
+    auto objects = owe::ExpandObjects(parsed.unwrap(), vfs, owe::wpscene::kSceneVersionUnknown);
+    ASSERT_EQ(objects.len(), usize(4));
+    for (usize index(1); index < objects.len(); ++index) {
+        ASSERT_TRUE(objects[index].is_Model());
+        const auto& model = objects[index].as_Model().value;
+        EXPECT_EQ(model.id, i32(static_cast<int>(index.to_primitive()) + 1));
+        EXPECT_EQ(model.parent, u32(1));
+        EXPECT_EQ(model.visible, index == usize(1));
+    }
+}
+
+TEST(SceneLayerVisibility, ParentScriptSelectsInitiallyHiddenModelChildren) {
+    using namespace rstd::prelude;
+    auto pkg_path = rstd::path::PathBuf::from(rstd::cppstd::as_str(WAYWALLEN_WORKSHOP_DIR).unwrap())
+                        .join("3434484888/scene.pkg"_str);
+    auto pkg      = owe::fs::WPPkgFs::open(pkg_path.as_path());
+    if (pkg.is_err()) GTEST_SKIP() << "workshop 3434484888 is not available";
+    auto document = owe::wpscene::ParseSceneDocumentJson(R"({
+        "camera":{},"general":{"orthogonalprojection":{"width":128,"height":128}},
+        "objects":[
+            {"id":1,"name":"group","origin":{"value":"0 0 0","script":"let index = 0; export function update(value) { let children = thisLayer.getChildren(); for (let child of children) child.visible = false; children[index % 3].visible = true; index++; return value; }"}},
+            {"id":2,"name":"first","model":"models/tetromino_A/tetromino_A.mdl","parent":1},
+            {"id":3,"name":"second","model":"models/tetromino_A/tetromino_A.mdl","parent":1,"visible":false},
+            {"id":4,"name":"third","model":"models/tetromino_A/tetromino_A.mdl","parent":1,"visible":false}
+        ]
+    })"_str,
+                                                         owe::wpscene::kSceneVersionUnknown);
+    ASSERT_TRUE(document);
+    owe::fs::VFS vfs;
+    auto         assets = owe::fs::make_physical_fs(
+        owe::fs::Path(rstd::cppstd::as_str(WAYWALLEN_ASSETS_DIR).unwrap()));
+    ASSERT_TRUE(assets);
+    ASSERT_TRUE(vfs.mount("/assets"_str, rstd::move(assets).unwrap()));
+    ASSERT_TRUE(vfs.mount("/assets"_str, pkg->mount_handle()));
+    wavsen::audio::SoundManager sound;
+    owe::SceneParser            parser;
+    auto parsed = parser.Parse("model-visibility"_str,
+                               ref<owe::wpscene::SceneDocument>::from_raw_parts(&*document),
+                               mut_ref<owe::fs::VFS>::from_raw_parts(&vfs),
+                               mut_ref<wavsen::audio::SoundManager>::from_raw_parts(&sound));
+    ASSERT_TRUE(parsed);
+    auto* group = parsed->scene->RootMut()->FindByName("group"_str);
+    ASSERT_NE(group, nullptr);
+    ASSERT_EQ(group->GetChildren().len(), usize(3));
+    for (usize index {}; index < usize(6); ++index) {
+        owe::script::TickSceneScripts(*parsed->scene, owe::script::FrameInputs {});
+        for (usize child {}; child < usize(3); ++child) {
+            EXPECT_EQ(group->GetChildren()[child]->ID(),
+                      i32(static_cast<int>(child.to_primitive()) + 2));
+            EXPECT_EQ(group->GetChildren()[child]->Visible(), child == index % usize(3));
+        }
+    }
+}
+
 TEST(SceneObjectExpansion, PreservesLocalVisibilityBelowHiddenUserAncestor) {
     auto         parsed = owe::ParseJson(R"({
         "objects": [
