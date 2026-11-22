@@ -269,6 +269,10 @@ public:
     void SetBoneResolvers(BoneIndexResolver index_resolver, BoneCountResolver count_resolver,
                           BoneTransformResolver    transform_resolver,
                           BoneSetTransformResolver set_transform_resolver);
+    using AttachmentIndexResolver = Box<dyn<FnMut<Option<usize>(owe::SceneNode*, ref<str>)>>>;
+    using AttachmentOriginResolver =
+        Box<dyn<FnMut<Option<Vec3Value>(owe::SceneNode*, usize, double)>>>;
+    void SetAttachmentResolvers(AttachmentIndexResolver, AttachmentOriginResolver);
 
     // Drive every alive FieldScript once. Invokes their cached `update`
     // export and stores the coerced return into FieldScript::last_value().

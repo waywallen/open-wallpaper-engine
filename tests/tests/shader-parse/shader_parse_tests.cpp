@@ -474,6 +474,45 @@ void main() {
     ASSERT_TRUE(result.shader);
 }
 
+TEST(ShaderParser, CompileSceneShaderVariantAcceptsUnsignedCasts) {
+    owe::SceneShaderVariantDesc desc;
+    desc.scene_id    = "unsigned-cast-test"_Str;
+    desc.shader_name = "unsigned-cast-test"_Str;
+    desc.stages.push(owe::SceneShaderVariantStage {
+        .stage      = owe::ShaderType::VERTEX,
+        .source_key = "/assets/shaders/unsigned-cast.vert"_Str,
+        .source     = R"(
+attribute vec3 a_Position;
+varying vec2 v_TexCoord;
+void main() {
+    uint index = CASTU(a_Position.z);
+    v_TexCoord = a_Position.xy + float(index);
+    gl_Position = vec4(a_Position, 1.0);
+}
+)"_Str,
+    });
+    desc.stages.push(owe::SceneShaderVariantStage {
+        .stage      = owe::ShaderType::FRAGMENT,
+        .source_key = "/assets/shaders/unsigned-cast.frag"_Str,
+        .source     = R"(
+varying vec2 v_TexCoord;
+uniform float g_Count;
+void main() {
+    float value = 0.0;
+    for (uint i = 0u; i < CASTU(g_Count); ++i) value += float(i);
+    gl_FragColor = vec4(v_TexCoord, value, 1.0);
+}
+)"_Str,
+    });
+    owe::fs::VFS vfs;
+    const auto   result = owe::ShaderParser::CompileSceneShaderVariant(desc, vfs);
+    ASSERT_TRUE(result.ok) << rstd::cppstd::as_string_view(result.error.as_str());
+    ASSERT_TRUE(result.shader);
+    auto geometry =
+        owe::ShaderParser::PreShaderHeader("void main() {}"_str, {}, owe::ShaderType::GEOMETRY);
+    EXPECT_TRUE(geometry->contains("#define CASTU(x)"_str));
+}
+
 TEST(ShaderParser, CompileVaryingDeclarationWithComponentSuffix) {
     owe::SceneShaderVariantDesc desc;
     desc.scene_id    = "varying-component-declaration-test"_Str;
@@ -1824,7 +1863,7 @@ void main() {
                (static_cast<std::uint32_t>(header[offset + 3]) << 24);
     };
     EXPECT_EQ(read_u32(8), 3u);
-    EXPECT_EQ(read_u32(12), 22u);
+    EXPECT_EQ(read_u32(12), 23u);
     EXPECT_EQ(read_u32(16), 112u);
     EXPECT_EQ(read_u32(24), 2u);
     const auto initial_write_time = std::filesystem::last_write_time(artifact_path);

@@ -700,6 +700,104 @@ TEST(ScriptNodeParent, DefaultLayerParentIsUndefined) {
     EXPECT_EQ(LastScalar(fs), 1.0);
 }
 
+TEST(ScriptAttachment, DefaultOriginUsesLiveParentWorldTransform) {
+    auto parent = Arc<owe::SceneNode>::make();
+    parent->SetTranslate({ 100.0f, 200.0f, 300.0f });
+    parent->SetScale({ 2.0f, 3.0f, 4.0f });
+    parent->SetRotation({ 0.0f, 0.0f, rstd::f32::consts::FRAC_PI_2.to_primitive() });
+    auto node = Arc<owe::SceneNode>::make();
+    node->SetTranslate({ 10.0f, 20.0f, 30.0f });
+    parent->AppendChild(node.clone());
+    JsRuntime runtime;
+    auto*     script = runtime.MakeFieldScript(
+        "export function update() { return thisLayer.getAttachmentOrigin(); }"_str,
+        "test/attachment_world_origin"_str,
+        FieldKind::Vec3,
+        owe::MakeObject(),
+        owe::IntoJson("0 0 0"),
+        node.as_ptr());
+    ASSERT_NE(script, nullptr);
+    runtime.TickAll();
+    ASSERT_TRUE(script->last_value().is_Vec3());
+    auto value = script->last_value().as_Vec3().value;
+    EXPECT_NEAR(value.x, 40.0, 1e-4);
+    EXPECT_NEAR(value.y, 220.0, 1e-4);
+    EXPECT_NEAR(value.z, 420.0, 1e-4);
+    parent->SetTranslate({ 110.0f, 200.0f, 300.0f });
+    runtime.TickAll();
+    value = script->last_value().as_Vec3().value;
+    EXPECT_NEAR(value.x, 50.0, 1e-4);
+    EXPECT_NEAR(node->Translate().x(), 10.0, 1e-6);
+}
+
+TEST(ScriptAttachment, NamedAndIndexedOriginsUseOwnerResolversAndInvalidation) {
+    auto root = Arc<owe::SceneNode>::make();
+    auto node = Arc<owe::SceneNode>::make();
+    node->SetTranslate({ 10.0f, 20.0f, 30.0f });
+    root->AppendChild(node.clone());
+    JsRuntime runtime;
+    runtime.SetSceneRoot(root.as_ptr());
+    int lookups {}, origins {};
+    runtime.SetAttachmentResolvers(
+        JsRuntime::AttachmentIndexResolver::make(
+            [&](owe::SceneNode* owner, ref<str> name) -> Option<usize> {
+                EXPECT_EQ(owner, node.as_ptr().as_raw_ptr());
+                ++lookups;
+                return name == "tip"_str ? Some(usize()) : None<usize>();
+            }),
+        JsRuntime::AttachmentOriginResolver::make(
+            [&](owe::SceneNode* owner, usize index, double time) -> Option<Vec3Value> {
+                EXPECT_EQ(owner, node.as_ptr().as_raw_ptr());
+                ++origins;
+                if (index != usize()) return None();
+                return Some(Vec3Value { .x = 7.0, .y = time, .z = 50.0 });
+            }));
+    auto* script = runtime.MakeFieldScript(R"JS(
+        shared.attachmentLayer = thisLayer;
+        export function update() {
+            return thisLayer.getAttachmentOrigin(engine.runtime < 1 ? 'tip' :
+                engine.runtime < 2 ? 0 : 99);
+        }
+    )JS"_str,
+                                           "test/attachment_selectors"_str,
+                                           FieldKind::Vec3,
+                                           owe::MakeObject(),
+                                           owe::IntoJson("0 0 0"),
+                                           node.as_ptr());
+    ASSERT_NE(script, nullptr);
+    FrameInputs frame {};
+    for (float time : { 0.25f, 1.25f }) {
+        frame.runtime = time;
+        runtime.SetFrameInputs(frame);
+        runtime.TickAll();
+        ASSERT_TRUE(script->last_value().is_Vec3());
+        const auto value = script->last_value().as_Vec3().value;
+        EXPECT_EQ(value.x, 7.0);
+        EXPECT_EQ(value.y, static_cast<double>(time));
+        EXPECT_EQ(value.z, 50.0);
+    }
+    EXPECT_EQ(lookups, 1);
+    EXPECT_EQ(origins, 2);
+    frame.runtime = 2.25f;
+    runtime.SetFrameInputs(frame);
+    runtime.TickAll();
+    EXPECT_EQ(script->last_value().as_Vec3().value.x, 10.0);
+    auto* observer = runtime.MakeFieldScript(
+        "export function update() { return shared.attachmentLayer.getAttachmentOrigin(); }"_str,
+        "test/attachment_invalidated"_str,
+        FieldKind::Vec3,
+        owe::MakeObject(),
+        owe::IntoJson("0 0 0"),
+        root.as_ptr());
+    ASSERT_NE(observer, nullptr);
+    runtime.InvalidateLayer(*node);
+    ASSERT_TRUE(root->RemoveChild(*node));
+    runtime.TickAll();
+    ASSERT_TRUE(observer->last_value().is_Vec3());
+    EXPECT_EQ(observer->last_value().as_Vec3().value.x, 0.0);
+    EXPECT_EQ(origins, 3);
+}
+
 TEST(ScriptNodeSoftMutation, VisibleAndAlphaWrites) {
     owe::SceneNode node;
     JsRuntime      rt;

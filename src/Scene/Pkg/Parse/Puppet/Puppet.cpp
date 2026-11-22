@@ -512,6 +512,10 @@ Option<Eigen::Affine3f> PuppetLayer::boneTransform(uint32_t index, double time) 
     return Some(rstd::move(transform));
 }
 
+Option<usize> PuppetLayer::attachmentIndex(ref<str> name) const noexcept {
+    return m_puppet->attachmentIndex(name);
+}
+
 Option<Eigen::Affine3f> PuppetLayer::attachmentTransform(usize index, double time) noexcept {
     if (index >= m_puppet->attachments.len()) return None();
     const auto& attachment = m_puppet->attachments[index];

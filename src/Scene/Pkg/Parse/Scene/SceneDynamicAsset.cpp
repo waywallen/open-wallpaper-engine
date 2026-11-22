@@ -284,7 +284,8 @@ auto BuildModelConfiguration(SceneLayerBuildContext& context, const Json& config
         mesh->MaterialSlots().push(rstd::move(slot));
     }
     node->AddMesh(rstd::move(mesh));
-    SetUniformConfig(context, node, UniformNodeConfigDraft { .reverse_depth = true });
+    SetUniformConfig(
+        context, node, UniformNodeConfigDraft { .reverse_depth = ! resources.orthographic_scene });
     return Some(SceneLayerNodeDraft { .node = Some(node.clone()) });
 }
 

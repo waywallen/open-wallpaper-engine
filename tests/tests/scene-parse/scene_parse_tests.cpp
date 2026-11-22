@@ -2232,6 +2232,73 @@ TEST(ImageAlignmentParsing, DisabledEffectsPreserveSourceDrawAnchor) {
     }
 }
 
+TEST(PuppetLightingParsing, EffectCompositeDoesNotRelightSource) {
+    using namespace rstd::prelude;
+    auto path = rstd::format("{}/3229704729/scene.pkg",
+                             rstd::cppstd::as_str(WAYWALLEN_WORKSHOP_DIR).unwrap());
+    auto pkg  = owe::fs::WPPkgFs::open(owe::fs::Path(path.as_str()));
+    if (pkg.is_err()) GTEST_SKIP() << "workshop 3229704729 is not available";
+    auto assets = owe::fs::make_physical_fs(
+        owe::fs::Path(rstd::cppstd::as_str(WAYWALLEN_ASSETS_DIR).unwrap()));
+    ASSERT_TRUE(assets.is_ok());
+    owe::fs::VFS vfs;
+    ASSERT_TRUE(vfs.mount("/assets"_str, rstd::move(assets).unwrap()).is_ok());
+    ASSERT_TRUE(vfs.mount("/assets"_str, pkg->mount_handle()).is_ok());
+    auto document = owe::wpscene::ParseSceneDocumentJson(
+        R"JSON({
+            "camera": {},
+            "general": {"orthogonalprojection": {"width": 2560, "height": 1440},
+                        "ambientcolor": "1 1 1", "lightconfig": {"directional": 1}},
+            "objects": [
+                {"id": 1, "name": "Direct", "image": "models/Waves.json",
+                 "size": "2560 1440", "perspective": true},
+                {"id": 2, "name": "Effect", "image": "models/Waves.json",
+                 "size": "2560 1440", "perspective": true, "colorBlendMode": 31,
+                 "effects": [{"file": "effects/opacity/effect.json", "visible": true}]}
+            ]
+        })JSON"_str,
+        owe::wpscene::kSceneVersionUnknown);
+    ASSERT_TRUE(document.is_some());
+    wavsen::audio::SoundManager sound;
+    owe::SceneParser            parser;
+    auto                        parsed =
+        parser.Parse("puppet-lighting"_str,
+                     ref<owe::wpscene::SceneDocument>::from_raw_parts(rstd::addressof(*document)),
+                     mut_ref<owe::fs::VFS>::from_raw_parts(rstd::addressof(vfs)),
+                     mut_ref<wavsen::audio::SoundManager>::from_raw_parts(rstd::addressof(sound)));
+    ASSERT_TRUE(parsed.is_ok());
+    auto scene        = rstd::move(parsed).unwrap();
+    auto has_lighting = [](const owe::SceneMaterial& material) {
+        if (! material.customShader.shader) return false;
+        for (const auto& block : (*material.customShader.shader)->uniform_blocks) {
+            if (block.name == "ww_SceneLightingUniforms"_str) return true;
+        }
+        return false;
+    };
+    for (auto name : { "Direct"_str, "Effect"_str }) {
+        auto* node = scene.scene->RootMut()->FindByName(name);
+        ASSERT_NE(node, nullptr);
+        ASSERT_NE(node->Mesh(), nullptr);
+        ASSERT_NE(node->Mesh()->Material(), nullptr);
+        EXPECT_TRUE(has_lighting(*node->Mesh()->Material()));
+        if (name == "Direct"_str) {
+            EXPECT_FALSE(node->HasLayer());
+            continue;
+        }
+        ASSERT_TRUE(node->HasLayer());
+        auto& layer = node->Layer();
+        layer->ResolveEffect(*scene.scene->DefaultEffectMesh(), "effect"_str);
+        ASSERT_FALSE(layer->ResolvedEffects().is_empty());
+        auto* effect = layer->ResolvedEffects().last().unwrap().get();
+        ASSERT_FALSE(effect->Nodes().is_empty());
+        auto* mesh = effect->Nodes().last().unwrap().get()->sceneNode->Mesh();
+        ASSERT_NE(mesh, nullptr);
+        ASSERT_NE(mesh->Material(), nullptr);
+        EXPECT_FALSE(has_lighting(*mesh->Material()));
+        EXPECT_EQ(mesh->Material()->Pipeline().blend_mode, owe::BlendMode::Additive);
+    }
+}
+
 TEST(PuppetMaskParsing, ImageAndEffectMasksCullBackFaces) {
     using namespace rstd::prelude;
     auto path = rstd::format("{}/3493636545/scene.pkg",
@@ -2622,6 +2689,62 @@ TEST(ModelMaterialParsing, SamplerFormatsIncludeNormalMapsAndDefaultTextures) {
     EXPECT_EQ(material->textures[rstd::usize(4)], "gradient/gradient_toon_smooth"_str);
 }
 
+TEST(ModelMaterialParsing, DepthCompareFollowsSceneCameras) {
+    using namespace rstd::prelude;
+    auto path = rstd::path::PathBuf::from(rstd::cppstd::as_str(WAYWALLEN_WORKSHOP_DIR).unwrap())
+                    .join("3229704729/scene.pkg"_str);
+    if (! rstd::fs::exists(path.as_path()).unwrap())
+        GTEST_SKIP() << "workshop 3229704729 is not available";
+    auto         pkg    = owe::fs::WPPkgFs::open(path.as_path()).unwrap();
+    auto         assets = owe::fs::make_physical_fs(
+                              owe::fs::Path(rstd::cppstd::as_str(WAYWALLEN_ASSETS_DIR).unwrap()))
+                              .unwrap();
+    owe::fs::VFS vfs;
+    ASSERT_TRUE(vfs.mount("/assets"_str, rstd::move(assets)).is_ok());
+    ASSERT_TRUE(vfs.mount("/assets"_str, pkg.mount_handle()).is_ok());
+    for (bool orthographic : { true, false }) {
+        auto document = owe::wpscene::ParseSceneDocumentJson(R"({
+            "camera": {},
+            "general": {"orthogonalprojection":{"width":2560,"height":1440}},
+            "objects": [
+                {"id":1,"name":"Perspective","perspective":true,
+                 "model":"models/uploads_files_780645_Fishing_Ship_Asset/uploads_files_780645_Fishing_Ship_Asset.mdl"},
+                {"id":2,"name":"Default","perspective":false,
+                 "model":"models/uploads_files_780645_Fishing_Ship_Asset/uploads_files_780645_Fishing_Ship_Asset.mdl"}]
+        })"_str,
+                                                             owe::wpscene::kSceneVersionUnknown)
+                            .unwrap();
+        document.metadata.general.isOrtho = orthographic;
+        wavsen::audio::SoundManager sound;
+        owe::SceneParser            parser;
+        auto parsed = parser
+                          .Parse("model-depth-policy"_str,
+                                 ref<owe::wpscene::SceneDocument>::from_raw_parts(&document),
+                                 mut_ref<owe::fs::VFS>::from_raw_parts(&vfs),
+                                 mut_ref<wavsen::audio::SoundManager>::from_raw_parts(&sound))
+                          .unwrap();
+        for (auto name : { "Perspective"_str, "Default"_str }) {
+            auto* node = parsed.scene->RootMut()->FindByName(name);
+            ASSERT_NE(node, nullptr);
+            ASSERT_NE(node->Mesh(), nullptr);
+            ASSERT_FALSE(node->Mesh()->MaterialSlots().is_empty());
+            const auto expected =
+                orthographic ? owe::CompareOp::Greater : owe::CompareOp::LessEqual;
+            for (const auto& material : node->Mesh()->MaterialSlots()) {
+                ASSERT_TRUE(material);
+                EXPECT_EQ(material->Pipeline().depth_compare, expected);
+            }
+        }
+        if (orthographic) {
+            auto                  camera = parsed.scene->CameraHandle("global"_str).unwrap();
+            const auto            view_projection = camera->GetViewProjectionMatrix();
+            const Eigen::Vector4d coral = view_projection * Eigen::Vector4d(1280, 720, -280, 1);
+            EXPECT_NEAR(coral.z() / coral.w(), 0.43, 1e-6);
+            EXPECT_GT(view_projection(2, 2), 0.0);
+        }
+    }
+}
+
 TEST(ModelMaterialParsing, OpaqueSubmeshesPrecedeBlendedSubmeshes) {
     const auto path =
         rstd::path::PathBuf::from(rstd::cppstd::as_str(WAYWALLEN_WORKSHOP_DIR).unwrap())
@@ -2913,7 +3036,10 @@ TEST(ImageEffectCamera, PassthroughFollowsActiveProjectionAndTransforms) {
                   "copybackground":true,"effects":[{{"file":"effects/edgedetection/effect.json"}}]}},
                 {{"id":3,"name":"image","image":"models/util/solidlayer.json",
                   "origin":"0 0 0","size":"64 64",
-                  "effects":[{{"file":"effects/edgedetection/effect.json"}}]}}
+                  "effects":[{{"file":"effects/edgedetection/effect.json"}}]}},
+                {{"id":4,"name":"perspective-compose","image":"models/util/composelayer.json",
+                  "origin":"0 0 100","size":"32 8","perspective":true,
+                  "angles":"0.08 0 0.5","scale":"1.3 1.25 0.5"}}
             ]
         }})JSON",
                                  perspective ? "null"_str : "{\"width\":1920,\"height\":1080}"_str);
@@ -2941,15 +3067,18 @@ TEST(ImageEffectCamera, PassthroughFollowsActiveProjectionAndTransforms) {
         auto  active = scene.ActiveCameraHandle().unwrap();
         EXPECT_EQ(active->IsPerspective(), perspective);
         auto check_cameras = [&] {
-            for (auto name : { "compose"_str, "depth-compose"_str }) {
+            for (auto name : { "compose"_str, "depth-compose"_str, "perspective-compose"_str }) {
                 auto* node = scene.RootMut()->FindByName(name);
                 ASSERT_NE(node, nullptr);
                 ASSERT_TRUE(node->HasLayer());
                 auto camera = scene.CameraHandle(node->Camera());
                 ASSERT_TRUE(camera);
-                EXPECT_EQ((*camera)->IsPerspective(), perspective);
+                auto expected = name == "perspective-compose"_str
+                                    ? scene.CameraHandle("global_perspective"_str).unwrap()
+                                    : active.clone();
+                EXPECT_EQ((*camera)->IsPerspective(), expected->IsPerspective());
                 EXPECT_TRUE((*camera)->GetViewProjectionMatrix().isApprox(
-                    active->GetViewProjectionMatrix(), 1e-10));
+                    expected->GetViewProjectionMatrix(), 1e-10));
             }
         };
         check_cameras();

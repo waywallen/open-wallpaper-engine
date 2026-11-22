@@ -145,6 +145,8 @@ struct EngineHostState {
     Option<JsRuntime::BoneCountResolver>         bone_count_resolver;
     Option<JsRuntime::BoneTransformResolver>     bone_transform_resolver;
     Option<JsRuntime::BoneSetTransformResolver>  bone_set_transform_resolver;
+    Option<JsRuntime::AttachmentIndexResolver>   attachment_index_resolver;
+    Option<JsRuntime::AttachmentOriginResolver>  attachment_origin_resolver;
     owe::SceneNode*                              scene_root { nullptr };
 };
 
@@ -1714,6 +1716,33 @@ JSValue NodeGetTransformMatrix(JSContext* ctx, JSValueConst this_val, int, JSVal
     return obj;
 }
 
+JSValue NodeGetAttachmentOrigin(JSContext* ctx, JSValueConst this_val, int argc,
+                                JSValueConst* argv) {
+    auto* node = GetLayerNode(this_val);
+    if (! node) return MakeVec3(ctx, 0, 0, 0);
+    auto*         host = static_cast<EngineHostState*>(JS_GetContextOpaque(ctx));
+    Option<usize> index;
+    if (argc > 0 && JS_IsString(argv[0]) && host && host->attachment_index_resolver) {
+        const char* name = JS_ToCString(ctx, argv[0]);
+        if (! name) return JS_EXCEPTION;
+        index = (*host->attachment_index_resolver)
+                    ->operator()(node, rstd::cppstd::as_str(name).unwrap());
+        JS_FreeCString(ctx, name);
+    } else if (argc > 0 && JS_IsNumber(argv[0])) {
+        rstd::int64_t value {};
+        if (JS_ToInt64(ctx, &value, argv[0]) < 0) return JS_EXCEPTION;
+        if (value >= 0) index = Some(usize(static_cast<rstd::size_t>(value)));
+    }
+    if (index && host && host->attachment_origin_resolver) {
+        auto origin =
+            (*host->attachment_origin_resolver)->operator()(node, *index, host->inputs.runtime);
+        if (origin) return MakeVec3(ctx, origin->x, origin->y, origin->z);
+    }
+    node->UpdateTrans();
+    const auto& transform = node->ModelTrans();
+    return MakeVec3(ctx, transform(0, 3), transform(1, 3), transform(2, 3));
+}
+
 JSValue NodeRotateObjectSpace(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
     auto* n = GetLayerNode(this_val);
     if (! n || argc < 1) return JS_UNDEFINED;
@@ -2895,6 +2924,7 @@ const JSCFunctionListEntry s_layer_proto_funcs[] = {
     JS_CGETSET_DEF("pointsize", NodeGetPointSize, NodeSetPointSize),
     JS_CFUNC_DEF("getParent", 0, NodeGetParent),
     JS_CFUNC_DEF("getTransformMatrix", 0, NodeGetTransformMatrix),
+    JS_CFUNC_DEF("getAttachmentOrigin", 1, NodeGetAttachmentOrigin),
     JS_CFUNC_DEF("rotateObjectSpace", 1, NodeRotateObjectSpace),
     JS_CFUNC_DEF("getChildren", 0, NodeGetChildren),
     JS_CFUNC_DEF("getName", 0, NodeGetName),
@@ -3354,6 +3384,12 @@ void JsRuntime::SetBoneResolvers(BoneIndexResolver index_resolver, BoneCountReso
     m_impl->host.bone_count_resolver         = Some(rstd::move(count_resolver));
     m_impl->host.bone_transform_resolver     = Some(rstd::move(transform_resolver));
     m_impl->host.bone_set_transform_resolver = Some(rstd::move(set_transform_resolver));
+}
+
+void JsRuntime::SetAttachmentResolvers(AttachmentIndexResolver  index,
+                                       AttachmentOriginResolver origin) {
+    m_impl->host.attachment_index_resolver  = Some(rstd::move(index));
+    m_impl->host.attachment_origin_resolver = Some(rstd::move(origin));
 }
 
 void JsRuntime::SetPersistence(PathBuf path) {

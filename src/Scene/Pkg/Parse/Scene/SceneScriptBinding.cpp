@@ -278,6 +278,30 @@ script::ScriptScene& EnsureScriptScene(SceneLayerBuildContext& context) {
                         Eigen::Affine3f local_bone = world.inverse() * Eigen::Affine3f(mat);
                         (*layer)->setBoneTransform(index, local_bone);
                     }));
+        (*context.script_scene)
+            ->runtime()
+            .SetAttachmentResolvers(
+                script::JsRuntime::AttachmentIndexResolver::make(
+                    [layers = layers.clone()](SceneNode* node, ref<str> name) -> Option<usize> {
+                        auto layer = layers->by_node.get(node);
+                        return layer ? (**layer)->attachmentIndex(name) : None<usize>();
+                    }),
+                script::JsRuntime::AttachmentOriginResolver::make(
+                    [layers = layers.clone()](
+                        SceneNode* node, usize index, double time) -> Option<script::Vec3Value> {
+                        auto layer = layers->by_node.get(node);
+                        if (! layer) return None();
+                        auto attachment = (**layer)->attachmentTransform(index, time);
+                        if (! attachment) return None();
+                        node->UpdateTrans();
+                        const Eigen::Matrix4d world =
+                            node->ModelTrans() * attachment->matrix().cast<double>();
+                        return Some(script::Vec3Value {
+                            .x = world(0, 3),
+                            .y = world(1, 3),
+                            .z = world(2, 3),
+                        });
+                    }));
         if (context.user_properties.is_some())
             (*context.user_properties)->iter().for_each([&](auto entry) {
                 auto [entry_key, entry_value] = entry;

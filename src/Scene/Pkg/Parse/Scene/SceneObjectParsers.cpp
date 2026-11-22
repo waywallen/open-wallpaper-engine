@@ -42,7 +42,7 @@ void ParseCamera(SceneParseContext& context, const wpscene::SceneMetadata& sc) {
     // global camera
     auto     projection_extent = scene.OrthographicProjectionExtent();
     auto     global_camera     = Arc<SceneCamera>::make(SceneCamera::MakeOrthographic(
-        projection_extent[usize()], projection_extent[usize(1)], -5000.0, 5000.0));
+        projection_extent[usize()], projection_extent[usize(1)], 2000.0, -2000.0));
     Vector3f cori { rstd::as_cast<float>(context.layer_resources->ortho_w) / 2.0f,
                     rstd::as_cast<float>(context.layer_resources->ortho_h) / 2.0f,
                     0 },
@@ -494,6 +494,9 @@ void ParseModelObjImpl(SceneLayerBuildContext& context, wpscene::ModelObject& mo
         auto material_build = rstd::move(material_result).unwrap_unchecked();
         scene_mat           = rstd::move(material_build.material);
         shader_info         = rstd::move(material_build.shader_info);
+        // Both cameras in a pixel-space scene use reverse Z.
+        if (context.layer_resources->orthographic_scene)
+            scene_mat.SetDepthCompare(CompareOp::Greater);
         LoadConstvalue(context, scene_mat, *wpmat, shader_info);
 
         if (node->shadow.cast) {

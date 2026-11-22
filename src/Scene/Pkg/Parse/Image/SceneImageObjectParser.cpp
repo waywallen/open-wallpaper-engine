@@ -356,6 +356,8 @@ void ParseImageObjImpl(SceneLayerBuildContext& context, wpscene::ImageObject& im
                 wpscene::ImageEffect puppet_effect;
                 wpscene::Material    puppet_mat = image_wpmat.clone();
                 puppet_mat.textures[usize()].clear();
+                // Lighting is already baked into the source before the authored effects.
+                (void)puppet_mat.combos.insert(rstd::into(WE_CB_LIGHTING), i32());
                 MdlParser::AddPuppetMatInfo(puppet_mat, **puppet);
                 if (color_blend_uses_layer_material)
                     color_blend_attachment_override =
@@ -628,9 +630,14 @@ void ParseImageObjImpl(SceneLayerBuildContext& context, wpscene::ImageObject& im
             NonZeroRenderTargetExtent(effect_target_size[usize()], effect_target_size[usize(1)]);
         auto active = scene.ActiveCamera();
         if (active.is_none()) return;
+        const auto background_camera_name = wpimgobj.perspective
+                                                ? "global_perspective"_str
+                                                : scene.CameraRegistry()->ActiveName().unwrap();
+        auto       background_camera      = scene.Camera(background_camera_name);
+        if (background_camera.is_none()) return;
         // set camera to attatch effect
         Arc<SceneCamera> layer_camera = isPassthrough
-                                            ? Arc<SceneCamera>::make(**active)
+                                            ? Arc<SceneCamera>::make(**background_camera)
                                             : Arc<SceneCamera>::make(SceneCamera::MakeOrthographic(
                                                   rstd::as_cast<double>(effect_extent[usize()]),
                                                   rstd::as_cast<double>(effect_extent[usize(1)]),
@@ -648,7 +655,7 @@ void ParseImageObjImpl(SceneLayerBuildContext& context, wpscene::ImageObject& im
             return;
         // Framebuffer sampling must follow the camera that produced the background.
         if (isPassthrough)
-            scene.RegisterLinkedCamera(String::make(scene.CameraRegistry()->ActiveName().unwrap()),
+            scene.RegisterLinkedCamera(String::make(background_camera_name),
                                        String::make(nodeAddr));
         if (wpimgobj.composite_layer) {
             const auto group_camera       = rstd::format("{}_group", nodeAddr);
