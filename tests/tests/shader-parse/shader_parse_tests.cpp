@@ -848,15 +848,23 @@ uniform sampler2D g_Texture3; // {"default":"util/second"}
 }
 
 TEST(ShaderParser, LightingRequirementInjectsSceneLightInterface) {
-    owe::SceneShaderVariantDesc desc;
-    desc.scene_id    = "lighting-v1-interface-test"_Str;
-    desc.shader_name = "lighting-v1-interface-test"_Str;
-    (void)desc.input_combos.insert("SCENE_ORTHO"_Str, "1"_Str);
-    (void)desc.input_combos.insert("OWE_IMAGE_LAYER"_Str, "1"_Str);
-    desc.stages.push(owe::SceneShaderVariantStage {
-        .stage      = owe::ShaderType::VERTEX,
-        .source_key = "/assets/shaders/lighting-v1-interface-test.vert"_Str,
-        .source     = R"(
+    for (bool scene_lighting : { false, true }) {
+        owe::SceneShaderVariantDesc desc;
+        desc.scene_id    = "lighting-v1-interface-test"_Str;
+        desc.shader_name = "lighting-v1-interface-test"_Str;
+        (void)desc.input_combos.insert("SCENE_ORTHO"_Str, "1"_Str);
+        (void)desc.input_combos.insert("OWE_IMAGE_LAYER"_Str, "1"_Str);
+        if (scene_lighting) {
+            (void)desc.input_combos.insert("OWE_SCENE_LIGHTING"_Str, "1"_Str);
+            (void)desc.input_combos.insert("LIGHTS_POINT"_Str, "1"_Str);
+            (void)desc.input_combos.insert("LIGHTS_SPOT"_Str, "1"_Str);
+            (void)desc.input_combos.insert("LIGHTS_TUBE"_Str, "15"_Str);
+            (void)desc.input_combos.insert("LIGHTS_DIRECTIONAL"_Str, "4"_Str);
+        }
+        desc.stages.push(owe::SceneShaderVariantStage {
+            .stage      = owe::ShaderType::VERTEX,
+            .source_key = "/assets/shaders/lighting-v1-interface-test.vert"_Str,
+            .source     = R"(
 attribute vec3 a_Position;
 varying vec3 v_WorldPos;
 void main() {
@@ -864,11 +872,11 @@ void main() {
     gl_Position = vec4(a_Position, 1.0);
 }
 )"_Str,
-    });
-    desc.stages.push(owe::SceneShaderVariantStage {
-        .stage      = owe::ShaderType::FRAGMENT,
-        .source_key = "/assets/shaders/lighting-v1-interface-test.frag"_Str,
-        .source     = R"(
+        });
+        desc.stages.push(owe::SceneShaderVariantStage {
+            .stage      = owe::ShaderType::FRAGMENT,
+            .source_key = "/assets/shaders/lighting-v1-interface-test.frag"_Str,
+            .source     = R"(
 varying vec3 v_WorldPos;
 vec3 ComputePBRLightShadow(vec3 N, vec3 L, vec3 V, vec3 albedo, vec3 lightColor,
     float radius, float exponent, vec3 specularTint, vec3 baseReflectance,
@@ -887,27 +895,73 @@ void main() {
     gl_FragColor = vec4(light, 1.0);
 }
 )"_Str,
-    });
+        });
 
-    owe::fs::VFS vfs;
-    const auto   result = owe::ShaderParser::CompileSceneShaderVariant(desc, vfs);
+        owe::fs::VFS vfs;
+        const auto   result = owe::ShaderParser::CompileSceneShaderVariant(desc, vfs);
 
-    ASSERT_TRUE(result.ok) << rstd::cppstd::as_string_view(result.error.as_str());
-    ASSERT_TRUE(result.shader);
-    Vec<owe::vulkan::Uni_ShaderSpv> spvs;
-    owe::vulkan::ShaderReflected    reflected;
-    ASSERT_TRUE(owe::vulkan::GenReflect((*result.shader)->codes.as_slice(), spvs, reflected));
-    ASSERT_EQ(reflected.blocks.len(), rstd::usize(1));
-    EXPECT_EQ(reflected.blocks[rstd::usize()].name.as_str(), "ww_LightingUniforms"_str);
-    EXPECT_EQ(reflected.blocks[rstd::usize()].set, 0u);
-    EXPECT_EQ(reflected.blocks[rstd::usize()].binding, 2u);
-    EXPECT_EQ(reflected.blocks[rstd::usize()].size, owe::kLightingUniformBlockSize.to_primitive());
-    const auto& members = reflected.blocks[rstd::usize()].member_map;
-    EXPECT_TRUE(members.contains_key("g_LightsPosition"_str));
-    EXPECT_TRUE(members.contains_key("g_LightsColorRadius"_str));
-    EXPECT_TRUE(members.contains_key("g_LightsDirectionType"_str));
-    EXPECT_TRUE(members.contains_key("g_LightsConeExponent"_str));
-    EXPECT_TRUE(members.contains_key("g_LightsCastShadow"_str));
+        ASSERT_TRUE(result.ok) << rstd::cppstd::as_string_view(result.error.as_str());
+        ASSERT_TRUE(result.shader);
+        Vec<owe::vulkan::Uni_ShaderSpv> spvs;
+        owe::vulkan::ShaderReflected    reflected;
+        ASSERT_TRUE(owe::vulkan::GenReflect((*result.shader)->codes.as_slice(), spvs, reflected));
+        ASSERT_EQ(reflected.blocks.len(), rstd::usize(1));
+        if (scene_lighting) {
+            const auto& block = reflected.blocks[rstd::usize()];
+            EXPECT_EQ(block.name.as_str(), owe::kSceneLightingUniformBlockName);
+            EXPECT_EQ(block.set, 0u);
+            EXPECT_EQ(block.binding, 3u);
+            EXPECT_EQ(block.size, 1024u);
+            for (const auto& field : owe::SceneLightUniformFields())
+                EXPECT_TRUE(block.member_map.contains_key(field.name));
+            EXPECT_EQ((*result.shader)->uniform_blocks[rstd::usize()].scope,
+                      owe::SceneShaderUniformBlockScope::Shared);
+            continue;
+        }
+        EXPECT_EQ(reflected.blocks[rstd::usize()].name.as_str(), "ww_LightingUniforms"_str);
+        EXPECT_EQ(reflected.blocks[rstd::usize()].set, 0u);
+        EXPECT_EQ(reflected.blocks[rstd::usize()].binding, 2u);
+        EXPECT_EQ(reflected.blocks[rstd::usize()].size,
+                  owe::kLightingUniformBlockSize.to_primitive());
+        const auto& members = reflected.blocks[rstd::usize()].member_map;
+        EXPECT_TRUE(members.contains_key("g_LightsPosition"_str));
+        EXPECT_TRUE(members.contains_key("g_LightsColorRadius"_str));
+        EXPECT_TRUE(members.contains_key("g_LightsDirectionType"_str));
+        EXPECT_TRUE(members.contains_key("g_LightsConeExponent"_str));
+        EXPECT_TRUE(members.contains_key("g_LightsCastShadow"_str));
+    }
+}
+
+TEST(ShaderParser, SharesCompleteConfiguredLightLayoutAcrossMaterials) {
+    for (auto name : { "g_LPoint_Color"_str, "g_LDirectional_Color"_str }) {
+        owe::SceneShaderVariantDesc desc;
+        desc.shader_name = "scene-light-layout"_Str;
+        (void)desc.input_combos.insert("OWE_SCENE_LIGHTING"_Str, "1"_Str);
+        (void)desc.input_combos.insert("LIGHTS_POINT"_Str, "1"_Str);
+        (void)desc.input_combos.insert("LIGHTS_DIRECTIONAL"_Str, "4"_Str);
+        desc.stages.push(
+            { .stage = owe::ShaderType::VERTEX,
+              .source =
+                  "attribute vec3 a_Position;\nvoid main() { gl_Position = vec4(a_Position, 1.0); }"_Str });
+        desc.stages.push({ .stage  = owe::ShaderType::FRAGMENT,
+                           .source = rstd::format(
+                               "uniform vec4 {}[{}];\nvoid main() {{ gl_FragColor = {}[0]; }}",
+                               name,
+                               name == "g_LPoint_Color"_str ? 1 : 4,
+                               name) });
+        owe::fs::VFS vfs;
+        const auto   result = owe::ShaderParser::CompileSceneShaderVariant(desc, vfs);
+        ASSERT_TRUE(result.ok) << rstd::cppstd::as_string_view(result.error.as_str());
+        Vec<owe::vulkan::Uni_ShaderSpv> spvs;
+        owe::vulkan::ShaderReflected    reflected;
+        ASSERT_TRUE(owe::vulkan::GenReflect((*result.shader)->codes.as_slice(), spvs, reflected));
+        ASSERT_EQ(reflected.blocks.len(), usize(1));
+        const auto& block = reflected.blocks[usize()];
+        EXPECT_EQ(block.size, 240u);
+        EXPECT_EQ(block.member_map.len(), usize(6));
+        EXPECT_TRUE(block.member_map.contains_key("g_LPoint_Origin"_str));
+        EXPECT_TRUE(block.member_map.contains_key("g_LDirectional_Shadow"_str));
+    }
 }
 
 TEST(ShaderParser, CompileSceneShaderVariantAcceptsPackedAudioSpectrumAccess) {
@@ -1770,7 +1824,7 @@ void main() {
                (static_cast<std::uint32_t>(header[offset + 3]) << 24);
     };
     EXPECT_EQ(read_u32(8), 3u);
-    EXPECT_EQ(read_u32(12), 20u);
+    EXPECT_EQ(read_u32(12), 22u);
     EXPECT_EQ(read_u32(16), 112u);
     EXPECT_EQ(read_u32(24), 2u);
     const auto initial_write_time = std::filesystem::last_write_time(artifact_path);

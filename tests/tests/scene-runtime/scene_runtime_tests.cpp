@@ -594,6 +594,86 @@ TEST(LightUniformSource, HiddenAncestorsDoNotConsumeLightSlots) {
     EXPECT_FLOAT_EQ(color[usize(1)], 0.0f);
 }
 
+TEST(SceneLightUniformSource, PacksConfiguredKindsWithoutMixedSlotLimit) {
+    owe::Scene scene;
+    for (int index = 0; index < 2; ++index) {
+        auto node = Arc<owe::SceneNode>::make();
+        node->SetTranslate({ static_cast<float>(index + 1), 0.0f, 0.0f });
+        scene.RootMut()->AppendChild(node.clone());
+        auto light = Box<owe::SceneLight>::make(owe::SceneLight::Desc {
+            .radius = 5.0f, .intensity = static_cast<float>(index), .exponent = 2.0f });
+        light->setNode(node.as_ptr());
+        (void)scene.RegisterLight(rstd::move(light));
+    }
+    for (int index = 0; index < 4; ++index) {
+        auto node = Arc<owe::SceneNode>::make();
+        node->SetScale({ 0.5f, 0.75f, 2.0f });
+        scene.RootMut()->AppendChild(node.clone());
+        auto light = Box<owe::SceneLight>::make(owe::SceneLight::Desc {
+            .type = owe::SceneLightType::Directional, .intensity = static_cast<float>(index + 1) });
+        light->setNode(node.as_ptr());
+        (void)scene.RegisterLight(rstd::move(light));
+    }
+    owe::SceneLightUniformSource source(ref<owe::Scene>::from_raw_parts(&scene),
+                                        { .point = u32(2), .directional = u32(4) });
+    owe::SceneFrame              frame;
+    auto points = scene_test::Capture(frame, source, owe::SceneLightUniformOutput::PointColor);
+    ASSERT_EQ(points.size(), usize(8));
+    EXPECT_FLOAT_EQ(points[usize()], 0.0f);
+    EXPECT_FLOAT_EQ(points[usize(4)], 1.0f);
+    auto origins = scene_test::Capture(frame, source, owe::SceneLightUniformOutput::PointOrigin);
+    EXPECT_FLOAT_EQ(origins[usize()], 1.0f);
+    EXPECT_FLOAT_EQ(origins[usize(4)], 2.0f);
+    EXPECT_FLOAT_EQ(origins[usize(3)], 2.0f);
+    auto colors =
+        scene_test::Capture(frame, source, owe::SceneLightUniformOutput::DirectionalColor);
+    ASSERT_EQ(colors.size(), usize(16));
+    EXPECT_FLOAT_EQ(colors[usize(12)], 4.0f);
+    auto directions =
+        scene_test::Capture(frame, source, owe::SceneLightUniformOutput::DirectionalDirection);
+    EXPECT_FLOAT_EQ(directions[usize()], -0.5f);
+    EXPECT_FLOAT_EQ(directions[usize(12)], -0.5f);
+}
+
+TEST(SceneLightUniformSource, TransformsTubeEndpointAndReadsLiveParameters) {
+    owe::Scene scene;
+    auto       parent = Arc<owe::SceneNode>::make();
+    parent->SetTranslate({ 10.0f, 20.0f, 30.0f });
+    scene.RootMut()->AppendChild(parent.clone());
+    auto node = Arc<owe::SceneNode>::make();
+    node->SetTranslate({ 1.0f, 2.0f, 3.0f });
+    node->SetScale({ 2.0f, 3.0f, 4.0f });
+    parent->AppendChild(node.clone());
+    auto light =
+        Box<owe::SceneLight>::make(owe::SceneLight::Desc { .type = owe::SceneLightType::Tube,
+                                                           .control_point = { 0.0f, 25.0f, 0.0f },
+                                                           .radius        = 30.0f,
+                                                           .exponent      = 1.26f });
+    auto parameters = light->ParametersOwner();
+    light->setNode(node.as_ptr());
+    (void)scene.RegisterLight(rstd::move(light));
+    owe::SceneLightUniformSource source(ref<owe::Scene>::from_raw_parts(&scene),
+                                        { .tube = u32(1) });
+    owe::SceneFrame              frame;
+    auto a = scene_test::Capture(frame, source, owe::SceneLightUniformOutput::TubeOriginA);
+    auto b = scene_test::Capture(frame, source, owe::SceneLightUniformOutput::TubeOriginB);
+    EXPECT_FLOAT_EQ(a[usize()], 11.0f);
+    EXPECT_FLOAT_EQ(a[usize(1)], 22.0f);
+    EXPECT_FLOAT_EQ(a[usize(2)], 33.0f);
+    EXPECT_FLOAT_EQ(a[usize(3)], 1.26f);
+    EXPECT_FLOAT_EQ(b[usize()], 11.0f);
+    EXPECT_FLOAT_EQ(b[usize(1)], 97.0f);
+    EXPECT_FLOAT_EQ(b[usize(2)], 33.0f);
+    parameters->intensity = 2.0f;
+    parameters->radius    = 12.0f;
+    auto color = scene_test::Capture(frame, source, owe::SceneLightUniformOutput::TubeColor);
+    EXPECT_FLOAT_EQ(color[usize()], 2.0f);
+    EXPECT_FLOAT_EQ(color[usize(3)], 12.0f);
+    parent->SetVisible(false);
+    color = scene_test::Capture(frame, source, owe::SceneLightUniformOutput::TubeColor);
+    EXPECT_FLOAT_EQ(color[usize()], 0.0f);
+}
+
 TEST(ShadowUniformSource, UsesAuthoredCascadeExtentAndLightObjectFrame) {
     auto camera =
         Arc<owe::SceneCamera>::make(owe::SceneCamera::MakePerspective(1.0, 0.1, 1000.0, 50.0));
@@ -604,7 +684,7 @@ TEST(ShadowUniformSource, UsesAuthoredCascadeExtentAndLightObjectFrame) {
     desc.type                 = owe::SceneLightType::Directional;
     desc.cast_shadow          = true;
     desc.cascade_distances[0] = 10.0f;
-    desc.cascade_distances[1] = 20.0f;
+    desc.cascade_distances[1] = 30.0f;
     desc.cascade_distances[2] = 40.0f;
     owe::Scene scene;
     auto       light = Box<owe::SceneLight>::make(desc);
@@ -618,10 +698,12 @@ TEST(ShadowUniformSource, UsesAuthoredCascadeExtentAndLightObjectFrame) {
     ASSERT_EQ(matrices.size(), usize(96));
     EXPECT_NEAR(matrices[usize(8)], 0.2f, 1e-6f);
     EXPECT_NEAR(matrices[usize(5)], 0.2f, 1e-6f);
-    EXPECT_NEAR(matrices[usize(2)], -1.0f / 80.0f, 1e-6f);
+    EXPECT_NEAR(matrices[usize(2)], -1.0f / 120.0f, 1e-6f);
     EXPECT_NEAR(matrices[usize(12)], 1.0f, 1e-6f);
     EXPECT_NEAR(matrices[usize(14)], 0.5f, 1e-6f);
-    EXPECT_NEAR(matrices[usize(16 + 8)], 0.1f, 1e-6f);
+    EXPECT_NEAR(matrices[usize(16 + 8)], 2.0f / 30.0f, 1e-6f);
+    EXPECT_NEAR(matrices[usize(16 + 2)], -1.0f / 120.0f, 1e-6f);
+    EXPECT_NEAR(matrices[usize(32 + 2)], -1.0f / 120.0f, 1e-6f);
     EXPECT_NEAR(matrices[usize(32 + 8)], 0.05f, 1e-6f);
     EXPECT_FLOAT_EQ(matrices[usize(48)], 0.0f);
 
@@ -1611,7 +1693,9 @@ TEST(SceneParserScript, GeneralLightingPublishesFieldScriptResults) {
         "camera": {},
         "general": {
             "ambientcolor": {"value":"0.85 0.85 0.85", "script": "export function update(value) { return new Vec3(0.9, 0.8, 0.7); }"},
-            "skylightcolor": {"value":"0.69 0.69 0.69", "script": "export function update(value) { return new Vec3(0.7, 0.6, 0.5); }"}
+            "skylightcolor": {"value":"0.69 0.69 0.69", "script": "export function update(value) { return new Vec3(0.7, 0.6, 0.5); }"},
+            "fogdistancecolor": {"value":"0.1 0.2 0.3", "script":"export function update(value) { return new Vec3(0.2, 0.3, 0.4); }"},
+            "fogheightcolor": {"value":"0.3 0.2 0.1", "script":"export function update(value) { return new Vec3(0.4, 0.3, 0.2); }"}
         }, "objects": []
     })JSON"_str,
                                                          owe::wpscene::kSceneVersionUnknown);
@@ -1649,6 +1733,12 @@ TEST(SceneParserScript, GeneralLightingPublishesFieldScriptResults) {
     EXPECT_FLOAT_EQ(ambient[usize(2)], 0.7f);
     EXPECT_FLOAT_EQ(sky[usize()], 0.7f);
     EXPECT_FLOAT_EQ(sky[usize(2)], 0.5f);
+    auto distance = capture(owe::FrameUniformOutput::FogDistanceColor);
+    auto height   = capture(owe::FrameUniformOutput::FogHeightColor);
+    EXPECT_FLOAT_EQ(distance[usize()], 0.2f);
+    EXPECT_FLOAT_EQ(distance[usize(2)], 0.4f);
+    EXPECT_FLOAT_EQ(height[usize()], 0.4f);
+    EXPECT_FLOAT_EQ(height[usize(2)], 0.2f);
 }
 
 TEST(CameraShake, SamplesThreeAxesAndVectorLengthRoughness) {

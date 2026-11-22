@@ -13,6 +13,7 @@ import rstd;
 import rstd.log;
 import wescene.utils;
 import wescene.scene;
+import wescene.scene_user_property;
 import wescene.text;
 import wescene.script;
 
@@ -565,6 +566,59 @@ void WireFieldScripts(SceneLayerBuildContext& context, const Arc<SceneNode>& nod
     }
 }
 
+void WireLightParameterBindings(SceneLayerBuildContext& context, const Arc<SceneNode>& node,
+                                SceneLight& light, const wpscene::FieldBindings& fields) {
+    using Parameters = SceneLight::Parameters;
+    struct ScalarField {
+        ref<str> name;
+        float Parameters::* member;
+    };
+    const array<ScalarField, 3> scalars {
+        ScalarField { "intensity"_str, &Parameters::intensity },
+        ScalarField { "radius"_str, &Parameters::radius },
+        ScalarField { "exponent"_str, &Parameters::exponent },
+    };
+    auto state = light.ParametersOwner();
+    for (const auto& scalar : scalars) {
+        auto spec = fields.Get(scalar.name);
+        if (spec.is_none()) continue;
+        const auto& binding = **spec;
+        if (binding.user.is_some()) {
+            context.scene->RegisterUserPropertyBinding(
+                binding.user->clone(),
+                Box<dyn<FnMut<void(ref<Json>)>>>::make(
+                    [state = state.clone(), member = scalar.member](ref<Json> value) {
+                        float next {};
+                        if (GetJsonValue(SceneUserPropertyPayload(*value), next) &&
+                            f32(next).is_finite())
+                            (*state).*member = next;
+                    }),
+                context.scene->RegisterNode(*node));
+        }
+        if (binding.script.is_none()) continue;
+        const auto& source  = *binding.script;
+        auto&       scripts = EnsureScriptScene(context);
+        auto*       field   = scripts.runtime().MakeFieldScript(
+            source.source.as_str(),
+            utils::genSha1(rstd::as_bytes(source.source.as_str().as_bytes())).as_str(),
+            script::FieldKind::Scalar,
+            binding.ScriptProperties(),
+            source.initial_value,
+            script::ScriptBindingContext::ForLayer(
+                node.as_ptr(), scalar.name, node->FieldAnimation(scalar.name)),
+            context.script_initialization);
+        if (! field) continue;
+        SetScriptInitializationOrder(context, *field, node.as_ptr());
+        TrackFieldScript(context, field);
+        scripts.AddActuator(
+            { field,
+              [state = state.clone(), member = scalar.member](const script::ScriptValue& value) {
+                  auto next = ScriptValueAsFloat(value);
+                  if (next.is_some() && f32(*next).is_finite()) (*state).*member = *next;
+              } });
+    }
+}
+
 // An effect's `visible` can be driven by a script, the same way a layer's
 // can. The effect is already registered with the scene, so the actuator
 // only has to flip its runtime visibility; the render graph rebuild is
@@ -609,15 +663,37 @@ void WireImageEffectVisibilityScript(SceneLayerBuildContext& context, SceneNode*
 void WireGeneralFieldScripts(SceneLayerBuildContext& context, const wpscene::FieldBindings& fb) {
     auto& ss = EnsureScriptScene(context);
     auto& rt = ss.runtime();
+    struct ColorField {
+        ref<str> name;
+        array<float, 3> (UniformSceneState::*read)() const;
+        void (UniformSceneState::*write)(array<float, 3>);
+    };
+    const array<ColorField, 4> color_fields {
+        ColorField { "ambientcolor"_str,
+                     &UniformSceneState::AmbientColor,
+                     &UniformSceneState::SetAmbientColor },
+        ColorField { "skylightcolor"_str,
+                     &UniformSceneState::SkylightColor,
+                     &UniformSceneState::SetSkylightColor },
+        ColorField { "fogdistancecolor"_str,
+                     &UniformSceneState::FogDistanceColor,
+                     &UniformSceneState::SetFogDistanceColor },
+        ColorField { "fogheightcolor"_str,
+                     &UniformSceneState::FogHeightColor,
+                     &UniformSceneState::SetFogHeightColor },
+    };
 
     for (const auto& binding : fb.Entries()) {
         if (binding.script.is_none()) continue;
-        const auto&       sb    = *binding.script;
-        auto              field = binding.field.as_str();
-        script::FieldKind kind  = script::FieldKind::Scalar;
+        const auto&        sb    = *binding.script;
+        auto               field = binding.field.as_str();
+        Option<ColorField> color_field;
+        for (const auto& color : color_fields)
+            if (field == color.name) color_field = Some(ColorField(color));
+        script::FieldKind kind = script::FieldKind::Scalar;
         if (field == "camerashake"_str) {
             kind = script::FieldKind::Bool;
-        } else if (field == "ambientcolor"_str || field == "skylightcolor"_str) {
+        } else if (color_field.is_some()) {
             kind = script::FieldKind::Vec3;
         } else if (field != "fov"_str && field != "camerashakeamplitude"_str &&
                    field != "camerashakespeed"_str && field != "camerashakeroughness"_str) {
@@ -646,45 +722,42 @@ void WireGeneralFieldScripts(SceneLayerBuildContext& context, const wpscene::Fie
         auto  state      = context.layer_resources->uniform_state.clone();
         auto  field_name = binding.field.clone();
         auto* scene      = context.scene;
-        ss.AddActuator(
-            { fs,
-              [state = state.clone(), scene, field_name = rstd::move(field_name)](
-                  const script::ScriptValue& value) mutable {
-                  if (field_name == "ambientcolor"_str || field_name == "skylightcolor"_str) {
-                      const auto current = field_name == "ambientcolor"_str
-                                               ? state->AmbientColor()
-                                               : state->SkylightColor();
-                      auto       color   = ScriptValueAsVec3(value, Vector3f(current.data()));
-                      if (color.is_none() || ! color->allFinite()) return;
-                      const array<float, 3> result { color->x(), color->y(), color->z() };
-                      if (field_name == "ambientcolor"_str)
-                          state->SetAmbientColor(result);
-                      else
-                          state->SetSkylightColor(result);
-                      return;
-                  }
-                  auto scalar = ScriptValueAsFloat(value);
-                  if (! scalar) return;
-                  if (field_name == "fov"_str) {
-                      auto camera = scene->CameraHandle("global_perspective"_str);
-                      if (camera.is_some() && f32(*scalar).is_finite() && *scalar > 0.0f &&
-                          *scalar < 180.0f && (**camera).Fov() != *scalar) {
-                          (**camera).SetFov(*scalar);
-                          (**camera).Update();
-                          scene->UpdateLinkedCamera("global_perspective"_str);
-                      }
-                      return;
-                  }
-                  auto& shake = state->CameraShake();
-                  if (field_name == "camerashake"_str)
-                      shake.enable = *scalar >= 0.5f;
-                  else if (field_name == "camerashakeamplitude"_str)
-                      shake.amplitude = *scalar;
-                  else if (field_name == "camerashakespeed"_str)
-                      shake.speed = *scalar;
-                  else if (field_name == "camerashakeroughness"_str)
-                      shake.roughness = *scalar;
-              } });
+        if (color_field.is_some()) {
+            const auto color = *color_field;
+            ss.AddActuator({ fs, [state = state.clone(), color](const script::ScriptValue& value) {
+                                const auto current = ((*state).*color.read)();
+                                auto next = ScriptValueAsVec3(value, Vector3f(current.data()));
+                                if (next.is_some() && next->allFinite())
+                                    ((*state).*color.write)({ next->x(), next->y(), next->z() });
+                            } });
+            continue;
+        }
+        ss.AddActuator({ fs,
+                         [state = state.clone(), scene, field_name = rstd::move(field_name)](
+                             const script::ScriptValue& value) mutable {
+                             auto scalar = ScriptValueAsFloat(value);
+                             if (! scalar) return;
+                             if (field_name == "fov"_str) {
+                                 auto camera = scene->CameraHandle("global_perspective"_str);
+                                 if (camera.is_some() && f32(*scalar).is_finite() &&
+                                     *scalar > 0.0f && *scalar < 180.0f &&
+                                     (**camera).Fov() != *scalar) {
+                                     (**camera).SetFov(*scalar);
+                                     (**camera).Update();
+                                     scene->UpdateLinkedCamera("global_perspective"_str);
+                                 }
+                                 return;
+                             }
+                             auto& shake = state->CameraShake();
+                             if (field_name == "camerashake"_str)
+                                 shake.enable = *scalar >= 0.5f;
+                             else if (field_name == "camerashakeamplitude"_str)
+                                 shake.amplitude = *scalar;
+                             else if (field_name == "camerashakespeed"_str)
+                                 shake.speed = *scalar;
+                             else if (field_name == "camerashakeroughness"_str)
+                                 shake.roughness = *scalar;
+                         } });
     }
 }
 

@@ -47,9 +47,10 @@ struct PuppetLayerRegistry {
 };
 
 struct SceneShaderEnvironment {
-    bool fog_distance { false };
-    bool fog_height { false };
-    bool directional_shadow { false };
+    bool                       fog_distance { false };
+    bool                       fog_height { false };
+    bool                       directional_shadow { false };
+    SceneLightingUniformConfig lighting;
 };
 
 struct GeometryShaderLimits {
@@ -269,6 +270,8 @@ auto EnsureScriptScene(SceneLayerBuildContext&) -> script::ScriptScene&;
 void SetScriptInitializationOrder(SceneLayerBuildContext&, script::FieldScript&, const SceneNode*);
 void TrackFieldScript(SceneLayerBuildContext&, script::FieldScript*);
 auto ScriptValueAsFloat(const script::ScriptValue&) -> Option<float>;
+void WireLightParameterBindings(SceneLayerBuildContext&, const Arc<SceneNode>&, SceneLight&,
+                                const wpscene::FieldBindings&);
 auto ScriptValueAsVec2(const script::ScriptValue&) -> Option<array<float, 2>>;
 auto ScriptValueAsVec3(const script::ScriptValue&, const Eigen::Vector3f&)
     -> Option<Eigen::Vector3f>;

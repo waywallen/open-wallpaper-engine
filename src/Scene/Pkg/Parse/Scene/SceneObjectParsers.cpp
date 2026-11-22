@@ -227,6 +227,8 @@ void InitContext(SceneParseContext& context, fs::VFS& vfs, const wpscene::SceneM
     context.layer_resources->uniform_state->SetOrthographicImplicitParallax(sc.general.isOrtho);
     context.layer_resources->uniform_state->SetAmbientColor(sc.general.ambientcolor);
     context.layer_resources->uniform_state->SetSkylightColor(sc.general.skylightcolor);
+    context.layer_resources->uniform_state->SetFogDistanceColor(sc.general.fogdistancecolor);
+    context.layer_resources->uniform_state->SetFogHeightColor(sc.general.fogheightcolor);
 
     {
         auto& gb = context.layer_resources->global_base_uniforms;
@@ -357,15 +359,18 @@ void ParseLightObj(SceneParseContext& context, wpscene::LightObject& light_obj) 
         desc.type = SceneLightType::Spot;
     } else if (light_obj.light == "directional"_str || light_obj.light == "ldirectional"_str) {
         desc.type = SceneLightType::Directional;
+    } else if (light_obj.light == "tube"_str || light_obj.light == "ltube"_str) {
+        desc.type = SceneLightType::Tube;
     } else {
         desc.type = SceneLightType::Point; // default + point/lpoint
     }
-    desc.color       = Vector3f(light_obj.color.data());
-    desc.radius      = light_obj.radius;
-    desc.intensity   = light_obj.intensity;
-    desc.exponent    = light_obj.exponent;
-    desc.attenuation = light_obj.attenuation;
-    desc.mindistance = light_obj.mindistance;
+    desc.color         = Vector3f(light_obj.color.data());
+    desc.control_point = Vector3f(light_obj.controlpoint.data());
+    desc.radius        = light_obj.radius;
+    desc.intensity     = light_obj.intensity;
+    desc.exponent      = light_obj.exponent;
+    desc.attenuation   = light_obj.attenuation;
+    desc.mindistance   = light_obj.mindistance;
     // WE evaluates spot cones against cos(full angle), as stored by the official renderer.
     const float kDegToRad     = f32::consts::PI.to_primitive() / 180.0f;
     desc.inner_cone_cos       = f32(light_obj.innercone * kDegToRad).cos().to_primitive();
@@ -389,6 +394,7 @@ void ParseLightObj(SceneParseContext& context, wpscene::LightObject& light_obj) 
 
     AssignNodeFieldAnimations(context, *node.as_ptr(), light_obj.field_bindings);
     WireFieldScripts(context, node, light_obj.field_bindings);
+    WireLightParameterBindings(context, node, *light, light_obj.field_bindings);
     RegisterNodeRef(context,
                     light_obj.id,
                     SceneLayerNodeDraft { .parent_id  = light_obj.parent,
@@ -729,6 +735,12 @@ BuildContext(Scene& scene, fs::VFS& vfs, ref<str> scene_id, const wpscene::Scene
     context.layer_resources->geometry_shader_supported = geometry_shader_supported;
     context.layer_resources->shader_environment.directional_shadow =
         directional_shadow && sc.general.lightconfig.directionalshadow > u32();
+    context.layer_resources->shader_environment.lighting = {
+        .point       = sc.general.lightconfig.point,
+        .spot        = sc.general.lightconfig.spot,
+        .tube        = sc.general.lightconfig.tube,
+        .directional = sc.general.lightconfig.directional,
+    };
 
     context.scene->RegisterRenderTarget(String::make(SpecTex_Default),
                                         SceneRenderTarget {

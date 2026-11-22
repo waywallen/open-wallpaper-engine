@@ -723,7 +723,7 @@ auto FrameUniformSource::Describe(mut_ref<dyn<UniformBindingSink>> sink) const
     using Output = FrameUniformOutput;
     auto global  = BindGlobalProducer(sink, GlobalUniformProducer::Frame);
     if (global.is_err()) return global;
-    const array<BindingEntry<Output>, 5> entries {
+    const array<BindingEntry<Output>, 7> entries {
         BindingEntry<Output> { Output::TexelSize, G_TEXELSIZE, UniformValueShape::Float(u32(2)) },
         BindingEntry<Output> {
             Output::TexelSizeHalf, G_TEXELSIZEHALF, UniformValueShape::Float(u32(2)) },
@@ -732,6 +732,10 @@ auto FrameUniformSource::Describe(mut_ref<dyn<UniformBindingSink>> sink) const
             Output::AmbientColor, G_LIGHTAMBIENTCOLOR, UniformValueShape::Float(u32(3)) },
         BindingEntry<Output> {
             Output::SkylightColor, G_LIGHTSKYLIGHTCOLOR, UniformValueShape::Float(u32(3)) },
+        BindingEntry<Output> {
+            Output::FogDistanceColor, G_FOGDISTANCECOLOR, UniformValueShape::Float(u32(3)) },
+        BindingEntry<Output> {
+            Output::FogHeightColor, G_FOGHEIGHTCOLOR, UniformValueShape::Float(u32(3)) },
     };
     return BindEntries(sink, entries);
 }
@@ -753,6 +757,8 @@ auto FrameUniformSource::Evaluate(ref<dyn<UniformUpdateContext>> context,
     writer.Write(Output::DayTime, 0.0f);
     writer.Write(Output::AmbientColor, m_state->AmbientColor());
     writer.Write(Output::SkylightColor, m_state->SkylightColor());
+    writer.Write(Output::FogDistanceColor, m_state->FogDistanceColor());
+    writer.Write(Output::FogHeightColor, m_state->FogHeightColor());
     writer.Write(Output::PointerPosition, inputs.pointer);
     writer.Write(Output::PointerPositionLast, inputs.pointer_last);
     if (writer.Wants(Output::TexelSize) || writer.Wants(Output::TexelSizeHalf) ||
@@ -963,6 +969,17 @@ auto LightUniformSource::Version(ref<dyn<UniformUpdateContext>> context) const -
     return context->Frame()->revision;
 }
 
+namespace
+{
+bool LightVisible(const SceneLight& light) {
+    if (light.node() == nullptr || ! light.runtimeVisible()) return false;
+    for (auto* node = light.node(); node; node = node->Parent()) {
+        if (! node->Visible()) return false;
+    }
+    return true;
+}
+} // namespace
+
 auto LightUniformSource::Evaluate(ref<dyn<UniformUpdateContext>>,
                                   mut_ref<dyn<UniformValueSink>> sink) const
     -> Result<empty, UniformError> {
@@ -980,22 +997,14 @@ auto LightUniformSource::Evaluate(ref<dyn<UniformUpdateContext>>,
     usize index {};
     for (const auto& light_ref : m_scene->Lights()) {
         const auto& light = *light_ref;
-        if (light.node() == nullptr || ! light.runtimeVisible()) continue;
-        bool visible = true;
-        for (auto* node = light.node(); node; node = node->Parent()) {
-            if (! node->Visible()) {
-                visible = false;
-                break;
-            }
-        }
-        if (! visible) continue;
+        if (! LightVisible(light) || light.type() == SceneLightType::Tube) continue;
         if (index >= max_lights) break;
         auto& node = *light.node();
         node.UpdateTrans();
         const auto transform = node.ModelTrans();
         const auto position  = transform.block<3, 1>(0, 3).cast<float>();
         auto       color     = light.color();
-        if (node.IsColorOverridden()) color = node.Color() * light.desc().intensity;
+        if (node.IsColorOverridden()) color = node.Color() * light.intensity();
         positions[index * usize(3)]                = position.x();
         positions[index * usize(3) + usize(1)]     = position.y();
         positions[index * usize(3) + usize(2)]     = position.z();
@@ -1013,7 +1022,7 @@ auto LightUniformSource::Evaluate(ref<dyn<UniformUpdateContext>>,
         directions_type[index * usize(4) + usize(3)] = static_cast<float>(light.type());
         cones_exponent[index * usize(4)]             = light.desc().inner_cone_cos;
         cones_exponent[index * usize(4) + usize(1)]  = light.desc().outer_cone_cos;
-        cones_exponent[index * usize(4) + usize(2)]  = light.desc().exponent;
+        cones_exponent[index * usize(4) + usize(2)]  = light.exponent();
         cast_shadow[index]                           = light.desc().cast_shadow ? 1.0f : 0.0f;
         if (index < usize(3)) {
             const auto premultiplied = color * light.radius() * light.radius();
@@ -1030,6 +1039,93 @@ auto LightUniformSource::Evaluate(ref<dyn<UniformUpdateContext>>,
     writer.Write(Output::DirectionType, directions_type);
     writer.Write(Output::ConeExponent, cones_exponent);
     writer.Write(Output::CastShadow, cast_shadow);
+    return writer.Finish();
+}
+
+auto SceneLightUniformSource::Describe(mut_ref<dyn<UniformBindingSink>> sink) const
+    -> Result<empty, UniformError> {
+    for (const auto& field : SceneLightUniformFields()) {
+        const auto count = m_config.Count(field.type);
+        if (count == u32()) continue;
+        auto bound = Bind(sink, field.output, field.name, UniformValueShape::Float(count * u32(4)));
+        if (bound.is_err()) return bound;
+    }
+    return Ok(empty {});
+}
+
+auto SceneLightUniformSource::Version(ref<dyn<UniformUpdateContext>> context) const -> u64 {
+    return context->Frame()->revision;
+}
+
+auto SceneLightUniformSource::Evaluate(ref<dyn<UniformUpdateContext>>,
+                                       mut_ref<dyn<UniformValueSink>> sink) const
+    -> Result<empty, UniformError> {
+    using O = SceneLightUniformOutput;
+    array<Vec<float>, 13> values;
+    for (const auto& field : SceneLightUniformFields()) {
+        auto index = usize(static_cast<rstd::uint32_t>(field.output));
+        values[index].resize(rstd::as_cast<usize>(m_config.Count(field.type)) * usize(4), 0.0f);
+    }
+    array<usize, 4> counts {};
+    auto            write = [&](O output, usize index, const Vector3f& vector, float fourth) {
+        auto&      array  = values[usize(static_cast<rstd::uint32_t>(output))];
+        const auto offset = index * usize(4);
+        for (usize component {}; component < usize(3); ++component)
+            array[offset + component] = vector[component.to_primitive()];
+        array[offset + usize(3)] = fourth;
+    };
+    for (const auto& owned : m_scene->Lights()) {
+        const auto& light = *owned;
+        if (! LightVisible(light)) continue;
+        auto& index = counts[usize(static_cast<rstd::uint8_t>(light.type()))];
+        if (index >= rstd::as_cast<usize>(m_config.Count(light.type()))) continue;
+        auto& node = *light.node();
+        node.UpdateTrans();
+        const auto     transform = node.ModelTrans().cast<float>().eval();
+        const Vector3f origin    = transform.block<3, 1>(0, 3);
+        const auto&    desc      = light.desc();
+        const Vector3f color =
+            node.IsColorOverridden() ? Vector3f(node.Color() * light.intensity()) : light.color();
+        switch (light.type()) {
+        case SceneLightType::Point:
+            write(O::PointColor, index, color, light.radius());
+            write(O::PointOrigin, index, origin, light.exponent());
+            write(
+                O::PointShadow, index, Vector3f(desc.cast_shadow ? 1.0f : 0.0f, 0.0f, 0.0f), 0.0f);
+            break;
+        case SceneLightType::Spot:
+            write(O::SpotColor, index, color, light.radius());
+            write(O::SpotOrigin, index, origin, desc.outer_cone_cos);
+            write(O::SpotDirection, index, transform.block<3, 1>(0, 0), desc.inner_cone_cos);
+            write(O::SpotParams,
+                  index,
+                  Vector3f(light.exponent(), desc.cast_shadow ? 1.0f : 0.0f, 0.0f),
+                  0.0f);
+            break;
+        case SceneLightType::Tube: {
+            const Vector3f endpoint = transform.block<3, 3>(0, 0) * light.controlPoint() + origin;
+            write(O::TubeColor, index, color, light.radius());
+            write(O::TubeOriginA, index, origin, light.exponent());
+            write(O::TubeOriginB, index, endpoint, 0.0f);
+            break;
+        }
+        case SceneLightType::Directional:
+            write(O::DirectionalColor, index, color, 1.0f);
+            // LightingV1 consumes the full basis vector, including attachment scale.
+            write(O::DirectionalDirection, index, -transform.block<3, 1>(0, 0), 0.0f);
+            write(O::DirectionalShadow,
+                  index,
+                  Vector3f(desc.cast_shadow ? 1.0f : 0.0f, 0.0f, 0.0f),
+                  0.0f);
+            break;
+        }
+        ++index;
+    }
+    UniformWriter writer(sink);
+    for (const auto& field : SceneLightUniformFields()) {
+        const auto& data = values[usize(static_cast<rstd::uint32_t>(field.output))];
+        if (! data.is_empty()) writer.Write(field.output, data.as_slice());
+    }
     return writer.Finish();
 }
 
@@ -1081,6 +1177,7 @@ auto ShadowUniformSource::Evaluate(ref<dyn<UniformUpdateContext>>,
 
     array<float, 96> matrix_values {};
     const double camera_far = rstd::cmp::max(0.001, f64(m_camera->FarClip()).abs().to_primitive());
+    const double shared_depth = static_cast<double>(light->desc().cascade_distances[1]) * 4.0;
     for (usize cascade {}; cascade < usize(3); ++cascade) {
         const float     authored = light->desc().cascade_distances[cascade.to_primitive()];
         const double    distance = authored > 0.0f ? static_cast<double>(authored) : camera_far;
@@ -1093,16 +1190,20 @@ auto ShadowUniformSource::Evaluate(ref<dyn<UniformUpdateContext>>,
         view(1, 3)               = -view_y.dot(center);
         view(2, 3)               = -view_z.dot(center);
 
-        const double          half_extent = distance * 0.5;
-        const double          depth_span  = rstd::cmp::max(80.0, distance * 1.5);
-        const Eigen::Matrix4f matrix      = (Eigen::Ortho(-half_extent,
-                                                          half_extent,
-                                                          -half_extent,
-                                                          half_extent,
-                                                          -depth_span * 0.5,
-                                                          depth_span * 0.5) *
-                                             view)
-                                                .cast<float>();
+        const double half_extent = distance * 0.5;
+        // WE shares the middle cascade's depth range with the near cascade.
+        const double depth_span =
+            shared_depth > 0.0
+                ? (cascade < usize(2) ? shared_depth : rstd::cmp::max(shared_depth, distance * 1.5))
+                : rstd::cmp::max(80.0, distance * 1.5);
+        const Eigen::Matrix4f matrix = (Eigen::Ortho(-half_extent,
+                                                     half_extent,
+                                                     -half_extent,
+                                                     half_extent,
+                                                     -depth_span * 0.5,
+                                                     depth_span * 0.5) *
+                                        view)
+                                           .cast<float>();
         for (usize value {}; value < usize(16); ++value) {
             matrix_values[cascade * usize(16) + value] = matrix.data()[value.to_primitive()];
         }

@@ -2727,6 +2727,45 @@ TEST(SceneLightParsing, RecognizesPrefixedKindsAndFullConeAngles) {
     EXPECT_NEAR(lights[rstd::usize()]->desc().outer_cone_cos, std::cos(77.94f * deg_to_rad), 1e-5f);
 }
 
+TEST(SceneLightParsing, PreservesTubeConfigAndUpdatesOwnedParameters) {
+    using namespace rstd::prelude;
+    auto document = owe::wpscene::ParseSceneDocumentJson(R"({
+        "camera": {},
+        "general": {"lightconfig":{"point":1,"tube":15,"directional":4},
+            "orthogonalprojection":{"width":1920,"height":1080}},
+        "objects": [{"id":1,"name":"Tube","light":"ltube",
+            "controlpoint":"1 2 3","radius":{"value":30,"user":"radius"},
+            "intensity":{"value":9,"script":"export function update(value) { return 2; }"},
+            "exponent":{"value":1,"script":"export function update(value) { return 4; }"}}]
+    })"_str,
+                                                         owe::wpscene::kSceneVersionUnknown);
+    ASSERT_TRUE(document);
+    EXPECT_EQ(document->metadata.general.lightconfig.tube, u32(15));
+    owe::fs::VFS vfs;
+    auto         assets = owe::fs::make_physical_fs(
+        owe::fs::Path(rstd::cppstd::as_str(WAYWALLEN_ASSETS_DIR).unwrap()));
+    ASSERT_TRUE(assets);
+    ASSERT_TRUE(vfs.mount("/assets"_str, rstd::move(assets).unwrap()));
+    wavsen::audio::SoundManager sound;
+    owe::SceneParser            parser;
+    auto parsed = parser.Parse("tube-parameters"_str,
+                               ref<owe::wpscene::SceneDocument>::from_raw_parts(&*document),
+                               mut_ref<owe::fs::VFS>::from_raw_parts(&vfs),
+                               mut_ref<wavsen::audio::SoundManager>::from_raw_parts(&sound));
+    ASSERT_TRUE(parsed);
+    auto& scene = *parsed->scene;
+    ASSERT_EQ(scene.Lights().len(), usize(1));
+    const auto& light = *scene.Lights()[usize()];
+    EXPECT_EQ(light.type(), owe::SceneLightType::Tube);
+    EXPECT_TRUE(light.controlPoint().isApprox(Eigen::Vector3f(1.0f, 2.0f, 3.0f)));
+    owe::script::TickSceneScripts(scene, owe::script::FrameInputs {});
+    EXPECT_FLOAT_EQ(light.intensity(), 2.0f);
+    EXPECT_FLOAT_EQ(light.exponent(), 4.0f);
+    auto radius = owe::ParseJson("12"_str).unwrap();
+    EXPECT_TRUE(scene.ApplyUserPropertyBindings("radius"_str, radius));
+    EXPECT_FLOAT_EQ(light.radius(), 12.0f);
+}
+
 TEST(SceneLightParsing, FollowsTheSameModelAttachmentAsContainer) {
     using namespace rstd::prelude;
     auto file = rstd::format("{}/3708206626/scene.pkg",

@@ -6,6 +6,7 @@ import rstd;
 import :visibility;
 
 using namespace rstd::prelude;
+using rstd::sync::Arc;
 
 // SceneNode lives in the primary interface unit of wescene.scene. SceneLight
 // only needs a raw observation pointer here; ownership is carried by the
@@ -19,14 +20,23 @@ enum class SceneLightType : rstd::uint8_t
 {
     Point       = 0,
     Spot        = 1,
-    Directional = 2
+    Directional = 2,
+    Tube        = 3,
 };
 
 class SceneLight {
 public:
+    struct Parameters {
+        float           radius {};
+        float           intensity { 1.0f };
+        float           exponent { 1.0f };
+        Eigen::Vector3f control_point { 0.0f, 0.0f, 0.0f };
+    };
+
     struct Desc {
         SceneLightType  type { SceneLightType::Point };
         Eigen::Vector3f color { 1.0f, 1.0f, 1.0f };
+        Eigen::Vector3f control_point { 0.0f, 0.0f, 0.0f };
         float           radius { 0.0f };
         float           intensity { 1.0f };
         float           exponent { 1.0f };
@@ -44,17 +54,25 @@ public:
     };
 
     explicit SceneLight(const Desc& d)
-        : m_desc(d), m_premultiplied_color(d.color * d.intensity * d.radius * d.radius) {}
+        : m_desc(d),
+          m_parameters(Arc<Parameters>::make(Parameters { .radius        = d.radius,
+                                                          .intensity     = d.intensity,
+                                                          .exponent      = d.exponent,
+                                                          .control_point = d.control_point })) {}
     ~SceneLight() = default;
 
     const Desc&     desc() const { return m_desc; }
     SceneLightType  type() const { return m_desc.type; }
-    Eigen::Vector3f color() const { return m_desc.color * m_desc.intensity; }
-    float           radius() const { return m_desc.radius; }
+    Eigen::Vector3f color() const { return m_desc.color * m_parameters->intensity; }
+    float           radius() const { return m_parameters->radius; }
+    float           intensity() const { return m_parameters->intensity; }
+    float           exponent() const { return m_parameters->exponent; }
+    Eigen::Vector3f controlPoint() const { return m_parameters->control_point; }
+    auto            ParametersOwner() const -> Arc<Parameters> { return m_parameters.clone(); }
     SceneNode*      node() const { return m_node; }
     // Legacy uniform G_LCP layout (color * intensity * radius²) consumed by
     // shaders that bind g_LightsColorPremultiplied.
-    Eigen::Vector3f premultipliedColor() const { return m_premultiplied_color; }
+    Eigen::Vector3f premultipliedColor() const { return color() * radius() * radius(); }
 
     void setNode(SceneNode* node) { m_node = node; }
 
@@ -71,7 +89,7 @@ public:
 
 private:
     Desc            m_desc;
-    Eigen::Vector3f m_premultiplied_color { Eigen::Vector3f::Zero() };
+    Arc<Parameters> m_parameters;
     SceneNode*      m_node { nullptr };
 
     SceneUserVisibilityBinding m_visible_user_binding {};

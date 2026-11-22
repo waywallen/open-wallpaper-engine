@@ -24,6 +24,7 @@ public:
     array<float, 3>      origin { 0.0f, 0.0f, 0.0f };
     array<float, 3>      scale { 1.0f, 1.0f, 1.0f };
     array<float, 3>      angles { 0.0f, 0.0f, 0.0f };
+    array<float, 3>      controlpoint { 0.0f, 0.0f, 0.0f };
     ParallaxDepthBinding parallax;
     array<float, 3>      color { 1.0f, 1.0f, 1.0f };
     String               light; // "point" / "spot" / "directional" / ...

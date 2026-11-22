@@ -5,7 +5,7 @@ import wescene.json;
 import wescene.pkg.puppet;
 import wescene.scene;
 import wescene.pkg.scene_obj;
-import :global_uniform;
+export import :global_uniform;
 import :particle_runtime;
 
 using namespace rstd::prelude;
@@ -52,6 +52,8 @@ enum class FrameUniformOutput : rstd::uint32_t
     Screen,
     AmbientColor,
     SkylightColor,
+    FogDistanceColor,
+    FogHeightColor,
 };
 
 enum class LightUniformOutput : rstd::uint32_t
@@ -268,8 +270,12 @@ public:
     array<float, 2>           Ortho() const noexcept { return m_ortho; }
     array<float, 3>           AmbientColor() const { return m_ambient_color; }
     array<float, 3>           SkylightColor() const { return m_skylight_color; }
+    array<float, 3>           FogDistanceColor() const { return m_fog_distance_color; }
+    array<float, 3>           FogHeightColor() const { return m_fog_height_color; }
     void                      SetAmbientColor(array<float, 3> color) { m_ambient_color = color; }
     void                      SetSkylightColor(array<float, 3> color) { m_skylight_color = color; }
+    void SetFogDistanceColor(array<float, 3> color) { m_fog_distance_color = color; }
+    void SetFogHeightColor(array<float, 3> color) { m_fog_height_color = color; }
 
     void SetOrtho(float width, float height) { m_ortho = { width, height }; }
     void SetOrthographicImplicitParallax(bool enabled) {
@@ -306,6 +312,8 @@ private:
     UniformCameraShake       m_camera_shake;
     array<float, 3>          m_ambient_color {};
     array<float, 3>          m_skylight_color {};
+    array<float, 3>          m_fog_distance_color {};
+    array<float, 3>          m_fog_height_color {};
     bool                     m_orthographic_implicit_parallax { false };
     bool                     m_mouse_parallax { true };
     array<float, 2>          m_ortho { 1920.0f, 1080.0f };
@@ -410,6 +418,22 @@ public:
 
 private:
     ref<Scene> m_scene;
+};
+
+class SceneLightUniformSource {
+public:
+    SceneLightUniformSource(ref<Scene> scene, SceneLightingUniformConfig config)
+        : m_scene(scene), m_config(config) {}
+
+    auto Describe(mut_ref<dyn<UniformBindingSink>>) const -> Result<empty, UniformError>;
+    auto Version(ref<dyn<UniformUpdateContext>>) const -> u64;
+    auto Evaluate(ref<dyn<UniformUpdateContext>>, mut_ref<dyn<UniformValueSink>>) const
+        -> Result<empty, UniformError>;
+    auto AcquireBindingLease() const -> Option<Box<dyn<UniformBindingLease>>> { return None(); }
+
+private:
+    ref<Scene>                 m_scene;
+    SceneLightingUniformConfig m_config;
 };
 
 class VolumetricUniformSource {

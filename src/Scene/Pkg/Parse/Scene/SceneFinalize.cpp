@@ -220,6 +220,20 @@ void FinalizeUniformSources(SceneParseContext& context) {
         .sources  = rstd::move(lighting_sources),
     });
 
+    const auto light_config = context.layer_resources->shader_environment.lighting;
+    if (light_config.Enabled()) {
+        auto source  = registrar->Register(Box<dyn<UniformSource>>::make(
+            SceneLightUniformSource { ref<Scene>::from_raw_parts(&scene), light_config }));
+        auto sources = Vec<UniformSourceAttachment>::make();
+        sources.push(UniformSourceAttachment { .source = source });
+        (void)scene.RegisterUniformBlock(UniformBlockDefinition {
+            .identity = kSceneLightingUniformSchemaIdentity,
+            .name     = String::make(kSceneLightingUniformBlockName),
+            .scope    = UniformBlockScope::Shared,
+            .sources  = rstd::move(sources),
+        });
+    }
+
     for (auto& entry : context.layer_build.uniform_configs) {
         if (entry.config.object_id != i32() &&
             context.ride_parent_parallax_ids.contains(entry.config.object_id)) {

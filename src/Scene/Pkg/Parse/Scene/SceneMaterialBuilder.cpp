@@ -507,6 +507,14 @@ auto BuildMaterial(fs::VFS& vfs, ShaderCache& shader_cache,
                 })));
         }
     }
+    if (environment.lighting.Enabled()) {
+        (void)shader_info_ref.combos.insert("OWE_SCENE_LIGHTING"_Str, "1"_Str);
+        for (const auto& field : SceneLightUniformFields()) {
+            (void)shader_info_ref.combos.insert(
+                String::make(field.combo),
+                rstd::format("{}", environment.lighting.Count(field.type)));
+        }
+    }
     if (shader_info_ref.combos.contains_key(WE_CB_LIGHTING)) {
         if (environment.directional_shadow &&
             (**shader_info_ref.combos.get(WE_CB_LIGHTING)).as_str() != "0"_str) {

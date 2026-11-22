@@ -91,6 +91,7 @@ public:
     u32  directionalshadow { 0 };
     u32  point { 0 };
     u32  pointshadow { 0 };
+    u32  tube { 0 };
     u32  spot { 0 };
     u32  spotshadow { 0 };
 };

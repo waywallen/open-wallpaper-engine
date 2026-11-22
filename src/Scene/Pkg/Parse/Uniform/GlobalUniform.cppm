@@ -22,6 +22,7 @@ enum class GlobalUniformBlockKind : rstd::uint8_t
     Frame,
     Audio,
     Lighting,
+    SceneLighting,
 };
 
 struct GlobalUniformBlockSchema {
@@ -56,6 +57,105 @@ inline constexpr ref<str> kGlobalUniformBlockName { "ww_GlobalUniforms"_str };
 inline constexpr ref<str> kAudioUniformBlockName { "ww_AudioUniforms"_str };
 inline constexpr ref<str> kLightingUniformBlockName { "ww_LightingUniforms"_str };
 inline constexpr ref<str> kDrawUniformBlockName { "ww_DrawUniforms"_str };
+inline constexpr ref<str> kSceneLightingUniformBlockName { "ww_SceneLightingUniforms"_str };
+inline constexpr u64      kSceneLightingUniformSchemaIdentity { u64(0x5745534c49474801ULL) };
+
+inline auto SceneLightingUniformBlock() -> ref<GlobalUniformBlockSchema> {
+    static const GlobalUniformBlockSchema block { GlobalUniformBlockKind::SceneLighting,
+                                                  kSceneLightingUniformBlockName,
+                                                  u32(3),
+                                                  kSceneLightingUniformSchemaIdentity,
+                                                  usize() };
+    return ref<GlobalUniformBlockSchema>::from_raw_parts(&block);
+}
+
+struct SceneLightingUniformConfig {
+    u32 point {};
+    u32 spot {};
+    u32 tube {};
+    u32 directional {};
+
+    auto Count(SceneLightType type) const -> u32 {
+        switch (type) {
+        case SceneLightType::Point: return point;
+        case SceneLightType::Spot: return spot;
+        case SceneLightType::Tube: return tube;
+        case SceneLightType::Directional: return directional;
+        }
+        rstd::unreachable();
+    }
+
+    bool Enabled() const {
+        return point != u32() || spot != u32() || tube != u32() || directional != u32();
+    }
+};
+
+enum class SceneLightUniformOutput : rstd::uint32_t
+{
+    PointColor,
+    PointOrigin,
+    PointShadow,
+    SpotColor,
+    SpotOrigin,
+    SpotDirection,
+    SpotParams,
+    TubeColor,
+    TubeOriginA,
+    TubeOriginB,
+    DirectionalColor,
+    DirectionalDirection,
+    DirectionalShadow,
+};
+
+struct SceneLightUniformField {
+    ref<str>                name;
+    ref<str>                combo;
+    SceneLightType          type;
+    SceneLightUniformOutput output;
+};
+
+inline auto SceneLightUniformFields() -> slice<SceneLightUniformField> {
+    using T = SceneLightType;
+    using O = SceneLightUniformOutput;
+    static const array<SceneLightUniformField, 13> fields {
+        SceneLightUniformField {
+            "g_LPoint_Color"_str, "LIGHTS_POINT"_str, T::Point, O::PointColor },
+        SceneLightUniformField {
+            "g_LPoint_Origin"_str, "LIGHTS_POINT"_str, T::Point, O::PointOrigin },
+        SceneLightUniformField {
+            "g_LPoint_Shadow"_str, "LIGHTS_POINT"_str, T::Point, O::PointShadow },
+        SceneLightUniformField { "g_LSpot_Color"_str, "LIGHTS_SPOT"_str, T::Spot, O::SpotColor },
+        SceneLightUniformField { "g_LSpot_Origin"_str, "LIGHTS_SPOT"_str, T::Spot, O::SpotOrigin },
+        SceneLightUniformField {
+            "g_LSpot_Direction"_str, "LIGHTS_SPOT"_str, T::Spot, O::SpotDirection },
+        SceneLightUniformField { "g_LSpot_Params"_str, "LIGHTS_SPOT"_str, T::Spot, O::SpotParams },
+        SceneLightUniformField { "g_LTube_Color"_str, "LIGHTS_TUBE"_str, T::Tube, O::TubeColor },
+        SceneLightUniformField {
+            "g_LTube_OriginA"_str, "LIGHTS_TUBE"_str, T::Tube, O::TubeOriginA },
+        SceneLightUniformField {
+            "g_LTube_OriginB"_str, "LIGHTS_TUBE"_str, T::Tube, O::TubeOriginB },
+        SceneLightUniformField { "g_LDirectional_Color"_str,
+                                 "LIGHTS_DIRECTIONAL"_str,
+                                 T::Directional,
+                                 O::DirectionalColor },
+        SceneLightUniformField { "g_LDirectional_Direction"_str,
+                                 "LIGHTS_DIRECTIONAL"_str,
+                                 T::Directional,
+                                 O::DirectionalDirection },
+        SceneLightUniformField { "g_LDirectional_Shadow"_str,
+                                 "LIGHTS_DIRECTIONAL"_str,
+                                 T::Directional,
+                                 O::DirectionalShadow },
+    };
+    return fields.as_slice();
+}
+
+inline auto FindSceneLightUniform(ref<str> name) -> Option<ref<SceneLightUniformField>> {
+    for (const auto& field : SceneLightUniformFields()) {
+        if (field.name == name) return Some(ref<SceneLightUniformField>::from_raw_parts(&field));
+    }
+    return None();
+}
 
 inline auto GlobalUniformBlocks() -> slice<GlobalUniformBlockSchema> {
     static const array<GlobalUniformBlockSchema, 3> blocks {
@@ -90,6 +190,7 @@ inline auto GlobalUniformBlockFor(GlobalUniformProducer producer) -> GlobalUnifo
 
 inline auto FindGlobalUniformBlock(GlobalUniformBlockKind kind)
     -> Option<ref<GlobalUniformBlockSchema>> {
+    if (kind == GlobalUniformBlockKind::SceneLighting) return Some(SceneLightingUniformBlock());
     for (const auto& block : GlobalUniformBlocks()) {
         if (block.kind == kind) {
             return Some(ref<GlobalUniformBlockSchema>::from_raw_parts(rstd::addressof(block)));
@@ -99,6 +200,7 @@ inline auto FindGlobalUniformBlock(GlobalUniformBlockKind kind)
 }
 
 inline auto FindGlobalUniformBlock(ref<str> name) -> Option<ref<GlobalUniformBlockSchema>> {
+    if (name == kSceneLightingUniformBlockName) return Some(SceneLightingUniformBlock());
     for (const auto& block : GlobalUniformBlocks()) {
         if (block.name == name) {
             return Some(ref<GlobalUniformBlockSchema>::from_raw_parts(rstd::addressof(block)));

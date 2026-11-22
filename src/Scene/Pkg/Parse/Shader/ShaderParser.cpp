@@ -265,7 +265,7 @@ __SHADER_PLACEHOLD__
 
 )"_str;
 
-static constexpr ref<str> lighting_v1_source = R"(
+static constexpr ref<str> legacy_lighting_v1_source = R"(
 uniform vec3 g_LightsPosition[4];
 uniform vec4 g_LightsColorRadius[4];
 uniform vec4 g_LightsDirectionType[4];
@@ -326,6 +326,112 @@ float3 PerformLighting_V1(float3 worldPos, float3 albedo, float3 normal, float3 
             max(g_LightsConeExponent[i].z, 0.0), specularTint, f0,
             roughness, metallic, shadowFactor);
     }
+    return light;
+}
+
+float3 PerformLighting_V1(float3 worldPos, float3 albedo, float3 normal, float3 viewVector,
+                          float3 specularTint, float3 f0, float roughness, float metallic,
+                          float ao) {
+    return PerformLighting_V1(worldPos, albedo, normal, viewVector, specularTint, f0,
+                              roughness, metallic) * ao;
+}
+)"_str;
+
+static constexpr ref<str> scene_lighting_v1_source = R"(
+#if LIGHTS_POINT
+uniform vec4 g_LPoint_Color[LIGHTS_POINT];
+uniform vec4 g_LPoint_Origin[LIGHTS_POINT];
+uniform vec4 g_LPoint_Shadow[LIGHTS_POINT];
+#endif
+#if LIGHTS_SPOT
+uniform vec4 g_LSpot_Color[LIGHTS_SPOT];
+uniform vec4 g_LSpot_Origin[LIGHTS_SPOT];
+uniform vec4 g_LSpot_Direction[LIGHTS_SPOT];
+uniform vec4 g_LSpot_Params[LIGHTS_SPOT];
+#endif
+#if LIGHTS_TUBE
+uniform vec4 g_LTube_Color[LIGHTS_TUBE];
+uniform vec4 g_LTube_OriginA[LIGHTS_TUBE];
+uniform vec4 g_LTube_OriginB[LIGHTS_TUBE];
+#endif
+#if LIGHTS_DIRECTIONAL
+uniform vec4 g_LDirectional_Color[LIGHTS_DIRECTIONAL];
+uniform vec4 g_LDirectional_Direction[LIGHTS_DIRECTIONAL];
+uniform vec4 g_LDirectional_Shadow[LIGHTS_DIRECTIONAL];
+#endif
+#if LIGHTS_SHADOW_MAPPING
+uniform mat4 g_ViewportViewProjectionMatrices[6];
+uniform vec4 g_ShadowAtlasTransforms[3];
+#endif
+
+float3 PerformLighting_V1(float3 worldPos, float3 albedo, float3 normal, float3 viewVector,
+                          float3 specularTint, float3 f0, float roughness, float metallic) {
+    float3 light = float3(0.0, 0.0, 0.0);
+#if LIGHTS_POINT
+    for (int i = 0; i < LIGHTS_POINT; ++i) {
+        if (dot(g_LPoint_Color[i].rgb, g_LPoint_Color[i].rgb) <= 0.0) continue;
+        float shadowFactor = 1.0;
+#if !LIGHTS_SHADOW_MAPPING && OWE_IMAGE_LAYER && SCENE_ORTHO
+        shadowFactor = 1.0 - step(0.5, g_LPoint_Shadow[i].x);
+#endif
+        light += ComputePBRLightShadow(normal, g_LPoint_Origin[i].xyz - worldPos,
+            viewVector, albedo, g_LPoint_Color[i].rgb, g_LPoint_Color[i].w,
+            g_LPoint_Origin[i].w, specularTint, f0, roughness, metallic, shadowFactor);
+    }
+#endif
+#if LIGHTS_SPOT
+    for (int i = 0; i < LIGHTS_SPOT; ++i) {
+        if (dot(g_LSpot_Color[i].rgb, g_LSpot_Color[i].rgb) <= 0.0) continue;
+        float3 delta = g_LSpot_Origin[i].xyz - worldPos;
+        float cone = smoothstep(g_LSpot_Origin[i].w, g_LSpot_Direction[i].w,
+            dot(-normalize(delta), g_LSpot_Direction[i].xyz));
+        float shadowFactor = 1.0;
+#if !LIGHTS_SHADOW_MAPPING && OWE_IMAGE_LAYER && SCENE_ORTHO
+        shadowFactor = 1.0 - step(0.5, g_LSpot_Params[i].y);
+#endif
+        light += ComputePBRLightShadow(normal, delta, viewVector, albedo,
+            g_LSpot_Color[i].rgb * cone, g_LSpot_Color[i].w, g_LSpot_Params[i].x,
+            specularTint, f0, roughness, metallic, shadowFactor);
+    }
+#endif
+#if LIGHTS_TUBE
+    for (int i = 0; i < LIGHTS_TUBE; ++i) {
+        if (dot(g_LTube_Color[i].rgb, g_LTube_Color[i].rgb) <= 0.0) continue;
+        float3 a = g_LTube_OriginA[i].xyz;
+        float3 segment = g_LTube_OriginB[i].xyz - a;
+        float segmentLengthSquared = dot(segment, segment);
+        float t = segmentLengthSquared > 0.0
+            ? saturate(dot(worldPos - a, segment) / segmentLengthSquared) : 0.0;
+        float3 delta = a + t * segment - worldPos;
+        light += ComputePBRLightShadow(normal, delta, viewVector, albedo,
+            g_LTube_Color[i].rgb, g_LTube_Color[i].w, g_LTube_OriginA[i].w,
+            specularTint, f0, roughness, metallic, 1.0);
+    }
+#endif
+#if LIGHTS_DIRECTIONAL
+    for (int i = 0; i < LIGHTS_DIRECTIONAL; ++i) {
+        if (dot(g_LDirectional_Color[i].rgb, g_LDirectional_Color[i].rgb) <= 0.0) continue;
+        float shadowFactor = 1.0;
+#if LIGHTS_SHADOW_MAPPING
+        if (g_LDirectional_Shadow[i].x > 0.5) {
+            float selectedCascade = 0.0;
+            for (int cascade = 0; cascade < 3; ++cascade) {
+                float4 projected = CalculateProjectedCoordsCascades(
+                    worldPos, g_ViewportViewProjectionMatrices[cascade]);
+                float active = (1.0 - projected.w) * (1.0 - selectedCascade);
+                float sampled = PerformShadowMapping(projected.xyz, g_ShadowAtlasTransforms[cascade]);
+                shadowFactor = lerp(shadowFactor, sampled, active);
+                selectedCascade = saturate(selectedCascade + active);
+            }
+        }
+#elif OWE_IMAGE_LAYER && SCENE_ORTHO
+        shadowFactor = 1.0 - step(0.5, g_LDirectional_Shadow[i].x);
+#endif
+        light += ComputePBRLightShadowInfinite(normal, g_LDirectional_Direction[i].xyz,
+            viewVector, albedo, g_LDirectional_Color[i].rgb, specularTint, f0,
+            roughness, metallic, shadowFactor);
+    }
+#endif
     return light;
 }
 
@@ -785,7 +891,10 @@ inline String Preprocessor(ref<str> in_src, ShaderType type, const ShaderInfo& i
                 c.SkipHSpace();
                 auto requirement = c.ReadIdent();
                 if (requirement.is_some() && *requirement == "LightingV1"_str) {
-                    out.push_str(lighting_v1_source);
+                    auto scene_lighting = info.combos.get("OWE_SCENE_LIGHTING"_str);
+                    out.push_str(scene_lighting.is_some() && **scene_lighting == "1"_str
+                                     ? scene_lighting_v1_source
+                                     : legacy_lighting_v1_source);
                     if (w.LineEnd().to_primitive() < with_prologue.len().to_primitive())
                         out.push_ascii('\n');
                     continue;
@@ -1573,9 +1682,26 @@ struct UniformCompileInterface {
     bool                        legacy { false };
     Vec<GlobalUniformBlockKind> global_blocks;
     BTreeMap<String, String>    local;
+    BTreeMap<String, String>    scene_lighting;
 };
 
-UniformCompileInterface BuildUniformInterface(mut_ref<ShaderUnit[]> units) {
+void SplitSceneLightUniforms(UniformCompileInterface& interface, const ShaderInfo& info) {
+    auto enabled = info.combos.get("OWE_SCENE_LIGHTING"_str);
+    if (enabled.is_none() || **enabled != "1"_str) return;
+    bool active = false;
+    for (const auto& field : SceneLightUniformFields())
+        active |= interface.local.remove(field.name).is_some();
+    if (! active) return;
+    // All materials in a scene share one complete layout, including unused light kinds.
+    for (const auto& field : SceneLightUniformFields()) {
+        auto count = info.combos.get(field.combo);
+        if (count.is_none() || **count == "0"_str) continue;
+        (void)interface.scene_lighting.insert(String::make(field.name),
+                                              rstd::format("vec4[{}]", (**count).as_str()));
+    }
+}
+
+UniformCompileInterface BuildUniformInterface(mut_ref<ShaderUnit[]> units, const ShaderInfo& info) {
     UniformCompileInterface result;
     for (const auto& unit : units) {
         for (const auto& [name, type] : unit.preprocess_info.uniforms.iter()) {
@@ -1594,6 +1720,7 @@ UniformCompileInterface BuildUniformInterface(mut_ref<ShaderUnit[]> units) {
     }
     if (result.legacy) {
         result.local = BuildUniformUnion(units.as_ref());
+        SplitSceneLightUniforms(result, info);
         return result;
     }
 
@@ -1632,6 +1759,7 @@ UniformCompileInterface BuildUniformInterface(mut_ref<ShaderUnit[]> units) {
             MergeUniform(result.local, name->as_str(), type->as_str());
         }
     }
+    SplitSceneLightUniforms(result, info);
     return result;
 }
 
@@ -1742,6 +1870,11 @@ inline String EmitGlobalCBuffersStd140(const UniformCompileInterface& interface)
         auto block = FindGlobalUniformBlock(kind);
         if (block.is_some()) out.push_str(EmitGlobalCBufferStd140(**block));
     }
+    if (! interface.scene_lighting.is_empty()) {
+        const auto block = SceneLightingUniformBlock();
+        out.push_str(EmitCBufferStd140(
+            interface.scene_lighting, block->name, kGlobalUniformSet, block->binding));
+    }
     return out;
 }
 
@@ -1803,7 +1936,7 @@ inline String Finalprocessor(const ShaderUnit& unit, const PreprocessorInfo* pre
         }
         const BTreeMap<String, String>& uniforms_union =
             interface ? interface->local : uniforms_union_local;
-        if (interface && ! interface->legacy) synth.push_str(EmitGlobalCBuffersStd140(*interface));
+        if (interface) synth.push_str(EmitGlobalCBuffersStd140(*interface));
         if (! uniforms_union.is_empty()) {
             synth.push_str(
                 "\n// === auto-generated draw uniforms (HLSL, std140 via packoffset) ===\n"_str);
@@ -1872,8 +2005,7 @@ inline String Finalprocessor(const ShaderUnit& unit, const PreprocessorInfo* pre
         interface ? interface->local : uniforms_union_local;
 
     String uniform_block;
-    if (interface && ! interface->legacy)
-        uniform_block.push_str(EmitGlobalCBuffersStd140(*interface));
+    if (interface) uniform_block.push_str(EmitGlobalCBuffersStd140(*interface));
     if (! uniforms_union.is_empty()) {
         uniform_block.push_str(
             "\n// === auto-generated draw uniforms (HLSL, std140 via packoffset) ===\n"_str);
@@ -1925,7 +2057,7 @@ constexpr array<rstd::uint8_t, 8> kShaderCacheMagic { rstd::uint8_t('O'), rstd::
                                                       rstd::uint8_t('P'), rstd::uint8_t('V'),
                                                       rstd::uint8_t('3'), rstd::uint8_t(0) };
 constexpr rstd::uint32_t          kShaderCacheFormatVersion = 3;
-constexpr rstd::uint32_t          kShaderCacheAbiVersion    = 21;
+constexpr rstd::uint32_t          kShaderCacheAbiVersion    = 22;
 // 8-byte magic, six u32 fields, and four SHA-1 digests total 112 bytes.
 constexpr rstd::uint32_t kShaderCacheHeaderSize = static_cast<rstd::uint32_t>(
     kShaderCacheMagic.len().to_primitive() + 6 * sizeof(rstd::uint32_t) +
@@ -2925,7 +3057,7 @@ auto ShaderParser::CompileToSpv(ref<str> scene_id, mut_ref<ShaderUnit[]> units,
         ShapeShaderDefaults(units.as_ref(), *shader_info);
     }
 
-    auto compile = [bench](mut_ref<ShaderUnit[]> units, Vec<ShaderCode>& codes) {
+    auto compile = [bench, shader_info](mut_ref<ShaderUnit[]> units, Vec<ShaderCode>& codes) {
         auto lower_span = SceneLoadSpan(bench, &SceneLoadProbeIds::shader_lower);
         // Build the cross-stage interface before rewriting each source. Using
         // only adjacent sources misses uniforms that
@@ -2933,7 +3065,7 @@ auto ShaderParser::CompileToSpv(ref<str> scene_id, mut_ref<ShaderUnit[]> units,
         // by VS in a 3-stage VS→GS→FS chain), which results in different UBO
         // sizes per stage and the runtime allocating a buffer too small for
         // the longest stage.
-        auto uniform_interface = BuildUniformInterface(units);
+        auto uniform_interface = BuildUniformInterface(units, *shader_info);
 
         auto vunits = Vec<vulkan::ShaderCompUnit>::with_capacity(usize(units.len().to_primitive()));
         for (rstd::size_t i = 0; i < units.len().to_primitive(); i++) {
