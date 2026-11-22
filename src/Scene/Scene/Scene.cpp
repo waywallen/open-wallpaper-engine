@@ -2223,6 +2223,31 @@ auto Scene::ScreenToWorld(array<float, 2> position, Option<double> depth) -> Eig
     return world.allFinite() ? world : fallback;
 }
 
+bool Scene::HitTestNode(SceneNode& node, array<float, 2> position) {
+    node.UpdateTrans();
+    const Eigen::Matrix4d transform = node.ModelTrans() * node.GeometryTransform();
+    if (! transform.allFinite()) return false;
+    const Eigen::Vector3d near       = ScreenToWorld(position, Some(0.0));
+    const Eigen::Vector3d far        = ScreenToWorld(position, Some(1.0));
+    const bool            has_camera = ActiveCamera().is_some();
+    const Eigen::Vector3d direction =
+        has_camera ? Eigen::Vector3d(far - near) : Eigen::Vector3d::UnitZ();
+    Eigen::Matrix3d basis;
+    basis.col(0) = transform.block<3, 1>(0, 0);
+    basis.col(1) = transform.block<3, 1>(0, 1);
+    basis.col(2) = -direction;
+    if (! basis.allFinite()) return false;
+    const auto inverse = basis.fullPivLu();
+    if (! inverse.isInvertible()) return false;
+    // Solve the quad's two axes and ray distance; a flat quad can have zero Z scale.
+    const Eigen::Vector3d local = inverse.solve(near - transform.block<3, 1>(0, 3));
+    if (! local.allFinite() || (has_camera && (local.z() < 0.0 || local.z() > 1.0))) return false;
+    auto size = node.Size();
+    if (size.x() == 0.0f && size.y() == 0.0f) size = Eigen::Vector2f(100.0f, 100.0f);
+    return rstd::f64(local.x()).abs() <= rstd::f64(size.x()).abs() * rstd::f64(0.5) &&
+           rstd::f64(local.y()).abs() <= rstd::f64(size.y()).abs() * rstd::f64(0.5);
+}
+
 auto Scene::ActiveCameraTransforms() const -> Option<SceneCameraTransforms> {
     auto camera = ActiveCamera();
     if (camera.is_none()) return None();

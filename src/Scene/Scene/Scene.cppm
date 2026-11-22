@@ -3303,6 +3303,7 @@ public:
     auto PointerPosition() const -> array<float, 2> { return m_pointer_position; }
     // Without depth, intersect z=0; otherwise unproject the supplied NDC depth.
     auto ScreenToWorld(array<float, 2> position, Option<double> depth = None()) -> Eigen::Vector3d;
+    bool HitTestNode(SceneNode& node, array<float, 2> position);
     void SetPointerInWindow(bool inside) { m_pointer_in_window = inside; }
     bool PointerInWindow() const { return m_pointer_in_window; }
     void SetClearColor(array<float, 3> color) { m_clear_color = rstd::move(color); }

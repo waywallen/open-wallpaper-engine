@@ -102,6 +102,14 @@ bool SceneRenderPipeline::resize(unsigned width, unsigned height) {
 
 void SceneRenderPipeline::captureChanges() {
     m_graph_dirty |= m_scene.ConsumeRenderGraphDirty();
+    if (! m_graph_dirty) {
+        for (const auto& order : m_depth_orders) {
+            if (! order.Matches(m_scene)) {
+                m_graph_dirty = true;
+                break;
+            }
+        }
+    }
     auto targets = m_scene.ConsumePreparedRenderTargetDirtyEvents();
     m_textures_dirty |= ! targets.is_empty();
     m_graph_dirty |= ! targets.is_empty();
@@ -173,6 +181,7 @@ auto SceneRenderPipeline::flushChanges(SceneLoadBenchRecorderView bench)
         m_draw_preparations.prune();
         m_stats.draw_preparations = m_draw_preparations.stats();
         if (input.is_err()) return Err(ScenePrepareError::GraphBuild(input.unwrap_err()));
+        m_depth_orders = rstd::move(input->depth_orders);
         if (m_options.graphviz) {
             auto dot = vrento::fg::graphviz(input->graph);
             (void)rstd::fs::write(ref<rstd::path::Path>("graph.dot"_str), dot->as_bytes());

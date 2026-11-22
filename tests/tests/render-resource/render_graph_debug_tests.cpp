@@ -3,6 +3,7 @@
 
 import rstd;
 import rstd.cppstd;
+import eigen;
 import wescene.resource;
 import vrento;
 import wescene.vulkan;
@@ -586,6 +587,58 @@ TEST(SceneRenderGraph, GroupsPerspectiveDepthDrawsWithoutCrossingOtherDraws) {
     EXPECT_EQ(names[usize(1)], "transparent-first"_str);
     EXPECT_EQ(names[usize(2)], "opaque-second"_str);
     EXPECT_EQ(names[usize(3)], "transparent-second"_str);
+}
+
+TEST(SceneRenderGraph, SortsBlendedDepthDrawsBackToFrontAndTracksChanges) {
+    owe::Scene scene;
+    scene.RegisterRenderTarget(
+        "_rt_default"_Str,
+        owe::SceneRenderTarget { .width = i32(1280), .height = i32(720), .withDepth = true });
+    auto camera = Arc<owe::SceneCamera>::make(
+        owe::SceneCamera::MakePerspective(16.0 / 9.0, 0.1, 1000.0, 50.0));
+    camera->SetLookAt({ 0.0, 0.0, 9.0 }, { 0.0, 0.0, 0.0 }, Eigen::Vector3d::UnitY());
+    scene.RegisterCamera("perspective"_Str, camera.clone());
+    ASSERT_TRUE(scene.SetActiveCamera("perspective"_str));
+    auto add = [&](ref<str> name, float z) {
+        auto node = Arc<owe::SceneNode>::make();
+        node->SetTranslate({ 0.0f, 0.0f, z });
+        auto mesh     = Arc<owe::SceneMesh>::make();
+        auto material = GraphMaterial();
+        material.name = String::make(name);
+        material.SetBlendMode(owe::BlendMode::Translucent);
+        material.SetDepthTest(true);
+        material.SetDepthWrite(false);
+        mesh->AddMaterial(rstd::move(material));
+        mesh->Submeshes().push(owe::SceneMesh::Submesh {});
+        node->AddMesh(rstd::move(mesh));
+        scene.RootMut()->AppendChild(node.clone());
+        return node;
+    };
+    auto arrow      = add("arrow"_str, 1.0f);
+    auto background = add("background"_str, -30.0f);
+    auto peer       = add("peer"_str, 1.0f);
+    auto graph      = owe::BuildSceneRenderState(scene).unwrap();
+    ASSERT_TRUE(graph.graph.compile().is_ok());
+    Vec<String> names;
+    for (auto id : graph.graph.inspect().order) {
+        const auto& pass = graph.graph.passes()[usize(id)];
+        if (pass.name == "arrow"_str || pass.name == "background"_str || pass.name == "peer"_str)
+            names.push(pass.name.clone());
+    }
+    ASSERT_EQ(names.len(), usize(3));
+    EXPECT_EQ(names[usize()], "background"_str);
+    EXPECT_EQ(names[usize(1)], "arrow"_str);
+    EXPECT_EQ(names[usize(2)], "peer"_str);
+    ASSERT_EQ(graph.depth_orders.len(), usize(1));
+    const auto& order = graph.depth_orders[usize()];
+    EXPECT_TRUE(order.Matches(scene));
+    arrow->SetTranslate({ 2.0f, 0.0f, 1.0f });
+    EXPECT_TRUE(order.Matches(scene));
+    background->SetTranslate({ 0.0f, 0.0f, 2.0f });
+    EXPECT_FALSE(order.Matches(scene));
+    background->SetTranslate({ 0.0f, 0.0f, -30.0f });
+    camera->SetLookAt({ 0.0, 0.0, -40.0 }, { 0.0, 0.0, 0.0 }, Eigen::Vector3d::UnitY());
+    EXPECT_FALSE(order.Matches(scene));
 }
 
 TEST(SceneRenderGraph, DoesNotReorderAcrossFramebufferSampling) {

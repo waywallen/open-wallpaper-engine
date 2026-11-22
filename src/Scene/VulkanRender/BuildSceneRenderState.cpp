@@ -40,8 +40,10 @@ struct ExtraInfo {
     struct DepthDraw {
         SceneNode* node;
         bool       writes_depth;
+        f64        depth;
     };
-    Vec<DepthDraw> pending_depth_draws;
+    Vec<DepthDraw>                   pending_depth_draws;
+    Vec<vulkan::SceneDepthDrawOrder> depth_orders;
     ExtraInfo(Scene& value, const RenderSceneSnapshot& snapshot)
         : graph(NextSceneRenderScope()),
           textures(u64(graph.data().scope)),
@@ -712,11 +714,31 @@ static Option<bool> DepthDrawKind(SceneNode& node, Scene& scene) {
 }
 
 static void FlushDepthDraws(ExtraInfo& extra) {
+    if (extra.pending_depth_draws.is_empty()) return;
+    auto camera = extra.scene->ActiveCameraHandle();
+    if (camera) {
+        const auto view = (*camera)->GetViewMatrix();
+        for (auto& draw : extra.pending_depth_draws)
+            draw.depth = vulkan::SceneDepthDrawOrder::Depth(*draw.node, view);
+        // Blended draws must follow farther blended draws even when neither writes depth.
+        rstd::slice_::sort_by(
+            extra.pending_depth_draws.as_mut_slice().as_mut_ref(),
+            [](const ExtraInfo::DepthDraw& left, const ExtraInfo::DepthDraw& right) {
+                if (left.writes_depth != right.writes_depth)
+                    return right.writes_depth <=> left.writes_depth;
+                return left.writes_depth ? f64().total_cmp(f64())
+                                         : left.depth.total_cmp(right.depth);
+            });
+    }
+    vulkan::SceneDepthDrawOrder order;
     for (bool writes : { true, false }) {
         for (const auto& draw : extra.pending_depth_draws) {
-            if (draw.writes_depth == writes) ToGraphPass(draw.node, SpecTex_Default, extra);
+            if (draw.writes_depth != writes) continue;
+            if (! writes) order.nodes.push(draw.node->Identity());
+            ToGraphPass(draw.node, SpecTex_Default, extra);
         }
     }
+    if (order.nodes.len() > usize(1)) extra.depth_orders.push(rstd::move(order));
     extra.pending_depth_draws.clear();
 }
 
@@ -1109,6 +1131,7 @@ auto owe::BuildSceneRenderState(Scene& scene, const RenderSceneSnapshot& render_
     input.image_source  = Some(extra.image_source.clone());
     input.resource_data = declarations.takeData();
     input.resource_plan = rstd::move(resource_plan);
+    input.depth_orders  = rstd::move(extra.depth_orders);
     return Ok(rstd::move(input));
 }
 

@@ -114,6 +114,7 @@ private:
     vulkan::VulkanRender&             m_render;
     SceneRenderPipelineOptions        m_options;
     RenderSceneSnapshot               m_snapshot;
+    Vec<vulkan::SceneDepthDrawOrder>  m_depth_orders;
     vulkan::SceneDrawPreparationCache m_draw_preparations;
     SceneRenderPipelineStats          m_stats;
 };

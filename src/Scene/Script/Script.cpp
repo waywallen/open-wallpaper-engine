@@ -3550,11 +3550,7 @@ void JsRuntime::TickAll(slice<owe::SceneAnimationEventDispatch> animation_events
         script->last_value    = rstd::move(value);
     }
 
-    // Cursor event dispatch. For every script bound to a SceneNode, hit-
-    // test the cursor against the node's world AABB and fire any of
-    // cursorEnter/Leave/Move/Down/Up/Click that the script's module
-    // exports. Runs before update() so update can react to state writes
-    // the callbacks made this frame.
+    // Dispatch before update so scripts can react to cursor callbacks in the same frame.
     const CursorWorld cursor    = CursorToWorld(m_impl->host.inputs, m_impl->host.scene);
     const bool        in_window = m_impl->host.inputs.cursor_in_window;
     const bool        cursor_moved =
@@ -3576,7 +3572,12 @@ void JsRuntime::TickAll(slice<owe::SceneAnimationEventDispatch> animation_events
         auto* fs = m_impl->scripts[script_index].get();
         auto* I  = fs->m_impl.get();
         if (! I->alive || I->init_deferred || ! I->node) continue;
-        const bool now_inside = in_window && HitTestNode(I->node, cursor);
+        const bool now_inside =
+            in_window &&
+            (m_impl->host.scene
+                 ? m_impl->host.scene->HitTestNode(
+                       *I->node, { m_impl->host.inputs.cursor_x, m_impl->host.inputs.cursor_y })
+                 : HitTestNode(I->node, cursor));
         BindFieldScriptContext(ctx, *I, m_impl->host.default_layer);
         m_impl->host.active_field_script = fs;
         if (now_inside != I->cursor_inside) {

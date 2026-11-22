@@ -1498,6 +1498,94 @@ TEST(ScriptCursor, WorldPositionFlipsTopDownInputY) {
     EXPECT_NEAR(v.z, 150.0, 0.001);
 }
 
+TEST(ScriptCursor, PerspectiveClickUsesLayerPlaneWithoutChangingInputDepth) {
+    owe::Scene scene;
+    auto       camera = Arc<owe::SceneCamera>::make(
+        owe::SceneCamera::MakePerspective(16.0 / 9.0, 0.01, 10000.0, 50.0));
+    camera->SetLookAt({ 0.0, 0.0, 9.0 }, { 0.0, 0.0, 0.0 }, Eigen::Vector3d::UnitY());
+    scene.RegisterCamera("perspective"_Str, camera.clone());
+    ASSERT_TRUE(scene.SetActiveCamera("perspective"_str));
+    auto button = Arc<owe::SceneNode>::make();
+    button->SetTranslate({ 4.8f, -0.04f, 1.0f });
+    button->SetScale({ 0.05f, 0.05f, 0.009f });
+    button->SetSize({ 10.0f, 10.0f });
+    button->SetUserAlpha(0.0f);
+    scene.RootMut()->AppendChild(button.clone());
+    JsRuntime runtime;
+    runtime.SetScene(&scene);
+    auto* script = MakeProbe(runtime,
+                             "test/perspective_button",
+                             R"JS(
+                                 let clicks = 0;
+                                 export function cursorClick() { clicks++; }
+                                 export function update() {
+                                     return input.cursorWorldPosition.z < -9000 ? clicks : -1;
+                                 }
+                             )JS",
+                             button.as_ptr());
+    ASSERT_NE(script, nullptr);
+    const Eigen::Vector4d clip =
+        camera->GetViewProjectionMatrix() * Eigen::Vector4d(4.8, -0.04, 1.0, 1.0);
+    auto frame                  = MakeFi();
+    frame.cursor_x              = static_cast<float>((clip.x() / clip.w() + 1.0) * 0.5);
+    frame.cursor_y              = static_cast<float>((1.0 - clip.y() / clip.w()) * 0.5);
+    frame.cursor_in_window      = true;
+    frame.mouse_buttons_pressed = 1;
+    runtime.SetFrameInputs(frame);
+    runtime.TickAll();
+    EXPECT_EQ(LastScalar(script), 1.0);
+
+    frame.cursor_x = 0.5f;
+    frame.cursor_y = 0.5f;
+    runtime.SetFrameInputs(frame);
+    runtime.TickAll();
+    EXPECT_EQ(LastScalar(script), 1.0);
+}
+
+TEST(ScriptCursor, SceneHitTestUsesLocalGeometryAndClipRange) {
+    owe::Scene scene;
+    auto       camera =
+        Arc<owe::SceneCamera>::make(owe::SceneCamera::MakePerspective(1.0, 0.1, 100.0, 60.0));
+    camera->SetLookAt({ 0.0, 0.0, 10.0 }, { 0.0, 0.0, 0.0 }, Eigen::Vector3d::UnitY());
+    scene.RegisterCamera("perspective"_Str, camera.clone());
+    ASSERT_TRUE(scene.SetActiveCamera("perspective"_str));
+    auto parent = Arc<owe::SceneNode>::make();
+    parent->SetTranslate({ 2.0f, 1.0f, 1.0f });
+    parent->SetRotation({ 0.0f, 0.0f, 0.5f });
+    auto node = Arc<owe::SceneNode>::make();
+    node->SetSize({ 4.0f, 1.0f });
+    node->SetRotation({ 0.0f, 0.4f, 0.3f });
+    node->SetScale({ -1.0f, 1.0f, 1.0f });
+    Eigen::Matrix4d geometry = Eigen::Matrix4d::Identity();
+    geometry(0, 3)           = 0.75;
+    node->SetGeometryTransform(geometry);
+    parent->AppendChild(node.clone());
+    scene.RootMut()->AppendChild(parent.clone());
+    auto project = [&](const Eigen::Vector4d& local) -> array<float, 2> {
+        node->UpdateTrans();
+        const Eigen::Vector4d clip = camera->GetViewProjectionMatrix() * node->ModelTrans() *
+                                     node->GeometryTransform() * local;
+        return { static_cast<float>((clip.x() / clip.w() + 1.0) * 0.5),
+                 static_cast<float>((1.0 - clip.y() / clip.w()) * 0.5) };
+    };
+    EXPECT_TRUE(scene.HitTestNode(*node, project({ 1.0, 0.25, 0.0, 1.0 })));
+    EXPECT_FALSE(scene.HitTestNode(*node, project({ 1.0, 0.75, 0.0, 1.0 })));
+    camera->SetLookAt({ 1.0, 2.0, 8.0 }, { 0.0, 0.0, 0.0 }, Eigen::Vector3d::UnitY());
+    EXPECT_TRUE(scene.HitTestNode(*node, project({ 0.0, 0.0, 0.0, 1.0 })));
+    node->SetScale({ -1.0f, 1.0f, 0.0f });
+    EXPECT_TRUE(scene.HitTestNode(*node, project({ 0.0, 0.0, 0.0, 1.0 })));
+    node->SetScale({ 0.0f, 1.0f, 1.0f });
+    EXPECT_FALSE(scene.HitTestNode(*node, { 0.5f, 0.5f }));
+
+    camera->SetLookAt({ 0.0, 0.0, 10.0 }, { 0.0, 0.0, 0.0 }, Eigen::Vector3d::UnitY());
+    owe::SceneNode clipped;
+    clipped.SetSize({ 2.0f, 2.0f });
+    for (float depth : { 11.0f, 9.95f, -100.0f }) {
+        clipped.SetTranslate({ 0.0f, 0.0f, depth });
+        EXPECT_FALSE(scene.HitTestNode(clipped, { 0.5f, 0.5f }));
+    }
+}
+
 TEST(ScriptCursor, CroppedViewportUsesCameraForInputAndClicks) {
     owe::Scene scene;
     scene.SetOrtho({ rstd::i32(5120), rstd::i32(1440) });
