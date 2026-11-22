@@ -1752,14 +1752,13 @@ public:
                (m_alpha_source != nullptr && m_alpha_source->IsAlphaOverridden());
     }
     float EffectiveAlpha() const {
-        float alpha = ! m_node.Visible() && m_visibility_affects_alpha
-                          ? 0.0f
-                          : (m_alpha_overridden ? m_user_alpha : m_base_alpha);
+        float alpha = ! m_node.Visible() && m_visibility_affects_alpha ? 0.0f : Alpha();
         if (m_alpha_source != nullptr && m_alpha_source->IsAlphaOverridden())
             alpha *= m_alpha_source->EffectiveAlpha();
         return alpha;
     }
     bool  Visible() const { return m_node.Visible(); }
+    float Alpha() const { return m_alpha_overridden ? m_user_alpha : m_base_alpha; }
     float UserAlpha() const { return m_user_alpha; }
     void  SetVisible(bool v) {
         // A sound layer is audible only while its layer is visible, which is

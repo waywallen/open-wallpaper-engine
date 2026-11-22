@@ -230,13 +230,12 @@ struct FieldScript::Impl {
     bool                    init_done { false };
     bool                    init_in_progress { false };
     bool                    init_deferred { false };
+    bool                    event_value_override { false };
     rstd::uint64_t          initialization_order { 0 };
-    JSValue                 current_value {
-        JS_UNDEFINED
-    }; // last `value` returned, kept as JSValue for the (value)-arg form
-    ScriptValue last_value;
-    bool        alive { true };
-    bool        error_logged { false };
+    JSValue                 current_value { JS_UNDEFINED };
+    ScriptValue             last_value;
+    bool                    alive { true };
+    bool                    error_logged { false };
     // Layer-B: the SceneNode this script's `thisLayer` resolves to. Null →
     // fall back to the generic JS stub. `wrapped_layer` caches the JSValue
     // wrapper so per-frame swap doesn't reallocate.
@@ -244,6 +243,7 @@ struct FieldScript::Impl {
     JSValue                  wrapped_layer { JS_UNDEFINED };
     JSValue                  wrapped_object { JS_UNDEFINED };
     String                   property;
+    Option<CString>          property_name;
     ScriptPropertyObjectKind object_kind { ScriptPropertyObjectKind::Layer };
     // Per-script cursor-inside-bbox state used to edge-detect
     // cursorEnter / cursorLeave between frames.
@@ -1429,7 +1429,7 @@ JSValue NodeSetVisible(JSContext* ctx, JSValueConst this_val, JSValueConst val) 
 }
 JSValue NodeGetAlpha(JSContext* ctx, JSValueConst this_val) {
     auto* n = GetLayerNode(this_val);
-    return JS_NewFloat64(ctx, n ? n->UserAlpha() : 1.0);
+    return JS_NewFloat64(ctx, n ? n->Alpha() : 1.0);
 }
 JSValue NodeSetAlpha(JSContext* ctx, JSValueConst this_val, JSValueConst val) {
     auto* n = GetLayerNode(this_val);
@@ -1454,7 +1454,7 @@ JSValue NodeSetBrightness(JSContext* ctx, JSValueConst this_val, JSValueConst va
 JSValue NodeGetColor(JSContext* ctx, JSValueConst this_val) {
     auto* n = GetLayerNode(this_val);
     if (! n) return MakeVec3(ctx, 1, 1, 1);
-    const auto& c = n->Color();
+    const auto& c = n->IsColorOverridden() ? n->Color() : n->BaseColor();
     return MakeVec3(ctx, c.x(), c.y(), c.z());
 }
 JSValue NodeSetColor(JSContext* ctx, JSValueConst this_val, JSValueConst val) {
@@ -3537,6 +3537,25 @@ void DispatchVideoEndedCallbacks(JSContext* ctx, JsRuntime::Impl& runtime) {
         JS_FreeValue(ctx, callback.function);
     }
 }
+
+void RefreshLayerScriptArgument(JSContext* ctx, FieldScript::Impl& script) {
+    if (script.node == nullptr || script.object_kind != ScriptPropertyObjectKind::Layer ||
+        script.property_name.is_none())
+        return;
+    JSValue current = JS_GetPropertyStr(ctx, script.wrapped_object, script.property_name->as_ptr());
+    if (JS_IsException(current)) {
+        script.rt->LogError(ctx, script.sha.as_str(), "bound property read failed");
+        JS_FreeValue(ctx, current);
+        return;
+    }
+    auto value = CoerceReturn(ctx, current, script.kind);
+    JS_FreeValue(ctx, current);
+    if (value.is_Empty()) return;
+    JSValue next = ScriptValueToJs(ctx, value);
+    JS_FreeValue(ctx, script.current_value);
+    script.current_value = next;
+    script.last_value    = rstd::move(value);
+}
 } // namespace
 
 void JsRuntime::TickAll(slice<owe::SceneAnimationEventDispatch> animation_events) {
@@ -3547,7 +3566,8 @@ void JsRuntime::TickAll(slice<owe::SceneAnimationEventDispatch> animation_events
 
     // Node animations run before scripts; cached script returns must not erase their values.
     for (usize index {}; index < script_count; ++index) {
-        auto* script = m_impl->scripts[index]->m_impl.get();
+        auto* script                 = m_impl->scripts[index]->m_impl.get();
+        script->event_value_override = false;
         if (script->alive && ! script->init_deferred &&
             script->object_kind == ScriptPropertyObjectKind::AnimationLayer &&
             script->animation_layer.is_some() &&
@@ -3570,20 +3590,7 @@ void JsRuntime::TickAll(slice<owe::SceneAnimationEventDispatch> animation_events
             script->object_kind != ScriptPropertyObjectKind::Layer ||
             ! script->node->HasFieldAnimationTrack(script->property.as_str()))
             continue;
-        auto property = CString::make(Vec<u8>::from(script->property.as_str().as_bytes())).unwrap();
-        JSValue current = JS_GetPropertyStr(ctx, script->wrapped_object, property.as_ptr());
-        if (JS_IsException(current)) {
-            m_impl->LogError(ctx, script->sha.as_str(), "animated property read failed");
-            JS_FreeValue(ctx, current);
-            continue;
-        }
-        auto value = CoerceReturn(ctx, current, script->kind);
-        JS_FreeValue(ctx, current);
-        if (value.is_Empty()) continue;
-        JSValue next = ScriptValueToJs(ctx, value);
-        JS_FreeValue(ctx, script->current_value);
-        script->current_value = next;
-        script->last_value    = rstd::move(value);
+        RefreshLayerScriptArgument(ctx, *script);
     }
 
     // Dispatch before update so scripts can react to cursor callbacks in the same frame.
@@ -3668,9 +3675,10 @@ void JsRuntime::TickAll(slice<owe::SceneAnimationEventDispatch> animation_events
                 continue;
             BindFieldScriptContext(ctx, *I, m_impl->host.default_layer);
             m_impl->host.active_field_script = fs;
-            JSValue args[2]                  = { MakeAnimationEvent(ctx, dispatch.event),
-                                                 JS_DupValue(ctx, I->current_value) };
-            JSValue ret = JS_Call(ctx, I->animation_event_fn, JS_UNDEFINED, 2, args);
+            if (! I->event_value_override) RefreshLayerScriptArgument(ctx, *I);
+            JSValue args[2] = { MakeAnimationEvent(ctx, dispatch.event),
+                                JS_DupValue(ctx, I->current_value) };
+            JSValue ret     = JS_Call(ctx, I->animation_event_fn, JS_UNDEFINED, 2, args);
             JS_FreeValue(ctx, args[0]);
             JS_FreeValue(ctx, args[1]);
             if (JS_IsException(ret)) {
@@ -3684,8 +3692,9 @@ void JsRuntime::TickAll(slice<owe::SceneAnimationEventDispatch> animation_events
             if (! value.is_Empty()) {
                 JSValue next_value = ScriptValueToJs(ctx, value);
                 JS_FreeValue(ctx, I->current_value);
-                I->current_value = next_value;
-                I->last_value    = rstd::move(value);
+                I->current_value        = next_value;
+                I->last_value           = rstd::move(value);
+                I->event_value_override = true;
             }
             JS_FreeValue(ctx, ret);
         }
@@ -3701,6 +3710,7 @@ void JsRuntime::TickAll(slice<owe::SceneAnimationEventDispatch> animation_events
         // unbound, restore the original stub captured at bootstrap.
         BindFieldScriptContext(ctx, *I, m_impl->host.default_layer);
         m_impl->host.active_field_script = fs;
+        if (I->update_takes_arg && ! I->event_value_override) RefreshLayerScriptArgument(ctx, *I);
         JSValue ret;
         if (I->update_takes_arg) {
             JSValue args[1] = { JS_DupValue(ctx, I->current_value) };
@@ -4050,11 +4060,15 @@ FieldScript* JsRuntime::MakeFieldScript(ref<str> source, ref<str> script_sha,
                                         ? Some((*context.animation).clone())
                                         : None<Arc<owe::SceneAnimationPlayback>>();
     I->property                   = rstd::move(context.property);
-    I->object_kind                = context.object_kind;
-    I->animation                  = rstd::move(context.animation);
-    I->animation_layer            = rstd::move(context.animation_layer);
-    I->wrapped_layer              = wrapped_layer;
-    I->wrapped_object             = wrapped_object;
+    if (! I->property.is_empty()) {
+        auto name = CString::make(Vec<u8>::from(I->property.as_str().as_bytes()));
+        if (name.is_ok()) I->property_name = Some(rstd::move(name).unwrap());
+    }
+    I->object_kind     = context.object_kind;
+    I->animation       = rstd::move(context.animation);
+    I->animation_layer = rstd::move(context.animation_layer);
+    I->wrapped_layer   = wrapped_layer;
+    I->wrapped_object  = wrapped_object;
 
     // Each field script needs its own module and scriptProperties state.
     I->sha        = rstd::into(script_sha);

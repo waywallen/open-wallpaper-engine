@@ -184,6 +184,7 @@ void ParseImageObjImpl(SceneLayerBuildContext& context, wpscene::ImageObject& im
     spImgNode->SetPerspective(wpimgobj.perspective);
     spImgNode->SetReflected(wpimgobj.reflected);
     spImgNode->SetBaseColor(Vector3f(wpimgobj.color.data()), wpimgobj.alpha);
+    if (! wpimgobj.visible) spImgNode->SetVisible(false);
     spImgNode->ID()          = i32(wpimgobj.id);
     const auto image_node_id = context.scene->RegisterNode(
         *spImgNode,
@@ -1126,8 +1127,14 @@ void ParseImageObjImpl(SceneLayerBuildContext& context, wpscene::ImageObject& im
                     break;
                 }
                 if (auto* mat = spMesh->Material(); mat != nullptr) {
-                    last_effect_can_composite_final = CanCompositeFinalEffectMaterial(
-                        mat->name.as_str(), wpEffShaderInfo, allow_transparent_previous_final);
+                    // A quad's last default-output pass already owns its final geometry.
+                    // Rasterizing it into the local RT first loses procedural detail.
+                    last_effect_can_composite_final =
+                        matOutRT.kind == SceneEffectTargetKind::LayerNext &&
+                        (puppet.is_none() ||
+                         CanCompositeFinalEffectMaterial(mat->name.as_str(),
+                                                         wpEffShaderInfo,
+                                                         allow_transparent_previous_final));
                 }
                 spEffNode->AddMesh(spMesh.clone());
 

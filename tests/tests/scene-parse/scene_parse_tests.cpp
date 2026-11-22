@@ -2762,6 +2762,43 @@ TEST(ImageColorBlendParsing, EffectCompositeDoesNotRepeatLayerModulation) {
     }
 }
 
+TEST(ImageColorBlendParsing, ScriptReadsAuthoredLayerFields) {
+    using namespace rstd::prelude;
+    auto document = owe::wpscene::ParseSceneDocumentJson(R"({
+        "camera":{},"general":{"orthogonalprojection":{"width":128,"height":128}},
+        "objects":[{"id":1,"name":"Hidden","image":"models/util/solidlayer.json",
+            "size":"64 64",
+            "visible":{"value":false,"script":"export function update(value){return value;}"},
+            "alpha":{"value":0.4,"script":"export function update(value){return value;}"},
+            "color":{"value":"0.2 0.4 0.6","script":"export function update(value){return value;}"}}]
+    })"_str,
+                                                         owe::wpscene::kSceneVersionUnknown);
+    ASSERT_TRUE(document);
+    auto         assets = owe::fs::make_physical_fs(
+                              owe::fs::Path(rstd::cppstd::as_str(WAYWALLEN_ASSETS_DIR).unwrap()))
+                              .unwrap();
+    owe::fs::VFS vfs;
+    ASSERT_TRUE(vfs.mount("/assets"_str, rstd::move(assets)));
+    wavsen::audio::SoundManager sound;
+    owe::SceneParser            parser;
+    auto parsed = parser.Parse("authored-script-fields"_str,
+                               ref<owe::wpscene::SceneDocument>::from_raw_parts(&*document),
+                               mut_ref<owe::fs::VFS>::from_raw_parts(&vfs),
+                               mut_ref<wavsen::audio::SoundManager>::from_raw_parts(&sound));
+    ASSERT_TRUE(parsed);
+    auto& scene = *parsed->scene;
+    auto* node  = scene.RootMut()->FindByName("Hidden"_str);
+    ASSERT_NE(node, nullptr);
+    EXPECT_FALSE(node->Visible());
+    owe::script::TickSceneScripts(scene, owe::script::FrameInputs {});
+    EXPECT_FALSE(node->Visible());
+    EXPECT_TRUE(scene.IsLayerVisibilityElidable(owe::WallpaperLayerId { .value = i32(1) }));
+    EXPECT_FLOAT_EQ(node->Alpha(), 0.4f);
+    EXPECT_FLOAT_EQ(node->Color().x(), 0.2f);
+    EXPECT_FLOAT_EQ(node->Color().y(), 0.4f);
+    EXPECT_FLOAT_EQ(node->Color().z(), 0.6f);
+}
+
 TEST(ImageColorBlendParsing, UserModulationDoesNotTargetEffectComposite) {
     using namespace rstd::prelude;
     auto document = owe::wpscene::ParseSceneDocumentJson(R"({
@@ -3193,6 +3230,62 @@ TEST(SceneLightParsing, FollowsTheSameModelAttachmentAsContainer) {
     sun->UpdateTrans();
     reference->UpdateTrans();
     EXPECT_TRUE(sun->ModelTrans().isApprox(reference->ModelTrans(), 1e-6));
+}
+
+TEST(ImageEffectCamera, QuadFinalUsesAuthorEffectAndLinkedOutputStaysLocal) {
+    using namespace rstd::prelude;
+    auto document = owe::wpscene::ParseSceneDocumentJson(R"JSON({
+        "camera":{},"general":{"orthogonalprojection":{"width":1920,"height":1080}},
+        "objects":[
+            {"id":1,"name":"container","solid":true},
+            {"id":2,"name":"quad","image":"models/util/solidlayer.json","size":"10 10",
+             "effects":[{"file":"effects/edgedetection/effect.json"}]},
+            {"id":3,"name":"child","parent":1,"image":"models/util/solidlayer.json","size":"100 100",
+             "effects":[{"file":"effects/edgedetection/effect.json"}]},
+            {"id":4,"name":"linked","image":"models/util/solidlayer.json","size":"100 100",
+             "effects":[{"file":"effects/edgedetection/effect.json"}]},
+            {"id":5,"name":"consumer","image":"models/util/fullscreenlayer.json","dependencies":[4]}
+        ]
+    })JSON"_str,
+                                                         owe::wpscene::kSceneVersionUnknown);
+    ASSERT_TRUE(document);
+    auto         assets = owe::fs::make_physical_fs(
+                              owe::fs::Path(rstd::cppstd::as_str(WAYWALLEN_ASSETS_DIR).unwrap()))
+                              .unwrap();
+    owe::fs::VFS vfs;
+    ASSERT_TRUE(vfs.mount("/assets"_str, rstd::move(assets)));
+    auto effect_path = rstd::format("{}/effects/edgedetection",
+                                    rstd::cppstd::as_str(WAYWALLEN_ASSETS_DIR).unwrap());
+    auto effects     = owe::fs::make_physical_fs(owe::fs::Path(effect_path.as_str())).unwrap();
+    ASSERT_TRUE(vfs.mount("/assets"_str, rstd::move(effects)));
+    wavsen::audio::SoundManager sound;
+    owe::SceneParser            parser;
+    auto parsed = parser.Parse("quad-final-effect"_str,
+                               ref<owe::wpscene::SceneDocument>::from_raw_parts(&*document),
+                               mut_ref<owe::fs::VFS>::from_raw_parts(&vfs),
+                               mut_ref<wavsen::audio::SoundManager>::from_raw_parts(&sound));
+    ASSERT_TRUE(parsed);
+    auto& scene = *parsed->scene;
+    for (auto name : { "quad"_str, "child"_str, "linked"_str }) {
+        auto* node = scene.RootMut()->FindByName(name);
+        ASSERT_NE(node, nullptr);
+        ASSERT_TRUE(node->HasLayer());
+        auto& layer = node->Layer();
+        layer->ResolveEffect(*scene.DefaultEffectMesh(), "effect"_str);
+        ASSERT_FALSE(layer->ResolvedEffects().is_empty());
+        auto* effect = layer->ResolvedEffects().last().unwrap().get();
+        ASSERT_FALSE(effect->Nodes().is_empty());
+        auto* material = effect->Nodes().last().unwrap().get()->sceneNode->Mesh()->Material();
+        ASSERT_NE(material, nullptr);
+        if (name == "linked"_str) {
+            EXPECT_TRUE(layer->PublishesOutput());
+            ASSERT_FALSE(material->textures.is_empty());
+            EXPECT_EQ(material->textures[usize()], "_rt_link_4"_str);
+        } else {
+            EXPECT_FALSE(layer->PublishesOutput());
+            EXPECT_EQ(material->name, "effects/edgedetection"_str);
+        }
+    }
 }
 
 TEST(ImageEffectCamera, PassthroughFollowsActiveProjectionAndTransforms) {

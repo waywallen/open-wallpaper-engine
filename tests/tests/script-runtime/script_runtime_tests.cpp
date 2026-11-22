@@ -1206,6 +1206,48 @@ TEST(SceneNodeRuntimeAlpha, AlphaSourceContributesOverride) {
     EXPECT_FLOAT_EQ(composite.EffectiveAlpha(), 0.0f);
 }
 
+TEST(ScriptNodeSoftMutation, ReadsAuthoredLocalColorAndAlpha) {
+    owe::SceneNode parent;
+    parent.SetUserAlpha(0.5f);
+    owe::SceneNode node;
+    node.SetBaseColor({ 0.2f, 0.4f, 0.6f }, 0.25f);
+    node.SetAlphaSource(&parent);
+    node.SetVisible(false);
+    JsRuntime rt;
+    auto*     alpha =
+        rt.MakeFieldScript(R"JS(export function update() { return thisLayer.alpha; })JS"_str,
+                           "test/authored_alpha"_str,
+                           FieldKind::Scalar,
+                           owe::MakeObject(),
+                           owe::IntoJson(0),
+                           &node);
+    auto* color =
+        rt.MakeFieldScript(R"JS(export function update() { return thisLayer.color; })JS"_str,
+                           "test/authored_color"_str,
+                           FieldKind::Vec3,
+                           owe::MakeObject(),
+                           owe::IntoJson("1 1 1"),
+                           &node);
+    ASSERT_NE(alpha, nullptr);
+    ASSERT_NE(color, nullptr);
+    rt.TickAll();
+    ASSERT_TRUE(alpha->last_value().is_Scalar());
+    EXPECT_DOUBLE_EQ(alpha->last_value().as_Scalar().value.v, 0.25);
+    ASSERT_TRUE(color->last_value().is_Vec3());
+    EXPECT_FLOAT_EQ(color->last_value().as_Vec3().value.x, 0.2f);
+    EXPECT_FLOAT_EQ(color->last_value().as_Vec3().value.y, 0.4f);
+    EXPECT_FLOAT_EQ(color->last_value().as_Vec3().value.z, 0.6f);
+    EXPECT_FALSE(node.IsColorOverridden());
+    EXPECT_FLOAT_EQ(node.EffectiveAlpha(), 0.0f);
+    node.SetVisible(true);
+    EXPECT_FLOAT_EQ(node.EffectiveAlpha(), 0.125f);
+    node.SetUserAlpha(0.75f);
+    node.SetColor({ 0.6f, 0.4f, 0.2f });
+    rt.TickAll();
+    EXPECT_DOUBLE_EQ(alpha->last_value().as_Scalar().value.v, 0.75);
+    EXPECT_FLOAT_EQ(color->last_value().as_Vec3().value.x, 0.6f);
+}
+
 TEST(ScriptNodeSoftMutation, BrightnessAndColorWrites) {
     owe::SceneNode node;
     JsRuntime      rt;
@@ -4008,6 +4050,112 @@ TEST(ScriptUserProperty, ScriptedOriginLandsAtCenter) {
     const auto& v = fs->last_value().as_Vec3().value;
     EXPECT_NEAR(v.x, 1920.0, 0.5);
     EXPECT_NEAR(v.y, 1080.0, 0.5);
+}
+
+TEST(ScriptScene, BoundValuesObserveEarlierDirectWrites) {
+    auto root   = Arc<owe::SceneNode>::make();
+    auto planet = Arc<owe::SceneNode>::make(
+        Eigen::Vector3f::Zero(), Eigen::Vector3f::Ones(), Eigen::Vector3f::Zero(), "planet"_str);
+    auto ring = Arc<owe::SceneNode>::make();
+    root->AppendChild(planet.clone());
+    root->AppendChild(ring.clone());
+    ScriptScene scene;
+    auto&       runtime = scene.runtime();
+    runtime.SetSceneRoot(root.as_ptr());
+    auto* driver = runtime.MakeFieldScript(R"(
+        let frame = 0;
+        export function update() {
+            frame++;
+            let planet = thisScene.getLayer('planet');
+            planet.origin = new Vec3(frame, 2, 3);
+            planet.scale = new Vec3(frame * 0.001);
+        }
+    )"_str,
+                                           "test/live_driver"_str,
+                                           FieldKind::Scalar,
+                                           owe::MakeObject(),
+                                           owe::IntoJson(0));
+    ASSERT_NE(driver, nullptr);
+    auto bind = [&](Arc<owe::SceneNode> node,
+                    ref<str>
+                        property,
+                    ref<str>
+                        source,
+                    ref<str>
+                                        id,
+                    NodeTransformTarget target) {
+        auto* field =
+            runtime.MakeFieldScript(source,
+                                    id,
+                                    FieldKind::Vec3,
+                                    owe::MakeObject(),
+                                    owe::IntoJson(property == "scale"_str ? "1 1 1" : "0 0 0"),
+                                    ScriptBindingContext::ForLayer(node.as_ptr(), property));
+        ASSERT_NE(field, nullptr);
+        scene.AddActuator({ field, MakeNodeTransformApply(node.clone(), target) });
+    };
+    bind(planet.clone(),
+         "origin"_str,
+         "export function update(value) { shared.position = value; return value; }"_str,
+         "test/live_source_origin"_str,
+         NodeTransformTarget::Translate);
+    bind(planet.clone(),
+         "scale"_str,
+         "export function update(value) { shared.size = value; return value; }"_str,
+         "test/live_source_scale"_str,
+         NodeTransformTarget::Scale);
+    bind(ring.clone(),
+         "origin"_str,
+         "export function update(value) { return shared.position; }"_str,
+         "test/live_mirror_origin"_str,
+         NodeTransformTarget::Translate);
+    bind(ring.clone(),
+         "scale"_str,
+         "export function update(value) { return shared.size; }"_str,
+         "test/live_mirror_scale"_str,
+         NodeTransformTarget::Scale);
+    for (int frame = 1; frame <= 3; ++frame) {
+        scene.Tick(FrameInputs {});
+        EXPECT_FLOAT_EQ(planet->Translate().x(), float(frame));
+        EXPECT_TRUE(planet->Translate().isApprox(ring->Translate(), 1e-6f));
+        EXPECT_FLOAT_EQ(planet->Scale().x(), float(frame) * 0.001f);
+        EXPECT_TRUE(planet->Scale().isApprox(ring->Scale(), 1e-6f));
+    }
+}
+
+TEST(ScriptScene, UnboundArgumentsKeepPreviousReturns) {
+    JsRuntime runtime;
+    auto* field = runtime.MakeFieldScript("export function update(value) { return value + 1; }"_str,
+                                          "test/unbound_return_argument"_str,
+                                          FieldKind::Scalar,
+                                          owe::MakeObject(),
+                                          owe::IntoJson(0));
+    ASSERT_NE(field, nullptr);
+    for (int value = 1; value <= 3; ++value) {
+        runtime.TickAll();
+        EXPECT_DOUBLE_EQ(LastScalar(field), double(value));
+    }
+}
+
+TEST(ScriptAnimation, NonAnimatedEventValuePrecedesLiveRefresh) {
+    auto node = Arc<owe::SceneNode>::make();
+    node->SetUserAlpha(0.25f);
+    JsRuntime runtime;
+    auto*     field = runtime.MakeFieldScript(
+        "export function animationEvent(event, value) { return value + 0.5; } "
+        "export function update(value) { return value; }"_str,
+        "test/nonanimated_event_argument"_str,
+        FieldKind::Scalar,
+        owe::MakeObject(),
+        owe::IntoJson(0),
+        ScriptBindingContext::ForLayer(node.as_ptr(), "alpha"_str));
+    ASSERT_NE(field, nullptr);
+    Vec<owe::SceneAnimationEventDispatch> events;
+    events.push({ .node = node.as_ptr(), .event = { .name = "beat"_Str } });
+    runtime.TickAll(events.as_slice());
+    EXPECT_DOUBLE_EQ(LastScalar(field), 0.75);
+    runtime.TickAll();
+    EXPECT_DOUBLE_EQ(LastScalar(field), 0.25);
 }
 
 TEST(ScriptAnimation, AnimatedRotationPassThroughStaysSynchronized) {
