@@ -8,6 +8,7 @@ import wescene.fs;
 import wescene.json;
 import wescene.load_bench;
 import wescene.scene;
+import wescene.model_data;
 import wescene.script;
 import wescene.text;
 import wescene.pkg.scene_obj;
@@ -328,6 +329,8 @@ auto InstantiateRegisteredAsset(SceneParseContext&, SceneNode*, const script::La
     -> Option<Arc<SceneNode>>;
 auto InstantiateLayerConfiguration(SceneParseContext&, SceneNode*, const Json&)
     -> Option<Arc<SceneNode>>;
+auto InstantiateModelConfiguration(SceneParseContext&, SceneNode*, const Json&,
+                                   const Arc<SceneModelData>&) -> Option<Arc<SceneNode>>;
 void ResolveRegisteredAssets(SceneParseContext&);
 void ParseImageObj(SceneLayerBuildContext&, wpscene::ImageObject&);
 void ParseShapeObj(SceneLayerBuildContext&, wpscene::ShapeObject&);

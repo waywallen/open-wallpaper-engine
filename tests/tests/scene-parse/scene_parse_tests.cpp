@@ -545,6 +545,60 @@ TEST(SceneDynamicLayer, CreatesImageConfigurationDuringInitialization) {
     EXPECT_TRUE(scene.scene->ImageColorUserBindings("tint"_str).is_empty());
 }
 
+TEST(SceneDynamicLayer, CreatesSharedModelDataDuringInitAndUpdate) {
+    using namespace rstd::prelude;
+    auto document = owe::wpscene::ParseSceneDocumentJson(R"JSON({
+        "camera": {},
+        "general": {"orthogonalprojection": {"width": 1920, "height": 1080}},
+        "objects": [{"id": 1, "name": "creator", "scale": {
+            "value": "1 1 1",
+            "script": "let model; let done = false; const vertices = new Float32Array([0,0,0,0,0, 8,0,0,1,0, 0,8,0,0,1]); export function init() { model = thisScene.createModelData({shapes:[{vertexBuffer:vertices,indexBuffer:new Uint16Array([0,1,2]),vertexFormat:[IModelData.POSITION,IModelData.UV],material:engine.registerAsset('materials/util/solidlayer_instance_3.json',true),isVertexBufferDynamic:true}]}); thisScene.createLayer({model,name:'model-init'}); thisScene.createLayer({model,name:'model-shared'}); } export function update(value) { if (!done) { vertices[0] = 12; model.applyData({vertexBuffer:vertices}); thisScene.createLayer({model,name:'model-update'}); thisScene.destroyModelData(model); done = true; } return value; }"
+        }}]
+    })JSON"_str,
+                                                         owe::wpscene::kSceneVersionUnknown);
+    ASSERT_TRUE(document.is_some());
+    auto assets = owe::fs::make_physical_fs(
+        owe::fs::Path(rstd::cppstd::as_str(WAYWALLEN_ASSETS_DIR).unwrap()));
+    ASSERT_TRUE(assets.is_ok());
+    auto vfs = Box<owe::fs::VFS>::make();
+    ASSERT_TRUE(vfs->mount("/assets"_str, rstd::move(assets).unwrap()).is_ok());
+    wavsen::audio::SoundManager sound;
+    owe::SceneParser            parser;
+    auto                        parsed =
+        parser.Parse("model-data"_str,
+                     ref<owe::wpscene::SceneDocument>::from_raw_parts(rstd::addressof(*document)),
+                     mut_ref<owe::fs::VFS>::from_raw_parts(vfs.get()),
+                     mut_ref<wavsen::audio::SoundManager>::from_raw_parts(rstd::addressof(sound)));
+    ASSERT_TRUE(parsed.is_ok());
+    auto scene = rstd::move(parsed).unwrap();
+    scene.scene->InstallExtension(rstd::move(vfs));
+    auto* initial = scene.scene->RootMut()->FindByName("model-init"_str);
+    auto* shared  = scene.scene->RootMut()->FindByName("model-shared"_str);
+    ASSERT_NE(initial, nullptr);
+    ASSERT_NE(shared, nullptr);
+    ASSERT_NE(initial->Mesh(), nullptr);
+    EXPECT_EQ(initial->Mesh()->Primitive(), owe::MeshPrimitive::TRIANGLE);
+    EXPECT_EQ(initial->Mesh()->GetVertexArray(usize()).OneSize(), usize(5));
+    EXPECT_EQ(initial->Mesh()->GetVertexArray(usize()).VertexCount(), usize(3));
+    EXPECT_EQ(initial->Mesh()->GetIndexArray(usize()).DataCount(), usize(3));
+    EXPECT_EQ(initial->Mesh()->MaterialSlots()[usize()]->Pipeline().depth_compare,
+              owe::CompareOp::GreaterEqual);
+    EXPECT_FLOAT_EQ(initial->Mesh()->GetVertexArray(usize()).Data()[0], 0.0f);
+
+    owe::script::TickSceneScripts(*scene.scene, owe::script::FrameInputs {});
+    auto* updated = scene.scene->RootMut()->FindByName("model-update"_str);
+    ASSERT_NE(updated, nullptr);
+    ASSERT_NE(updated->Mesh(), nullptr);
+    EXPECT_EQ(updated->Mesh()->MaterialSlots()[usize()]->Pipeline().depth_compare,
+              owe::CompareOp::GreaterEqual);
+    EXPECT_FLOAT_EQ(initial->Mesh()->GetVertexArray(usize()).Data()[0], 12.0f);
+    EXPECT_FLOAT_EQ(shared->Mesh()->GetVertexArray(usize()).Data()[0], 12.0f);
+    EXPECT_FLOAT_EQ(updated->Mesh()->GetVertexArray(usize()).Data()[0], 12.0f);
+    EXPECT_TRUE(initial->Mesh()->Dirty().load());
+    EXPECT_TRUE(shared->Mesh()->Dirty().load());
+    EXPECT_TRUE(scene.scene->ResourceIndex().nodeId(*updated).is_some());
+}
+
 TEST(SceneDynamicLayer, PreservesInitialUserPropertiesAfterParsing) {
     using namespace rstd::prelude;
     auto document = owe::wpscene::ParseSceneDocumentJson(
@@ -3075,7 +3129,8 @@ TEST(BloomParsing, PreservesPassBindingsAndAuthoredConstants) {
 TEST(ImageEffectJson, PreservesCopyPositionsAndComposeBindings) {
     auto json = owe::ParseJson(R"({
         "name":"compose-test", "version":1,
-        "fbos":[{"name":"scratch","format":"rgba8","scale":2}],
+        "fbos":[{"name":"scratch","format":"rgba16f","scale":2,
+                 "width":64,"height":36,"clear":[0,0,0,0]}],
         "passes":[
             {"command":"copy","source":"previous","target":"scratch"},
             {"material":"materials/util/passthrough.json"},
@@ -3101,6 +3156,11 @@ TEST(ImageEffectJson, PreservesCopyPositionsAndComposeBindings) {
     ASSERT_EQ(effect.fbos.len(), rstd::usize(2));
     EXPECT_EQ(effect.fbos[rstd::usize()].name, "scratch"_str);
     EXPECT_EQ(effect.fbos[rstd::usize()].scale, rstd::u32(2));
+    EXPECT_EQ(effect.fbos[rstd::usize()].format, "rgba16f"_str);
+    EXPECT_EQ(effect.fbos[rstd::usize()].width, rstd::u32(64));
+    EXPECT_EQ(effect.fbos[rstd::usize()].height, rstd::u32(36));
+    ASSERT_TRUE(effect.fbos[rstd::usize()].clear.is_some());
+    EXPECT_FLOAT_EQ((*effect.fbos[rstd::usize()].clear)[rstd::usize(3)], 0.0f);
     EXPECT_EQ(effect.fbos[rstd::usize(1)].name, "_rt_FullCompoBuffer1"_str);
     EXPECT_EQ(effect.passes[rstd::usize()].target, "_rt_FullCompoBuffer1"_str);
     ASSERT_EQ(effect.passes[rstd::usize()].bind.len(), rstd::usize(1));

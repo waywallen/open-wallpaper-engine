@@ -183,6 +183,32 @@ TEST(TransformUniformSource, AppliesGeometryTransformAfterNodeTransform) {
     EXPECT_NEAR(model[usize(13)], 140.0f, 1e-5f);
 }
 
+TEST(TransformUniformSource, ReversesClipDepthWithoutChangingCameraOrModel) {
+    auto state = Arc<owe::UniformSceneState>::make(Arc<owe::AudioResponseDemand>::make());
+    auto camera =
+        Arc<owe::SceneCamera>::make(owe::SceneCamera::MakePerspective(1.5, 1.0, 1000.0, 60.0));
+    auto resolver = Arc<owe::UniformCameraResolver>::make(camera.clone());
+    auto node     = Arc<owe::SceneNode>::make();
+    node->SetTranslate({ 12.0f, 20.0f, -40.0f });
+    auto config = Arc<owe::UniformNodeState>::make(node.clone(), resolver.clone());
+    owe::TransformUniformSource source(state.clone(), config.clone());
+    auto                        forward = scene_test::Capture(
+        owe::SceneFrame {}, source, owe::TransformUniformOutput::ModelViewProjection);
+    config->reverse_depth = true;
+    auto reversed         = scene_test::Capture(
+        owe::SceneFrame {}, source, owe::TransformUniformOutput::ModelViewProjection);
+    auto inverse = scene_test::Capture(
+        owe::SceneFrame {}, source, owe::TransformUniformOutput::ModelViewProjectionInverse);
+    const Eigen::Map<const Eigen::Matrix4f> a(forward.data());
+    const Eigen::Map<const Eigen::Matrix4f> b(reversed.data());
+    const Eigen::Map<const Eigen::Matrix4f> inv(inverse.data());
+    EXPECT_TRUE(b.row(0).isApprox(a.row(0)));
+    EXPECT_TRUE(b.row(1).isApprox(a.row(1)));
+    EXPECT_TRUE(b.row(2).isApprox(a.row(3) - a.row(2)));
+    EXPECT_TRUE(b.row(3).isApprox(a.row(3)));
+    EXPECT_TRUE((b * inv).isApprox(Eigen::Matrix4f::Identity(), 1e-4f));
+}
+
 TEST(TransformUniformSource, NormalModelMatrixDoesNotScaleTangentSpace) {
     auto state = Arc<owe::UniformSceneState>::make(Arc<owe::AudioResponseDemand>::make());
     auto camera =

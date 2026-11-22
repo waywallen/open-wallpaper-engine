@@ -242,6 +242,63 @@ Option<SceneLayerNodeDraft> BuildLayerConfiguration(SceneLayerBuildContext& cont
     return TakeCreatedLayer(context, id);
 }
 
+auto BuildModelConfiguration(SceneLayerBuildContext& context, const Json& config, i32 id,
+                             const Arc<SceneModelData>& model) -> Option<SceneLayerNodeDraft> {
+    auto&           resources = *context.layer_resources;
+    auto&           scene     = *context.scene;
+    array<float, 3> origin {}, angles {}, scale { 1.0f, 1.0f, 1.0f };
+    String          name;
+    bool            perspective {}, visible { true };
+    GetJsonValue(config, "name"_str, name, false);
+    GetJsonValue(config, "origin"_str, origin, false);
+    GetJsonValue(config, "angles"_str, angles, false);
+    GetJsonValue(config, "scale"_str, scale, false);
+    GetJsonValue(config, "perspective"_str, perspective, false);
+    GetJsonValue(config, "visible"_str, visible, false);
+    auto node = Arc<SceneNode>::make(
+        Vector3f(origin.data()), Vector3f(scale.data()), Vector3f(angles.data()), name.as_str());
+    context.TrackCreatedNode(node);
+    const auto node_id = scene.RegisterNode(*node);
+    node->ID()         = id;
+    node->SetPerspective(perspective);
+    node->SetVisible(visible);
+    auto mesh = model->Instantiate();
+    for (const auto& shape : model->Shapes()) {
+        auto material = MdlParser::ParseMaterial(shape.material.as_str(), *context.vfs);
+        if (! material) return None();
+        ShaderInfo info;
+        info.baseConstSvs = resources.global_base_uniforms.clone();
+        auto built        = BuildMaterial(*context.vfs,
+                                          *resources.shader_cache,
+                                          resources.shader_environment,
+                                          *material,
+                                          scene,
+                                          rstd::move(info));
+        if (built.is_err()) return None();
+        // Script-authored clip positions use WE's reversed depth convention.
+        built->material.SetDepthCompare(CompareOp::GreaterEqual);
+        LoadConstvalue(context, built->material, *material, built->shader_info);
+        auto slot = Arc<SceneMaterial>::make(rstd::move(built->material));
+        RegisterMaterialBindings(scene, slot, *material, built->shader_info, None(), node_id);
+        WireMaterialShaderValueScripts(context, node, slot, *material, built->shader_info);
+        mesh->MaterialSlots().push(rstd::move(slot));
+    }
+    node->AddMesh(rstd::move(mesh));
+    SetUniformConfig(context, node, UniformNodeConfigDraft { .reverse_depth = true });
+    return Some(SceneLayerNodeDraft { .node = Some(node.clone()) });
+}
+
+auto InstantiateModelConfiguration(SceneParseContext& context, SceneNode* owner, const Json& config,
+                                   const Arc<SceneModelData>& model) -> Option<Arc<SceneNode>> {
+    auto built = BuildModelConfiguration(context, config, context.NextSyntheticObjectId(), model);
+    if (! built || ! built->node) return None();
+    auto  node = (*built->node).clone();
+    auto* parent =
+        owner && owner->Parent() ? owner->Parent() : context.scene->RootMut().as_raw_ptr();
+    parent->AppendChild(node.clone());
+    return Some(rstd::move(node));
+}
+
 Option<Arc<SceneNode>> InstantiateLayerConfiguration(SceneParseContext& context, SceneNode* owner,
                                                      const Json& config) {
     auto built = BuildLayerConfiguration(context, config, context.NextSyntheticObjectId());
@@ -445,48 +502,9 @@ struct RuntimeLayerFactory {
         if (! vfs) return None();
         SceneLayerBuildContext context(*scene, **vfs, resources.clone());
         PrepareContext(context);
-        const auto      id = NextObjectId();
-        array<float, 3> origin {}, angles {}, scale { 1.0f, 1.0f, 1.0f };
-        String          name;
-        bool            perspective {}, visible { true };
-        GetJsonValue(config, "name"_str, name, false);
-        GetJsonValue(config, "origin"_str, origin, false);
-        GetJsonValue(config, "angles"_str, angles, false);
-        GetJsonValue(config, "scale"_str, scale, false);
-        GetJsonValue(config, "perspective"_str, perspective, false);
-        GetJsonValue(config, "visible"_str, visible, false);
-        auto node = Arc<SceneNode>::make(Vector3f(origin.data()),
-                                         Vector3f(scale.data()),
-                                         Vector3f(angles.data()),
-                                         name.as_str());
-        context.TrackCreatedNode(node);
-        const auto node_id = scene->RegisterNode(*node);
-        node->ID()         = id;
-        node->SetPerspective(perspective);
-        node->SetVisible(visible);
-        auto  mesh   = model->Instantiate();
         auto* parent = owner && owner->Parent() ? owner->Parent() : scene->RootMut().as_raw_ptr();
-        for (const auto& shape : model->Shapes()) {
-            auto material = MdlParser::ParseMaterial(shape.material.as_str(), **vfs);
-            if (! material) return Commit(context, *parent, None());
-            ShaderInfo info;
-            info.baseConstSvs = resources->global_base_uniforms.clone();
-            auto built        = BuildMaterial(**vfs,
-                                              *resources->shader_cache,
-                                              resources->shader_environment,
-                                              *material,
-                                              *scene,
-                                              rstd::move(info));
-            if (built.is_err()) return Commit(context, *parent, None());
-            LoadConstvalue(context, built->material, *material, built->shader_info);
-            auto slot = Arc<SceneMaterial>::make(rstd::move(built->material));
-            RegisterMaterialBindings(*scene, slot, *material, built->shader_info, None(), node_id);
-            WireMaterialShaderValueScripts(context, node, slot, *material, built->shader_info);
-            mesh->MaterialSlots().push(rstd::move(slot));
-        }
-        node->AddMesh(rstd::move(mesh));
-        SetUniformConfig(context, node, UniformNodeConfigDraft {});
-        return Commit(context, *parent, Some(SceneLayerNodeDraft { .node = Some(node.clone()) }));
+        return Commit(
+            context, *parent, BuildModelConfiguration(context, config, NextObjectId(), model));
     }
 
     auto InstantiateImageAsset(SceneNode& parent, ref<str> asset) -> Option<Arc<SceneNode>> {

@@ -64,6 +64,13 @@ inline bool UsesDepthAttachment(const vrento::MaterialPipelineDesc& material) {
     return material.UsesDepthAttachment();
 }
 
+inline float DepthClearValue(const vrento::MaterialPipelineDesc& material, float value) {
+    return material.depth_compare == CompareOp::Greater ||
+                   material.depth_compare == CompareOp::GreaterEqual
+               ? 0.0f
+               : value;
+}
+
 inline void SetDepthState(const vrento::MaterialPipelineDesc&    material,
                           VkPipelineDepthStencilStateCreateInfo& state) {
     state.depthTestEnable  = material.depth_test;

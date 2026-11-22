@@ -52,6 +52,7 @@ bool RegisterUniformNodeSources(Scene& scene, const Arc<UniformSceneState>& unif
     state->use_camera_eye_position        = config.use_camera_eye_position;
     state->eye_position_override          = config.eye_position_override;
     state->vertices_in_world_space        = config.vertices_in_world_space;
+    state->reverse_depth                  = config.reverse_depth;
     state->effect_projection_size         = config.effect_projection_size;
     if (config.effect_projection_node.is_some())
         state->effect_projection_node = Some((*config.effect_projection_node).clone());
@@ -375,6 +376,10 @@ void FinalizeScene(SceneParseContext& context) {
                 auto node = InstantiateLayerConfiguration(context, owner, config);
                 if (node.is_none()) rstd_error("layer configuration is unsupported or unavailable");
                 return node;
+            }));
+        runtime.SetModelLayerFactory(script::JsRuntime::ModelLayerFactory::make(
+            [&context](SceneNode* owner, Json config, Arc<SceneModelData> model) {
+                return InstantiateModelConfiguration(context, owner, config, model);
             }));
         runtime.SetSceneRoot(context.scene->RootMut().as_raw_ptr());
         runtime.ClearLayerFactory();

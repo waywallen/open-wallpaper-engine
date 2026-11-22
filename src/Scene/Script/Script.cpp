@@ -2164,6 +2164,8 @@ JSValue NodeSceneCreateLayer(JSContext* ctx, JSValueConst /*this_val*/, int argc
                 return JS_ThrowTypeError(ctx, "createLayer configuration is not serializable");
         }
         if (config.is_some()) {
+            if (model.is_some() && host->model_layer_factory.is_none())
+                return JS_ThrowReferenceError(ctx, "model layer factory is unavailable");
             auto initial = (*config).clone();
             auto created =
                 model.is_some() && host->model_layer_factory.is_some()

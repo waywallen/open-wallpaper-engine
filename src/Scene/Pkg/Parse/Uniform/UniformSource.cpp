@@ -575,8 +575,10 @@ auto TransformUniformSource::Evaluate(ref<dyn<UniformUpdateContext>> context,
     const bool req_view_axes    = writer.Wants(Output::ViewRight) || writer.Wants(Output::ViewUp) ||
                                   writer.Wants(Output::ViewForward);
 
-    const Matrix4d view_projection   = camera.GetViewProjectionMatrix(render_view);
-    auto           active_camera_ref = m_node->camera_resolver->Active();
+    Matrix4d view_projection = camera.GetViewProjectionMatrix(render_view);
+    if (m_node->reverse_depth)
+        view_projection.row(2) = (view_projection.row(3) - view_projection.row(2)).eval();
+    auto active_camera_ref = m_node->camera_resolver->Active();
 
     writer.Write(Output::ViewProjection, ShaderValue::fromMatrix(view_projection));
     if (m_node->eye_position_override.is_some()) {

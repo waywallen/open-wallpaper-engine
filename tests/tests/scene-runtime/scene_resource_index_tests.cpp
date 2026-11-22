@@ -6,6 +6,7 @@ import eigen;
 import wescene.types;
 import wescene.json;
 import wescene.scene;
+import wescene.model_data;
 import wescene.text;
 
 using namespace rstd::prelude;
@@ -151,6 +152,41 @@ TEST(SceneMesh, NodeReleasesReplacedMeshAndOwnsCurrentMesh) {
         EXPECT_EQ(node.Mesh()->Material()->name, "current"_str);
     }
     EXPECT_TRUE(! current.upgrade());
+}
+
+TEST(SceneModelData, RejectsInvalidShapeUpdateWithoutPartialWrites) {
+    const array<float, 9>     original { 0.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f };
+    const array<float, 9>     changed { 9.0f, 0.0f, 0.0f, 1.0f, 0.0f, 0.0f, 0.0f, 1.0f, 0.0f };
+    const array<float, 3>     invalid { 0.0f, 0.0f, 0.0f };
+    Vec<owe::SceneModelShape> shapes;
+    for (int i = 0; i < 2; ++i) {
+        owe::SceneModelShape shape { .vertices         = original.as_slice(),
+                                     .material         = "test"_Str,
+                                     .dynamic_vertices = true };
+        shape.attributes.push({ "a_Position"_Str, owe::VertexType::FLOAT3, false });
+        shapes.push(rstd::move(shape));
+    }
+    auto model  = owe::SceneModelData::Create(rstd::move(shapes)).unwrap();
+    auto first  = model->Instantiate();
+    auto second = model->Instantiate();
+    const array<owe::SceneModelUpdate, 2> rejected {
+        owe::SceneModelUpdate { .vertices = Some(changed.as_slice()) },
+        owe::SceneModelUpdate { .vertices = Some(invalid.as_slice()) },
+    };
+    EXPECT_TRUE(model->ApplyData(rejected.as_slice()).is_err());
+    EXPECT_FLOAT_EQ(first->Submeshes()[usize()].vertex_arrays[usize()].Data()[0], 0.0f);
+    EXPECT_FALSE(first->Dirty().load());
+    EXPECT_FALSE(second->Dirty().load());
+    const array<owe::SceneModelUpdate, 2> accepted {
+        owe::SceneModelUpdate { .vertices = Some(changed.as_slice()) },
+        owe::SceneModelUpdate {},
+    };
+    EXPECT_TRUE(model->ApplyData(accepted.as_slice()).is_ok());
+    EXPECT_FLOAT_EQ(first->Submeshes()[usize()].vertex_arrays[usize()].Data()[0], 9.0f);
+    EXPECT_FLOAT_EQ(second->Submeshes()[usize()].vertex_arrays[usize()].Data()[0], 9.0f);
+    EXPECT_FLOAT_EQ(first->Submeshes()[usize(1)].vertex_arrays[usize()].Data()[0], 0.0f);
+    EXPECT_TRUE(first->Dirty().load());
+    EXPECT_TRUE(second->Dirty().load());
 }
 
 TEST(SceneMesh, ConsumesOnlyRequestedDirtyFlags) {

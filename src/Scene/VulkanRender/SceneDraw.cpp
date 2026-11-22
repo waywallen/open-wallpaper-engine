@@ -112,6 +112,9 @@ PassInvalidationFlags SceneDraw::finalizeResourceRequests(Scene& scene) {
             output_depth_            = rt.withDepth;
             clear_color_             = scene.ClearColor();
             m_desc.depth_clear_value = rt.depth_clear_value;
+            if (material)
+                m_desc.depth_clear_value =
+                    DepthClearValue(material->Pipeline(), m_desc.depth_clear_value);
             if (m_desc.depth_only) {
                 auto depth_request = MakeRenderTargetTextureRequest(m_desc.output.as_str(), rt);
                 if (SetTextureRequestIfChanged(m_desc.depth_request,

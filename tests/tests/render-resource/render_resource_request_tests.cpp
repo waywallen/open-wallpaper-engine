@@ -330,6 +330,16 @@ TEST(SceneDrawPolicy, PreservesExplicitDepthWriteForEveryBlendMode) {
     }
 }
 
+TEST(SceneDrawPolicy, ClearsReversedDepthToTheFarEndpoint) {
+    owe::SceneMaterial material;
+    EXPECT_FLOAT_EQ(owe::vulkan::DepthClearValue(material.Pipeline(), 1.0f), 1.0f);
+    EXPECT_FLOAT_EQ(owe::vulkan::DepthClearValue(material.Pipeline(), 0.25f), 0.25f);
+    material.SetDepthCompare(owe::CompareOp::Greater);
+    EXPECT_FLOAT_EQ(owe::vulkan::DepthClearValue(material.Pipeline(), 1.0f), 0.0f);
+    material.SetDepthCompare(owe::CompareOp::GreaterEqual);
+    EXPECT_FLOAT_EQ(owe::vulkan::DepthClearValue(material.Pipeline(), 1.0f), 0.0f);
+}
+
 TEST(UniformBufferLayout, PreservesReflectedSlots) {
     auto members = rstd::vec::Vec<owe::resource::ShaderArtifactUniformMember>::make();
     members.push(owe::resource::ShaderArtifactUniformMember {

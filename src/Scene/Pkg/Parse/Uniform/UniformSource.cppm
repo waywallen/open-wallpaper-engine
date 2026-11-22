@@ -188,6 +188,7 @@ struct UniformNodeConfigDraft {
     bool                          use_camera_eye_position { false };
     Option<array<float, 3>>       eye_position_override;
     bool                          vertices_in_world_space { false };
+    bool                          reverse_depth { false };
     Option<Arc<SceneNode>>        effect_projection_node;
     array<float, 2>               effect_projection_size { 0.0f, 0.0f };
 
@@ -223,6 +224,7 @@ struct UniformNodeState {
     bool                          use_camera_eye_position { false };
     Option<array<float, 3>>       eye_position_override;
     bool                          vertices_in_world_space { false };
+    bool                          reverse_depth { false };
     Option<Arc<SceneNode>>        effect_projection_node;
     array<float, 2>               effect_projection_size { 0.0f, 0.0f };
 
