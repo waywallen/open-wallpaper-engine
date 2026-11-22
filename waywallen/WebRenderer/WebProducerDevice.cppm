@@ -115,7 +115,7 @@ private:
     String  render_node_;
     // False on GPUs without VK_EXT_image_drm_format_modifier (e.g. Radeon
     // R9 380X / RADV Tonga): CEF DMA-BUFs are then imported as LINEAR.
-    bool    have_modifier_ext_ { false };
+    bool have_modifier_ext_ { false };
 
     VkCommandPool   cmd_pool_ { VK_NULL_HANDLE };
     VkCommandBuffer blit_cmd_ { VK_NULL_HANDLE };

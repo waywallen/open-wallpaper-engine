@@ -564,24 +564,24 @@ WebProducerDevice::ImportedFrame WebProducerDevice::Import(const ::weweb::DmaBuf
     mod_info.pPlaneLayouts               = &plane_layout;
 
     VkExternalMemoryImageCreateInfo ext_img {};
-    ext_img.sType       = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO;
+    ext_img.sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO;
     // Without the modifier extension the (linear) layout is implicit.
     ext_img.pNext       = have_modifier_ext_ ? static_cast<const void*>(&mod_info) : nullptr;
     ext_img.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT;
 
     VkImageCreateInfo ii {};
-    ii.sType         = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-    ii.pNext         = &ext_img;
-    ii.imageType     = VK_IMAGE_TYPE_2D;
-    ii.format        = FormatToVk(frame.format);
-    ii.extent        = { static_cast<uint32_t>(frame.coded_width),
-                         static_cast<uint32_t>(frame.coded_height),
-                         1 };
-    ii.mipLevels     = 1;
-    ii.arrayLayers   = 1;
-    ii.samples       = VK_SAMPLE_COUNT_1_BIT;
-    ii.tiling        = have_modifier_ext_ ? VK_IMAGE_TILING_DRM_FORMAT_MODIFIER_EXT
-                                          : VK_IMAGE_TILING_LINEAR;
+    ii.sType       = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    ii.pNext       = &ext_img;
+    ii.imageType   = VK_IMAGE_TYPE_2D;
+    ii.format      = FormatToVk(frame.format);
+    ii.extent      = { static_cast<uint32_t>(frame.coded_width),
+                       static_cast<uint32_t>(frame.coded_height),
+                       1 };
+    ii.mipLevels   = 1;
+    ii.arrayLayers = 1;
+    ii.samples     = VK_SAMPLE_COUNT_1_BIT;
+    ii.tiling =
+        have_modifier_ext_ ? VK_IMAGE_TILING_DRM_FORMAT_MODIFIER_EXT : VK_IMAGE_TILING_LINEAR;
     ii.usage         = VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
     ii.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
     ii.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
