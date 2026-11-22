@@ -130,6 +130,8 @@ sources = [
   "src/Scene/VulkanRender/BufferResolver.cpp",
   "src/Scene/VulkanRender/SceneDraw.cppm",
   "src/Scene/VulkanRender/SceneDraw.cpp",
+  "src/Scene/VulkanRender/SceneDrawPreparation.cppm",
+  "src/Scene/VulkanRender/SceneDrawPreparation.cpp",
   "src/Scene/VulkanRender/SceneDrawPolicy.cppm",
   "src/Scene/VulkanRender/SceneRenderResources.cppm",
   "src/Scene/VulkanRender/PipelineLayout.cppm",

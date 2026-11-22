@@ -471,6 +471,7 @@ TEST(RenderOutput, ShaderDirtyAndTopology) {
     color(255, 0, 0);
     auto before = pipeline.stats();
     rstd_assert(before.graph_builds == 1);
+    EXPECT_GT(before.draw_preparations.entries, usize());
     auto  pipeline_creations = queue.session().graphics_resources().pipelines.stats().creations;
     auto* node               = scene.RootMut()->FindByName("tile"_str);
     rstd_assert(node && node->Mesh());
@@ -503,6 +504,7 @@ TEST(RenderOutput, ShaderDirtyAndTopology) {
     draw();
     color(0, 255, 0);
     rstd_assert(pipeline.stats().graph_builds == before.graph_builds);
+    EXPECT_EQ(pipeline.stats().draw_preparations.misses, before.draw_preparations.misses);
     rstd_assert(queue.session().graphics_resources().pipelines.stats().creations ==
                 pipeline_creations);
     rstd::io::println("owe uniform refresh: graph builds={}, pipelines={}",
@@ -520,6 +522,8 @@ TEST(RenderOutput, ShaderDirtyAndTopology) {
     draw();
     color(0, 255, 0);
     rstd_assert(pipeline.stats().graph_builds > before.graph_builds);
+    EXPECT_GT(pipeline.stats().draw_preparations.hits, before.draw_preparations.hits);
+    EXPECT_EQ(pipeline.stats().draw_preparations.misses, before.draw_preparations.misses);
 
     prepare();
     const auto resize_evaluations = evaluations;

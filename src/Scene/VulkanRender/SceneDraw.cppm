@@ -13,6 +13,7 @@ import :resource;
 import :prepare_error;
 import :buffer_resolver;
 import :uniform_buffer;
+import :scene_draw_preparation;
 
 using namespace rstd::prelude;
 using rstd::sync::Arc;
@@ -103,9 +104,7 @@ public:
     auto declareResources(ResourceDeclarationContext&) -> Option<vrento::vulkan::GraphicsDrawDesc>;
     auto textureAccesses() const -> Vec<PassTextureAccess>;
     PassResourceUses resourceUses() const;
-    auto             pipelineLayoutRequirement(const resource::ShaderArtifact&) const
-        -> Result<Option<PipelineLayoutRequirement>, resource::ResourceError>;
-    auto globalDescriptorBufferUses(const PreparedPassResources&) const
+    auto             globalDescriptorBufferUses(const PreparedPassResources&) const
         -> Result<Vec<GlobalDescriptorBufferUse>, resource::ResourceError>;
     auto createUniformBufferUpdates(ref<dyn<UniformBindingPrepareContext>>,
                                     const PreparedPassResources&)
@@ -137,18 +136,19 @@ private:
     bool samplesTexture(usize) const;
     auto describeGraphics(const resource::ShaderArtifact&)
         -> Option<vrento::vulkan::GraphicsDrawDesc>;
-    Vec<vrento::vulkan::GraphicsDrawRange>         draws_;
-    bool                                           visible_ { true };
-    void                                           captureGeometry();
-    Option<MaterialSnapshot>                       material_;
-    Option<vrento::GeometrySnapshot>               geometry_;
-    Vec<rstd::collections::HashMap<String, usize>> vertex_offsets_;
-    MeshPrimitive                                  primitive_ { MeshPrimitive::TRIANGLE };
-    bool            default_alpha_ {}, force_clear_ {}, output_depth_ {};
-    Option<bool>    output_alpha_;
-    array<float, 3> clear_color_ {};
-    Desc            m_desc;
-    UpdateSource    updates_;
+    Vec<vrento::vulkan::GraphicsDrawRange> draws_;
+    bool                                   visible_ { true };
+    void                                   captureGeometry();
+    Option<MaterialSnapshot>               material_;
+    Option<vrento::GeometrySnapshot>       geometry_;
+    Vec<DrawVertexLayout>                  vertex_layouts_;
+    Option<Arc<SceneDrawPreparation>>      preparation_;
+    MeshPrimitive                          primitive_ { MeshPrimitive::TRIANGLE };
+    bool                                   default_alpha_ {}, force_clear_ {}, output_depth_ {};
+    Option<bool>                           output_alpha_;
+    array<float, 3>                        clear_color_ {};
+    Desc                                   m_desc;
+    UpdateSource                           updates_;
 };
 
 } // namespace owe::vulkan

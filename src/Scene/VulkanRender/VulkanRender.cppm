@@ -19,6 +19,7 @@ export import :resource;
 export import :buffer_resolver;
 export import :scene_draw_policy;
 export import :scene_draw;
+export import :scene_draw_preparation;
 export import :prepare_error;
 
 using namespace rstd::prelude;
@@ -83,7 +84,8 @@ struct RenderInitInfo {
 
 auto BuildSceneRenderState(Scene&) -> Result<vulkan::SceneRenderStateInput, vrento::fg::Error>;
 auto BuildSceneRenderState(Scene&, const RenderSceneSnapshot&,
-                           vrento::fg::AnalysisStatistics* = nullptr)
+                           vrento::fg::AnalysisStatistics*                    = nullptr,
+                           Option<mut_ref<vulkan::SceneDrawPreparationCache>> = None())
     -> Result<vulkan::SceneRenderStateInput, vrento::fg::Error>;
 
 namespace vulkan

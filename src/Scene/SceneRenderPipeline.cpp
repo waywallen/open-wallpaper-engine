@@ -163,8 +163,15 @@ auto SceneRenderPipeline::flushChanges(SceneLoadBenchRecorderView bench)
         m_scene.ReleaseRetiredLayers();
         auto input = [&] {
             auto build_span = SceneLoadSpan(bench, &SceneLoadProbeIds::render_graph_build);
-            return BuildSceneRenderState(m_scene, m_snapshot, &m_stats.graph_analysis);
+            return BuildSceneRenderState(
+                m_scene,
+                m_snapshot,
+                &m_stats.graph_analysis,
+                Some(mut_ref<vulkan::SceneDrawPreparationCache>::from_raw_parts(
+                    &m_draw_preparations)));
         }();
+        m_draw_preparations.prune();
+        m_stats.draw_preparations = m_draw_preparations.stats();
         if (input.is_err()) return Err(ScenePrepareError::GraphBuild(input.unwrap_err()));
         if (m_options.graphviz) {
             auto dot = vrento::fg::graphviz(input->graph);

@@ -20,13 +20,14 @@ struct SceneRenderPipelineOptions {
 };
 
 struct SceneRenderPipelineStats {
-    vrento::fg::AnalysisStatistics graph_analysis;
-    rstd::uint64_t                 graph_builds {};
-    rstd::uint64_t                 prepared_frames {};
-    rstd::uint64_t                 mesh_refreshes {};
-    rstd::uint64_t                 material_refreshes {};
-    rstd::uint64_t                 texture_refreshes {};
-    rstd::uint64_t                 preparation_failures {};
+    vrento::fg::AnalysisStatistics    graph_analysis;
+    vulkan::SceneDrawPreparationStats draw_preparations;
+    rstd::uint64_t                    graph_builds {};
+    rstd::uint64_t                    prepared_frames {};
+    rstd::uint64_t                    mesh_refreshes {};
+    rstd::uint64_t                    material_refreshes {};
+    rstd::uint64_t                    texture_refreshes {};
+    rstd::uint64_t                    preparation_failures {};
 };
 
 struct PendingScenePreparation {
@@ -106,14 +107,15 @@ private:
     vulkan::RenderGraphResourceRetention m_retention {
         vulkan::RenderGraphResourceRetention::KeepSceneTextures
     };
-    Vec<SceneMeshDirtyEvent>     m_meshes;
-    Vec<SceneMaterialDirtyEvent> m_materials;
-    Scene&                       m_scene;
-    UniformRuntimeInput&         m_input;
-    vulkan::VulkanRender&        m_render;
-    SceneRenderPipelineOptions   m_options;
-    RenderSceneSnapshot          m_snapshot;
-    SceneRenderPipelineStats     m_stats;
+    Vec<SceneMeshDirtyEvent>          m_meshes;
+    Vec<SceneMaterialDirtyEvent>      m_materials;
+    Scene&                            m_scene;
+    UniformRuntimeInput&              m_input;
+    vulkan::VulkanRender&             m_render;
+    SceneRenderPipelineOptions        m_options;
+    RenderSceneSnapshot               m_snapshot;
+    vulkan::SceneDrawPreparationCache m_draw_preparations;
+    SceneRenderPipelineStats          m_stats;
 };
 
 } // namespace owe

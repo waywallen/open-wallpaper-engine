@@ -7,6 +7,7 @@ import :resource;
 import :pipeline_layout;
 import :shader_reflection_cache;
 import :uniform_buffer;
+import :scene_draw_preparation;
 
 using namespace rstd::prelude;
 using rstd::collections::HashMap;
@@ -169,13 +170,15 @@ struct ResourceDeclarationData {
 
 class ResourceDeclarationContext {
 public:
-    explicit ResourceDeclarationContext(resource::ResourcePlan& plan,
-                                        ShaderReflectionCache&  shader_cache,
-                                        ResourceDeclarationData data = {})
+    explicit ResourceDeclarationContext(
+        resource::ResourcePlan& plan, ShaderReflectionCache& shader_cache,
+        ResourceDeclarationData                    data       = {},
+        Option<mut_ref<SceneDrawPreparationCache>> draw_cache = None())
         : m_plan(plan),
           m_shader_cache(
               mut_ref<ShaderReflectionCache>::from_raw_parts(rstd::addressof(shader_cache))),
-          data_(rstd::move(data)) {}
+          data_(rstd::move(data)),
+          m_draw_cache(draw_cache) {}
 
     auto takeData() -> ResourceDeclarationData { return rstd::move(data_); }
 
@@ -275,6 +278,13 @@ public:
         return data_.m_shaders.get(request);
     }
 
+    auto PrepareDraw(const resource::ShaderArtifact& artifact, slice<String> sampler_members,
+                     slice<DrawVertexLayout> vertices)
+        -> Result<Arc<SceneDrawPreparation>, resource::ResourceError> {
+        return m_draw_cache ? (*m_draw_cache)->prepare(artifact, sampler_members, vertices)
+                            : PrepareSceneDraw(artifact, sampler_members, vertices);
+    }
+
     auto ScopeResourceName(String local_name) const -> String {
         return rstd::format("plan:{}:{}", m_plan.generation, local_name);
     }
@@ -297,9 +307,10 @@ public:
     }
 
 private:
-    resource::ResourcePlan&        m_plan;
-    mut_ref<ShaderReflectionCache> m_shader_cache;
-    ResourceDeclarationData        data_;
+    resource::ResourcePlan&                    m_plan;
+    mut_ref<ShaderReflectionCache>             m_shader_cache;
+    ResourceDeclarationData                    data_;
+    Option<mut_ref<SceneDrawPreparationCache>> m_draw_cache;
 };
 
 struct PassTextureAccess {

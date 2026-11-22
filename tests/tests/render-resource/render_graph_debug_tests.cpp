@@ -1128,3 +1128,81 @@ TEST(SceneRenderGraph, RejectsMissingOutputWithoutInstallingPartialProgram) {
     ASSERT_TRUE(result.is_err());
     EXPECT_EQ(result.unwrap_err().kind, vrento::fg::ErrorKind::MissingResource);
 }
+
+TEST(SceneRenderGraph, ReusesDrawInterfacesWithoutRetainingGraphState) {
+    owe::Scene scene;
+    scene.RegisterRenderTarget("_rt_default"_Str,
+                               owe::SceneRenderTarget { .width = i32(64), .height = i32(32) });
+    auto node = Arc<owe::SceneNode>::make();
+    auto mesh = Arc<owe::SceneMesh>::make();
+    mesh->AddMaterial(GraphMaterial());
+    mesh->Submeshes().push(owe::SceneMesh::Submesh {});
+    node->AddMesh(mesh.clone());
+    scene.RootMut()->AppendChild(node.clone());
+
+    SceneDrawPreparationCache cache;
+    auto                      build = [&] {
+        auto snapshot = owe::ExtractRenderSceneSnapshot(scene);
+        return owe::BuildSceneRenderState(
+                   scene,
+                   snapshot,
+                   nullptr,
+                   Some(mut_ref<SceneDrawPreparationCache>::from_raw_parts(&cache)))
+            .unwrap();
+    };
+    Option<SceneRenderStateInput> first = Some(build());
+    ASSERT_EQ(first->draws.len(), usize(1));
+    auto recipe = [](const SceneRenderStateInput& input) -> ref<vrento::vulkan::GraphicsDrawDesc> {
+        for (const auto& description : input.descriptions)
+            if (auto draw = description.get<vrento::vulkan::GraphicsDrawDesc>()) return *draw;
+        rstd::panic { "missing draw description" };
+    };
+    auto original = recipe(*first);
+    EXPECT_EQ(original->request.multisample.rasterizationSamples, VK_SAMPLE_COUNT_1_BIT);
+    EXPECT_FALSE(original->request.has_depth_attachment);
+    EXPECT_EQ(original->pipeline.generation, first->resource_plan.generation);
+    auto initial = cache.stats();
+    EXPECT_EQ(initial.misses, u64(1));
+
+    auto target          = scene.RenderTargetMut("_rt_default"_str).unwrap();
+    target->width        = i32(128);
+    target->height       = i32(64);
+    target->sample_count = 4;
+    target->format       = owe::TextureFormat::RGBA16F;
+    target->withDepth    = true;
+    target->force_clear  = true;
+    auto& material       = *mesh->MaterialSlots()[usize()];
+    material.SetBlendMode(owe::BlendMode::Additive);
+    material.SetDepthTest(true);
+    material.SetDepthWrite(true);
+
+    Option<SceneRenderStateInput> second = Some(build());
+    ASSERT_TRUE(second->graph.compile());
+    auto current = recipe(*second);
+    EXPECT_EQ(cache.stats().misses, initial.misses);
+    EXPECT_GT(cache.stats().hits, initial.hits);
+    EXPECT_NE(first->graph.scope(), second->graph.scope());
+    EXPECT_EQ(current->pipeline.generation, second->resource_plan.generation);
+    EXPECT_NE(original->pipeline, current->pipeline);
+    ASSERT_TRUE(current->layout);
+    EXPECT_EQ(current->layout->pipeline, current->pipeline);
+    EXPECT_FALSE(current->request.pipeline_layout.Valid());
+    EXPECT_EQ(current->request.multisample.rasterizationSamples, VK_SAMPLE_COUNT_4_BIT);
+    EXPECT_EQ(current->request.color_format, VK_FORMAT_R16G16B16A16_SFLOAT);
+    EXPECT_EQ(current->request.color_load_op, VK_ATTACHMENT_LOAD_OP_CLEAR);
+    EXPECT_TRUE(current->request.has_depth_attachment);
+    EXPECT_TRUE(current->request.depth.depthTestEnable);
+    EXPECT_TRUE(current->request.depth.depthWriteEnable);
+    EXPECT_TRUE(current->request.color_blend.blendEnable);
+    EXPECT_EQ(current->request.color_blend.dstColorBlendFactor, VK_BLEND_FACTOR_ONE);
+    EXPECT_EQ(original->request.multisample.rasterizationSamples, VK_SAMPLE_COUNT_1_BIT);
+    EXPECT_FALSE(original->request.has_depth_attachment);
+    EXPECT_EQ(second->draws[usize()].source->parameters().output_request->definition->width,
+              i32(128));
+    cache.prune();
+    EXPECT_EQ(cache.stats().entries, usize(1));
+    first  = None();
+    second = None();
+    cache.prune();
+    EXPECT_EQ(cache.stats().entries, usize());
+}

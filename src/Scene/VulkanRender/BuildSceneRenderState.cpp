@@ -914,7 +914,8 @@ static void EmitShadowPasses(ExtraInfo& extra) {
 } // namespace
 
 auto owe::BuildSceneRenderState(Scene& scene, const RenderSceneSnapshot& render_scene,
-                                fg::AnalysisStatistics* statistics)
+                                fg::AnalysisStatistics*                            statistics,
+                                Option<mut_ref<vulkan::SceneDrawPreparationCache>> draw_cache)
     -> Result<vulkan::SceneRenderStateInput, fg::Error> {
     ExtraInfo extra(scene, render_scene);
     auto      clear_id = fg::PassId { extra.next_pass++ };
@@ -1047,7 +1048,7 @@ auto owe::BuildSceneRenderState(Scene& scene, const RenderSceneSnapshot& render_
     resource::ResourcePlan             resource_plan { .generation = extra.textures.generation() };
     auto                               shader_backend = vulkan::MakeShaderBackend();
     vulkan::ShaderReflectionCache      shader_cache(shader_backend.as_ref());
-    vulkan::ResourceDeclarationContext declarations(resource_plan, shader_cache);
+    vulkan::ResourceDeclarationContext declarations(resource_plan, shader_cache, {}, draw_cache);
     struct DrawInput {
         fg::PassId                       id;
         vrento::vulkan::GraphicsDrawDesc description;

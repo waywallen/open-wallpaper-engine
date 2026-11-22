@@ -64,6 +64,7 @@ name = "render-resource-tests"
 sources = [
   "tests/main.cpp",
   "tests/render-resource/buffer_resolver_tests.cpp",
+  "tests/render-resource/draw_preparation_tests.cpp",
   "tests/render-resource/render_graph_debug_tests.cpp",
   "tests/render-resource/render_output_tests.cpp",
   "tests/render-resource/prepare_error_tests.cpp",

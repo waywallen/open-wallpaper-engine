@@ -51,9 +51,10 @@ owe::SceneMaterial* ResolvePassMaterial(const SceneDraw::Desc&         desc,
 } // namespace
 
 void SceneDraw::captureGeometry() {
-    material_ = None();
-    geometry_ = None();
-    vertex_offsets_.clear();
+    material_    = None();
+    geometry_    = None();
+    preparation_ = None();
+    vertex_layouts_.clear();
     auto* material = ResolvePassMaterial(m_desc, updates_);
     if (! material || ! updates_.node || ! (*updates_.node)->Mesh()) return;
     material_ = Some(
@@ -66,12 +67,13 @@ void SceneDraw::captureGeometry() {
                              (*updates_.node)->Camera().starts_with("global"_str));
     const auto& submesh = mesh.Submeshes()[rstd::as_cast<usize>(m_desc.submesh_index)];
     for (const auto& vertex : submesh.vertex_arrays) {
-        rstd::collections::HashMap<String, usize> offsets;
+        DrawVertexLayout layout { .stride = vertex.OneSizeOf() };
+        layout.attributes.reserve(vertex.Attributes().len());
         for (const auto& attribute : vertex.Attributes())
-            (void)offsets.insert(
-                attribute.name.clone(),
-                vertex.AttributeOffset(attribute.name.as_str()).unwrap_or(usize()));
-        vertex_offsets_.push(rstd::move(offsets));
+            layout.attributes.push(
+                { attribute.name.clone(),
+                  vertex.AttributeOffset(attribute.name.as_str()).unwrap_or(usize()) });
+        vertex_layouts_.push(rstd::move(layout));
     }
 }
 
@@ -199,6 +201,15 @@ auto SceneDraw::declareResources(ResourceDeclarationContext& context)
 
     auto artifact = context.ShaderArtifact(artifact_request);
     if (artifact.is_some()) {
+        Vec<String> sampler_members;
+        sampler_members.reserve(m_desc.texture_bindings.len());
+        for (usize index {}; index < m_desc.texture_bindings.len(); ++index)
+            sampler_members.push(
+                String::make((**material->shader).SamplerMember(index.to_primitive())));
+        auto prepared =
+            context.PrepareDraw(**artifact, sampler_members.as_slice(), vertex_layouts_.as_slice());
+        if (prepared.is_err()) return None();
+        preparation_ = Some(rstd::move(prepared).unwrap());
         for (usize block_index {}; block_index < (**artifact).uniform_blocks.len(); ++block_index) {
             const auto& block = (**artifact).uniform_blocks[block_index];
             auto        size  = block.size;
@@ -341,88 +352,6 @@ PassResourceUses SceneDraw::resourceUses() const {
     for (const auto& descriptor : m_desc.descriptor_bindings)
         uses.descriptors.push(resource::DescriptorBindingHandle(descriptor.binding));
     return uses;
-}
-
-auto SceneDraw::pipelineLayoutRequirement(const resource::ShaderArtifact& artifact) const
-    -> Result<Option<PipelineLayoutRequirement>, resource::ResourceError> {
-    if (! m_desc.pipeline_use) return Ok(None());
-    for (const auto& block : artifact.uniform_blocks) {
-        const bool shared = block.scope == resource::ShaderArtifactUniformBlock::Scope::Shared;
-        if ((shared && block.set != u32()) || (! shared && block.set == u32())) {
-            return Err(resource::ResourceError {
-                .kind    = resource::ResourceErrorKind::MissingDefinition,
-                .message = rstd::format("uniform block {} has invalid descriptor scope",
-                                        block.name.as_str()),
-            });
-        }
-        bool described = false;
-        for (const auto& set : artifact.descriptor_sets) {
-            if (set.set != block.set) continue;
-            for (const auto& binding : set.bindings) {
-                if (binding.binding == block.binding &&
-                    binding.descriptor_type == u32(VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER)) {
-                    described = true;
-                }
-            }
-        }
-        if (! described) {
-            return Err(resource::ResourceError {
-                .kind    = resource::ResourceErrorKind::MissingDefinition,
-                .message = rstd::format("uniform block {} is outside the descriptor requirement",
-                                        block.name.as_str()),
-            });
-        }
-    }
-
-    PipelineLayoutRequirement requirement {
-        .pipeline = *m_desc.pipeline_use,
-    };
-    requirement.descriptor_sets.reserve(artifact.descriptor_sets.len());
-    for (const auto& set : artifact.descriptor_sets) {
-        PipelineLayoutSetRequirement set_requirement {
-            .set             = set.set,
-            .push_descriptor = set.push_descriptor,
-        };
-        set_requirement.bindings.reserve(set.bindings.len());
-        for (const auto& binding : set.bindings) {
-            if (binding.set != set.set) {
-                return Err(resource::ResourceError {
-                    .kind    = resource::ResourceErrorKind::MissingDefinition,
-                    .message = rstd::format("descriptor binding set does not match its set"),
-                });
-            }
-            Option<u64> shared_identity;
-            for (const auto& block : artifact.uniform_blocks) {
-                if (block.set != set.set || block.binding != binding.binding) continue;
-                if (block.scope == resource::ShaderArtifactUniformBlock::Scope::Shared) {
-                    shared_identity = Some(u64(block.identity.to_primitive()));
-                }
-                break;
-            }
-            if (set.set == u32() && shared_identity.is_none()) {
-                return Err(resource::ResourceError {
-                    .kind    = resource::ResourceErrorKind::MissingDefinition,
-                    .message = rstd::format("descriptor set 0 binding {} is not a shared resource",
-                                            binding.binding),
-                });
-            }
-            if (set.set != u32() && shared_identity.is_some()) {
-                return Err(resource::ResourceError {
-                    .kind    = resource::ResourceErrorKind::MissingDefinition,
-                    .message = rstd::format("shared resources must use descriptor set 0"),
-                });
-            }
-            set_requirement.bindings.push(PipelineLayoutBindingRequirement {
-                .binding          = binding.binding,
-                .descriptor_type  = binding.descriptor_type,
-                .descriptor_count = binding.descriptor_count,
-                .stage_flags      = binding.stage_flags,
-                .shared_identity  = shared_identity,
-            });
-        }
-        requirement.descriptor_sets.push(rstd::move(set_requirement));
-    }
-    return Ok(Some(rstd::move(requirement)));
 }
 
 auto SceneDraw::globalDescriptorBufferUses(const PreparedPassResources& resources) const
@@ -677,7 +606,7 @@ auto SceneDraw::createUniformBufferUpdates(ref<dyn<UniformBindingPrepareContext>
 
 auto SceneDraw::describeGraphics(const resource::ShaderArtifact& artifact)
     -> Option<vrento::vulkan::GraphicsDrawDesc> {
-    if (! geometry_ || ! material_) return None();
+    if (! geometry_ || ! material_ || ! preparation_) return None();
     auto        geometry     = geometry_->layout();
     const auto& material_ref = *material_;
     const bool  has_depth_attachment =
@@ -687,82 +616,25 @@ auto SceneDraw::describeGraphics(const resource::ShaderArtifact& artifact)
         has_depth_attachment
             ? (m_desc.clear_depth ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD)
             : VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-    m_desc.depth_load_op                         = depthLoadOp;
-    const bool             out_force_clear       = force_clear_;
-    const auto             out_blend_alpha_write = output_alpha_;
-    Vec<Uni_ShaderSpv>     spvs;
-    ShaderReflected        shader_reflection;
-    const ShaderReflected* ref { nullptr };
-    {
-        const SceneShader& shader = **material_ref.shader;
-
-        shader_reflection = ShaderReflectionFromArtifact(artifact);
-        spvs              = ShaderSpvsFromArtifact(artifact);
-        if (spvs.is_empty()) {
-            rstd_error("prepared shader artifact is empty, {}", shader.name);
-            return None();
-        }
-        ref = &shader_reflection;
-
-        m_desc.vk_tex_binding.clear();
-        m_desc.vk_tex_binding.reserve(m_desc.texture_bindings.len());
-        m_desc.vk_tex_set.clear();
-        m_desc.vk_tex_set.reserve(m_desc.texture_bindings.len());
-        m_desc.texture_stages.clear();
-        m_desc.texture_stages.reserve(m_desc.texture_bindings.len());
-
-        for (rstd::size_t i = 0; i < m_desc.texture_bindings.len().to_primitive(); i++) {
-            rstd::int32_t binding { -1 };
-            u32           set {};
-            auto          stages = vrento::texture::Stages::None;
-            const auto    member = shader.SamplerMember(i);
-            if (! member.is_empty()) {
-                auto reflected = ref->binding_map.get(member);
-                if (reflected.is_some()) {
-                    binding          = static_cast<rstd::int32_t>((**reflected).layout.binding);
-                    set              = u32((**reflected).set);
-                    const auto flags = (**reflected).layout.stageFlags;
-                    if (flags & VK_SHADER_STAGE_VERTEX_BIT)
-                        stages = stages | vrento::texture::Stages::Vertex;
-                    if (flags & VK_SHADER_STAGE_FRAGMENT_BIT)
-                        stages = stages | vrento::texture::Stages::Fragment;
-                    if (flags & VK_SHADER_STAGE_GEOMETRY_BIT)
-                        stages = stages | vrento::texture::Stages::Geometry;
-                }
-            }
-            m_desc.vk_tex_binding.push(rstd::move(binding));
-            m_desc.vk_tex_set.push(rstd::move(set));
-            m_desc.texture_stages.push(rstd::move(stages));
-        }
+    m_desc.depth_load_op             = depthLoadOp;
+    const bool out_force_clear       = force_clear_;
+    const auto out_blend_alpha_write = output_alpha_;
+    auto       spvs                  = ShaderSpvsFromArtifact(artifact);
+    if (spvs.is_empty()) {
+        rstd_error("prepared shader artifact is empty, {}", (**material_ref.shader).name);
+        return None();
     }
-
-    Vec<VkVertexInputBindingDescription>   bind_descriptions;
-    Vec<VkVertexInputAttributeDescription> attr_descriptions;
-    {
-        for (unsigned i = 0; i < geometry.vertices.len().to_primitive(); i++) {
-            const auto& vertex = geometry.vertices[usize(i)];
-
-            VkVertexInputBindingDescription bind_desc {
-                .binding   = i,
-                .stride    = static_cast<rstd::uint32_t>(vertex.stride.to_primitive()),
-                .inputRate = VK_VERTEX_INPUT_RATE_VERTEX,
-            };
-            bind_descriptions.push(rstd::move(bind_desc));
-
-            for (const auto& [name, input_ref] : ref->input_location_map.iter()) {
-                const auto& input  = *input_ref;
-                auto        stored = vertex_offsets_[usize(i)].get(name->as_str());
-                usize       offset = stored ? **stored : usize();
-
-                VkVertexInputAttributeDescription attr_desc {
-                    .location = input.location,
-                    .binding  = i,
-                    .format   = input.format,
-                    .offset   = static_cast<rstd::uint32_t>(offset.to_primitive()),
-                };
-                attr_descriptions.push(rstd::move(attr_desc));
-            }
-        }
+    const auto& prepared = **preparation_;
+    m_desc.vk_tex_binding.clear();
+    m_desc.vk_tex_set.clear();
+    m_desc.texture_stages.clear();
+    m_desc.vk_tex_binding.reserve(prepared.samplers.len());
+    m_desc.vk_tex_set.reserve(prepared.samplers.len());
+    m_desc.texture_stages.reserve(prepared.samplers.len());
+    for (const auto& sampler : prepared.samplers) {
+        m_desc.vk_tex_binding.push(sampler.binding.to_primitive());
+        m_desc.vk_tex_set.push(u32(sampler.set));
+        m_desc.texture_stages.push(vrento::texture::Stages(sampler.stages));
     }
     {
         VkPipelineColorBlendAttachmentState color_blend {};
@@ -816,8 +688,8 @@ auto SceneDraw::describeGraphics(const resource::ShaderArtifact& artifact)
         if (m_desc.pipeline_use.is_none()) return None();
         PipelineResourceRequest pipeline_request {
             .pipeline_layout = {},
-            .vertex_bindings = rstd::move(bind_descriptions),
-            .vertex_attrs    = rstd::move(attr_descriptions),
+            .vertex_bindings = prepared.vertex_bindings.clone(),
+            .vertex_attrs    = prepared.vertex_attributes.clone(),
             .shader_stages   = rstd::move(spvs),
             .color_blend     = color_blend,
             .depth           = pipeline_state.depth,
@@ -844,13 +716,12 @@ auto SceneDraw::describeGraphics(const resource::ShaderArtifact& artifact)
             .has_depth_attachment = has_depth_attachment,
         };
         if (m_desc.render_pass_use.is_none()) return None();
-        auto layout = pipelineLayoutRequirement(artifact);
-        if (layout.is_err() || ! *layout) return None();
-        return Some(vrento::vulkan::GraphicsDrawDesc { {},
-                                                       *m_desc.pipeline_use,
-                                                       *m_desc.render_pass_use,
-                                                       rstd::move(pipeline_request),
-                                                       rstd::move(*layout) });
+        return Some(vrento::vulkan::GraphicsDrawDesc {
+            {},
+            *m_desc.pipeline_use,
+            *m_desc.render_pass_use,
+            rstd::move(pipeline_request),
+            Some(prepared.pipelineLayout(*m_desc.pipeline_use)) });
     }
 }
 
