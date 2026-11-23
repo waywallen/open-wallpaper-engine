@@ -16,10 +16,7 @@ using namespace rstd::literals;
 
 namespace
 {
-Matrix4d NodeCameraFrame(SceneNode& node) {
-    node.UpdateTrans();
-
-    Matrix4d frame = node.ModelTrans();
+Matrix4d SanitizeNodeCameraFrame(Matrix4d frame) {
     if (! frame.allFinite()) return Matrix4d::Identity();
 
     constexpr double kAxisEps = 1e-10;
@@ -40,7 +37,7 @@ Matrix4d NodeCameraFrame(SceneNode& node) {
 } // namespace
 
 Vector3d SceneCamera::GetPosition(SceneRenderViewKind view) const {
-    return RenderTransforms(view).eye;
+    return CurrentRenderTransforms(view).eye;
 }
 
 Vector3d SceneCamera::GetDirection() const {
@@ -49,28 +46,74 @@ Vector3d SceneCamera::GetDirection() const {
 }
 
 auto SceneCamera::Transforms() const -> SceneCameraTransforms {
+    if (! m_lookat && m_node) RefreshAttachedFrame();
+    return BaseTransforms();
+}
+
+auto SceneCamera::BaseTransforms() const -> SceneCameraTransforms {
     if (m_lookat) return SceneCameraTransforms { .eye = m_eye, .center = m_center, .up = m_up };
     if (m_node) {
-        const Matrix4d frame = NodeCameraFrame(*m_node);
-        const Vector3d eye   = frame.block<3, 1>(0, 3);
+        const Vector3d eye = m_attached_frame.block<3, 1>(0, 3);
         return SceneCameraTransforms {
             .eye    = eye,
-            .center = eye - frame.block<3, 1>(0, 2),
-            .up     = frame.block<3, 1>(0, 1),
+            .center = eye - m_attached_frame.block<3, 1>(0, 2),
+            .up     = m_attached_frame.block<3, 1>(0, 1),
         };
     }
     return {};
 }
 
 auto SceneCamera::RenderTransforms(SceneRenderViewKind view) const -> SceneCameraTransforms {
-    auto transforms = Transforms();
+    return CurrentRenderTransforms(view);
+}
+
+auto SceneCamera::ViewCache(SceneRenderViewKind view) const -> CachedView& {
+    return view == SceneRenderViewKind::Reflection ? m_reflection_view : m_primary_view;
+}
+
+auto SceneCamera::CurrentRenderTransforms(SceneRenderViewKind view) const
+    -> const SceneCameraTransforms& {
+    if (! m_lookat && m_node) RefreshAttachedFrame();
+    return CachedTransforms(ViewCache(view), view);
+}
+
+auto SceneCamera::CachedTransforms(CachedView& cache, SceneRenderViewKind view) const
+    -> const SceneCameraTransforms& {
+    if (cache.transforms) return *cache.transforms;
+    auto transforms = BaseTransforms();
     transforms.eye += m_view_offset;
     transforms.center += m_view_offset;
     if (view == SceneRenderViewKind::Reflection) {
         transforms.eye.y()    = -transforms.eye.y();
         transforms.center.y() = -transforms.center.y();
     }
-    return transforms;
+    cache.transforms = Some(rstd::move(transforms));
+    return *cache.transforms;
+}
+
+void SceneCamera::InvalidateMatrices() const {
+    m_primary_view.matrices_dirty    = true;
+    m_reflection_view.matrices_dirty = true;
+}
+
+void SceneCamera::InvalidateRenderTransforms() const {
+    m_primary_view.transforms    = None();
+    m_reflection_view.transforms = None();
+    InvalidateMatrices();
+}
+
+void SceneCamera::InvalidateAttachment() {
+    m_attached_revision = None();
+    InvalidateRenderTransforms();
+}
+
+void SceneCamera::RefreshAttachedFrame() const {
+    m_node->UpdateTrans();
+    const auto revision = m_node->NodeState().WorldRevision();
+    if (m_attached_revision && *m_attached_revision == revision) return;
+    m_attached_frame    = SanitizeNodeCameraFrame(m_node->ModelTrans());
+    m_attached_revision = Some(u64(revision));
+    if (! m_lookat) InvalidateRenderTransforms();
 }
 
 bool SceneCamera::SetTransforms(const SceneCameraTransforms& transforms) {
@@ -89,7 +132,8 @@ auto SceneCamera::AuthoredTransforms() const -> SceneCameraTransforms {
     auto transforms = Transforms();
     if (m_perspective || ! m_node) return transforms;
 
-    const Matrix4d frame_inverse = NodeCameraFrame(*m_node).inverse();
+    RefreshAttachedFrame();
+    const Matrix4d frame_inverse = m_attached_frame.inverse();
     transforms.eye               = (frame_inverse * transforms.eye.homogeneous()).head<3>();
     transforms.center            = (frame_inverse * transforms.center.homogeneous()).head<3>();
     transforms.up                = frame_inverse.block<3, 3>(0, 0) * transforms.up;
@@ -99,7 +143,8 @@ auto SceneCamera::AuthoredTransforms() const -> SceneCameraTransforms {
 bool SceneCamera::SetAuthoredTransforms(const SceneCameraTransforms& transforms) {
     if (m_perspective || ! m_node) return SetTransforms(transforms);
 
-    const Matrix4d frame = NodeCameraFrame(*m_node);
+    RefreshAttachedFrame();
+    const auto& frame = m_attached_frame;
     return SetTransforms(SceneCameraTransforms {
         .eye    = (frame * transforms.eye.homogeneous()).head<3>(),
         .center = (frame * transforms.center.homogeneous()).head<3>(),
@@ -107,33 +152,16 @@ bool SceneCamera::SetAuthoredTransforms(const SceneCameraTransforms& transforms)
     });
 }
 
-Matrix4d SceneCamera::GetViewMatrix() {
-    CalculateViewProjectionMatrix();
-    return m_camera.View();
+Matrix4d SceneCamera::GetViewMatrix(SceneRenderViewKind view) {
+    return RenderMatrices(view).View();
 }
 
 Matrix4d SceneCamera::GetViewProjectionMatrix(SceneRenderViewKind view) {
-    if (view == SceneRenderViewKind::Reflection) return CalculateReflectionViewProjectionMatrix();
-    CalculateViewProjectionMatrix();
-    return m_camera.ViewProjection();
+    return RenderMatrices(view).ViewProjection();
 }
 
 auto SceneCamera::CameraSnapshot(SceneRenderViewKind view) -> vrento::CameraSnapshot<Matrix4d> {
-    if (view == SceneRenderViewKind::Reflection) {
-        CalculateReflectionViewProjectionMatrix();
-        return m_reflection_camera.Snapshot();
-    }
-    CalculateViewProjectionMatrix();
-    return m_camera.Snapshot();
-}
-
-Matrix4d SceneCamera::CalculateReflectionViewProjectionMatrix() {
-    const auto transforms = RenderTransforms(SceneRenderViewKind::Reflection);
-    // WE preserves camera-up so the reflection texture remains screen-upright.
-
-    const Matrix4d view = LookAt(transforms.eye, transforms.center, transforms.up);
-    m_reflection_camera.Set(view, ProjectionMatrix());
-    return m_reflection_camera.ViewProjection();
+    return RenderMatrices(view).Snapshot();
 }
 
 Matrix4d SceneCamera::ProjectionMatrix() const {
@@ -144,24 +172,32 @@ Matrix4d SceneCamera::ProjectionMatrix() const {
         -m_width / 2.0, m_width / 2.0, -m_height / 2.0, m_height / 2.0, m_nearClip, m_farClip);
 }
 
-void SceneCamera::CalculateViewProjectionMatrix() {
+auto SceneCamera::RenderMatrices(SceneRenderViewKind kind) const
+    -> const vrento::CameraState<Matrix4d>& {
+    if (! m_lookat && m_node) RefreshAttachedFrame();
+    auto& cache = ViewCache(kind);
+    if (! cache.matrices_dirty) return cache.matrices;
+
     Matrix4d view;
-    if (m_lookat) {
-        view = LookAt(m_eye, m_center, m_up);
-    } else if (m_node) {
-        // view = inv(node.ModelTrans()) so the layer-local frame maps to
-        // view origin regardless of where the node sits in the world (parent
-        // chain + local translate / scale / rotate). With LookAt-only the
-        // node's local scale would leak into clip space and a 9× scaled
-        // layer would only see 1/9 of its quad inside the ortho viewport.
-        view = NodeCameraFrame(*m_node).inverse();
-    } else
-        view = Matrix4d::Identity();
-    view = view * Affine3d(Translation3d(-m_view_offset)).matrix();
-    m_camera.Set(view, ProjectionMatrix());
+    if (kind == SceneRenderViewKind::Reflection) {
+        // WE preserves camera-up so the reflection stays screen-upright.
+        const auto& transforms = CachedTransforms(cache, kind);
+        view                   = LookAt(transforms.eye, transforms.center, transforms.up);
+    } else {
+        if (m_lookat) view = LookAt(m_eye, m_center, m_up);
+        // Invert the full frame so layer-local coordinates retain their scale.
+        else if (m_node)
+            view = m_attached_frame.inverse();
+        else
+            view = Matrix4d::Identity();
+        view = view * Affine3d(Translation3d(-m_view_offset)).matrix();
+    }
+    cache.matrices.Set(view, ProjectionMatrix());
+    cache.matrices_dirty = false;
+    return cache.matrices;
 }
 
-void SceneCamera::Update() { CalculateViewProjectionMatrix(); }
+void SceneCamera::Update() { (void)RenderMatrices(SceneRenderViewKind::Primary); }
 
 void Scene::UpdateCameraFillMode(u32 width, u32 height, FillMode fillmode) {
     if (width == u32() || height == u32()) return;
@@ -224,10 +260,12 @@ void SceneCamera::AttatchNode(SceneNode* node) {
         m_owned_node = None();
     m_node   = node;
     m_lookat = false; // node-based view takes over from any explicit LookAt
+    InvalidateAttachment();
 }
 
 void SceneCamera::AttachOwnedNode(Arc<SceneNode> node) {
     m_node       = node.as_ptr().as_raw_ptr();
     m_owned_node = Some(rstd::move(node));
     m_lookat     = false;
+    InvalidateAttachment();
 }

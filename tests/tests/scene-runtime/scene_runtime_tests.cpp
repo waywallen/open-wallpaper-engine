@@ -183,6 +183,31 @@ TEST(TransformUniformSource, AppliesGeometryTransformAfterNodeTransform) {
     EXPECT_NEAR(model[usize(13)], 140.0f, 1e-5f);
 }
 
+TEST(TransformUniformSource, ViewOutputsDoNotUpdateTheDrawNode) {
+    auto state = Arc<owe::UniformSceneState>::make(Arc<owe::AudioResponseDemand>::make());
+    auto camera =
+        Arc<owe::SceneCamera>::make(owe::SceneCamera::MakePerspective(1.5, 1.0, 1000.0, 60.0));
+    auto resolver = Arc<owe::UniformCameraResolver>::make(camera.clone());
+    auto node     = Arc<owe::SceneNode>::make();
+    auto config   = Arc<owe::UniformNodeState>::make(node.clone(), rstd::move(resolver));
+    owe::TransformUniformSource source(rstd::move(state), rstd::move(config));
+
+    node->UpdateTrans();
+    const auto revision = node->NodeState().WorldRevision();
+    node->SetTranslate({ 10.0f, 20.0f, 30.0f });
+    using Output     = owe::TransformUniformOutput;
+    const auto right = scene_test::Capture(owe::SceneFrame {}, source, Output::ViewRight);
+    const auto vp    = scene_test::Capture(owe::SceneFrame {}, source, Output::ViewProjection);
+    EXPECT_EQ(right.size(), usize(3));
+    EXPECT_EQ(vp.size(), usize(16));
+    EXPECT_EQ(node->NodeState().WorldRevision(), revision);
+
+    const auto model = scene_test::Capture(owe::SceneFrame {}, source, Output::Model);
+    EXPECT_NE(node->NodeState().WorldRevision(), revision);
+    ASSERT_EQ(model.size(), usize(16));
+    EXPECT_FLOAT_EQ(model[usize(12)], 10.0f);
+}
+
 TEST(TransformUniformSource, ReversesClipDepthWithoutChangingCameraOrModel) {
     auto state = Arc<owe::UniformSceneState>::make(Arc<owe::AudioResponseDemand>::make());
     auto camera =
@@ -1754,11 +1779,36 @@ TEST(SceneCameraState, TracksParentChangesAndPreservesNodeInverse) {
     const auto first = camera.CameraSnapshot();
     EXPECT_TRUE((first.view * child->ModelTrans()).isIdentity(1e-12));
     parent->SetTranslate({ 40, 30, 0 });
+    EXPECT_TRUE(camera.GetPosition().isApprox(Eigen::Vector3d(40, 30, 0)));
     const auto changed = camera.CameraSnapshot();
     EXPECT_EQ(changed.revision, first.revision + u64(1));
     EXPECT_TRUE((changed.view * child->ModelTrans()).isIdentity(1e-12));
     EXPECT_FALSE(first.view.isApprox(changed.view));
     EXPECT_EQ(camera.CameraSnapshot().revision, changed.revision);
+}
+
+TEST(SceneCameraState, ReattachesNodesWithTheSameWorldRevision) {
+    auto first  = Arc<owe::SceneNode>::make();
+    auto second = Arc<owe::SceneNode>::make();
+    first->SetTranslate({ 5, 10, 0 });
+    second->SetTranslate({ 15, 20, 0 });
+    auto camera = owe::SceneCamera::MakeOrthographic(200, 100, -1, 1);
+    camera.AttachOwnedNode(first.clone());
+    const auto primary    = camera.CameraSnapshot();
+    const auto reflection = camera.CameraSnapshot(owe::SceneRenderViewKind::Reflection);
+
+    auto replacement = owe::SceneCamera::MakeOrthographic(200, 100, -1, 1);
+    replacement.AttachOwnedNode(second.clone());
+    second->UpdateTrans();
+    ASSERT_EQ(first->NodeState().WorldRevision(), second->NodeState().WorldRevision());
+    camera.Clone(replacement);
+    EXPECT_TRUE(camera.GetPosition().isApprox(Eigen::Vector3d(15, 20, 0)));
+    EXPECT_TRUE(camera.GetPosition(owe::SceneRenderViewKind::Reflection)
+                    .isApprox(Eigen::Vector3d(15, -20, 0)));
+    EXPECT_EQ(camera.CameraSnapshot().revision, primary.revision + u64(1));
+    EXPECT_EQ(camera.CameraSnapshot(owe::SceneRenderViewKind::Reflection).revision,
+              reflection.revision + u64(1));
+    EXPECT_TRUE((camera.GetViewMatrix() * second->ModelTrans()).isIdentity(1e-12));
 }
 
 TEST(SceneCameraState, ReflectionPreservesUpAndDoesNotReplacePrimary) {

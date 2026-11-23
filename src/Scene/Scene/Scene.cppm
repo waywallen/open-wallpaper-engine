@@ -1225,15 +1225,29 @@ public:
     SceneCameraFovPolicy FovPolicy() const { return m_fov_policy; }
 
     void SetWidth(double value) {
+        const auto aspect = value / m_height;
+        if (m_width == value && m_aspect == aspect) return;
         m_width  = value;
-        m_aspect = m_width / m_height;
+        m_aspect = aspect;
+        InvalidateMatrices();
     }
     void SetHeight(double value) {
+        const auto aspect = m_width / value;
+        if (m_height == value && m_aspect == aspect) return;
         m_height = value;
-        m_aspect = m_width / m_height;
+        m_aspect = aspect;
+        InvalidateMatrices();
     }
-    void SetAspect(double aspect) { m_aspect = aspect; }
-    void SetFov(double value) { m_fov = value; }
+    void SetAspect(double aspect) {
+        if (m_aspect == aspect) return;
+        m_aspect = aspect;
+        InvalidateMatrices();
+    }
+    void SetFov(double value) {
+        if (m_fov == value) return;
+        m_fov = value;
+        InvalidateMatrices();
+    }
     void SetFovPolicy(SceneCameraFovPolicy policy) { m_fov_policy = policy; }
 
     // Explicit eye/center/up view, used by perspective scenes (general
@@ -1242,10 +1256,12 @@ public:
     // the attached node (if any) is ignored.
     void SetLookAt(const Eigen::Vector3d& eye, const Eigen::Vector3d& center,
                    const Eigen::Vector3d& up) {
+        if (m_lookat && m_eye == eye && m_center == center && m_up == up) return;
         m_eye    = eye;
         m_center = center;
         m_up     = up;
         m_lookat = true;
+        InvalidateRenderTransforms();
     }
     bool IsLookAt() const { return m_lookat; }
     // Base transforms remain independent of transient rendering offsets.
@@ -1253,7 +1269,10 @@ public:
     auto RenderTransforms(SceneRenderViewKind view = SceneRenderViewKind::Primary) const
         -> SceneCameraTransforms;
     void SetViewOffset(const Eigen::Vector3d& offset) {
-        m_view_offset = offset.allFinite() ? offset : Eigen::Vector3d::Zero();
+        const Eigen::Vector3d safe = offset.allFinite() ? offset : Eigen::Vector3d::Zero();
+        if (m_view_offset == safe) return;
+        m_view_offset = safe;
+        InvalidateRenderTransforms();
     }
     bool SetTransforms(const SceneCameraTransforms& transforms);
     auto AuthoredTransforms() const -> SceneCameraTransforms;
@@ -1262,11 +1281,7 @@ public:
     Eigen::Vector3d GetPosition(SceneRenderViewKind view = SceneRenderViewKind::Primary) const;
     Eigen::Vector3d GetDirection() const;
 
-    // Lazy: recomputes from m_node->ModelTrans() on every call. Cheap when
-    // the attached node hasn't moved (UpdateTrans early-exits on clean
-    // m_dirty), correctness-keeping when scripts / parent-chain attachment
-    // shift the node between frames.
-    Eigen::Matrix4d GetViewMatrix();
+    Eigen::Matrix4d GetViewMatrix(SceneRenderViewKind view = SceneRenderViewKind::Primary);
     Eigen::Matrix4d
          GetViewProjectionMatrix(SceneRenderViewKind view = SceneRenderViewKind::Primary);
     auto CameraSnapshot(SceneRenderViewKind view = SceneRenderViewKind::Primary)
@@ -1279,21 +1294,36 @@ public:
     auto AttachedNodeHandle() const -> Option<Arc<SceneNode>> { return m_owned_node.clone(); }
 
     void Clone(const SceneCamera& cam) {
-        m_width       = cam.m_width;
-        m_height      = cam.m_height;
-        m_aspect      = cam.m_aspect;
-        m_nearClip    = cam.m_nearClip;
-        m_farClip     = cam.m_farClip;
-        m_fov         = cam.m_fov;
-        m_fov_policy  = cam.m_fov_policy;
-        m_perspective = cam.m_perspective;
-        m_lookat      = cam.m_lookat;
-        m_eye         = cam.m_eye;
-        m_center      = cam.m_center;
-        m_up          = cam.m_up;
-        m_view_offset = cam.m_view_offset;
-        m_owned_node  = cam.m_owned_node.clone();
-        m_node        = cam.m_node;
+        if (this == &cam) return;
+        const bool attachment_changed = m_node != cam.m_node;
+        const bool pose_changed =
+            m_lookat != cam.m_lookat || m_view_offset != cam.m_view_offset ||
+            (cam.m_lookat && (m_eye != cam.m_eye || m_center != cam.m_center || m_up != cam.m_up));
+        const bool projection_changed = m_perspective != cam.m_perspective ||
+                                        m_width != cam.m_width || m_height != cam.m_height ||
+                                        m_aspect != cam.m_aspect || m_fov != cam.m_fov ||
+                                        m_nearClip != cam.m_nearClip || m_farClip != cam.m_farClip;
+        m_width                       = cam.m_width;
+        m_height                      = cam.m_height;
+        m_aspect                      = cam.m_aspect;
+        m_nearClip                    = cam.m_nearClip;
+        m_farClip                     = cam.m_farClip;
+        m_fov                         = cam.m_fov;
+        m_fov_policy                  = cam.m_fov_policy;
+        m_perspective                 = cam.m_perspective;
+        m_lookat                      = cam.m_lookat;
+        m_eye                         = cam.m_eye;
+        m_center                      = cam.m_center;
+        m_up                          = cam.m_up;
+        m_view_offset                 = cam.m_view_offset;
+        m_owned_node                  = cam.m_owned_node.clone();
+        m_node                        = cam.m_node;
+        if (attachment_changed)
+            InvalidateAttachment();
+        else if (pose_changed)
+            InvalidateRenderTransforms();
+        else if (projection_changed)
+            InvalidateMatrices();
     }
 
 private:
@@ -1310,8 +1340,20 @@ private:
 
     explicit SceneCamera(PerspectiveTag, double aspect, double near, double far, double fov)
         : m_aspect(aspect), m_nearClip(near), m_farClip(far), m_fov(fov), m_perspective(true) {}
-    void            CalculateViewProjectionMatrix();
-    Eigen::Matrix4d CalculateReflectionViewProjectionMatrix();
+    struct CachedView {
+        vrento::CameraState<Eigen::Matrix4d> matrices;
+        Option<SceneCameraTransforms>        transforms;
+        bool                                 matrices_dirty { true };
+    };
+    void InvalidateMatrices() const;
+    void InvalidateRenderTransforms() const;
+    void InvalidateAttachment();
+    void RefreshAttachedFrame() const;
+    auto BaseTransforms() const -> SceneCameraTransforms;
+    auto ViewCache(SceneRenderViewKind) const -> CachedView&;
+    auto CurrentRenderTransforms(SceneRenderViewKind) const -> const SceneCameraTransforms&;
+    auto CachedTransforms(CachedView&, SceneRenderViewKind) const -> const SceneCameraTransforms&;
+    auto RenderMatrices(SceneRenderViewKind) const -> const vrento::CameraState<Eigen::Matrix4d>&;
     Eigen::Matrix4d ProjectionMatrix() const;
 
     double               m_width { 1.0f };
@@ -1329,8 +1371,10 @@ private:
     Eigen::Vector3d m_up { Eigen::Vector3d::UnitY() };
     Eigen::Vector3d m_view_offset { Eigen::Vector3d::Zero() };
 
-    vrento::CameraState<Eigen::Matrix4d> m_camera;
-    vrento::CameraState<Eigen::Matrix4d> m_reflection_camera;
+    mutable CachedView      m_primary_view;
+    mutable CachedView      m_reflection_view;
+    mutable Eigen::Matrix4d m_attached_frame { Eigen::Matrix4d::Identity() };
+    mutable Option<u64>     m_attached_revision;
 
     SceneNode*             m_node { nullptr };
     Option<Arc<SceneNode>> m_owned_node;

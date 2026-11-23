@@ -557,7 +557,6 @@ auto TransformUniformSource::Evaluate(ref<dyn<UniformUpdateContext>> context,
     auto&         node        = *m_node->node;
     auto&         camera      = **camera_ref;
     const auto    render_view = context->RenderView();
-    node.UpdateTrans();
 
     const bool req_mi           = writer.Wants(Output::ModelInverse);
     const bool req_m            = writer.Wants(Output::Model);
@@ -567,30 +566,51 @@ auto TransformUniformSource::Evaluate(ref<dyn<UniformUpdateContext>> context,
     const bool req_mvpi         = writer.Wants(Output::ModelViewProjectionInverse);
     const bool req_emvp         = writer.Wants(Output::EffectModelViewProjection);
     const bool req_emvpi        = writer.Wants(Output::EffectModelViewProjectionInverse);
-    const bool req_effect_model = writer.Wants(Output::EffectModel) || req_emvp || req_emvpi ||
-                                  writer.Wants(Output::LayerModel);
+    const bool req_effect_model = writer.Wants(Output::EffectModel);
+    const bool req_layer_model  = writer.Wants(Output::LayerModel);
     const bool req_orientation  = writer.Wants(Output::OrientationRight) ||
                                   writer.Wants(Output::OrientationUp) ||
                                   writer.Wants(Output::OrientationForward);
-    const bool req_view_axes    = writer.Wants(Output::ViewRight) || writer.Wants(Output::ViewUp) ||
-                                  writer.Wants(Output::ViewForward);
+    const bool req_view_right   = writer.Wants(Output::ViewRight);
+    const bool req_view_up      = writer.Wants(Output::ViewUp);
+    const bool req_view_forward = writer.Wants(Output::ViewForward);
+    const bool req_vp           = writer.Wants(Output::ViewProjection);
 
-    Matrix4d view_projection = camera.GetViewProjectionMatrix(render_view);
-    if (m_node->reverse_depth)
-        view_projection.row(2) = (view_projection.row(3) - view_projection.row(2)).eval();
-    auto active_camera_ref = m_node->camera_resolver->Active();
-
-    writer.Write(Output::ViewProjection, ShaderValue::fromMatrix(view_projection));
-    if (m_node->eye_position_override.is_some()) {
-        writer.Write(Output::EyePosition, *m_node->eye_position_override);
-    } else if (m_node->use_camera_eye_position || camera.IsPerspective()) {
-        const Vector3f position = camera.GetPosition(render_view).cast<float>();
-        writer.Write(Output::EyePosition,
-                     array<float, 3> { position.x(), position.y(), position.z() });
+    Matrix4d view_projection;
+    if (req_vp || req_mvp || req_mvpi) {
+        view_projection = camera.GetViewProjectionMatrix(render_view);
+        if (m_node->reverse_depth)
+            view_projection.row(2) = (view_projection.row(3) - view_projection.row(2)).eval();
+        if (req_vp) writer.Write(Output::ViewProjection, ShaderValue::fromMatrix(view_projection));
+    }
+    if (writer.Wants(Output::EyePosition)) {
+        if (m_node->eye_position_override.is_some()) {
+            writer.Write(Output::EyePosition, *m_node->eye_position_override);
+        } else if (m_node->use_camera_eye_position || camera.IsPerspective()) {
+            const Vector3f position = camera.GetPosition(render_view).cast<float>();
+            writer.Write(Output::EyePosition,
+                         array<float, 3> { position.x(), position.y(), position.z() });
+        }
     }
 
-    if (req_m || req_normal_model || req_am || req_mvp || req_mi || req_mvpi || req_effect_model ||
-        req_orientation || req_view_axes) {
+    const auto write_axis = [&](Output output, const Vector3d& axis) {
+        writer.Write(output,
+                     array<float, 3> { static_cast<float>(axis.x()),
+                                       static_cast<float>(axis.y()),
+                                       static_cast<float>(axis.z()) });
+    };
+    Matrix3d view;
+    if (req_orientation || req_view_right || req_view_up || req_view_forward) {
+        view = camera.GetViewMatrix(render_view).block<3, 3>(0, 0);
+        if (req_view_right) write_axis(Output::ViewRight, view.row(0).normalized());
+        if (req_view_up) write_axis(Output::ViewUp, view.row(1).normalized());
+        if (req_view_forward) write_axis(Output::ViewForward, -view.row(2).normalized());
+    }
+
+    const bool needs_effect_model = req_effect_model || req_emvp || req_emvpi;
+    if (req_m || req_normal_model || req_am || req_mvp || req_mi || req_mvpi ||
+        needs_effect_model || req_layer_model || req_orientation) {
+        if (! m_node->vertices_in_world_space) node.UpdateTrans();
         Matrix4d model = m_node->vertices_in_world_space ? Matrix4d::Identity() : node.ModelTrans();
         const auto& parallax = m_state->CameraParallax();
         auto        attached = camera.GetAttachedNode();
@@ -611,41 +631,28 @@ auto TransformUniformSource::Evaluate(ref<dyn<UniformUpdateContext>> context,
         model *= node.GeometryTransform();
         if (auto* mesh = node.Mesh(); mesh != nullptr) model *= mesh->GeometryTransform();
 
-        if (req_orientation || req_view_axes) {
-            const Matrix3d view       = camera.CameraSnapshot(render_view).view.block<3, 3>(0, 0);
+        if (req_orientation) {
             const Matrix3d model_axes = model.block<3, 3>(0, 0);
-            const auto     write_axis = [&](Output output, const Vector3d& axis) {
-                writer.Write(output,
-                             array<float, 3> { static_cast<float>(axis.x()),
-                                               static_cast<float>(axis.y()),
-                                               static_cast<float>(axis.z()) });
-            };
-            write_axis(Output::ViewRight, view.row(0).normalized());
-            write_axis(Output::ViewUp, view.row(1).normalized());
-            write_axis(Output::ViewForward, -view.row(2).normalized());
-            if (req_orientation) {
-                // Sprite tangents are local; world-space particles must not inherit emitter
-                // rotation.
-                const Vector3d backward = view.row(2).normalized();
-                Vector3d       up       = model_axes.col(1);
-                up -= backward * backward.dot(up);
-                if (up.squaredNorm() <= 1e-20) up = view.row(1).normalized();
-                Vector3d forward = model_axes.transpose() * backward;
-                up               = model_axes.transpose() * up;
-                Vector3d right   = up.cross(forward);
-                if (forward.squaredNorm() > 1e-20 && right.squaredNorm() > 1e-20) {
-                    forward.normalize();
-                    right.normalize();
-                    up = forward.cross(right).normalized();
-                } else {
-                    right   = Vector3d::UnitX();
-                    up      = Vector3d::UnitY();
-                    forward = Vector3d::UnitZ();
-                }
-                write_axis(Output::OrientationRight, right);
-                write_axis(Output::OrientationUp, up);
-                write_axis(Output::OrientationForward, forward);
+            // Sprite tangents are local; world-space particles must not inherit emitter rotation.
+            const Vector3d backward = view.row(2).normalized();
+            Vector3d       up       = model_axes.col(1);
+            up -= backward * backward.dot(up);
+            if (up.squaredNorm() <= 1e-20) up = view.row(1).normalized();
+            Vector3d forward = model_axes.transpose() * backward;
+            up               = model_axes.transpose() * up;
+            Vector3d right   = up.cross(forward);
+            if (forward.squaredNorm() > 1e-20 && right.squaredNorm() > 1e-20) {
+                forward.normalize();
+                right.normalize();
+                up = forward.cross(right).normalized();
+            } else {
+                right   = Vector3d::UnitX();
+                up      = Vector3d::UnitY();
+                forward = Vector3d::UnitZ();
             }
+            write_axis(Output::OrientationRight, right);
+            write_axis(Output::OrientationUp, up);
+            write_axis(Output::OrientationForward, forward);
         }
 
         if (req_m) writer.Write(Output::Model, ShaderValue::fromMatrix(model));
@@ -670,7 +677,7 @@ auto TransformUniformSource::Evaluate(ref<dyn<UniformUpdateContext>> context,
                 writer.Write(Output::ModelViewProjectionInverse,
                              ShaderValue::fromMatrix(mvp.inverse()));
         }
-        if (req_effect_model) {
+        if (needs_effect_model || req_layer_model) {
             Matrix4d layer_model  = model;
             Matrix4d effect_model = model;
             if (m_node->effect_projection_node.is_some()) {
@@ -678,7 +685,7 @@ auto TransformUniformSource::Evaluate(ref<dyn<UniformUpdateContext>> context,
                 source.UpdateTrans();
                 layer_model  = source.ModelTrans() * source.GeometryTransform();
                 effect_model = layer_model;
-                if (m_node->effect_projection_size[usize(0)] > 0.0f &&
+                if (needs_effect_model && m_node->effect_projection_size[usize(0)] > 0.0f &&
                     m_node->effect_projection_size[usize(1)] > 0.0f) {
                     effect_model =
                         effect_model *
@@ -695,15 +702,17 @@ auto TransformUniformSource::Evaluate(ref<dyn<UniformUpdateContext>> context,
                     const auto parallax_model =
                         Affine3d(Translation3d(Vector3d(shift[usize(0)], shift[usize(1)], 0.0)))
                             .matrix();
-                    layer_model  = parallax_model * layer_model;
-                    effect_model = parallax_model * effect_model;
+                    if (req_layer_model) layer_model = parallax_model * layer_model;
+                    if (needs_effect_model) effect_model = parallax_model * effect_model;
                 }
             }
-            writer.Write(Output::LayerModel, ShaderValue::fromMatrix(layer_model));
-            writer.Write(Output::EffectModel, ShaderValue::fromMatrix(effect_model));
+            if (req_layer_model)
+                writer.Write(Output::LayerModel, ShaderValue::fromMatrix(layer_model));
+            if (req_effect_model)
+                writer.Write(Output::EffectModel, ShaderValue::fromMatrix(effect_model));
             if (req_emvp || req_emvpi) {
                 const Matrix4d effect_view =
-                    active_camera_ref->GetViewProjectionMatrix(render_view);
+                    m_node->camera_resolver->Active()->GetViewProjectionMatrix(render_view);
                 const Matrix4d effect_mvp = effect_view * effect_model;
                 if (req_emvp)
                     writer.Write(Output::EffectModelViewProjection,
