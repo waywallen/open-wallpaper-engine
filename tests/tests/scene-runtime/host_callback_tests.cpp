@@ -183,9 +183,9 @@ TEST(HostCallbacks, OwnsSurfaceCallbackAndDeviceIdentity) {
         uuid[usize()]                     = 42;
         info.uuid                         = Some(uuid);
         uuid[usize()]                     = 7;
-        info.surface_info.createSurfaceOp = Some(owe::CreateSurfaceCallback::make(
-            [owner = Box<Released>::make(&released)](const vvk::Instance&)
-                -> owe::CreateSurfaceResult {
+        info.surface_info.createSurfaceOp = Some(
+            owe::CreateSurfaceCallback::make([owner = Box<Released>::make(&released)](
+                                                 const vvk::Instance&) -> owe::CreateSurfaceResult {
                 return Err(vrento::vulkan::DeviceSessionError {
                     vrento::vulkan::DeviceSessionStage::Surface, VK_ERROR_SURFACE_LOST_KHR });
             }));
@@ -194,7 +194,7 @@ TEST(HostCallbacks, OwnsSurfaceCallbackAndDeviceIdentity) {
     EXPECT_EQ(released, 0);
     {
         auto callback = info.surface_info.createSurfaceOp.take().unwrap();
-        auto result = callback->call_once(vvk::Instance {});
+        auto result   = callback->call_once(vvk::Instance {});
         ASSERT_TRUE(result.is_err());
         EXPECT_EQ(result.unwrap_err().result, VK_ERROR_SURFACE_LOST_KHR);
     }

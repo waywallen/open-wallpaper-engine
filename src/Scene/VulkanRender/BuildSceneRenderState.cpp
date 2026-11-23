@@ -1047,16 +1047,16 @@ auto owe::BuildSceneRenderState(Scene& scene, const RenderSceneSnapshot& render_
 
     StoreMipFramebufferHistory(extra);
 
-    auto           final_result = SelectTexture(extra, MakeTextureDesc(extra, SpecTex_Default));
-    auto           final_use    = Use(extra, final_result);
-    auto           surface_id   = extra.graph.next_resource_id();
-    auto           surface = Remember(extra,
-                                      extra.graph.import_resource({ .id      = surface_id,
-                                                                    .spec    = surface_id.value,
-                                                                    .storage = surface_id.value,
-                                                                    .name = "frame/surface"_Str }));
-    auto           output_id    = extra.graph.reserve_pass_id();
-    auto           release_id   = extra.graph.reserve_pass_id();
+    auto final_result = SelectTexture(extra, MakeTextureDesc(extra, SpecTex_Default));
+    auto final_use    = Use(extra, final_result);
+    auto surface_id   = extra.graph.next_resource_id();
+    auto surface      = Remember(extra,
+                                 extra.graph.import_resource({ .id      = surface_id,
+                                                               .spec    = surface_id.value,
+                                                               .storage = surface_id.value,
+                                                               .name    = "frame/surface"_Str }));
+    auto output_id    = extra.graph.reserve_pass_id();
+    auto release_id   = extra.graph.reserve_pass_id();
     if (extra.error) return Err(*extra.error);
     resource::ResourcePlan             resource_plan { .generation = extra.textures.generation() };
     auto                               shader_backend = vulkan::MakeShaderBackend();

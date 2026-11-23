@@ -254,7 +254,7 @@ TEST(RenderGraphOwnership, ContentReplacementKeepsGraphUntilSpecificationChanges
                                                    .definition = rstd::move(definition),
                                                    .metadata   = Some(shape) })
                                         .unwrap();
-    SceneRenderState state;
+    SceneRenderState      state;
     ASSERT_TRUE(state
                     .install(SceneRenderStateInput { rstd::move(builder).finish().unwrap(),
                                                      rstd::move(textures) })

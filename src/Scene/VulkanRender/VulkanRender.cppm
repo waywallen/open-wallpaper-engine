@@ -29,7 +29,7 @@ using namespace rstd::literals;
 export namespace owe
 {
 
-using ReDrawCB              = Option<Box<dyn<FnMut<void()>>>>;
+using ReDrawCB = Option<Box<dyn<FnMut<void()>>>>;
 using CreateSurfaceResult =
     Result<vrento::vulkan::SessionSurface, vrento::vulkan::DeviceSessionError>;
 using CreateSurfaceCallback = Box<dyn<FnOnce<CreateSurfaceResult(const vvk::Instance&)>>>;

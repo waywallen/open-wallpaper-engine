@@ -19,17 +19,21 @@ class ClientHandler;
 
 class BrowserHost {
 public:
-    enum class OzonePlatform { Wayland, X11 };
+    enum class OzonePlatform
+    {
+        Wayland,
+        X11
+    };
 
     struct InitOptions {
-        PathBuf resources_dir;
-        PathBuf locales_dir;
-        PathBuf cache_dir;
-        bool    enable_remote_debugging { false };
-        int     remote_debugging_port { 0 };
-        bool    enable_audio { true };
-        bool    shared_texture_enabled { true };
-        String  render_node_override;
+        PathBuf       resources_dir;
+        PathBuf       locales_dir;
+        PathBuf       cache_dir;
+        bool          enable_remote_debugging { false };
+        int           remote_debugging_port { 0 };
+        bool          enable_audio { true };
+        bool          shared_texture_enabled { true };
+        String        render_node_override;
         OzonePlatform ozone_platform { OzonePlatform::Wayland };
     };
 
