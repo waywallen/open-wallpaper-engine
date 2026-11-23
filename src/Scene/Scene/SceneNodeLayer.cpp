@@ -14,7 +14,7 @@ using namespace owe;
 namespace
 {
 
-void ChangeMeshToUnitQuad(SceneMesh& target) {
+bool ChangeMeshToUnitQuad(SceneMesh& target) {
     SceneMesh mesh;
     // clang-format off
     const rstd::array<float, 12> pos = {
@@ -35,7 +35,7 @@ void ChangeMeshToUnitQuad(SceneMesh& target) {
     vertex.SetVertex(WE_IN_POSITION, pos.as_slice());
     vertex.SetVertex(WE_IN_TEXCOORD, tex_coord.as_slice());
     mesh.AddVertexArray(rstd::move(vertex));
-    target.ChangeMeshDataFrom(mesh);
+    return target.ChangeMeshDataFrom(mesh);
 }
 
 } // namespace
@@ -83,6 +83,9 @@ void SceneNodeLayer::ResolveEffect(const SceneMesh& default_mesh, ref<str> effec
     m_resolved_effects.clear();
     m_direct_final_output = nullptr;
     auto default_node     = SceneNode();
+    auto set_geometry     = [](SceneNode& node, const SceneMesh& source) {
+        if (node.Mesh()->ChangeMeshDataFrom(source)) node.InvalidateDrawIndex();
+    };
 
     SceneImageEffectNode* last_output { nullptr };
     auto                  resolve_effect = [&](SceneImageEffect& eff) {
@@ -98,7 +101,7 @@ void SceneNodeLayer::ResolveEffect(const SceneMesh& default_mesh, ref<str> effec
                 material.SetBlendMode(BlendMode::Normal);
                 it->sceneNode->SetCamera(effect_cam);
                 it->sceneNode->CopyTrans(default_node);
-                it->sceneNode->Mesh()->ChangeMeshDataFrom(default_mesh);
+                set_geometry(*it->sceneNode, default_mesh);
             }
         }
         m_resolved_effects.push(&eff);
@@ -132,12 +135,12 @@ void SceneNodeLayer::ResolveEffect(const SceneMesh& default_mesh, ref<str> effec
             final_output->sceneNode->SetCamera(effect_cam);
             final_output->sceneNode->SetParentAnchor(nullptr);
             final_output->sceneNode->CopyTrans(default_node);
-            mesh.ChangeMeshDataFrom(default_mesh);
+            set_geometry(*final_output->sceneNode, default_mesh);
         } else if (fullscreen) {
             final_output->sceneNode->SetCamera(effect_cam);
             final_output->sceneNode->SetParentAnchor(nullptr);
             final_output->sceneNode->CopyTrans(default_node);
-            mesh.ChangeMeshDataFrom(default_mesh);
+            set_geometry(*final_output->sceneNode, default_mesh);
         } else {
             const bool perspective = m_worldNode != nullptr && m_worldNode->Perspective();
             final_output->sceneNode->SetCamera(
@@ -151,9 +154,9 @@ void SceneNodeLayer::ResolveEffect(const SceneMesh& default_mesh, ref<str> effec
             if (final_output->uses_unit_final_quad) {
                 final_output->sceneNode->SetTranslate({ -m_width * 0.5f, -m_height * 0.5f, 0.0f });
                 final_output->sceneNode->SetScale({ m_width, m_height, 1.0f });
-                ChangeMeshToUnitQuad(mesh);
+                if (ChangeMeshToUnitQuad(mesh)) final_output->sceneNode->InvalidateDrawIndex();
             } else {
-                mesh.ChangeMeshDataFrom(*m_final_mesh.as_ptr());
+                set_geometry(*final_output->sceneNode, *m_final_mesh);
             }
             final_output->final_quad_shader_values.iter().for_each([&](auto entry) {
                 auto [name, value] = entry;

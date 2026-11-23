@@ -224,11 +224,6 @@ rstd::uint64_t scene_id_key(SceneMaterialId id) { return scene_id_key(id.index, 
 
 rstd::uint64_t scene_id_key(SceneMeshId id) { return scene_id_key(id.index, id.generation); }
 
-rstd::uint64_t draw_item_key(SceneNodeId node, u32 submesh_index) {
-    return (static_cast<rstd::uint64_t>(node.index.to_primitive()) << 32) |
-           static_cast<rstd::uint64_t>(submesh_index.to_primitive());
-}
-
 float cubic(float p0, float p1, float p2, float p3, float t) {
     float omt = 1.0f - t;
     return omt * omt * omt * p0 + 3.0f * omt * omt * t * p1 + 3.0f * omt * t * t * p2 +
@@ -509,14 +504,16 @@ SceneMaterialId SceneResourceIndex::RegisterMaterial(Scene& scene, SceneMaterial
     return id;
 }
 
-void SceneResourceIndex::RegisterDrawItems(
-    Scene& scene, SceneNode& node, SceneNodeId node_id,
-    const HashMap<rstd::uint64_t, SceneDrawItemId>* preserved_draw_ids) {
+void SceneResourceIndex::RegisterDrawItems(Scene& scene, SceneNode& node, SceneNodeId node_id,
+                                           const DrawItemLookup* previous) {
     auto* mesh = node.Mesh();
     if (mesh == nullptr) return;
-    auto        mesh_id = RegisterMesh(*mesh);
-    const auto& slots   = mesh->MaterialSlots();
-    const auto& parts   = mesh->Submeshes();
+    auto        mesh_id                                = RegisterMesh(*mesh);
+    const auto& slots                                  = mesh->MaterialSlots();
+    const auto& parts                                  = mesh->Submeshes();
+    const auto  first                                  = m_draw_lookup.items.len();
+    m_draw_lookup.ranges[index_from_id(node_id.index)] = { first, parts.len() };
+    m_draw_lookup.items.resize(first + parts.len(), SceneDrawItemId {});
     for (rstd::size_t smi = 0; smi < parts.len().to_primitive(); ++smi) {
         auto slot_index = parts[usize(smi)].material_slot.to_primitive();
         if (slot_index >= slots.len().to_primitive() || ! slots[usize(slot_index)]) continue;
@@ -524,10 +521,10 @@ void SceneResourceIndex::RegisterDrawItems(
         auto            submesh_index = rstd::as_cast<u32>(usize(smi));
         SceneDrawItemId draw_id { .index      = index_from_size(m_draw_items.len().to_primitive()),
                                   .generation = m_generation };
-        if (preserved_draw_ids) {
-            auto preserved = preserved_draw_ids->get(draw_item_key(node_id, submesh_index));
-            if (preserved.is_some()) draw_id = **preserved;
+        if (previous) {
+            if (auto preserved = previous->find(node_id.index, submesh_index)) draw_id = *preserved;
         }
+        m_draw_lookup.items[first + usize(smi)] = draw_id;
         SceneDrawItemRecord record { .id            = draw_id,
                                      .node          = node_id,
                                      .mesh          = mesh_id,
@@ -585,23 +582,15 @@ bool SceneResourceIndex::Append(Scene& scene, SceneNode& root, u32 generation) {
                                    [](SceneNode* lhs, SceneNode* rhs) {
                                        return lhs->Identity().index < rhs->Identity().index;
                                    });
+    m_draw_lookup.ranges.resize(m_nodes.len(), DrawItemLookup::Range {});
     for (auto* item : added) RegisterDrawItems(scene, *item, item->Identity(), nullptr);
-    RebuildNamedResources();
     return true;
 }
 
 void SceneResourceIndex::Rebuild(Scene& scene, u32 generation) {
-    const bool preserve_node_ids = m_scene == &scene && m_generation == generation;
-    HashMap<rstd::uint64_t, SceneDrawItemId> preserved_draw_ids;
-    usize                                    preserved_draw_count {};
-    if (preserve_node_ids) {
-        preserved_draw_count = m_draw_items.len();
-        preserved_draw_ids.reserve(m_draw_items.len());
-        for (const auto& item : m_draw_items) {
-            if (! item.id.Valid() || ! item.node.Valid()) continue;
-            (void)preserved_draw_ids.insert(draw_item_key(item.node, item.submesh_index), item.id);
-        }
-    }
+    const bool preserve_node_ids    = m_scene == &scene && m_generation == generation;
+    auto       previous             = rstd::exchange(m_draw_lookup, DrawItemLookup {});
+    const auto preserved_draw_count = preserve_node_ids ? m_draw_items.len() : usize();
 
     m_scene      = &scene;
     m_generation = generation;
@@ -637,13 +626,15 @@ void SceneResourceIndex::Rebuild(Scene& scene, u32 generation) {
         return node(id) == pointer;
     });
 
+    m_draw_lookup.ranges.resize(m_nodes.len(), DrawItemLookup::Range {});
+    m_draw_lookup.items.reserve(previous.items.len());
     for (usize index {}; index < m_nodes.len(); ++index) {
         if (m_nodes[index] == nullptr) continue;
         RegisterDrawItems(
             scene,
             *m_nodes[index],
             SceneNodeId { .index = rstd::as_cast<u32>(index), .generation = generation },
-            &preserved_draw_ids);
+            preserve_node_ids ? &previous : nullptr);
     }
 
     m_mesh_ids.retain([this](const SceneMesh* pointer, SceneMeshId& id) {
@@ -673,12 +664,18 @@ Option<SceneMaterialId> SceneResourceIndex::materialId(const SceneMaterial& mate
 
 Option<SceneDrawItemId> SceneResourceIndex::drawItemFor(SceneNodeId node, u32 submesh_index) const {
     if (node.generation != m_generation) return None();
-    for (const auto& item : m_draw_items) {
-        if (! item.id.Valid()) continue;
-        if (item.node.index == node.index && item.submesh_index == submesh_index)
-            return Some<SceneDrawItemId>(item.id);
-    }
-    return None();
+    return m_draw_lookup.find(node.index, submesh_index);
+}
+
+auto SceneResourceIndex::DrawItemLookup::find(u32 node, u32 submesh) const
+    -> Option<SceneDrawItemId> {
+    const auto index = index_from_id(node);
+    if (index >= ranges.len()) return None();
+    const auto& range = ranges[index];
+    const auto  slot  = index_from_id(submesh);
+    if (slot >= range.count) return None();
+    auto item = items[range.first + slot];
+    return item.Valid() ? Some(item) : None();
 }
 
 Option<SceneTextureId> SceneResourceIndex::textureId(ref<str> url) const {
@@ -773,7 +770,7 @@ void RenderSceneSnapshot::Rebuild(Scene& scene, RenderSceneVersion version) {
     collect_linked_ids_from_scene(scene, m_linked_layer_ids);
     ensure_snapshot_link_render_targets(scene, m_linked_layer_ids);
     scene.PublishResourceDefinitions();
-    scene.RebuildResourceIndex();
+    scene.RefreshResourceIndex();
 
     const auto& index = scene.ResourceIndex();
 
@@ -1517,6 +1514,7 @@ SceneNodeId Scene::RegisterNode(SceneNode& node, Option<WallpaperLayerId> wallpa
             .generation = m_resource_generation,
         };
         ++m_next_node_index;
+        node.m_draw_index = Some(m_draw_index.clone());
     }
     if (wallpaper.is_some()) {
         if (node.m_wallpaper_identity.is_some() &&
@@ -1610,7 +1608,7 @@ void Scene::ProcessLayerDeletions() {
     for (const auto& node : detached)
         if (auto* parent = node->Parent()) (void)parent->RemoveChild(*node);
     m_render_graph_dirty = true;
-    RebuildResourceIndex();
+    RefreshResourceIndex();
     Vec<Arc<SceneNode>> removed;
     for (auto& node : nodes) {
         if (m_resource_index.nodeId(*node).is_some()) continue;
@@ -1695,14 +1693,15 @@ bool Scene::RemoveDetachedNodeRegistrations(slice<Arc<SceneNode>> nodes) {
             }
             node->m_wallpaper_identity = None();
         }
-        node->m_identity = {};
+        node->m_identity   = {};
+        node->m_draw_index = None();
     }
     if (ids.is_empty()) return true;
     (void)RemoveNodeRenderTargetsImpl(ids.as_slice(), false);
     (void)RemoveNodeCamerasImpl(ids.as_slice(), false);
     RebuildElidableLayerIds();
     m_render_graph_dirty = true;
-    RebuildResourceIndex();
+    RefreshResourceIndex();
     return true;
 }
 
@@ -1768,7 +1767,9 @@ String Scene::EffectResourceKey(SceneEffectId effect, ref<str> local_name) const
 }
 
 void Scene::RegisterTexture(String name, SceneTexture texture) {
-    auto                             previous = m_textures.get(name.as_str());
+    auto previous = m_textures.get(name.as_str());
+    m_named_resources_dirty |= ! previous;
+    m_texture_animations_dirty |= texture.isSprite || (previous && (*previous)->isSprite);
     vrento::resource::TextureRequest request {
         .kind       = vrento::resource::TextureRequestKind::Imported,
         .name       = name.clone(),
@@ -1816,8 +1817,10 @@ bool Scene::RemoveTexture(ref<str> name) {
     (void)m_runtime_images.remove(name);
     m_parsed_images = Arc<rstd::sync::Mutex<SceneImageSource::ParsedImages>>::make(
         SceneImageSource::ParsedImages {});
-    m_render_graph_dirty = true;
-    RebuildResourceIndex();
+    m_render_graph_dirty    = true;
+    m_named_resources_dirty = true;
+    m_texture_animations_dirty |= removed->isSprite;
+    RefreshResourceIndex();
     return true;
 }
 bool Scene::RemoveRenderTarget(ref<str> name) {
@@ -1837,8 +1840,9 @@ bool Scene::RemoveRenderTarget(ref<str> name) {
         return key != name;
     });
     (void)m_render_target_dirty_events.remove(name);
-    m_render_graph_dirty = true;
-    RebuildResourceIndex();
+    m_render_graph_dirty    = true;
+    m_named_resources_dirty = true;
+    RefreshResourceIndex();
     return true;
 }
 
@@ -1911,8 +1915,9 @@ usize Scene::RemoveNodeRenderTargetsImpl(slice<SceneNodeId> owners, bool rebuild
     m_render_target_names.retain([&](const String& name) {
         return ! removed.contains(name.as_str());
     });
-    m_render_graph_dirty = true;
-    if (rebuild) RebuildResourceIndex();
+    m_render_graph_dirty    = true;
+    m_named_resources_dirty = true;
+    if (rebuild) RefreshResourceIndex();
     return removed.len();
 }
 
@@ -1929,7 +1934,10 @@ void Scene::WriteRenderTarget(String name, SceneRenderTarget target) {
         target.resource = vrento::resource::TextureResourceRef(rstd::move(request));
     else if (! vrento::resource::SameTextureRequest(target.resource.definition(), request))
         target.resource = target.resource.with_definition(rstd::move(request));
-    if (! m_render_targets.contains_key(name.as_str())) m_render_target_names.push(name.clone());
+    if (! previous) {
+        m_render_target_names.push(name.clone());
+        m_named_resources_dirty = true;
+    }
     (void)m_render_targets.insert(rstd::move(name), rstd::move(target));
 }
 
@@ -2097,6 +2105,7 @@ void Scene::RegisterCamera(String name, Arc<SceneCamera> camera) {
         rstd_error("camera '{}' belongs to a scene node", name);
         return;
     }
+    m_named_resources_dirty |= m_camera_registry->Camera(name.as_str()).is_none();
     m_camera_registry->Register(rstd::move(name), rstd::move(camera));
 }
 
@@ -2109,7 +2118,8 @@ bool Scene::RegisterNodeCamera(SceneNodeId owner, String name, Arc<SceneCamera> 
             return false;
         }
     } else {
-        auto cameras = m_node_cameras.get_mut(scene_id_key(owner));
+        m_named_resources_dirty = true;
+        auto cameras            = m_node_cameras.get_mut(scene_id_key(owner));
         if (cameras.is_none()) {
             (void)m_node_cameras.insert(scene_id_key(owner), Vec<String> {});
             cameras = m_node_cameras.get_mut(scene_id_key(owner));
@@ -2157,8 +2167,9 @@ Vec<String> Scene::RemoveNodeCamerasImpl(slice<SceneNodeId> owners, bool rebuild
         if (removed.contains(camera->as_str())) render_groups.push(i32(*id));
     for (auto id : render_groups) (void)m_render_group_cameras.remove(id);
     m_camera_registry->Remove(names.as_slice());
-    m_render_graph_dirty = true;
-    if (rebuild) RebuildResourceIndex();
+    m_render_graph_dirty    = true;
+    m_named_resources_dirty = true;
+    if (rebuild) RefreshResourceIndex();
     return names;
 }
 
@@ -2507,21 +2518,36 @@ auto SceneTextureAnimationRegistry::Frame(SceneDrawItemId draw, usize texture_in
 void Scene::RebuildResourceIndex() {
     m_resource_index.Rebuild(*this, m_resource_generation);
     m_texture_animations.Rebuild(*this);
+    m_draw_index->dirty        = false;
+    m_named_resources_dirty    = false;
+    m_texture_animations_dirty = false;
+}
+
+bool Scene::RefreshResourceIndex() {
+    if (m_draw_index->dirty) {
+        RebuildResourceIndex();
+        return true;
+    }
+    const bool refreshed = m_named_resources_dirty || m_texture_animations_dirty;
+    if (m_named_resources_dirty) m_resource_index.RebuildNamedResources();
+    if (m_texture_animations_dirty) m_texture_animations.Rebuild(*this);
+    m_named_resources_dirty    = false;
+    m_texture_animations_dirty = false;
+    return refreshed;
 }
 
 void Scene::AttachRuntimeNode(SceneNode& parent, Arc<SceneNode> node) {
     (void)RegisterNode(*node);
     auto*      attached    = node.as_ptr().as_raw_ptr();
     const auto first_draw  = m_resource_index.DrawItems().len();
-    const bool incremental = ! m_resource_index.Empty() &&
-                             m_resource_index.nodeId(parent).is_some() &&
+    const bool incremental = ! m_draw_index->dirty && m_resource_index.nodeId(parent).is_some() &&
                              m_resource_index.nodeId(*node).is_none();
-    parent.AppendChild(rstd::move(node));
+    if (! parent.AppendChild(rstd::move(node))) return;
     if (incremental && m_resource_index.Append(*this, *attached, m_resource_generation)) {
-        m_texture_animations.Append(*this, first_draw);
-    } else {
-        RebuildResourceIndex();
+        m_draw_index->dirty = false;
+        if (! m_texture_animations_dirty) m_texture_animations.Append(*this, first_draw);
     }
+    RefreshResourceIndex();
     m_render_graph_dirty = true;
 }
 
@@ -2784,8 +2810,8 @@ SceneMaterialTextureSlotMutation Scene::SetMaterialTextureSlot(SceneMaterial& ma
     material.texture_metadata[usize(slot_index)] = {};
     ResolveMaterialTextureSources(material);
     material.SetTextureBindingsDirty();
-    if (m_resource_index.Empty()) RebuildResourceIndex();
-    m_texture_animations.Rebuild(*this);
+    m_texture_animations_dirty = true;
+    RefreshResourceIndex();
     return SceneMaterialTextureSlotMutation {
         .changed  = true,
         .material = m_resource_index.materialId(material),
@@ -2799,8 +2825,8 @@ Scene::SetMaterialShaderVariant(SceneMaterial& material, SceneShaderVariantMutat
 
     ResolveMaterialTextureSources(material);
 
-    if (m_resource_index.Empty()) RebuildResourceIndex();
-    m_texture_animations.Rebuild(*this);
+    m_texture_animations_dirty = true;
+    RefreshResourceIndex();
     return SceneMaterialShaderVariantMutation {
         .changed  = true,
         .material = m_resource_index.materialId(material),
@@ -2921,7 +2947,7 @@ bool Scene::SetNodeVisible(SceneNode& node, bool visible) {
 
 bool Scene::ApplyUserNodeVisibilityBindings(ref<str> key, const Json& property) {
     bool requires_graph_rebuild = false;
-    if (m_resource_index.Empty()) RebuildResourceIndex();
+    RefreshResourceIndex();
     auto nodes = m_resource_index.Nodes();
     for (usize index {}; index < nodes.len(); ++index) {
         auto* node = nodes[index];
@@ -2996,7 +3022,7 @@ bool Scene::SetImageEffectRuntimeVisible(const SceneImageEffectRef& ref, bool vi
 }
 
 bool Scene::ApplyUserImageEffectVisibilityBindings(ref<str> key, const Json& property) {
-    if (m_resource_index.Empty()) RebuildResourceIndex();
+    RefreshResourceIndex();
 
     bool                       requires_graph_rebuild = false;
     HashSet<SceneImageEffect*> visited;
@@ -3042,6 +3068,7 @@ auto Scene::Lights() const -> slice<Box<SceneLight>> { return m_lights.as_slice(
 
 auto Scene::RegisterPostProcess(Box<ScenePostProcess> post_process) -> mut_ref<ScenePostProcess> {
     m_post_processes.push(rstd::move(post_process));
+    m_draw_index->dirty = true;
     return m_post_processes.last_mut().unwrap()->deref_mut();
 }
 
@@ -3148,7 +3175,7 @@ Vec<SceneRenderTargetDirtyEvent> Scene::ConsumePreparedRenderTargetDirtyEvents()
 }
 
 Vec<SceneMeshDirtyEvent> Scene::ConsumePreparedMeshDirtyEvents() {
-    if (m_resource_index.Empty()) RebuildResourceIndex();
+    RefreshResourceIndex();
 
     Vec<SceneMeshDirtyEvent> events;
     auto                     meshes = m_resource_index.Meshes();
@@ -3171,7 +3198,8 @@ Vec<SceneMeshDirtyEvent> Scene::ConsumePreparedMeshDirtyEvents() {
 
         auto consumed = mesh->ConsumeDirtyFlags(consume);
         if ((consumed & SceneMeshDirtyLayout) != 0) {
-            event_flags = SceneMeshDirtyLayout;
+            event_flags         = SceneMeshDirtyLayout;
+            m_draw_index->dirty = true;
         } else if ((consumed & SceneMeshDirtyData) == 0) {
             continue;
         }
@@ -3184,7 +3212,7 @@ Vec<SceneMeshDirtyEvent> Scene::ConsumePreparedMeshDirtyEvents() {
 }
 
 Vec<SceneMaterialDirtyEvent> Scene::ConsumePreparedMaterialDirtyEvents() {
-    if (m_resource_index.Empty()) RebuildResourceIndex();
+    RefreshResourceIndex();
 
     Vec<SceneMaterialDirtyEvent> events;
     auto                         materials = m_resource_index.Materials();
@@ -3260,7 +3288,7 @@ void Scene::TickCameraPaths() {
 }
 
 void Scene::TickMaterialShaderAnimations() {
-    if (m_resource_index.Empty()) RebuildResourceIndex();
+    RefreshResourceIndex();
 
     auto materials = m_resource_index.Materials();
     for (usize index {}; index < materials.len(); ++index) {

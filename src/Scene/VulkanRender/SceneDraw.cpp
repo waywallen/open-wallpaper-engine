@@ -513,36 +513,9 @@ SceneDraw::refreshMaterialTextureBindings(const RenderSceneSnapshot& render_scen
     return result;
 }
 
-auto SceneDraw::createUniformBufferUpdates(ref<dyn<UniformBindingPrepareContext>> prepare,
-                                           const PreparedPassResources&           resources,
-                                           SceneUniformPreparationCache&          cache)
-    -> Result<Vec<Box<dyn<UniformBufferUpdate>>>, UniformBufferUpdateError> {
-    auto updates = Vec<Box<dyn<UniformBufferUpdate>>>::make();
-    if (m_desc.uniform_block_uses.is_empty() || m_desc.shader_use.is_none()) {
-        return Ok(rstd::move(updates));
-    }
-    auto prepared = resources.Resolve(*m_desc.shader_use);
-    if (prepared.is_none()) {
-        return Err(UniformBufferUpdateError {
-            .message = "prepared uniform shader is unavailable"_Str,
-        });
-    }
-    const auto& artifact = (**prepared).shader.physical->artifact;
-    if (artifact.uniform_blocks.is_empty()) {
-        return Ok(rstd::move(updates));
-    }
-    auto draw_item = m_desc.draw_item;
-    if (prepare->ResolveDraw(draw_item).is_none() && updates_.node.is_some()) {
-        auto node    = ref<SceneNode>::from_raw_parts((*updates_.node).as_ptr());
-        auto current = prepare->DrawItemFor(node, m_desc.submesh_index);
-        if (current.is_some()) draw_item = *current;
-    }
-    auto draw = prepare->ResolveDraw(draw_item);
-    if (draw.is_none()) {
-        return Err(UniformBufferUpdateError {
-            .message = "uniform texture metadata draw is unavailable"_Str,
-        });
-    }
+auto SceneDraw::uniformTextureMetadata(
+    const UniformPrepareDraw& draw, const resource_registry::PreparedResourceTable& resources) const
+    -> Result<Vec<PreparedUniformTextureMetadata>, UniformBufferUpdateError> {
     auto textures = Vec<PreparedUniformTextureMetadata>::with_capacity(
         usize(m_desc.texture_bindings.len().to_primitive()));
     for (rstd::size_t index = 0; index < m_desc.texture_bindings.len().to_primitive(); ++index) {
@@ -575,8 +548,8 @@ auto SceneDraw::createUniformBufferUpdates(ref<dyn<UniformBindingPrepareContext>
             metadata.mipmap_level  = static_cast<float>(definition.mip_levels.to_primitive());
             metadata.revision      = u64(1);
         }
-        if (index < draw->material->texture_metadata.len().to_primitive()) {
-            const auto& authored = draw->material->texture_metadata[usize(index)];
+        if (index < draw.material->texture_metadata.len().to_primitive()) {
+            const auto& authored = draw.material->texture_metadata[usize(index)];
             if (authored.has_extent) {
                 metadata.available     = true;
                 metadata.source_extent = authored.source_extent;
@@ -585,29 +558,68 @@ auto SceneDraw::createUniformBufferUpdates(ref<dyn<UniformBindingPrepareContext>
         }
         textures.push(rstd::move(metadata));
     }
+    return Ok(rstd::move(textures));
+}
+
+auto SceneDraw::createUniformBufferUpdates(
+    ref<dyn<UniformBindingPrepareContext>>          prepare,
+    const resource_registry::PreparedResourceTable& resources, SceneUniformPreparationCache& cache,
+    UniformBufferUpdates& updates) -> Result<empty, UniformBufferUpdateError> {
+    if (m_desc.uniform_block_uses.is_empty() || m_desc.shader_use.is_none()) return Ok(empty {});
+    auto prepared = resources.Resolve(*m_desc.shader_use);
+    if (! prepared)
+        return Err(UniformBufferUpdateError {
+            .message = "prepared uniform shader is unavailable"_Str,
+        });
+    const auto&                                 artifact = (**prepared).shader.physical->artifact;
+    Option<UniformPrepareDraw>                  draw;
+    Option<Vec<PreparedUniformTextureMetadata>> textures;
     for (const auto& use : m_desc.uniform_block_uses) {
         if (use.block_index >= artifact.uniform_blocks.len()) continue;
+        auto claimed = updates.claim(use.use);
+        if (! claimed)
+            return Err(UniformBufferUpdateError {
+                .message = "uniform buffer use is outside the current resource plan"_Str,
+            });
+        if (! *claimed) continue;
+        if (! draw) {
+            draw = prepare->ResolveDraw(m_desc.draw_item);
+            if (! draw && updates_.node) {
+                auto node = ref<SceneNode>::from_raw_parts((*updates_.node).as_ptr());
+                if (auto current = prepare->DrawItemFor(node, m_desc.submesh_index))
+                    draw = prepare->ResolveDraw(*current);
+            }
+            if (! draw)
+                return Err(UniformBufferUpdateError {
+                    .message = "uniform update draw is unavailable"_Str,
+                });
+        }
         const auto& block = artifact.uniform_blocks[use.block_index];
         auto plan = cache.prepare(prepare, draw->node_id, (**prepared).shader, use.block_index);
         if (plan.is_err()) return Err(plan.unwrap_err());
         if (block.scope == resource::ShaderArtifactUniformBlock::Scope::Shared) {
-            updates.push(Box<dyn<UniformBufferUpdate>>::make(
+            updates.add(Box<dyn<UniformBufferUpdate>>::make(
                 SharedUniformBufferBinding(use.use, plan.unwrap())));
             continue;
+        }
+        if (! textures) {
+            auto metadata = uniformTextureMetadata(*draw, resources);
+            if (metadata.is_err()) return Err(metadata.unwrap_err());
+            textures = Some(metadata.unwrap());
         }
         auto binding = BindUniformBuffer(
             *draw,
             use.use,
             plan.unwrap(),
-            textures.clone(),
+            textures->clone(),
             m_desc.render_view,
             updates_.material_override ? Some(ref<SceneMaterial>::from_raw_parts(
                                              updates_.material_override->as_ptr().as_raw_ptr()))
                                        : None<ref<SceneMaterial>>());
         if (binding.is_err()) return Err(rstd::move(binding).unwrap_err_unchecked());
-        updates.push(rstd::move(binding).unwrap_unchecked());
+        updates.add(rstd::move(binding).unwrap_unchecked());
     }
-    return Ok(rstd::move(updates));
+    return Ok(empty {});
 }
 
 auto SceneDraw::describeGraphics(const Arc<resource::ShaderArtifact>& artifact)
@@ -757,14 +769,13 @@ auto SceneDraw::resolveResources(const Device& device, DrawResourceContext& cont
     auto extent          = (**target).image.getActive().extent;
     m_desc.output_extent = { extent.width, extent.height };
     if (! geometry_) return missing(DrawResourceKind::Geometry);
-    vrento::RenderBufferResolver     buffer_resolver(*context.resources);
     auto                             layout = geometry_->layout();
     vrento::DrawBufferPrepareRequest buffer_request { .render_item   = m_desc.render_item,
                                                       .geometry      = layout,
                                                       .submesh_index = m_desc.submesh_index,
                                                       .buffer_uses =
                                                           m_desc.buffer_uses.as_slice() };
-    auto draw_buffers = buffer_resolver.tryPrepareDrawBuffers(buffer_request);
+    auto                             draw_buffers = vrento::BuildDrawBufferRefs(buffer_request);
     if (draw_buffers.is_err())
         return Err(DrawPrepareError::Buffers(rstd::move(draw_buffers).unwrap_err()));
     m_desc.draw_buffers = rstd::move(*draw_buffers);
@@ -785,9 +796,10 @@ auto SceneDraw::resolveResources(const Device& device, DrawResourceContext& cont
         bindings.indices = allocation(*m_desc.draw_buffers.index);
         if (! bindings.indices) return Err(DrawPrepareError::Buffer(*m_desc.draw_buffers.index));
     }
-    for (auto use : resourceUses().buffers) {
-        auto buffer = allocation(use);
-        if (! buffer) return Err(DrawPrepareError::Buffer(use));
+    bindings.buffers.reserve(m_desc.uniform_block_uses.len());
+    for (const auto& use : m_desc.uniform_block_uses) {
+        auto buffer = allocation(use.use);
+        if (! buffer) return Err(DrawPrepareError::Buffer(use.use));
         bindings.buffers.push(buffer.unwrap());
     }
     if (m_desc.viewports.is_empty())
@@ -822,13 +834,12 @@ auto SceneDraw::resolveResources(const Device& device, DrawResourceContext& cont
                 textures.push({ static_cast<rstd::uint32_t>(binding), *source.use, usize() });
             }
             auto buffers = Vec<resource_registry::DescriptorBufferBinding>::make();
-            for (const auto& use : m_desc.uniform_block_uses) {
+            for (usize i {}; i < m_desc.uniform_block_uses.len(); ++i) {
+                const auto& use = m_desc.uniform_block_uses[i];
                 if (use.block_index >= artifact.uniform_blocks.len()) continue;
                 const auto& block = artifact.uniform_blocks[use.block_index];
                 if (block.set != set.set) continue;
-                auto prepared = context.resources->Resolve(use.use);
-                if (prepared.is_none()) return Err(DrawPrepareError::Buffer(use.use));
-                auto& allocation = (**prepared).buffer.physical->buffer;
+                const auto& allocation = bindings.buffers[i];
                 buffers.push(resource_registry::DescriptorBufferBinding {
                     .binding = block.binding.to_primitive(),
                     .buffer  = allocation.buffer(),

@@ -262,9 +262,8 @@ public:
             .pipeline_layouts = ref<PipelineLayoutAssignments>::from_raw_parts(&prepared.layouts())
         };
         for (auto& entry : draws) {
-            auto uses = entry.source->resourceUses();
-            for (auto descriptor : uses.descriptors)
-                rr.resources.RemovePreparedDescriptor(descriptor);
+            for (const auto& descriptor : entry.source->parameters().descriptor_bindings)
+                rr.resources.RemovePreparedDescriptor(descriptor.binding);
             entry.source->clearResources();
             auto resolved = entry.source->resolveResources(
                 rr.resources.TextureContext().session().device(), context);
@@ -276,13 +275,11 @@ public:
         uniform_update_owners.clear();
         SceneUniformBindingPrepareContext uniform_prepare_impl(scene);
         auto uniform_prepare = dyn<UniformBindingPrepareContext>::from_ref(uniform_prepare_impl);
-        Vec<resource::BufferUseHandle> prepared_uniform_buffers;
+        UniformBufferUpdates updates(resource_plan.generation, resource_plan.buffers.len());
         uniform_cache.begin(scene.ResourceGeneration());
         for (auto& entry : draws) {
-            auto                  uses = entry.source->resourceUses();
-            PreparedPassResources resources(rr.resources.Prepared(), uses);
-            auto                  created = entry.source->createUniformBufferUpdates(
-                uniform_prepare.as_ref(), resources, uniform_cache);
+            auto created = entry.source->createUniformBufferUpdates(
+                uniform_prepare.as_ref(), rr.resources.Prepared(), uniform_cache, updates);
             if (created.is_err()) {
                 uniform_cache.prune();
                 auto error = rstd::move(created).unwrap_err_unchecked();
@@ -290,20 +287,8 @@ public:
                                                     entry.source->parameters().render_item,
                                                     DrawPrepareError::Uniform(rstd::move(error))));
             }
-            auto bindings = rstd::move(created).unwrap_unchecked();
-            for (auto& binding : bindings) {
-                bool exists = false;
-                for (const auto& prepared : prepared_uniform_buffers) {
-                    if (prepared == binding->Buffer()) {
-                        exists = true;
-                        break;
-                    }
-                }
-                if (exists) continue;
-                prepared_uniform_buffers.push(binding->Buffer());
-                uniform_update_owners.push(rstd::move(binding));
-            }
         }
+        uniform_update_owners = updates.take();
         uniform_cache.prune();
         for (auto& entry : draws) entry.invalidation = PassInvalidationNone;
         return Ok(empty {});

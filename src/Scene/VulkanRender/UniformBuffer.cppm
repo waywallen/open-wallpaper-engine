@@ -78,6 +78,28 @@ struct UniformBufferUpdate {
     using Funcs = TraitFuncs<&T::Update, &T::Buffer>;
 };
 
+class UniformBufferUpdates {
+public:
+    UniformBufferUpdates(u64 generation, usize count): m_generation(generation) {
+        m_claimed.resize(count, u8());
+    }
+    auto claim(resource::BufferUseHandle use) -> Option<bool> {
+        if (use.generation != m_generation || use.index >= rstd::as_cast<u64>(m_claimed.len()))
+            return None();
+        auto slot = m_claimed[rstd::as_cast<usize>(use.index)];
+        if (*slot != u8()) return Some(false);
+        *slot = u8(1);
+        return Some(true);
+    }
+    void add(Box<dyn<UniformBufferUpdate>> binding) { m_ordered.push(rstd::move(binding)); }
+    auto take() -> Vec<Box<dyn<UniformBufferUpdate>>> { return rstd::move(m_ordered); }
+
+private:
+    u64                                m_generation;
+    Vec<u8>                            m_claimed;
+    Vec<Box<dyn<UniformBufferUpdate>>> m_ordered;
+};
+
 using vrento::BoundUniformSource;
 
 struct PreparedUniformTextureMetadata {

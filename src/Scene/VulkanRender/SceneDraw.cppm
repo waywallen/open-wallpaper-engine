@@ -102,8 +102,9 @@ public:
     auto             globalDescriptorBufferUses(const PreparedPassResources&) const
         -> Result<Vec<GlobalDescriptorBufferUse>, resource::ResourceError>;
     auto createUniformBufferUpdates(ref<dyn<UniformBindingPrepareContext>>,
-                                    const PreparedPassResources&, SceneUniformPreparationCache&)
-        -> Result<Vec<Box<dyn<UniformBufferUpdate>>>, UniformBufferUpdateError>;
+                                    const resource_registry::PreparedResourceTable&,
+                                    SceneUniformPreparationCache&, UniformBufferUpdates&)
+        -> Result<empty, UniformBufferUpdateError>;
     Option<RenderItemId>              renderItemId() const;
     Vec<PassTextureRequestDiagnostic> textureRequestDiagnostics() const;
     MaterialTextureBindingRefresh     refreshMaterialTextureBindings(const RenderSceneSnapshot&);
@@ -122,6 +123,9 @@ public:
     void refreshSnapshot() { captureGeometry(); }
 
 private:
+    auto uniformTextureMetadata(const UniformPrepareDraw&,
+                                const resource_registry::PreparedResourceTable&) const
+        -> Result<Vec<PreparedUniformTextureMetadata>, UniformBufferUpdateError>;
     struct MaterialSnapshot {
         Option<Arc<SceneShader>>         shader;
         vrento::MaterialPipelineSnapshot pipeline;

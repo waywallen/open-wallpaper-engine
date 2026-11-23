@@ -1145,6 +1145,31 @@ TEST(UniformBufferBinding, UpdatesRegisteredSharedBlockOncePerVersion) {
     EXPECT_FLOAT_EQ(value, 4.0f);
 }
 
+TEST(UniformBufferUpdates, ClaimsCurrentGraphSlotsOnceInDrawOrder) {
+    struct Owner {
+        owe::resource::BufferUseHandle use;
+        auto Buffer() const -> owe::resource::BufferUseHandle { return use; }
+        auto Update(ref<dyn<UniformBufferFrameContext>>,
+                    mut_ref<dyn<owe::resource::BufferContentWriter>>) const
+            -> Result<empty, owe::vulkan::UniformBufferUpdateError> {
+            return Ok(empty {});
+        }
+    };
+    owe::vulkan::UniformBufferUpdates    updates(u64(5), usize(4));
+    const owe::resource::BufferUseHandle a { u64(3), u64(5) }, b { u64(1), u64(5) };
+    EXPECT_TRUE(updates.claim({ u64(3), u64(4) }).is_none());
+    EXPECT_TRUE(updates.claim({ u64(4), u64(5) }).is_none());
+    EXPECT_TRUE(updates.claim(a).unwrap());
+    updates.add(Box<dyn<UniformBufferUpdate>>::make(Owner { a }));
+    EXPECT_FALSE(updates.claim(a).unwrap());
+    EXPECT_TRUE(updates.claim(b).unwrap());
+    updates.add(Box<dyn<UniformBufferUpdate>>::make(Owner { b }));
+    auto owners = updates.take();
+    ASSERT_EQ(owners.len(), usize(2));
+    EXPECT_EQ(owners[usize()]->Buffer(), a);
+    EXPECT_EQ(owners[usize(1)]->Buffer(), b);
+}
+
 TEST(ShaderArtifact, ReconstructsPreparedInterfaceWithoutCacheLookup) {
     owe::resource::ShaderArtifact artifact;
     artifact.matrix_convention = owe::ShaderMatrixConvention::RowVector;

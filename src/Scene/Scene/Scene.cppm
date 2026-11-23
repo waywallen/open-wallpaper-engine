@@ -1124,7 +1124,16 @@ public:
         m_data->geometry_transform = rstd::move(transform);
     }
 
-    void ChangeMeshDataFrom(const SceneMesh& o) { m_data = o.m_data.clone(); }
+    bool ChangeMeshDataFrom(const SceneMesh& o) {
+        if (Arc<Data>::ptr_eq(m_data, o.m_data)) return false;
+        const auto& before  = m_data->submeshes;
+        const auto& after   = o.m_data->submeshes;
+        bool        changed = before.len() != after.len();
+        for (usize i {}; ! changed && i < before.len(); ++i)
+            changed = before[i].material_slot != after[i].material_slot;
+        m_data = o.m_data.clone();
+        return changed;
+    }
 
     Arc<SceneMesh> CloneInstance() const {
         auto clone         = Arc<SceneMesh>::make(m_dynamic);
@@ -1725,6 +1734,10 @@ public:
 // ============================================================================
 
 // Script and camera references rely on this. Post-parse writes use the render thread.
+struct SceneDrawIndexState {
+    bool dirty { true };
+};
+
 // vrento owns tree links and detaches surviving children during teardown.
 class SceneNode : NoCopy, NoMove {
 public:
@@ -1747,16 +1760,36 @@ public:
         MarkTransDirty();
     }
 
-    ref<str>        Camera() const { return m_cameraName.as_str(); }
-    void            SetCamera(ref<str> name) { m_cameraName = rstd::into(name); }
-    bool            Perspective() const { return m_perspective; }
-    void            SetPerspective(bool value) { m_perspective = value; }
-    bool            Reflected() const { return m_reflected; }
-    void            SetReflected(bool value) { m_reflected = value; }
-    void            AddMesh(Arc<SceneMesh> mesh) { m_mesh = Some(rstd::move(mesh)); }
-    bool            AppendChild(Arc<SceneNode> sub) { return m_node.AppendChild(rstd::move(sub)); }
-    bool            RemoveChild(SceneNode& child) { return m_node.RemoveChild(child); }
-    void            ClearChildren() { m_node.ClearChildren(); }
+    ref<str> Camera() const { return m_cameraName.as_str(); }
+    void     SetCamera(ref<str> name) { m_cameraName = rstd::into(name); }
+    bool     Perspective() const { return m_perspective; }
+    void     SetPerspective(bool value) { m_perspective = value; }
+    bool     Reflected() const { return m_reflected; }
+    void     SetReflected(bool value) { m_reflected = value; }
+    void     AddMesh(Arc<SceneMesh> mesh) {
+        if (m_mesh && Arc<SceneMesh>::ptr_eq(*m_mesh, mesh)) return;
+        m_mesh = Some(rstd::move(mesh));
+        InvalidateDrawIndex();
+    }
+    bool AppendChild(Arc<SceneNode> sub) {
+        auto* previous = sub->m_node.Owner();
+        if (! m_node.AppendChild(rstd::move(sub))) return false;
+        if (previous != this) {
+            if (previous) previous->InvalidateDrawIndex();
+            InvalidateDrawIndex();
+        }
+        return true;
+    }
+    bool RemoveChild(SceneNode& child) {
+        if (! m_node.RemoveChild(child)) return false;
+        InvalidateDrawIndex();
+        return true;
+    }
+    void ClearChildren() {
+        if (m_node.Children().is_empty()) return;
+        m_node.ClearChildren();
+        InvalidateDrawIndex();
+    }
     auto&           NodeState() { return m_node; }
     const auto&     NodeState() const { return m_node; }
     auto            ChildIndex(const SceneNode& child) const -> Option<usize>;
@@ -2002,7 +2035,10 @@ public:
 
     SceneNodeId              Identity() const { return m_identity; }
     Option<WallpaperLayerId> WallpaperIdentity() const { return m_wallpaper_identity; }
-    void        AttachLayer(Arc<SceneNodeLayer> layer) { m_layer = Some(rstd::move(layer)); }
+    void                     AttachLayer(Arc<SceneNodeLayer> layer) {
+        m_layer = Some(rstd::move(layer));
+        InvalidateDrawIndex();
+    }
     bool        HasLayer() const { return static_cast<bool>(m_layer); }
     auto&       Layer() { return *m_layer; }
     const auto& Layer() const { return *m_layer; }
@@ -2012,15 +2048,21 @@ public:
 
 private:
     friend class Scene;
+    friend class SceneNodeLayer;
+
+    void InvalidateDrawIndex() {
+        if (m_draw_index) (*m_draw_index)->dirty = true;
+    }
 
     void MarkTransDirty();
     void SetFieldAnimation(String field, SceneNodeAnimationTarget target, SceneAnimationTrack track,
                            Eigen::Vector3f vector_base, float scalar_base);
 
-    SceneNodeId              m_identity;
-    Option<WallpaperLayerId> m_wallpaper_identity;
-    i32                      m_id { -1 };
-    String                   m_name;
+    SceneNodeId                      m_identity;
+    Option<Arc<SceneDrawIndexState>> m_draw_index;
+    Option<WallpaperLayerId>         m_wallpaper_identity;
+    i32                              m_id { -1 };
+    String                           m_name;
 
     vrento::NodeState<SceneNode, Eigen::Matrix4d> m_node { *this };
 
@@ -2140,6 +2182,7 @@ public:
     void AddEffect(const Arc<SceneImageEffect>& node) {
         m_effects.push(node.clone());
         m_resolved = false;
+        if (m_worldNode) m_worldNode->InvalidateDrawIndex();
     }
     bool SetEffectRuntimeVisible(SceneImageEffect& effect, bool visible) {
         if (effect.runtime_visible == visible) return false;
@@ -2179,6 +2222,7 @@ public:
     void             AddPrefillNode(SceneImageEffectNode node) {
         m_prefill_nodes.push(rstd::move(node));
         m_resolved = false;
+        if (m_worldNode) m_worldNode->InvalidateDrawIndex();
     }
     auto& PrefillNodes() { return m_prefill_nodes; }
     void  SetFullscreen(bool value) {
@@ -2213,6 +2257,7 @@ public:
     void SetFinalResolveEffect(Arc<SceneImageEffect> effect) {
         m_final_resolve_effect = Some(rstd::move(effect));
         m_resolved             = false;
+        if (m_worldNode) m_worldNode->InvalidateDrawIndex();
     }
     auto FinalResolveEffect() const -> SceneImageEffect* {
         return m_final_resolve_effect.is_some() ? m_final_resolve_effect->as_ptr().as_raw_ptr()
@@ -2221,6 +2266,7 @@ public:
     void SetPublishedEffect(Arc<SceneImageEffect> effect) {
         m_published_effect = Some(rstd::move(effect));
         m_resolved         = false;
+        if (m_worldNode) m_worldNode->InvalidateDrawIndex();
     }
     auto PublishedEffect() const -> SceneImageEffect* {
         return m_published_effect.is_some() ? m_published_effect->as_ptr().as_raw_ptr() : nullptr;
@@ -2228,6 +2274,7 @@ public:
     void SetVisibleResolveEffect(Arc<SceneImageEffect> effect) {
         m_visible_resolve_effect = Some(rstd::move(effect));
         m_resolved               = false;
+        if (m_worldNode) m_worldNode->InvalidateDrawIndex();
     }
     auto VisibleResolveEffect() const -> SceneImageEffect* {
         return m_visible_resolve_effect.is_some() ? m_visible_resolve_effect->as_ptr().as_raw_ptr()
@@ -2508,13 +2555,22 @@ public:
     slice<SceneMaterial*>    Materials() const { return m_materials.as_slice(); }
 
 private:
+    struct DrawItemLookup {
+        struct Range {
+            usize first {}, count {};
+        };
+        Vec<Range>           ranges;
+        Vec<SceneDrawItemId> items;
+
+        auto find(u32 node, u32 submesh) const -> Option<SceneDrawItemId>;
+    };
+
     friend class Scene;
     bool            Append(Scene& scene, SceneNode& node, u32 generation);
     SceneNodeId     RegisterNode(Scene&, SceneNode&);
     SceneMeshId     RegisterMesh(SceneMesh&);
     SceneMaterialId RegisterMaterial(Scene&, SceneMaterial&);
-    void            RegisterDrawItems(Scene&, SceneNode&, SceneNodeId,
-                                      const HashMap<rstd::uint64_t, SceneDrawItemId>*);
+    void            RegisterDrawItems(Scene&, SceneNode&, SceneNodeId, const DrawItemLookup*);
     void            CollectNodes(Scene&, SceneNode*, HashSet<SceneNode*>&, Vec<SceneNode*>*);
     void            RebuildNamedResources();
 
@@ -2525,6 +2581,7 @@ private:
     Vec<SceneMesh*>          m_meshes;
     Vec<SceneMaterial*>      m_materials;
     Vec<SceneDrawItemRecord> m_draw_items;
+    DrawItemLookup           m_draw_lookup;
 
     HashMap<const SceneNode*, SceneNodeId>          m_node_ids;
     HashMap<const SceneMesh*, SceneMeshId>          m_mesh_ids;
@@ -3426,6 +3483,7 @@ public:
     }
 
     void                      RebuildResourceIndex();
+    bool                      RefreshResourceIndex();
     SceneResourceIndex&       ResourceIndex() { return m_resource_index; }
     const SceneResourceIndex& ResourceIndex() const { return m_resource_index; }
     u32                       ResourceGeneration() const { return m_resource_generation; }
@@ -3505,6 +3563,9 @@ private:
     HashMap<rstd::uint64_t, Vec<SceneEffectId>>  m_node_image_effects;
     HashMap<i32, SceneNodeId>                    m_wallpaper_node_ids;
     SceneResourceIndex                           m_resource_index;
+    Arc<SceneDrawIndexState>                     m_draw_index { Arc<SceneDrawIndexState>::make() };
+    bool                                         m_named_resources_dirty { true };
+    bool                                         m_texture_animations_dirty { true };
     bool                                         m_render_graph_dirty { false };
     bool                                         m_planar_reflection_enabled { false };
     HashMap<i32, String>                         m_render_group_cameras;

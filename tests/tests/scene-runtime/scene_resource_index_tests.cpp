@@ -326,18 +326,92 @@ TEST(SceneResourceIndex, ResolvesDrawItemsAndNamedResources) {
 
 TEST(SceneResourceIndex, RebuildPicksUpNewRenderTargets) {
     owe::Scene scene;
-    scene.RebuildResourceIndex();
+    EXPECT_TRUE(scene.RefreshResourceIndex());
     EXPECT_TRUE(scene.ResourceIndex().renderTargetId("_rt_link_7"_str).is_none());
 
     scene.RegisterRenderTarget(String::make("_rt_link_7"_str),
                                owe::SceneRenderTarget { .width = i32(64), .height = i32(32) });
-    scene.RebuildResourceIndex();
+    EXPECT_TRUE(scene.RefreshResourceIndex());
 
     auto id = scene.ResourceIndex().renderTargetId("_rt_link_7"_str);
     ASSERT_TRUE(id.is_some());
     ASSERT_NE(scene.ResourceIndex().mutableRenderTarget(*id), nullptr);
     EXPECT_EQ(scene.ResourceIndex().mutableRenderTarget(*id)->width, i32(64));
     EXPECT_EQ(scene.ResourceIndex().renderTarget(*id)->height, i32(32));
+    EXPECT_FALSE(scene.RefreshResourceIndex());
+}
+
+TEST(SceneResourceIndex, VisibilityKeepsDrawIndexAndTreeEditsRefreshIt) {
+    owe::Scene scene;
+    auto       node = Arc<owe::SceneNode>::make();
+    node->AddMesh(MakeSingleSubmesh("first"));
+    scene.RootMut()->AppendChild(node.clone());
+    EXPECT_TRUE(scene.RefreshResourceIndex());
+    auto id   = scene.ResourceIndex().nodeId(*node).unwrap();
+    auto draw = scene.ResourceIndex().drawItemFor(id, u32()).unwrap();
+
+    EXPECT_TRUE(scene.SetNodeVisible(*node, false));
+    auto snapshot = owe::ExtractRenderSceneSnapshot(scene);
+    EXPECT_TRUE(snapshot.renderItemFor(draw));
+    EXPECT_FALSE(scene.RefreshResourceIndex());
+
+    auto second = Arc<owe::SceneNode>::make();
+    second->AddMesh(MakeSingleSubmesh("second"));
+    scene.RootMut()->AppendChild(second.clone());
+    EXPECT_TRUE(scene.RefreshResourceIndex());
+    auto second_id = scene.ResourceIndex().nodeId(*second).unwrap();
+    EXPECT_TRUE(scene.RootMut()->RemoveChild(*node));
+    EXPECT_TRUE(scene.RefreshResourceIndex());
+    EXPECT_TRUE(scene.ResourceIndex().resolve(draw).is_none());
+    EXPECT_EQ(scene.ResourceIndex().node(second_id), second.as_ptr());
+    EXPECT_FALSE(scene.RefreshResourceIndex());
+}
+
+TEST(SceneResourceIndex, RefreshesEffectDrawWhenResolutionChangesItsSubmeshes) {
+    owe::Scene scene;
+    auto       root = scene.RootMut();
+    auto layer = Arc<owe::SceneNodeLayer>::make(root.as_raw_ptr(), 16.0f, 16.0f, "_rt_effect"_str);
+    auto node  = Arc<owe::SceneNode>::make();
+    auto mesh  = MakeSingleSubmesh("effect");
+    mesh->Submeshes().clear();
+    node->AddMesh(mesh.clone());
+    auto effect = Arc<owe::SceneImageEffect>::make();
+    effect->AddNode(owe::SceneImageEffectNode { .sceneNode = node.clone() });
+    layer->AddEffect(effect);
+    root->AttachLayer(layer.clone());
+    EXPECT_TRUE(scene.RefreshResourceIndex());
+    auto id = scene.ResourceIndex().nodeId(*node).unwrap();
+    EXPECT_FALSE(scene.ResourceIndex().drawItemFor(id, u32()));
+
+    auto geometry = MakeSingleSubmesh("effect-geometry");
+    layer->ResolveEffect(*geometry, ""_str);
+    EXPECT_TRUE(scene.RefreshResourceIndex());
+    auto draw = scene.ResourceIndex().drawItemFor(id, u32()).unwrap();
+    EXPECT_EQ(scene.ResourceIndex().resolve(draw)->node, node.as_ptr());
+    layer->ResolveEffect(*geometry, ""_str);
+    EXPECT_FALSE(scene.RefreshResourceIndex());
+}
+
+TEST(SceneResourceIndex, DrawLookupKeepsSubmeshHolesAndStableIds) {
+    owe::Scene scene;
+    auto       node                          = Arc<owe::SceneNode>::make();
+    auto       mesh                          = MakeSingleSubmesh("sparse");
+    mesh->Submeshes()[usize()].material_slot = u32(1);
+    mesh->Submeshes().push(owe::SceneMesh::Submesh {});
+    node->AddMesh(mesh.clone());
+    scene.AttachRuntimeNode(*scene.RootMut(), node.clone());
+    auto node_id = scene.ResourceIndex().nodeId(*node).unwrap();
+    EXPECT_TRUE(scene.ResourceIndex().drawItemFor(node_id, u32()).is_none());
+    auto draw = scene.ResourceIndex().drawItemFor(node_id, u32(1)).unwrap();
+    EXPECT_TRUE(scene.ResourceIndex().drawItemFor(node_id, u32(2)).is_none());
+
+    auto replacement = MakeSingleSubmesh("replacement");
+    replacement->Submeshes().push(owe::SceneMesh::Submesh {});
+    node->AddMesh(replacement.clone());
+    EXPECT_TRUE(scene.RefreshResourceIndex());
+    EXPECT_TRUE(scene.ResourceIndex().drawItemFor(node_id, u32()));
+    EXPECT_EQ(scene.ResourceIndex().drawItemFor(node_id, u32(1)).unwrap(), draw);
+    EXPECT_EQ(scene.ResourceIndex().resolve(draw)->mesh, replacement.as_ptr().as_raw_ptr());
 }
 
 TEST(SceneResourceIndex, RuntimeAppendMatchesRebuildForSubtreeAndEffects) {

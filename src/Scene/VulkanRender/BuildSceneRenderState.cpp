@@ -1119,7 +1119,7 @@ auto owe::BuildSceneRenderState(Scene& scene, const RenderSceneSnapshot& render_
     if (output.is_err()) return Err(output.unwrap_err());
     extra.descriptions.push(rstd::move(output->transfer));
     extra.descriptions.push(rstd::move(output->release));
-    scene.RebuildResourceIndex();
+    scene.RefreshResourceIndex();
     auto recipes = Vec<vrento::vulkan::GraphicsDrawDesc>::with_capacity(extra.draws.len());
     for (auto& draw : extra.draws) {
         auto recipe = draw.source->declareResources(declarations);
