@@ -1262,3 +1262,101 @@ TEST(SceneRenderGraph, ReusesDrawInterfacesWithoutRetainingGraphState) {
     cache.prune();
     EXPECT_EQ(cache.stats().entries, usize());
 }
+
+TEST(SceneRenderGraph, SharesTransientSlotsAcrossSequentialLayersAndPreservesHistoryReads) {
+    owe::Scene scene;
+    scene.RegisterRenderTarget("_rt_default"_Str,
+                               owe::SceneRenderTarget { .width = i32(1920), .height = i32(1080) });
+    scene.RegisterRenderTarget("_rt_layer_a"_Str,
+                               owe::SceneRenderTarget { .width                = i32(1024),
+                                                        .height               = i32(512),
+                                                        .allowReuse           = true,
+                                                        .clear_on_first_write = true });
+    scene.RegisterRenderTarget("_rt_layer_b"_Str,
+                               owe::SceneRenderTarget { .width                = i32(1024),
+                                                        .height               = i32(512),
+                                                        .allowReuse           = true,
+                                                        .clear_on_first_write = true });
+    scene.RegisterRenderTarget(
+        "_rt_history_fbo"_Str,
+        owe::SceneRenderTarget { .width = i32(1024), .height = i32(512), .allowReuse = true });
+
+    auto add_layer = [&](ref<str> composite_name, ref<str> label) {
+        auto node = Arc<owe::SceneNode>::make();
+        auto mesh = Arc<owe::SceneMesh>::make();
+        auto mat  = GraphMaterial();
+        mat.name  = rstd::format("{}-src", label);
+        mesh->AddMaterial(rstd::move(mat));
+        mesh->Submeshes().push(owe::SceneMesh::Submesh {});
+        node->AddMesh(rstd::move(mesh));
+
+        auto layer = Arc<owe::SceneNodeLayer>::make(node.as_ptr(), 1024.0f, 512.0f, composite_name);
+        auto eff   = Arc<owe::SceneImageEffect>::make();
+        eff->name  = rstd::format("{}-eff", label);
+        auto eff_node = Arc<owe::SceneNode>::make();
+        auto eff_mesh = Arc<owe::SceneMesh>::make();
+        auto eff_mat  = GraphMaterial(usize(1));
+        eff_mat.name  = rstd::format("{}-final", label);
+        eff_mat.textures.clear();
+        eff_mat.textures.push(String::make(composite_name));
+        eff_mesh->AddMaterial(rstd::move(eff_mat));
+        eff_mesh->Submeshes().push(owe::SceneMesh::Submesh {});
+        eff_node->AddMesh(rstd::move(eff_mesh));
+        eff->AddNode(owe::SceneImageEffectNode {
+            .output    = owe::SceneEffectTarget::LayerNext(),
+            .sceneNode = rstd::move(eff_node),
+        });
+        layer->AddEffect(rstd::move(eff));
+        node->AttachLayer(rstd::move(layer));
+        scene.RootMut()->AppendChild(rstd::move(node));
+    };
+
+    add_layer("_rt_layer_a"_str, "a"_str);
+    add_layer("_rt_layer_b"_str, "b"_str);
+
+    // Read _rt_history_fbo before writing it in the same frame; it must stay frame-preserved
+    // and never join the shared transient allocation family.
+    {
+        auto reader      = Arc<owe::SceneNode>::make();
+        auto reader_mesh = Arc<owe::SceneMesh>::make();
+        auto reader_mat  = GraphMaterial(usize(1));
+        reader_mat.name  = "history-reader"_Str;
+        reader_mat.textures.clear();
+        reader_mat.textures.push("_rt_history_fbo"_Str);
+        reader_mesh->AddMaterial(rstd::move(reader_mat));
+        reader_mesh->Submeshes().push(owe::SceneMesh::Submesh {});
+        reader->AddMesh(rstd::move(reader_mesh));
+        scene.RootMut()->AppendChild(rstd::move(reader));
+
+        auto writer      = Arc<owe::SceneNode>::make();
+        auto writer_mesh = Arc<owe::SceneMesh>::make();
+        auto writer_mat  = GraphMaterial();
+        writer_mat.name  = "history-writer"_Str;
+        writer_mesh->AddMaterial(rstd::move(writer_mat));
+        owe::SceneMesh::Submesh submesh;
+        submesh.output_override = "_rt_history_fbo"_Str;
+        writer_mesh->Submeshes().push(rstd::move(submesh));
+        writer->AddMesh(rstd::move(writer_mesh));
+        scene.RootMut()->AppendChild(rstd::move(writer));
+    }
+
+    auto built = owe::BuildSceneRenderState(scene);
+    ASSERT_TRUE(built.is_ok());
+    ASSERT_TRUE(built->graph.compile().is_ok());
+    auto plan = built->textures.resourcePlan(built->graph).unwrap();
+
+    String key_a, key_b;
+    usize  history_entries {};
+    for (const auto& entry : plan.textures) {
+        if (entry.request().name == "_rt_layer_a"_str) key_a = entry.allocation_key.clone();
+        if (entry.request().name == "_rt_layer_b"_str) key_b = entry.allocation_key.clone();
+        if (entry.request().name == "_rt_history_fbo"_str) {
+            ++history_entries;
+            EXPECT_TRUE(entry.preserve_contents);
+            EXPECT_TRUE(entry.allocation_key.is_empty());
+        }
+    }
+    EXPECT_FALSE(key_a.is_empty());
+    EXPECT_EQ(key_a, key_b);
+    EXPECT_EQ(history_entries, usize(2));
+}
