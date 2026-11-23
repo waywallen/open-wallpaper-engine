@@ -849,9 +849,10 @@ void ParseImageObjImpl(SceneLayerBuildContext& context, wpscene::ImageObject& im
                     String rtname;
                     if (wpimgobj.fullscreen) {
                         SceneRenderTarget target {
-                            .width      = i32(2),
-                            .height     = i32(2),
-                            .allowReuse = ! wpfbo.unique,
+                            .width                = i32(2),
+                            .height               = i32(2),
+                            .allowReuse           = ! wpfbo.unique,
+                            .clear_on_first_write = ! wpfbo.unique,
                         };
                         target.bind = {
                             .enable = true,
@@ -890,9 +891,10 @@ void ParseImageObjImpl(SceneLayerBuildContext& context, wpscene::ImageObject& im
                             image_node_id,
                             effect_id,
                             wpfbo,
-                            SceneRenderTarget { .width      = fbo_size[usize()],
-                                                .height     = fbo_size[usize(1)],
-                                                .allowReuse = ! wpfbo.unique });
+                            SceneRenderTarget { .width                = fbo_size[usize()],
+                                                .height               = fbo_size[usize(1)],
+                                                .allowReuse           = ! wpfbo.unique,
+                                                .clear_on_first_write = ! wpfbo.unique });
                     }
                     (void)render_targets.insert(String::make(wpfbo.name.as_str()),
                                                 String::make(rtname));

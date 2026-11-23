@@ -34,7 +34,6 @@ struct ExtraInfo {
     Scene*                      scene;
     const RenderSceneSnapshot*  render_scene;
     HashSet<String>             depth_initialized_outputs;
-    HashSet<String>             transient_texture_families;
     Option<ContentRef>          mip_framebuffer_history;
     struct DepthDraw {
         SceneNode* node;
@@ -132,7 +131,36 @@ auto AddTextureCopy(ExtraInfo& extra, ContentRef source, ContentRef target) -> C
 } // namespace
 namespace
 {
-static vulkan::SceneRenderTextureSpec MakeTextureDesc(ExtraInfo& extra, ref<str> key) {
+static Option<String> MakeTransientAllocationFamily(const vulkan::SceneRenderTextureSpec& desc) {
+    if (desc.imported || ! desc.definition.valid()) return None();
+    const auto& request = desc.request();
+    if (request.kind != resource::TextureRequestKind::RenderTarget ||
+        request.lifetime != resource::TextureLifetimeClass::FrameLocal ||
+        request.definition.is_none())
+        return None();
+    if ((request.content &
+         resource::TextureContentFlag(resource::TextureContent::InitializeTransparent)) != u32())
+        return None();
+    const auto& def = *request.definition;
+    return Some(rstd::format("transient:{}x{}:f{}:u{}:m{}:s{}:w{}-{}:fl{}-{}:c{}-{}:b{}:ct{}",
+                             def.width,
+                             def.height,
+                             static_cast<unsigned>(def.format),
+                             static_cast<unsigned>(def.usage),
+                             def.mip_levels,
+                             def.samples,
+                             static_cast<unsigned>(def.sample.wrapS),
+                             static_cast<unsigned>(def.sample.wrapT),
+                             static_cast<unsigned>(def.sample.minFilter),
+                             static_cast<unsigned>(def.sample.magFilter),
+                             def.sample.compare_enable ? 1u : 0u,
+                             static_cast<unsigned>(def.sample.compare_op),
+                             static_cast<unsigned>(def.sample.border_color),
+                             request.content));
+}
+
+static vulkan::SceneRenderTextureSpec MakeTextureDesc(ExtraInfo& extra, ref<str> key,
+                                                      bool allow_transient_family = true) {
     if (auto existing = extra.textures.find(key)) return existing->spec.clone();
     vulkan::SceneRenderTextureSpec desc { .key = String::make(key), .imported = ! IsSpecTex(key) };
     if (desc.imported) {
@@ -148,8 +176,7 @@ static vulkan::SceneRenderTextureSpec MakeTextureDesc(ExtraInfo& extra, ref<str>
     } else if (auto definition = extra.scene->TargetResource(key)) {
         desc.definition = definition.unwrap();
     }
-    if (extra.transient_texture_families.contains(key))
-        desc.allocation_family = Some(String::make(key));
+    if (allow_transient_family) desc.allocation_family = MakeTransientAllocationFamily(desc);
     // Scene-owned color history starts transparent; ordinary undefined reads remain invalid.
     desc.initialize_history_transparent = ! desc.imported && desc.definition.valid();
     return desc;
@@ -187,11 +214,15 @@ static ContentRef AddTextureCopy(ExtraInfo& extra, ContentRef in,
                                          in.output() ? in.output()->index : 0)
                                 .as_str());
     if (! out_desc) {
-        auto request      = target.request().clone();
-        request.name      = target.key.clone();
-        request.source    = None();
-        target.definition = resource::TextureResourceRef(rstd::move(request));
-        target.source     = None();
+        auto request   = target.request().clone();
+        request.name   = target.key.clone();
+        request.source = None();
+        if (request.kind == resource::TextureRequestKind::RenderTarget)
+            request.lifetime = resource::TextureLifetimeClass::FrameLocal;
+        target.definition        = resource::TextureResourceRef(rstd::move(request));
+        target.source            = None();
+        target.imported          = false;
+        target.allocation_family = MakeTransientAllocationFamily(target);
     }
     auto initial = SelectTexture(extra, target);
     return AddTextureCopy(extra, in, initial);
@@ -313,7 +344,8 @@ static void AddMaterialTextureReads(SceneMaterial& material, ref<str> pass_outpu
             continue;
         }
         if (source.kind == SceneMaterialTextureSourceKind::LayerOutput) {
-            input = Some(SelectTexture(extra, MakeTextureDesc(extra, binding_key)));
+            const bool history_read = extra.selected.get(binding_key).is_none();
+            input = Some(SelectTexture(extra, MakeTextureDesc(extra, binding_key, ! history_read)));
             // Forward links sample the previous frame; rebinding to the final producer
             // would cycle when that producer also samples the consumer's framebuffer.
             ImportHistory(extra, *input);
@@ -322,7 +354,11 @@ static void AddMaterialTextureReads(SceneMaterial& material, ref<str> pass_outpu
             if (source.kind == SceneMaterialTextureSourceKind::MipMappedFramebuffer) {
                 input = Some(AddMipFramebufferHistory(extra));
             } else {
-                input = Some(SelectTexture(extra, MakeTextureDesc(extra, binding_key)));
+                const bool history_read = IsSpecTex(name) &&
+                                          ! name.starts_with(WE_MIP_MAPPED_FRAME_BUFFER) &&
+                                          extra.selected.get(binding_key).is_none();
+                input =
+                    Some(SelectTexture(extra, MakeTextureDesc(extra, binding_key, ! history_read)));
             }
             if (IsSpecTex(name) && ! name.starts_with(WE_MIP_MAPPED_FRAME_BUFFER)) {
                 ImportHistory(extra, *input);
@@ -414,7 +450,6 @@ static SceneNodeLayer* ToGraphPass(SceneNode* node, ref<str> output, ExtraInfo& 
             imgeff = effect;
             imgeff->ResolveEffect(*scene.DefaultEffectMesh(), "effect"_str);
             output = imgeff->CompositeTarget();
-            (void)extra.transient_texture_families.insert(String::make(output));
         }
     }
     if (imgeff != nullptr) {
