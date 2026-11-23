@@ -41,11 +41,11 @@ rstd-test = { version = "0.1.9" }
 licrypto = { version = "0.1.1" }
 liffto = { version = "0.1.0" }
 vvk = { version = "0.1.2" }
-vui-host = { version = "0.1.0" }
 spirvto = { version = "0.1.0" }
 wavsen = { git = "https://github.com/hypengw/wavsen.git" }
-vrento = { version = "0.1.0" }
-vectext = { version = "0.1.0" }
+vrento = { git = "https://github.com/vecren/vrento.git" }
+vectext = { git = "https://github.com/vecren/vectext.git" }
+vui-host = { git = "https://github.com/vecren/vui.git" }
 
 [workspace.external-dependencies.pkg-config.lz4]
 module = "liblz4"
