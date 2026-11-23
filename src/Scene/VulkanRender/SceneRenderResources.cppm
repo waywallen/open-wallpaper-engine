@@ -110,11 +110,6 @@ public:
         return Contains(m_uses->framebuffers, use) ? m_prepared->Resolve(use) : None();
     }
 
-    auto Resolve(resource::DescriptorBindingHandle handle) const
-        -> Option<ref<resource_registry::PreparedDescriptorBinding>> {
-        return Contains(m_uses->descriptors, handle) ? m_prepared->Resolve(handle) : None();
-    }
-
     auto Resolve(resource::ExternalUseHandle use) const
         -> Option<ref<resource_registry::PreparedExternalUse>> {
         return Contains(m_uses->externals, use) ? m_prepared->Resolve(use) : None();
@@ -134,14 +129,13 @@ private:
 };
 
 struct DrawBindingContext {
-    ref<PreparedPassResources>                                resources;
-    Option<ref<resource_registry::PreparedDescriptorBinding>> global_descriptor;
-    vrento::vulkan::DeviceSession                             session;
+    ref<resource_registry::PreparedResourceTable>            resources;
+    Option<ref<resource_registry::DescriptorBindingVersion>> global_descriptor;
 };
 
 struct DrawUpdateContext {
     mut_ref<dyn<resource::BufferContentWriter>>               buffers;
-    ref<PreparedPassResources>                                resources;
+    ref<resource_registry::PreparedResourceTable>             resources;
     mut_ref<dyn<resource_registry::GraphicsResourcePreparer>> graphics;
     ref<dyn<SceneTextureAnimationView>>                       textures;
 };

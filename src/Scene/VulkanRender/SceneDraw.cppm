@@ -21,12 +21,6 @@ using rstd::sync::Arc;
 export namespace owe::vulkan
 {
 
-struct ShaderDrawInput : vrento::vulkan::GraphicsFrameData {
-    Vec<resource::TextureUseHandle> texture_uses;
-    Vec<usize>                      texture_slots;
-    Vec<vrento::texture::Stages>    texture_stages;
-};
-
 class SceneDraw {
 public:
     struct UniformBlockUse {
@@ -121,7 +115,8 @@ public:
     auto resolveResources(const Device&, DrawResourceContext&) -> Result<empty, DrawPrepareError>;
     bool update(DrawUpdateContext&);
     void acknowledgeGeometry();
-    auto frameData(const DrawBindingContext&) const -> Option<Arc<ShaderDrawInput>>;
+    auto frameData(const DrawBindingContext&, Vec<vrento::vulkan::TextureSelection>&) const
+        -> Option<vrento::vulkan::GraphicsFrameData>;
     void clearResources();
     auto parameters() const -> const Desc& { return m_desc; }
     void refreshSnapshot() { captureGeometry(); }
@@ -133,8 +128,8 @@ private:
 
         auto Pipeline() const -> const vrento::MaterialPipelineDesc& { return pipeline.value; }
     };
-    bool bindings_ready_ {};
-    bool samplesTexture(usize) const;
+    Option<vrento::vulkan::GraphicsDrawBindings> draw_bindings_;
+    bool                                         samplesTexture(usize) const;
     auto describeGraphics(const Arc<resource::ShaderArtifact>&)
         -> Option<vrento::vulkan::GraphicsDrawDesc>;
     Vec<vrento::vulkan::GraphicsDrawRange> draws_;

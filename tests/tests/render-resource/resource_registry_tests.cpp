@@ -1928,11 +1928,11 @@ TEST(DescriptorSystem, PreparesOwnedPushBindingPacket) {
     auto resolved = table.Resolve(handle);
     ASSERT_TRUE(resolved.is_some());
     EXPECT_EQ(table.DescriptorCount(), rstd::usize(1));
-    EXPECT_EQ((**resolved).images[rstd::usize()].image.generation, rstd::u64(17));
+    EXPECT_EQ((**resolved).images()[rstd::usize()].image.generation, rstd::u64(17));
 
     auto leases = table.Leases();
     ASSERT_EQ(leases.descriptors.len(), rstd::usize(1));
-    EXPECT_EQ(leases.descriptors[rstd::usize()].handle, handle);
+    EXPECT_TRUE(leases.descriptors[rstd::usize()] == **resolved);
     SubmissionQueue queue;
     auto            work    = queue.Begin().unwrap();
     auto            receipt = work.receipt();

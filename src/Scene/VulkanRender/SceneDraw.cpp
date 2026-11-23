@@ -769,6 +769,37 @@ auto SceneDraw::resolveResources(const Device& device, DrawResourceContext& cont
         return Err(DrawPrepareError::Buffers(rstd::move(draw_buffers).unwrap_err()));
     m_desc.draw_buffers = rstd::move(*draw_buffers);
 
+    vrento::vulkan::GraphicsDrawBindings::Data bindings;
+    auto                                       allocation =
+        [&](resource::BufferUseHandle use) -> Option<vrento::vulkan::BufferAllocation> {
+        auto prepared = context.resources->Resolve(use);
+        if (! prepared) return None();
+        return Some((**prepared).buffer.physical->buffer.clone());
+    };
+    for (auto use : m_desc.draw_buffers.vertices) {
+        auto buffer = allocation(use);
+        if (! buffer) return Err(DrawPrepareError::Buffer(use));
+        bindings.vertices.push(buffer.unwrap());
+    }
+    if (m_desc.draw_buffers.index) {
+        bindings.indices = allocation(*m_desc.draw_buffers.index);
+        if (! bindings.indices) return Err(DrawPrepareError::Buffer(*m_desc.draw_buffers.index));
+    }
+    for (auto use : resourceUses().buffers) {
+        auto buffer = allocation(use);
+        if (! buffer) return Err(DrawPrepareError::Buffer(use));
+        bindings.buffers.push(buffer.unwrap());
+    }
+    if (m_desc.viewports.is_empty())
+        bindings.viewports.push(
+            { 0, float(extent.height), float(extent.width), -float(extent.height), 0, 1 });
+    else
+        bindings.viewports = m_desc.viewports.clone();
+    if (m_desc.scissors.is_empty())
+        bindings.scissors.push({ { 0, 0 }, m_desc.output_extent });
+    else
+        bindings.scissors = m_desc.scissors.clone();
+
     {
         if (! m_desc.shader_use) return missing(DrawResourceKind::Shader);
         if (! m_desc.pipeline_use) return missing(DrawResourceKind::Pipeline);
@@ -837,7 +868,7 @@ auto SceneDraw::resolveResources(const Device& device, DrawResourceContext& cont
             m_desc.clear_value_src = Some(clear_color_);
         }
     }
-    bindings_ready_ = true;
+    draw_bindings_ = Some(vrento::vulkan::GraphicsDrawBindings(rstd::move(bindings)));
     return Ok(empty {});
 }
 
@@ -947,39 +978,19 @@ void SceneDraw::acknowledgeGeometry() {
     (void)mesh->ConsumeDirtyFlags(SceneMeshDirtyData);
 }
 
-auto SceneDraw::frameData(const DrawBindingContext& context) const -> Option<Arc<ShaderDrawInput>> {
-    if (! bindings_ready_) return None();
-    auto session     = context.session;
-    auto input       = Arc<ShaderDrawInput>::make();
-    input->instances = m_desc.instance_count.to_primitive();
-    input->visible   = visible_;
-    auto descriptor  = [&](const resource_registry::PreparedDescriptorBinding& source) {
-        auto& owner = session.graphics_resources();
-        auto  frozen =
-            owner.descriptor_snapshots.Snapshot(session.device(), source, owner.descriptors);
-        if (frozen.is_err()) return false;
-        input->descriptors.push(rstd::move(frozen).unwrap());
-        return true;
-    };
-    if (context.global_descriptor && ! descriptor(**context.global_descriptor)) return None();
+auto SceneDraw::frameData(const DrawBindingContext&              context,
+                          Vec<vrento::vulkan::TextureSelection>& selections) const
+    -> Option<vrento::vulkan::GraphicsFrameData> {
+    if (! draw_bindings_) return None();
+    vrento::vulkan::GraphicsFrameData input;
+    input.bindings  = Some((*draw_bindings_).clone());
+    input.instances = m_desc.instance_count.to_primitive();
+    input.visible   = visible_;
+    if (context.global_descriptor) input.descriptors.push((**context.global_descriptor).clone());
     for (const auto& use : m_desc.descriptor_bindings) {
         auto prepared = context.resources->Resolve(use.binding);
-        if (prepared.is_none() || ! descriptor(**prepared)) return None();
-    }
-    for (auto use : m_desc.draw_buffers.vertices) {
-        auto prepared = context.resources->Resolve(use);
-        if (prepared.is_none()) return None();
-        input->vertices.push((**prepared).buffer.physical->buffer.clone());
-    }
-    if (m_desc.draw_buffers.index) {
-        auto prepared = context.resources->Resolve(*m_desc.draw_buffers.index);
-        if (prepared.is_none()) return None();
-        input->indices = Some((**prepared).buffer.physical->buffer.clone());
-    }
-    for (auto use : resourceUses().buffers) {
-        auto prepared = context.resources->Resolve(use);
-        if (prepared.is_none()) return None();
-        input->buffers.push((**prepared).buffer.physical->buffer.clone());
+        if (! prepared) return None();
+        input.descriptors.push((**prepared).clone());
     }
     for (usize index {}; index < m_desc.texture_bindings.len(); ++index) {
         const auto& binding = m_desc.texture_bindings[index];
@@ -991,28 +1002,16 @@ auto SceneDraw::frameData(const DrawBindingContext& context) const -> Option<Arc
                            : usize();
         auto sampled = (**prepared).physical->SampledBinding(slot);
         if (sampled.is_err()) return None();
-        input->textures.push(vrento::texture::TextureViewRef(sampled->view));
-        input->texture_uses.push(resource::TextureUseHandle(*binding.use));
-        input->texture_slots.push(usize(slot));
-        input->samplers.push(vrento::texture::SamplerRef(sampled->sampler));
-        input->texture_stages.push(vrento::texture::Stages(m_desc.texture_stages[index]));
+        input.textures.push(vrento::texture::TextureViewRef(sampled->view));
+        input.samplers.push(vrento::texture::SamplerRef(sampled->sampler));
+        selections.push({ *binding.use, sampled->view, slot });
     }
-    auto extent = m_desc.output_extent;
-    if (m_desc.viewports.is_empty())
-        input->viewports.push(
-            { 0, float(extent.height), float(extent.width), -float(extent.height), 0, 1 });
-    else
-        input->viewports = m_desc.viewports.clone();
-    if (m_desc.scissors.is_empty())
-        input->scissors.push({ { 0, 0 }, extent });
-    else
-        input->scissors = m_desc.scissors.clone();
-    input->draws = draws_.clone();
+    input.draws = draws_.clone();
     return Some(rstd::move(input));
 }
 
 void SceneDraw::clearResources() {
-    bindings_ready_ = false;
+    draw_bindings_ = None();
     m_desc.descriptor_bindings.clear();
     m_desc.draw_buffers = {};
 }

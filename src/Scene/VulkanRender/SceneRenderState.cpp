@@ -17,7 +17,6 @@ auto SceneRenderState::captureFrame(
     if (! input_ || compiled.description().scope() != input_->graph().scope()) return failure();
     auto& resources = rr.resources;
     auto& prepared  = resources.Prepared();
-    auto  session   = resources.TextureContext().session();
     auto  captured  = output.capture(compiled,
                                      surface.resource,
                                      output_pass,
@@ -25,31 +24,21 @@ auto SceneRenderState::captureFrame(
                                      rstd::move(target),
                                      rr.scopes.clone());
     if (captured.is_err()) return Err(captured.unwrap_err());
-    auto                      request = captured.unwrap();
-    auto&                     frames  = request.parameters;
+    auto               request = captured.unwrap();
+    auto&              frames  = request.parameters;
+    DrawBindingContext context {
+        .resources = ref<resource_registry::PreparedResourceTable>::from_raw_parts(&prepared),
+        .global_descriptor =
+            global_descriptor_binding ? prepared.Resolve(*global_descriptor_binding) : None(),
+    };
     Vec<vk::TextureSelection> selections;
     for (const auto& draw : draws) {
         auto desc = compiled.description(draw.id);
         if (! desc || ! (*desc)->get<vk::GraphicsDrawDesc>()) return failure();
-        auto                  uses = draw.source->resourceUses();
-        PreparedPassResources selected(prepared, uses);
-        DrawBindingContext    context {
-            .resources         = ref<PreparedPassResources>::from_raw_parts(&selected),
-            .global_descriptor = global_descriptor_binding
-                                     ? prepared.Resolve(*global_descriptor_binding)
-                                     : None<ref<resource_registry::PreparedDescriptorBinding>>(),
-            .session           = session
-        };
-        auto value = draw.source->frameData(context);
+        auto value = draw.source->frameData(context, selections);
         if (! value) return failure();
-        auto snapshot = value.unwrap();
-        for (usize i {}; i < snapshot->texture_uses.len(); ++i)
-            selections.push(
-                { snapshot->texture_uses[i], snapshot->textures[i], snapshot->texture_slots[i] });
-        auto frame = compiled.frame<vk::GraphicsDrawPass>(
-            draw.id,
-            (*desc)->revision(),
-            rstd::move(static_cast<vk::GraphicsFrameData&>(*snapshot)));
+        auto frame =
+            compiled.frame<vk::GraphicsDrawPass>(draw.id, (*desc)->revision(), value.unwrap());
         if (frame.is_err()) return Err(frame.unwrap_err());
         frames.push(frame.unwrap());
     }

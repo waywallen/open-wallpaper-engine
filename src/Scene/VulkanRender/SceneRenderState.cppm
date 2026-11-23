@@ -428,16 +428,15 @@ public:
             }
         }
         auto graphics = dyn<resource_registry::GraphicsResourcePreparer>::from_ref(rr.resources);
+        DrawUpdateContext update_context {
+            .buffers   = buffer_writer.as_mut_ref(),
+            .resources = ref<resource_registry::PreparedResourceTable>::from_raw_parts(
+                &rr.resources.Prepared()),
+            .graphics = graphics.as_mut_ref(),
+            .textures = textures,
+        };
         for (; progress.draws < draws.len(); ++progress.draws) {
-            auto&                 entry = draws[progress.draws];
-            auto                  uses  = entry.source->resourceUses();
-            PreparedPassResources resources(rr.resources.Prepared(), uses);
-            DrawUpdateContext     update_context {
-                .buffers   = buffer_writer.as_mut_ref(),
-                .resources = ref<PreparedPassResources>::from_raw_parts(&resources),
-                .graphics  = graphics.as_mut_ref(),
-                .textures  = textures
-            };
+            auto& entry = draws[progress.draws];
             if (! entry.source->update(update_context)) return false;
         }
         for (auto& entry : draws) {
