@@ -1197,13 +1197,16 @@ TEST(SceneRenderGraph, ReusesDrawInterfacesWithoutRetainingGraphState) {
     scene.RootMut()->AppendChild(node.clone());
 
     SceneDrawPreparationCache cache;
+    ShaderArtifactCache       shaders;
     auto                      build = [&] {
         auto snapshot = owe::ExtractRenderSceneSnapshot(scene);
         return owe::BuildSceneRenderState(
                    scene,
                    snapshot,
                    nullptr,
-                   Some(mut_ref<SceneDrawPreparationCache>::from_raw_parts(&cache)))
+                   Some(mut_ref<SceneDrawPreparationCache>::from_raw_parts(&cache)),
+                   None(),
+                   &shaders)
             .unwrap();
     };
     Option<SceneRenderStateInput> first = Some(build());
@@ -1219,14 +1222,22 @@ TEST(SceneRenderGraph, ReusesDrawInterfacesWithoutRetainingGraphState) {
     EXPECT_EQ(original->pipeline.generation, first->resource_plan.generation);
     auto initial = cache.stats();
     EXPECT_EQ(initial.misses, u64(1));
+    auto target         = scene.RenderTargetMut("_rt_default"_str).unwrap();
+    target->force_clear = true;
+    {
+        auto compatible = build();
+        ASSERT_TRUE(recipe(compatible)->state && original->state);
+        EXPECT_TRUE(rstd::sync::Arc<vrento::vulkan::PipelineStateRecipe>::ptr_eq(
+            *recipe(compatible)->state, *original->state));
+        EXPECT_NE(recipe(compatible)->pipeline, original->pipeline);
+        EXPECT_EQ(recipe(compatible)->request.color_load_op, VK_ATTACHMENT_LOAD_OP_CLEAR);
+    }
 
-    auto target          = scene.RenderTargetMut("_rt_default"_str).unwrap();
     target->width        = i32(128);
     target->height       = i32(64);
     target->sample_count = 4;
     target->format       = owe::TextureFormat::RGBA16F;
     target->withDepth    = true;
-    target->force_clear  = true;
     auto& material       = *mesh->MaterialSlots()[usize()];
     material.SetBlendMode(owe::BlendMode::Additive);
     material.SetDepthTest(true);
@@ -1247,10 +1258,13 @@ TEST(SceneRenderGraph, ReusesDrawInterfacesWithoutRetainingGraphState) {
     EXPECT_EQ(current->request.color_format, VK_FORMAT_R16G16B16A16_SFLOAT);
     EXPECT_EQ(current->request.color_load_op, VK_ATTACHMENT_LOAD_OP_CLEAR);
     EXPECT_TRUE(current->request.has_depth_attachment);
-    EXPECT_TRUE(current->request.depth.depthTestEnable);
-    EXPECT_TRUE(current->request.depth.depthWriteEnable);
-    EXPECT_TRUE(current->request.color_blend.blendEnable);
-    EXPECT_EQ(current->request.color_blend.dstColorBlendFactor, VK_BLEND_FACTOR_ONE);
+    ASSERT_TRUE(current->state);
+    EXPECT_FALSE(rstd::sync::Arc<vrento::vulkan::PipelineStateRecipe>::ptr_eq(*current->state,
+                                                                              *original->state));
+    EXPECT_TRUE(current->pipeline_state().depth.depthTestEnable);
+    EXPECT_TRUE(current->pipeline_state().depth.depthWriteEnable);
+    EXPECT_TRUE(current->pipeline_state().color_blend.blendEnable);
+    EXPECT_EQ(current->pipeline_state().color_blend.dstColorBlendFactor, VK_BLEND_FACTOR_ONE);
     EXPECT_EQ(original->request.multisample.rasterizationSamples, VK_SAMPLE_COUNT_1_BIT);
     EXPECT_FALSE(original->request.has_depth_attachment);
     EXPECT_EQ(second->draws[usize()].source->parameters().output_request->definition->width,

@@ -283,12 +283,14 @@ public:
     }
 
     auto ShaderArtifact(resource::ShaderUseHandle use) const
-        -> Option<ref<resource::ShaderArtifact>> {
+        -> Option<ref<Arc<resource::ShaderArtifact>>> {
         if (use.generation != m_plan.generation ||
             use.index >= rstd::as_cast<u64>(m_plan.shaders.len()))
             return None();
         const auto& entry = m_plan.shaders[rstd::as_cast<usize>(use.index)];
-        return entry.handle == use && entry.artifact ? Some((*entry.artifact).deref()) : None();
+        return entry.handle == use && entry.artifact
+                   ? Some(ref<Arc<resource::ShaderArtifact>>::from_raw_parts(&*entry.artifact))
+                   : None();
     }
 
     auto PrepareDraw(const resource::ShaderArtifact& artifact, slice<String> sampler_members,

@@ -135,7 +135,7 @@ private:
     };
     bool bindings_ready_ {};
     bool samplesTexture(usize) const;
-    auto describeGraphics(const resource::ShaderArtifact&)
+    auto describeGraphics(const Arc<resource::ShaderArtifact>&)
         -> Option<vrento::vulkan::GraphicsDrawDesc>;
     Vec<vrento::vulkan::GraphicsDrawRange> draws_;
     bool                                   visible_ { true };

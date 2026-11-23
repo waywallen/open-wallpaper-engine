@@ -287,6 +287,30 @@ struct SceneDrawPreparationCache::State {
     SceneDrawPreparationStats                    statistics;
 };
 
+auto SceneDrawPreparation::findPipelineState(const Arc<resource::ShaderArtifact>& shader,
+                                             const ScenePipelineStateKey&         key) const
+    -> Option<Arc<vrento::vulkan::PipelineStateRecipe>> {
+    for (const auto& entry : pipeline_states_)
+        if (Arc<resource::ShaderArtifact>::ptr_eq(shader, entry.shader) && entry.key == key)
+            return Some(entry.state.clone());
+    return None();
+}
+
+auto SceneDrawPreparation::rememberPipelineState(
+    const Arc<resource::ShaderArtifact>& shader, ScenePipelineStateKey key,
+    vrento::vulkan::PipelineResourceRequest request) const
+    -> Arc<vrento::vulkan::PipelineStateRecipe> {
+    auto state = Arc<vrento::vulkan::PipelineStateRecipe>::make(rstd::move(request));
+    pipeline_states_.push({ shader.clone(), rstd::move(key), state.clone() });
+    return state;
+}
+
+void SceneDrawPreparation::prunePipelineStates() const {
+    pipeline_states_.retain([](const PipelineStateEntry& entry) {
+        return entry.state.strong_count() != usize(1);
+    });
+}
+
 SceneDrawPreparationCache::SceneDrawPreparationCache(): state_(Box<State>::make()) {}
 SceneDrawPreparationCache::~SceneDrawPreparationCache() = default;
 
@@ -343,7 +367,10 @@ void SceneDrawPreparationCache::prune() {
     state_->last = None();
     state_->buckets.retain([&](const u64&, Vec<Arc<DrawPreparationEntry>>& entries) {
         entries.retain([&](const Arc<DrawPreparationEntry>& entry) {
-            if (entry->prepared.strong_count() != usize(1)) return true;
+            if (entry->prepared.strong_count() != usize(1)) {
+                entry->prepared->prunePipelineStates();
+                return true;
+            }
             --state_->statistics.entries;
             return false;
         });

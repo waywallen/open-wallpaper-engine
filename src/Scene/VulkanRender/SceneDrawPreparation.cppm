@@ -36,6 +36,18 @@ struct DrawSamplerLocation {
     vrento::texture::Stages stages { vrento::texture::Stages::None };
 };
 
+struct ScenePipelineStateKey {
+    vrento::MaterialPipelineDesc material;
+    VkPrimitiveTopology          topology;
+    VkSampleCountFlagBits        samples;
+    u32                          viewports;
+    u32                          scissors;
+    bool                         depth;
+    bool                         writes_alpha;
+
+    bool operator==(const ScenePipelineStateKey&) const = default;
+};
+
 class SceneDrawPreparation {
 public:
     SceneDrawPreparation(Vec<DrawSamplerLocation>, Vec<VkVertexInputBindingDescription>,
@@ -46,8 +58,20 @@ public:
     const Vec<VkVertexInputAttributeDescription> vertex_attributes;
 
     auto pipelineLayout(resource::PipelineUseHandle) const -> PipelineLayoutRequirement;
+    auto findPipelineState(const Arc<resource::ShaderArtifact>&, const ScenePipelineStateKey&) const
+        -> Option<Arc<vrento::vulkan::PipelineStateRecipe>>;
+    auto rememberPipelineState(const Arc<resource::ShaderArtifact>&, ScenePipelineStateKey,
+                               vrento::vulkan::PipelineResourceRequest) const
+        -> Arc<vrento::vulkan::PipelineStateRecipe>;
+    void prunePipelineStates() const;
 
 private:
+    struct PipelineStateEntry {
+        Arc<resource::ShaderArtifact>            shader;
+        ScenePipelineStateKey                    key;
+        Arc<vrento::vulkan::PipelineStateRecipe> state;
+    };
+    mutable Vec<PipelineStateEntry> pipeline_states_;
     const PipelineLayoutRequirement layout_template_;
 };
 

@@ -211,12 +211,13 @@ auto SceneDraw::declareResources(ResourceDeclarationContext& context)
         for (usize index {}; index < m_desc.texture_bindings.len(); ++index)
             sampler_members.push(
                 String::make((**material->shader).SamplerMember(index.to_primitive())));
-        auto prepared =
-            context.PrepareDraw(**artifact, sampler_members.as_slice(), vertex_layouts_.as_slice());
+        auto prepared = context.PrepareDraw(
+            ***artifact, sampler_members.as_slice(), vertex_layouts_.as_slice());
         if (prepared.is_err()) return None();
         preparation_ = Some(rstd::move(prepared).unwrap());
-        for (usize block_index {}; block_index < (**artifact).uniform_blocks.len(); ++block_index) {
-            const auto& block = (**artifact).uniform_blocks[block_index];
+        for (usize block_index {}; block_index < (**artifact)->uniform_blocks.len();
+             ++block_index) {
+            const auto& block = (**artifact)->uniform_blocks[block_index];
             auto        size  = block.size;
             if (size != usize()) {
                 auto name =
@@ -609,7 +610,7 @@ auto SceneDraw::createUniformBufferUpdates(ref<dyn<UniformBindingPrepareContext>
     return Ok(rstd::move(updates));
 }
 
-auto SceneDraw::describeGraphics(const resource::ShaderArtifact& artifact)
+auto SceneDraw::describeGraphics(const Arc<resource::ShaderArtifact>& artifact)
     -> Option<vrento::vulkan::GraphicsDrawDesc> {
     if (! geometry_ || ! material_ || ! preparation_) return None();
     auto        geometry     = geometry_->layout();
@@ -621,15 +622,10 @@ auto SceneDraw::describeGraphics(const resource::ShaderArtifact& artifact)
         has_depth_attachment
             ? (m_desc.clear_depth ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD)
             : VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-    m_desc.depth_load_op             = depthLoadOp;
-    const bool out_force_clear       = force_clear_;
-    const auto out_blend_alpha_write = output_alpha_;
-    auto       spvs                  = ShaderSpvsFromArtifact(artifact);
-    if (spvs.is_empty()) {
-        rstd_error("prepared shader artifact is empty, {}", (**material_ref.shader).name);
-        return None();
-    }
-    const auto& prepared = **preparation_;
+    m_desc.depth_load_op              = depthLoadOp;
+    const bool  out_force_clear       = force_clear_;
+    const auto  out_blend_alpha_write = output_alpha_;
+    const auto& prepared              = **preparation_;
     m_desc.vk_tex_binding.clear();
     m_desc.vk_tex_set.clear();
     m_desc.texture_stages.clear();
@@ -645,13 +641,14 @@ auto SceneDraw::describeGraphics(const resource::ShaderArtifact& artifact)
         VkPipelineColorBlendAttachmentState color_blend {};
         VkAttachmentLoadOp                  loadOp { VK_ATTACHMENT_LOAD_OP_DONT_CARE };
         const auto                          blendmode = material_ref.Pipeline().blend_mode;
+        bool                                writes_alpha;
         {
             VkColorComponentFlags colorMask =
                 VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT;
             const bool default_writes_alpha = default_alpha_;
             SetBlend(blendmode, color_blend);
             const auto& alpha_write = material_ref.Pipeline().alpha_write;
-            const bool  writes_alpha =
+            writes_alpha =
                 alpha_write.is_some()
                     ? *alpha_write
                     : (color_blend.blendEnable
@@ -675,12 +672,6 @@ auto SceneDraw::describeGraphics(const resource::ShaderArtifact& artifact)
                                           : VK_FORMAT_R8G8B8A8_UNORM;
         constexpr VkImageLayout color_final_layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
-        GraphicsPipeline pipeline_state;
-        pipeline_state.toDefault();
-        pipeline_state.setSampleCount(m_desc.samples);
-        SetAlphaToCoverage(blendmode, pipeline_state.multisample);
-        if (has_depth_attachment) SetDepthState(material_ref.Pipeline(), pipeline_state.depth);
-        SetRasterState(material_ref.Pipeline(), true, pipeline_state.raster);
         const bool          has_index = geometry.index.is_some();
         VkPrimitiveTopology topology  = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP;
         switch (primitive_) {
@@ -690,26 +681,49 @@ auto SceneDraw::describeGraphics(const resource::ShaderArtifact& artifact)
                                  : VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP;
             break;
         }
-        if (m_desc.pipeline_use.is_none()) return None();
+        if (! m_desc.pipeline_use || ! m_desc.render_pass_use) return None();
+        const auto viewport_count =
+            m_desc.viewports.is_empty() ? u32(1) : rstd::as_cast<u32>(m_desc.viewports.len());
+        const auto scissor_count =
+            m_desc.scissors.is_empty() ? u32(1) : rstd::as_cast<u32>(m_desc.scissors.len());
+        ScenePipelineStateKey state_key {
+            material_ref.Pipeline(), topology,    m_desc.samples, viewport_count, scissor_count,
+            has_depth_attachment,    writes_alpha
+        };
+        auto state = prepared.findPipelineState(artifact, state_key);
+        if (! state) {
+            auto spvs = ShaderSpvsFromArtifact(*artifact);
+            if (spvs.is_empty()) {
+                rstd_error("prepared shader artifact is empty, {}", (**material_ref.shader).name);
+                return None();
+            }
+            GraphicsPipeline fixed;
+            fixed.toDefault();
+            fixed.setSampleCount(m_desc.samples);
+            SetAlphaToCoverage(blendmode, fixed.multisample);
+            if (has_depth_attachment) SetDepthState(material_ref.Pipeline(), fixed.depth);
+            SetRasterState(material_ref.Pipeline(), true, fixed.raster);
+            state = Some(prepared.rememberPipelineState(
+                artifact,
+                rstd::move(state_key),
+                {
+                    .vertex_bindings = prepared.vertex_bindings.clone(),
+                    .vertex_attrs    = prepared.vertex_attributes.clone(),
+                    .shader_stages   = rstd::move(spvs),
+                    .color_blend     = color_blend,
+                    .depth           = fixed.depth,
+                    .raster          = fixed.raster,
+                    .depth_clip      = material_ref.Pipeline().depth_clip,
+                    .multisample     = fixed.multisample,
+                    .topology        = topology,
+                    .viewport_count  = viewport_count.to_primitive(),
+                    .scissor_count   = scissor_count.to_primitive(),
+                }));
+        }
         PipelineResourceRequest pipeline_request {
-            .pipeline_layout = {},
-            .vertex_bindings = prepared.vertex_bindings.clone(),
-            .vertex_attrs    = prepared.vertex_attributes.clone(),
-            .shader_stages   = rstd::move(spvs),
-            .color_blend     = color_blend,
-            .depth           = pipeline_state.depth,
-            .raster          = pipeline_state.raster,
-            .depth_clip      = material_ref.Pipeline().depth_clip,
-            .multisample     = pipeline_state.multisample,
-            .topology        = topology,
-            .viewport_count =
-                m_desc.viewports.is_empty()
-                    ? 1u
-                    : static_cast<rstd::uint32_t>(m_desc.viewports.len().to_primitive()),
-            .scissor_count = m_desc.scissors.is_empty() ? 1u
-                                                        : static_cast<rstd::uint32_t>(
-                                                              m_desc.scissors.len().to_primitive()),
-            .color_format  = color_format,
+            .multisample          = { .rasterizationSamples = m_desc.samples },
+            .dynamic_states       = {},
+            .color_format         = color_format,
             .color_initial_layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
             .color_final_layout   = color_final_layout,
             .color_load_op        = loadOp,
@@ -720,13 +734,13 @@ auto SceneDraw::describeGraphics(const resource::ShaderArtifact& artifact)
             .has_color_attachment = ! m_desc.depth_only,
             .has_depth_attachment = has_depth_attachment,
         };
-        if (m_desc.render_pass_use.is_none()) return None();
-        return Some(vrento::vulkan::GraphicsDrawDesc {
-            {},
-            *m_desc.pipeline_use,
-            *m_desc.render_pass_use,
-            rstd::move(pipeline_request),
-            Some(prepared.pipelineLayout(*m_desc.pipeline_use)) });
+        return Some(
+            vrento::vulkan::GraphicsDrawDesc { {},
+                                               *m_desc.pipeline_use,
+                                               *m_desc.render_pass_use,
+                                               rstd::move(pipeline_request),
+                                               Some(prepared.pipelineLayout(*m_desc.pipeline_use)),
+                                               rstd::move(state) });
     }
 }
 

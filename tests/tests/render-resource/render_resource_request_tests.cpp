@@ -1344,7 +1344,8 @@ TEST(ResourceDeclarationContext, SharesShaderArtifactsWithinAndAcrossPlans) {
     EXPECT_NE(b, a);
     ASSERT_EQ(next.shaders.len(), usize(1));
     EXPECT_FALSE(next_declarations.ShaderArtifact(a));
-    EXPECT_EQ(&**next_declarations.ShaderArtifact(b), &*original);
+    EXPECT_TRUE(Arc<owe::resource::ShaderArtifact>::ptr_eq(**next_declarations.ShaderArtifact(b),
+                                                           original));
     auto next_clone = next.clone();
     EXPECT_EQ(&**next_clone.shaders[usize()].artifact, &*original);
 
@@ -1354,7 +1355,7 @@ TEST(ResourceDeclarationContext, SharesShaderArtifactsWithinAndAcrossPlans) {
     EXPECT_EQ(cache.stats().builds, u64(2));
     EXPECT_EQ(reflections, usize(1));
     auto changed = next_declarations.ShaderArtifact(c).unwrap();
-    EXPECT_EQ(changed->descriptor_sets[usize()].bindings[usize()].descriptor_count, u32(2));
+    EXPECT_EQ((*changed)->descriptor_sets[usize()].bindings[usize()].descriptor_count, u32(2));
     EXPECT_EQ(original->descriptor_sets[usize()].bindings[usize()].descriptor_count, u32(1));
 }
 
@@ -1848,10 +1849,11 @@ TEST(SceneDraw, StaticRecipeSurvivesSceneAndDeclarationDestruction) {
     auto recipe = description->get<vrento::vulkan::GraphicsDrawDesc>();
     ASSERT_TRUE(recipe);
     ASSERT_TRUE((**recipe).layout);
-    EXPECT_EQ((**recipe).request.shader_stages.len(), usize(1));
-    EXPECT_TRUE((**recipe).request.color_blend.blendEnable);
-    EXPECT_TRUE(override_description->request.color_blend.blendEnable);
-    EXPECT_EQ(override_description->request.color_blend.dstColorBlendFactor, VK_BLEND_FACTOR_ONE);
+    EXPECT_EQ((**recipe).pipeline_state().shader_stages.len(), usize(1));
+    EXPECT_TRUE((**recipe).pipeline_state().color_blend.blendEnable);
+    EXPECT_TRUE(override_description->pipeline_state().color_blend.blendEnable);
+    EXPECT_EQ(override_description->pipeline_state().color_blend.dstColorBlendFactor,
+              VK_BLEND_FACTOR_ONE);
     Vec<PipelineLayoutRequirement> requirements;
     requirements.push((**recipe).layout->clone());
     EXPECT_TRUE(PlanPipelineLayouts(requirements.as_slice(), false).is_ok());

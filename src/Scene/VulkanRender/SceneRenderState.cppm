@@ -31,24 +31,24 @@ inline bool SameSceneRenderItemId(owe::RenderItemId lhs, owe::RenderItemId rhs) 
 }
 
 struct PreparedPassDiagnostic {
-    Option<fg::PassId>                pass_id;
-    fg::Serial                        scope {}, revision {};
-    String                            pass_name;
-    Option<fg::Serial>                pass_kind;
-    Option<RenderItemId>              render_item;
-    PassInvalidationFlags             invalidation_flags { PassInvalidationNone };
-    Option<PipelineCacheKey>          pipeline_cache_key;
-    bool                              pipeline_cache_hit { false };
-    u64                               pipeline_cache_observed_count { 0 };
-    Option<RenderPassCacheKey>        render_pass_cache_key;
-    bool                              render_pass_cache_hit { false };
-    u64                               render_pass_cache_observed_count { 0 };
-    Option<FramebufferCacheKey>       framebuffer_cache_key;
-    bool                              framebuffer_cache_hit { false };
-    u64                               framebuffer_cache_observed_count { 0 };
-    Vec<String>                       release_textures;
-    Vec<PassTextureRequestDiagnostic> texture_requests;
-    bool                              prepared { false };
+    Option<fg::PassId>                         pass_id;
+    fg::Serial                                 scope {}, revision {};
+    String                                     pass_name;
+    Option<fg::Serial>                         pass_kind;
+    Option<RenderItemId>                       render_item;
+    PassInvalidationFlags                      invalidation_flags { PassInvalidationNone };
+    Option<vrento::vulkan::PipelineVariantKey> pipeline_cache_key;
+    bool                                       pipeline_cache_hit { false };
+    u64                                        pipeline_cache_observed_count { 0 };
+    Option<RenderPassCacheKey>                 render_pass_cache_key;
+    bool                                       render_pass_cache_hit { false };
+    u64                                        render_pass_cache_observed_count { 0 };
+    Option<FramebufferCacheKey>                framebuffer_cache_key;
+    bool                                       framebuffer_cache_hit { false };
+    u64                                        framebuffer_cache_observed_count { 0 };
+    Vec<String>                                release_textures;
+    Vec<PassTextureRequestDiagnostic>          texture_requests;
+    bool                                       prepared { false };
 };
 
 inline void FinalizeRenderTargetSizes(owe::Scene& scene, VkExtent2D extent,
@@ -389,8 +389,9 @@ public:
                 if (graphics && (*source)->parameters().pipeline_use) {
                     auto prepared = graphics->pipeline(*(*source)->parameters().pipeline_use);
                     if (prepared) {
-                        const auto& pipeline                = **prepared;
-                        value.pipeline_cache_key            = Some(pipeline.cache_key.clone());
+                        const auto& pipeline = **prepared;
+                        value.pipeline_cache_key =
+                            Some(vrento::vulkan::PipelineVariantKey(pipeline.cache_key));
                         value.pipeline_cache_hit            = pipeline.cache_hit;
                         value.pipeline_cache_observed_count = pipeline.cache_observed_count;
                         value.render_pass_cache_key = Some(pipeline.render_pass_key.clone());
