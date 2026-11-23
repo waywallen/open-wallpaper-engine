@@ -117,6 +117,7 @@ struct RenderDiagnostics {
     vrento::resource_registry::ResourcePrepareStatus    preparation;
     vrento::resource_registry::ResourceStatistics       resources;
     vrento::resource_registry::PipelineCacheStats       pipelines;
+    vulkan::UniformPreparationStats                     uniform_preparations;
     Option<vrento::vulkan::FrameState>                  frame;
     Option<vrento::vulkan::GraphExecutionErrorSnapshot> frame_error;
 };

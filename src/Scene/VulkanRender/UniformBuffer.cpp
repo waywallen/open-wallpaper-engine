@@ -146,12 +146,11 @@ namespace owe::vulkan
 {
 
 UniformBufferBinding::UniformBufferBinding(
-    SceneDrawItemId draw_item, resource::BufferUseHandle buffer, UniformBufferLayout layout,
-    Vec<BoundUniformSource> sources, SceneShaderDefaults defaults, ref<SceneMaterial> material,
-    Vec<PreparedUniformTextureMetadata> textures, SceneRenderViewKind render_view,
-    ShaderMatrixConvention convention, ShaderMatrixAbi abi)
+    SceneDrawItemId draw_item, resource::BufferUseHandle buffer, Arc<UniformBindingPlan> plan,
+    SceneShaderDefaults defaults, ref<SceneMaterial> material,
+    Vec<PreparedUniformTextureMetadata> textures, SceneRenderViewKind render_view)
     : m_draw_item(draw_item),
-      m_binding(buffer, rstd::move(layout), rstd::move(sources), convention, abi),
+      m_binding(buffer, rstd::move(plan)),
       m_defaults(rstd::move(defaults)),
       m_material(material),
       m_textures(rstd::move(textures)),
@@ -189,40 +188,174 @@ auto SharedUniformBufferBinding::Update(ref<dyn<UniformBufferFrameContext>>     
     return m_binding.Update(context.as_ref(), buffers);
 }
 
+namespace
+{
+struct UniformAttachments {
+    slice<UniformSourceAttachment> global, local;
+};
+
+auto GetUniformAttachments(ref<dyn<UniformBindingPrepareContext>> prepare, SceneNodeId node,
+                           const resource::ShaderArtifactUniformBlock& block)
+    -> Result<UniformAttachments, UniformBufferUpdateError> {
+    if (block.scope != resource::ShaderArtifactUniformBlock::Scope::Shared)
+        return Ok(UniformAttachments { prepare->GlobalSources(), prepare->NodeSources(node) });
+    auto definition = prepare->ResolveBlock(block.identity);
+    if (! definition || (**definition).scope != UniformBlockScope::Shared)
+        return Err(
+            UniformBufferUpdateError { "shared uniform block definition is unavailable"_Str });
+    return Ok(UniformAttachments { (**definition).sources.as_slice(), {} });
+}
+
+auto CompileUniformPlan(ref<dyn<UniformBindingPrepareContext>>      prepare,
+                        const resource::ShaderArtifactUniformBlock& block,
+                        UniformAttachments attachments, ShaderMatrixConvention convention,
+                        ShaderMatrixAbi abi)
+    -> Result<Arc<UniformBindingPlan>, UniformBufferUpdateError> {
+    auto layout_result = CompileUniformBufferLayout(block);
+    if (layout_result.is_err()) return Err(layout_result.unwrap_err());
+    auto       layout  = layout_result.unwrap();
+    const bool shared  = block.scope == resource::ShaderArtifactUniformBlock::Scope::Shared;
+    const auto ranked  = shared ? Vec<UniformSourceAttachment>()
+                                : vrento::RankUniformSources(attachments.global, attachments.local);
+    const auto ordered = shared ? attachments.global : ranked.as_slice();
+    auto       sources = Vec<BoundUniformSource>::with_capacity(ordered.len());
+    HashMap<usize, usize> slot_sources;
+    for (const auto& candidate : ordered) {
+        auto source = prepare->ResolveSource(candidate.source);
+        if (! source)
+            return Err(
+                UniformBufferUpdateError { shared ? "shared uniform source is unavailable"_Str
+                                                  : "scene uniform source is unavailable"_Str });
+        auto prepared = vrento::PrepareUniformSource(
+            layout, rstd::move(*source), candidate.priority, convention, abi);
+        if (prepared.is_err()) return Err(prepared.unwrap_err());
+        auto value = prepared.unwrap();
+        if (! value) continue;
+        auto bound = value.unwrap();
+        if (! shared) {
+            const auto ordinal = sources.len();
+            for (const auto& output : bound.outputs) {
+                auto previous = slot_sources.get(output.slot_index);
+                if (! previous)
+                    (void)slot_sources.insert(output.slot_index, ordinal);
+                else if (**previous != ordinal)
+                    rstd_warn("uniform slot {} has multiple sources {} and {}",
+                              layout.slots[output.slot_index].name.as_str(),
+                              **previous,
+                              ordinal);
+            }
+        }
+        sources.push(rstd::move(bound));
+    }
+    return Ok(Arc<UniformBindingPlan>::make(
+        UniformBindingPlan { rstd::move(layout), rstd::move(sources), convention, abi }));
+}
+
+bool SameAttachments(slice<UniformSourceAttachment> first, slice<UniformSourceAttachment> second) {
+    if (first.len() != second.len()) return false;
+    for (usize i {}; i < first.len(); ++i)
+        if (first[i].source != second[i].source || first[i].priority != second[i].priority)
+            return false;
+    return true;
+}
+
+auto CopyAttachments(slice<UniformSourceAttachment> attachments) -> Vec<UniformSourceAttachment> {
+    auto result = Vec<UniformSourceAttachment>::with_capacity(attachments.len());
+    for (auto attachment : attachments) result.push(UniformSourceAttachment(attachment));
+    return result;
+}
+
+auto PrepareUniformPlan(ref<dyn<UniformBindingPrepareContext>> prepare, SceneNodeId node,
+                        const resource::ShaderArtifactUniformBlock& block,
+                        ShaderMatrixConvention convention, ShaderMatrixAbi abi)
+    -> Result<Arc<UniformBindingPlan>, UniformBufferUpdateError> {
+    auto attachments = GetUniformAttachments(prepare, node, block);
+    if (attachments.is_err()) return Err(attachments.unwrap_err());
+    return CompileUniformPlan(prepare, block, *attachments, convention, abi);
+}
+} // namespace
+
+void SceneUniformPreparationCache::begin(u32 scene_generation) {
+    if (m_scene_generation != scene_generation) {
+        clear();
+        m_scene_generation = scene_generation;
+    }
+    ++m_use;
+}
+
+auto SceneUniformPreparationCache::prepare(ref<dyn<UniformBindingPrepareContext>>   prepare,
+                                           SceneNodeId                              node,
+                                           const resource_registry::PreparedShader& shader,
+                                           usize                                    block_index)
+    -> Result<Arc<UniformBindingPlan>, UniformBufferUpdateError> {
+    const auto& artifact = shader.physical->artifact;
+    if (block_index >= artifact.uniform_blocks.len())
+        return Err(UniformBufferUpdateError { "uniform block index is unavailable"_Str });
+    const auto& block       = artifact.uniform_blocks[block_index];
+    auto        attachments = GetUniformAttachments(prepare, node, block);
+    if (attachments.is_err()) return Err(attachments.unwrap_err());
+    const auto key =
+        block.scope == resource::ShaderArtifactUniformBlock::Scope::Shared ? u32::MAX : node.index;
+    auto entries = m_nodes.get_mut(key);
+    if (entries) {
+        for (auto& entry : **entries) {
+            if (entry.block_index != block_index ||
+                ! Arc<resource_registry::ShaderPhysical>::ptr_eq(entry.shader, shader.physical) ||
+                ! SameAttachments(entry.global.as_slice(), attachments->global) ||
+                ! SameAttachments(entry.local.as_slice(), attachments->local))
+                continue;
+            entry.used = m_use;
+            ++m_stats.hits;
+            return Ok(entry.plan.clone());
+        }
+    }
+    ++m_stats.misses;
+    auto compiled = CompileUniformPlan(
+        prepare, block, *attachments, artifact.matrix_convention, artifact.matrix_abi);
+    if (compiled.is_err()) return Err(compiled.unwrap_err());
+    auto  plan = compiled.unwrap();
+    Entry entry { shader.physical.clone(),
+                  block_index,
+                  CopyAttachments(attachments->global),
+                  CopyAttachments(attachments->local),
+                  plan.clone(),
+                  m_use };
+    if (entries) {
+        (**entries).push(rstd::move(entry));
+    } else {
+        Vec<Entry> bucket;
+        bucket.push(rstd::move(entry));
+        (void)m_nodes.insert(key, rstd::move(bucket));
+    }
+    return Ok(rstd::move(plan));
+}
+
+void SceneUniformPreparationCache::prune() {
+    m_nodes.retain([&](const u32&, Vec<Entry>& entries) {
+        entries.retain([&](const Entry& entry) {
+            return entry.used == m_use;
+        });
+        return ! entries.is_empty();
+    });
+}
+
+void SceneUniformPreparationCache::clear() {
+    m_nodes.clear();
+    m_scene_generation = u32();
+    m_use              = u64();
+    m_stats            = {};
+}
+
 auto MakeSharedUniformBufferBinding(ref<dyn<UniformBindingPrepareContext>>      prepare,
                                     resource::BufferUseHandle                   buffer,
                                     const resource::ShaderArtifactUniformBlock& block,
                                     ShaderMatrixConvention                      matrix_convention,
                                     ShaderMatrixAbi                             matrix_abi)
     -> Result<Box<dyn<UniformBufferUpdate>>, UniformBufferUpdateError> {
-    auto definition = prepare->ResolveBlock(block.identity);
-    if (definition.is_none() || (**definition).scope != UniformBlockScope::Shared) {
-        return Err(UniformBufferUpdateError {
-            .message = "shared uniform block definition is unavailable"_Str,
-        });
-    }
-    auto layout_result = CompileUniformBufferLayout(block);
-    if (layout_result.is_err()) return Err(rstd::move(layout_result).unwrap_err_unchecked());
-    auto layout  = rstd::move(layout_result).unwrap_unchecked();
-    auto sources = Vec<BoundUniformSource>::make();
-    for (const auto& attachment : (**definition).sources) {
-        auto source = prepare->ResolveSource(attachment.source);
-        if (source.is_none()) {
-            return Err(UniformBufferUpdateError {
-                .message = "shared uniform source is unavailable"_Str,
-            });
-        }
-        auto prepared = vrento::PrepareUniformSource(
-            layout, rstd::move(*source), attachment.priority, matrix_convention, matrix_abi);
-        if (prepared.is_err()) return Err(rstd::move(prepared).unwrap_err_unchecked());
-        auto value = rstd::move(prepared).unwrap_unchecked();
-        if (value.is_none()) continue;
-        auto bound = rstd::move(value).unwrap_unchecked();
-        sources.push(rstd::move(bound));
-    }
-    SharedUniformBufferBinding binding(
-        buffer, rstd::move(layout), rstd::move(sources), matrix_convention, matrix_abi);
-    return Ok(Box<dyn<UniformBufferUpdate>>::make(rstd::move(binding)));
+    auto resolved = PrepareUniformPlan(prepare, {}, block, matrix_convention, matrix_abi);
+    if (resolved.is_err()) return Err(resolved.unwrap_err());
+    return Ok(
+        Box<dyn<UniformBufferUpdate>>::make(SharedUniformBufferBinding(buffer, resolved.unwrap())));
 }
 
 auto MakeUniformBufferBinding(ref<dyn<UniformBindingPrepareContext>> prepare,
@@ -234,70 +367,32 @@ auto MakeUniformBufferBinding(ref<dyn<UniformBindingPrepareContext>> prepare,
                               Option<ref<SceneMaterial>> material_override)
     -> Result<Box<dyn<UniformBufferUpdate>>, UniformBufferUpdateError> {
     auto draw = prepare->ResolveDraw(draw_item);
-    if (draw.is_none()) {
-        return Err(UniformBufferUpdateError {
-            .message = "uniform binding scene data is unavailable"_Str,
-        });
-    }
-    auto material = material_override.unwrap_or(draw->material);
-    if (! material->customShader.shader) {
-        return Err(UniformBufferUpdateError {
-            .message = "uniform binding shader metadata is unavailable"_Str,
-        });
-    }
+    if (! draw)
+        return Err(UniformBufferUpdateError { "uniform binding scene data is unavailable"_Str });
+    auto plan = PrepareUniformPlan(prepare, draw->node_id, block, matrix_convention, matrix_abi);
+    if (plan.is_err()) return Err(plan.unwrap_err());
+    return BindUniformBuffer(
+        *draw, buffer, plan.unwrap(), rstd::move(textures), render_view, material_override);
+}
 
-    auto layout_result = CompileUniformBufferLayout(block);
-    if (layout_result.is_err()) {
-        return Err(rstd::move(layout_result).unwrap_err_unchecked());
-    }
-    auto layout = rstd::move(layout_result).unwrap_unchecked();
-
-    auto ranked =
-        vrento::RankUniformSources(prepare->GlobalSources(), prepare->NodeSources(draw->node_id));
-
-    auto                  sources = Vec<BoundUniformSource>::with_capacity(ranked.len());
-    HashMap<usize, usize> slot_sources;
-    usize                 source_ordinal { 0 };
-    for (const auto& candidate : ranked) {
-        auto source = prepare->ResolveSource(candidate.source);
-        if (source.is_none()) {
-            return Err(UniformBufferUpdateError {
-                .message = "scene uniform source is unavailable"_Str,
-            });
-        }
-        auto prepared = vrento::PrepareUniformSource(
-            layout, rstd::move(*source), candidate.priority, matrix_convention, matrix_abi);
-        if (prepared.is_err()) return Err(rstd::move(prepared).unwrap_err_unchecked());
-        auto value = rstd::move(prepared).unwrap_unchecked();
-        if (value.is_none()) continue;
-        auto bound = rstd::move(value).unwrap_unchecked();
-        for (const auto& output : bound.outputs) {
-            auto previous = slot_sources.get(output.slot_index);
-            if (previous.is_none()) {
-                (void)slot_sources.insert(output.slot_index, source_ordinal);
-            } else if (**previous != source_ordinal) {
-                rstd_warn("uniform slot {} has multiple sources {} and {}",
-                          layout.slots[output.slot_index].name.as_str(),
-                          **previous,
-                          source_ordinal);
-            }
-        }
-        sources.push(rstd::move(bound));
-        ++source_ordinal;
-    }
-
-    const auto&          shader = **material->customShader.shader;
-    UniformBufferBinding binding(draw->draw_item,
-                                 buffer,
-                                 rstd::move(layout),
-                                 rstd::move(sources),
-                                 shader.default_uniforms.clone(),
-                                 material,
-                                 rstd::move(textures),
-                                 render_view,
-                                 matrix_convention,
-                                 matrix_abi);
-    return Ok(Box<dyn<UniformBufferUpdate>>::make(rstd::move(binding)));
+auto BindUniformBuffer(const UniformPrepareDraw& draw, resource::BufferUseHandle buffer,
+                       Arc<UniformBindingPlan> plan, Vec<PreparedUniformTextureMetadata> textures,
+                       SceneRenderViewKind        render_view,
+                       Option<ref<SceneMaterial>> material_override)
+    -> Result<Box<dyn<UniformBufferUpdate>>, UniformBufferUpdateError> {
+    auto material = material_override.unwrap_or(draw.material);
+    if (! material->customShader.shader)
+        return Err(
+            UniformBufferUpdateError { "uniform binding shader metadata is unavailable"_Str });
+    const auto& shader = **material->customShader.shader;
+    return Ok(
+        Box<dyn<UniformBufferUpdate>>::make(UniformBufferBinding(draw.draw_item,
+                                                                 buffer,
+                                                                 rstd::move(plan),
+                                                                 shader.default_uniforms.clone(),
+                                                                 material,
+                                                                 rstd::move(textures),
+                                                                 render_view)));
 }
 
 } // namespace owe::vulkan

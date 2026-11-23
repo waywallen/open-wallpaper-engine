@@ -108,7 +108,7 @@ public:
     auto             globalDescriptorBufferUses(const PreparedPassResources&) const
         -> Result<Vec<GlobalDescriptorBufferUse>, resource::ResourceError>;
     auto createUniformBufferUpdates(ref<dyn<UniformBindingPrepareContext>>,
-                                    const PreparedPassResources&)
+                                    const PreparedPassResources&, SceneUniformPreparationCache&)
         -> Result<Vec<Box<dyn<UniformBufferUpdate>>>, UniformBufferUpdateError>;
     Option<RenderItemId>              renderItemId() const;
     Vec<PassTextureRequestDiagnostic> textureRequestDiagnostics() const;

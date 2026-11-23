@@ -829,6 +829,129 @@ TEST(UniformBufferBinding, HoldsDemandOnlyForAReflectedLiveOutput) {
     EXPECT_FALSE(active);
 }
 
+TEST(UniformBufferBinding, ReusesPreparationButRebindsGraphResourcesAndLeases) {
+    using namespace owe::vulkan;
+    bool       active = false;
+    owe::Scene scene;
+    auto       demand = scene.AudioDemandHandle();
+    demand->SetCallback([&](bool next) {
+        active = next;
+    });
+    auto signal = scene.Register(Box<dyn<owe::UniformSource>>::make(
+        uniform_test::StaticSource("audio_signal", 2.5f, demand.clone())));
+    auto texture =
+        scene.Register(Box<dyn<owe::UniformSource>>::make(uniform_test::TextureMetadataSource {}));
+    ASSERT_TRUE(scene.AttachGlobal(signal));
+    ASSERT_TRUE(scene.AttachGlobal(texture));
+
+    auto node = Arc<owe::SceneNode>::make();
+    node->AddMesh(MakeUniformMesh(Arc<owe::SceneShader>::make()));
+    scene.RootMut()->AppendChild(node.clone());
+    scene.RebuildResourceIndex();
+    auto node_id = scene.ResourceIndex().nodeId(*node);
+    ASSERT_TRUE(node_id);
+    auto draw_id = scene.ResourceIndex().drawItemFor(*node_id, u32());
+    ASSERT_TRUE(draw_id);
+
+    auto make_shader = [](usize size) {
+        owe::resource::ShaderArtifact             artifact;
+        owe::resource::ShaderArtifactUniformBlock block { .name = "local"_Str, .size = size };
+        block.members.push({ .name = "texture_extent"_Str, .size = usize(16) });
+        block.members.push({ .name = "audio_signal"_Str, .offset = u32(16), .size = usize(4) });
+        artifact.uniform_blocks.push(rstd::move(block));
+        return owe::resource_registry::PreparedShader {
+            .resource = { u64(1), u64(1) },
+            .physical =
+                Arc<owe::resource_registry::ShaderPhysical>::make(rstd::move(artifact), u64(1))
+        };
+    };
+    auto                              shader = make_shader(usize(20));
+    SceneUniformBindingPrepareContext prepare_impl(scene);
+    auto prepare = dyn<UniformBindingPrepareContext>::from_ref(prepare_impl);
+    auto draw    = prepare->ResolveDraw(*draw_id);
+    ASSERT_TRUE(draw);
+
+    SceneUniformPreparationCache   cache;
+    auto                           textures = dyn<owe::SceneTextureAnimationView>::from_ref(scene);
+    SceneRenderUniformFrameContext frame_impl(
+        scene.Runtime().Frame(), { 1.0f, 1.0f }, textures.as_ref());
+    auto frame       = dyn<UniformBufferFrameContext>::from_ref(frame_impl);
+    auto check_frame = [&](Arc<UniformBindingPlan> plan, u64 generation, float texture_width) {
+        Vec<PreparedUniformTextureMetadata> metadata;
+        metadata.push({ .available = true, .source_extent = { texture_width, 50.0f } });
+        const owe::resource::BufferUseHandle buffer { u64(1), generation };
+        auto binding = BindUniformBuffer(*draw,
+                                         buffer,
+                                         rstd::move(plan),
+                                         rstd::move(metadata),
+                                         owe::SceneRenderViewKind::Primary,
+                                         None());
+        ASSERT_TRUE(binding.is_ok());
+        EXPECT_TRUE(active);
+        uniform_test::BufferWriter writer;
+        auto writer_trait = dyn<owe::resource::BufferContentWriter>::from_ref(writer);
+        auto update       = binding.unwrap();
+        ASSERT_TRUE(update->Update(frame.as_ref(), writer_trait.as_mut_ref()).is_ok());
+        ASSERT_TRUE(update->Update(frame.as_ref(), writer_trait.as_mut_ref()).is_ok());
+        EXPECT_EQ(writer.last_use, buffer);
+        EXPECT_EQ(writer.update_count, u64(1));
+        ASSERT_EQ(writer.bytes.size(), 20u);
+        float width {};
+        float value {};
+        std::memcpy(&width, writer.bytes.data(), sizeof(width));
+        std::memcpy(&value, writer.bytes.data() + 16, sizeof(value));
+        EXPECT_FLOAT_EQ(width, texture_width);
+        EXPECT_FLOAT_EQ(value, 2.5f);
+    };
+
+    cache.begin(scene.ResourceGeneration());
+    auto first = cache.prepare(prepare.as_ref(), *node_id, shader, usize()).unwrap();
+    EXPECT_FALSE(active);
+    check_frame(first.clone(), u64(1), 64.0f);
+    cache.prune();
+    EXPECT_FALSE(active);
+    cache.begin(scene.ResourceGeneration());
+    auto second = cache.prepare(prepare.as_ref(), *node_id, shader, usize()).unwrap();
+    EXPECT_TRUE(Arc<UniformBindingPlan>::ptr_eq(first, second));
+    check_frame(second.clone(), u64(2), 128.0f);
+    EXPECT_FALSE(active);
+    EXPECT_EQ(cache.stats().hits, u64(1));
+    EXPECT_EQ(cache.stats().misses, u64(1));
+
+    ASSERT_TRUE(scene.AttachGlobal(signal, i32(1)));
+    auto reordered = cache.prepare(prepare.as_ref(), *node_id, shader, usize()).unwrap();
+    EXPECT_FALSE(Arc<UniformBindingPlan>::ptr_eq(second, reordered));
+    auto revised_shader = make_shader(usize(32));
+    auto revised = cache.prepare(prepare.as_ref(), *node_id, revised_shader, usize()).unwrap();
+    EXPECT_EQ(revised->layout.size, usize(32));
+    EXPECT_EQ(cache.stats().misses, u64(3));
+
+    cache.begin(scene.ResourceGeneration());
+    cache.prune();
+    auto prepared_again = cache.prepare(prepare.as_ref(), *node_id, shader, usize()).unwrap();
+    EXPECT_FALSE(Arc<UniformBindingPlan>::ptr_eq(reordered, prepared_again));
+    EXPECT_EQ(cache.stats().misses, u64(4));
+    EXPECT_FALSE(active);
+
+    owe::Scene other;
+    auto       other_signal = other.Register(
+        Box<dyn<owe::UniformSource>>::make(uniform_test::StaticSource("audio_signal", 3.5f)));
+    auto other_texture =
+        other.Register(Box<dyn<owe::UniformSource>>::make(uniform_test::TextureMetadataSource {}));
+    EXPECT_EQ(other_signal, signal);
+    EXPECT_EQ(other_texture, texture);
+    ASSERT_TRUE(other.AttachGlobal(other_signal, i32(1)));
+    ASSERT_TRUE(other.AttachGlobal(other_texture));
+    SceneUniformBindingPrepareContext other_impl(other);
+    auto other_prepare = dyn<UniformBindingPrepareContext>::from_ref(other_impl);
+    cache.begin(other.ResourceGeneration());
+    auto other_node       = *node_id;
+    other_node.generation = other.ResourceGeneration();
+    auto other_plan = cache.prepare(other_prepare.as_ref(), other_node, shader, usize()).unwrap();
+    EXPECT_FALSE(Arc<UniformBindingPlan>::ptr_eq(prepared_again, other_plan));
+    EXPECT_EQ(cache.stats().misses, u64(1));
+}
+
 TEST(UniformBufferBinding, ProvidesPreparedTextureMetadataToGenericSource) {
     owe::Scene scene;
     auto       registrar   = rstd::dyn<owe::UniformSourceRegistrar>::from_ref(scene);

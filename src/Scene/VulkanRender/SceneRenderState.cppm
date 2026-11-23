@@ -273,7 +273,8 @@ public:
         for (auto& entry : draws) entry.source->clearResources();
     }
     auto bindResources(Scene& scene, RenderingResources& rr,
-                       const vrento::vulkan::PreparedGraphicsResources& prepared)
+                       const vrento::vulkan::PreparedGraphicsResources& prepared,
+                       SceneUniformPreparationCache&                    uniform_cache)
         -> Result<empty, RenderPrepareError> {
         auto graphics = dyn<resource_registry::GraphicsResourcePreparer>::from_ref(rr.resources);
         DrawResourceContext context {
@@ -299,12 +300,14 @@ public:
         SceneUniformBindingPrepareContext uniform_prepare_impl(scene);
         auto uniform_prepare = dyn<UniformBindingPrepareContext>::from_ref(uniform_prepare_impl);
         Vec<resource::BufferUseHandle> prepared_uniform_buffers;
+        uniform_cache.begin(scene.ResourceGeneration());
         for (auto& entry : draws) {
             auto                  uses = entry.source->resourceUses();
             PreparedPassResources resources(rr.resources.Prepared(), uses);
-            auto                  created =
-                entry.source->createUniformBufferUpdates(uniform_prepare.as_ref(), resources);
+            auto                  created = entry.source->createUniformBufferUpdates(
+                uniform_prepare.as_ref(), resources, uniform_cache);
             if (created.is_err()) {
+                uniform_cache.prune();
                 auto error = rstd::move(created).unwrap_err_unchecked();
                 return Err(RenderPrepareError::Draw(entry.id,
                                                     entry.source->parameters().render_item,
@@ -324,6 +327,7 @@ public:
                 uniform_update_owners.push(rstd::move(binding));
             }
         }
+        uniform_cache.prune();
         for (auto& entry : draws) entry.invalidation = PassInvalidationNone;
         return Ok(empty {});
     }

@@ -282,9 +282,10 @@ struct VulkanRender::Impl {
     VkExtent2D                            m_extent {};
     ReDrawCB                              m_redraw_cb;
 
-    Box<dyn<ShaderBackend>>    m_shader_backend { MakeShaderBackend() };
-    ShaderReflectionCache      m_shader_reflection_cache { m_shader_backend.as_ref() };
-    SceneLoadBenchRecorderView m_pending_load_bench;
+    Box<dyn<ShaderBackend>>      m_shader_backend { MakeShaderBackend() };
+    ShaderReflectionCache        m_shader_reflection_cache { m_shader_backend.as_ref() };
+    SceneUniformPreparationCache m_uniform_preparations;
+    SceneLoadBenchRecorderView   m_pending_load_bench;
 
     bool m_with_surface { false };
     bool m_inited { false };
@@ -874,6 +875,7 @@ void VulkanRender::invalidatePreparedRenderItems(slice<owe::RenderItemId> items,
 }
 auto VulkanRender::diagnostics() const -> RenderDiagnostics {
     RenderDiagnostics value;
+    value.uniform_preparations = pImpl->m_uniform_preparations.stats();
     if (pImpl->m_renderer) {
         value.compilation = pImpl->m_renderer->status();
         value.renderer    = pImpl->m_renderer->statistics();
@@ -1119,6 +1121,7 @@ void VulkanRender::Impl::destroy() {
                                                     "renderer closed before frame capture"_Str }));
     }
     m_last_frame_error = None();
+    m_uniform_preparations.clear();
     if (! m_session && ! m_inited) return;
     if (m_device && m_device->handle()) {
         closeOutput();
@@ -1326,6 +1329,7 @@ void VulkanRender::Impl::clearLastRenderGraph(RenderGraphResourceRetention reten
     m_scene_render_state.clear();
     m_rendering_resources.resources.ClearPreparedGraphics();
     if (retention == RenderGraphResourceRetention::ReleaseSceneTextures) {
+        m_uniform_preparations.clear();
         m_rendering_resources.resources.ClearTextures();
         m_shader_reflection_cache.Clear();
     } else {
@@ -1449,7 +1453,8 @@ auto VulkanRender::Impl::continueSceneRenderPreparation(Scene&                  
     }
     auto bound = [&] {
         auto span = SceneLoadSpan(bench, &SceneLoadProbeIds::render_bindings_prepare);
-        return m_scene_render_state.bindResources(scene, m_rendering_resources, **m_graphics);
+        return m_scene_render_state.bindResources(
+            scene, m_rendering_resources, **m_graphics, m_uniform_preparations);
     }();
     if (bound.is_err()) return Err(rstd::move(bound).unwrap_err());
     auto output = m_texture_output.prepare(m_rendering_resources.resource_owner.clone(),

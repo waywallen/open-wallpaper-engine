@@ -2,16 +2,19 @@ export module wescene.vulkan_render:uniform_buffer;
 export import vrento;
 import rstd;
 import wescene.resource;
+import wescene.resource_registry;
 import wescene.scene;
 import wescene.types;
 
 using namespace rstd::prelude;
+using rstd::sync::Arc;
 
 export namespace owe::vulkan
 {
 
 using vrento::CompileUniformBufferLayout;
 using vrento::SerializeUniformValue;
+using vrento::UniformBindingPlan;
 using vrento::UniformBufferLayout;
 using vrento::UniformBufferUpdateError;
 using vrento::UniformSlot;
@@ -142,12 +145,39 @@ private:
     mutable ref<Scene> m_scene;
 };
 
+struct UniformPreparationStats {
+    u64 hits {}, misses {};
+};
+
+class SceneUniformPreparationCache {
+public:
+    void begin(u32 scene_generation);
+    auto prepare(ref<dyn<UniformBindingPrepareContext>>, SceneNodeId,
+                 const resource_registry::PreparedShader&, usize block_index)
+        -> Result<Arc<UniformBindingPlan>, UniformBufferUpdateError>;
+    void prune();
+    void clear();
+    auto stats() const -> UniformPreparationStats { return m_stats; }
+
+private:
+    struct Entry {
+        Arc<resource_registry::ShaderPhysical> shader;
+        usize                                  block_index;
+        Vec<UniformSourceAttachment>           global, local;
+        Arc<UniformBindingPlan>                plan;
+        u64                                    used;
+    };
+    rstd::collections::HashMap<u32, Vec<Entry>> m_nodes;
+    u32                                         m_scene_generation {};
+    u64                                         m_use {};
+    UniformPreparationStats                     m_stats;
+};
+
 class UniformBufferBinding {
 public:
-    UniformBufferBinding(SceneDrawItemId, resource::BufferUseHandle, UniformBufferLayout,
-                         Vec<BoundUniformSource>, SceneShaderDefaults, ref<SceneMaterial>,
-                         Vec<PreparedUniformTextureMetadata>, SceneRenderViewKind,
-                         ShaderMatrixConvention, ShaderMatrixAbi);
+    UniformBufferBinding(SceneDrawItemId, resource::BufferUseHandle, Arc<UniformBindingPlan>,
+                         SceneShaderDefaults, ref<SceneMaterial>,
+                         Vec<PreparedUniformTextureMetadata>, SceneRenderViewKind);
     auto Update(ref<dyn<UniformBufferFrameContext>>,
                 mut_ref<dyn<resource::BufferContentWriter>>) const
         -> Result<empty, UniformBufferUpdateError>;
@@ -165,10 +195,8 @@ private:
 
 class SharedUniformBufferBinding {
 public:
-    SharedUniformBufferBinding(resource::BufferUseHandle buffer, UniformBufferLayout layout,
-                               Vec<BoundUniformSource> sources, ShaderMatrixConvention convention,
-                               ShaderMatrixAbi abi)
-        : m_binding(buffer, rstd::move(layout), rstd::move(sources), convention, abi) {}
+    SharedUniformBufferBinding(resource::BufferUseHandle buffer, Arc<UniformBindingPlan> plan)
+        : m_binding(buffer, rstd::move(plan)) {}
     auto Update(ref<dyn<UniformBufferFrameContext>>,
                 mut_ref<dyn<resource::BufferContentWriter>>) const
         -> Result<empty, UniformBufferUpdateError>;
@@ -177,6 +205,11 @@ public:
 private:
     mutable vrento::UniformBinding m_binding;
 };
+
+auto BindUniformBuffer(const UniformPrepareDraw&, resource::BufferUseHandle,
+                       Arc<UniformBindingPlan>, Vec<PreparedUniformTextureMetadata>,
+                       SceneRenderViewKind, Option<ref<SceneMaterial>> material_override)
+    -> Result<Box<dyn<UniformBufferUpdate>>, UniformBufferUpdateError>;
 
 auto MakeUniformBufferBinding(
     ref<dyn<UniformBindingPrepareContext>>, SceneDrawItemId, resource::BufferUseHandle,

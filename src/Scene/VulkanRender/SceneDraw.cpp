@@ -508,7 +508,8 @@ SceneDraw::refreshMaterialTextureBindings(const RenderSceneSnapshot& render_scen
 }
 
 auto SceneDraw::createUniformBufferUpdates(ref<dyn<UniformBindingPrepareContext>> prepare,
-                                           const PreparedPassResources&           resources)
+                                           const PreparedPassResources&           resources,
+                                           SceneUniformPreparationCache&          cache)
     -> Result<Vec<Box<dyn<UniformBufferUpdate>>>, UniformBufferUpdateError> {
     auto updates = Vec<Box<dyn<UniformBufferUpdate>>>::make();
     if (m_desc.uniform_block_uses.is_empty() || m_desc.shader_use.is_none()) {
@@ -581,23 +582,22 @@ auto SceneDraw::createUniformBufferUpdates(ref<dyn<UniformBindingPrepareContext>
     for (const auto& use : m_desc.uniform_block_uses) {
         if (use.block_index >= artifact.uniform_blocks.len()) continue;
         const auto& block = artifact.uniform_blocks[use.block_index];
-        auto        binding =
-            block.scope == resource::ShaderArtifactUniformBlock::Scope::Shared
-                ? MakeSharedUniformBufferBinding(
-                      prepare, use.use, block, artifact.matrix_convention, artifact.matrix_abi)
-                : MakeUniformBufferBinding(
-                      prepare,
-                      draw_item,
-                      use.use,
-                      block,
-                      textures.clone(),
-                      m_desc.render_view,
-                      artifact.matrix_convention,
-                      artifact.matrix_abi,
-                      updates_.material_override
-                          ? Some(ref<SceneMaterial>::from_raw_parts(
-                                updates_.material_override->as_ptr().as_raw_ptr()))
-                          : None<ref<SceneMaterial>>());
+        auto plan = cache.prepare(prepare, draw->node_id, (**prepared).shader, use.block_index);
+        if (plan.is_err()) return Err(plan.unwrap_err());
+        if (block.scope == resource::ShaderArtifactUniformBlock::Scope::Shared) {
+            updates.push(Box<dyn<UniformBufferUpdate>>::make(
+                SharedUniformBufferBinding(use.use, plan.unwrap())));
+            continue;
+        }
+        auto binding = BindUniformBuffer(
+            *draw,
+            use.use,
+            plan.unwrap(),
+            textures.clone(),
+            m_desc.render_view,
+            updates_.material_override ? Some(ref<SceneMaterial>::from_raw_parts(
+                                             updates_.material_override->as_ptr().as_raw_ptr()))
+                                       : None<ref<SceneMaterial>>());
         if (binding.is_err()) return Err(rstd::move(binding).unwrap_err_unchecked());
         updates.push(rstd::move(binding).unwrap_unchecked());
     }
