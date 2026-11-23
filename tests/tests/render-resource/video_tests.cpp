@@ -131,15 +131,16 @@ TEST(MediaRegistry, ContinuousPlaybackKeepsStableTexture) {
         auto set =
             vk::VulkanPassSet::associate(rstd::move(builder).finish().unwrap(), rstd::move(passes))
                 .unwrap();
-        vk::GraphBindings bindings(1);
+        vk::GraphBindings bindings(set.binding_layout());
         bindings
-            .bind(input.resource,
+            .bind({ set.frame_graph().version_index(input) },
                   Arc<dyn<vk::GraphBinding>>::make(vk::GraphTextureBinding(prepared.view)))
             .unwrap();
         vk::VulkanPassBackends backends;
         vk::register_texture_passes(backends).unwrap();
-        auto graph = vk::PreparedGraphProgram::prepare(session, rstd::move(set), bindings, backends)
-                         .unwrap();
+        auto graph   = vk::PreparedGraphProgram::prepare(
+                           session, rstd::move(set), rstd::move(bindings), backends)
+                           .unwrap();
         auto sampled = context.Begin().unwrap();
         graph.record(sampled).unwrap();
         context.wait(context.Submit(rstd::move(sampled)).unwrap()).unwrap();
