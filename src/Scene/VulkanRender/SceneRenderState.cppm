@@ -26,28 +26,6 @@ using rstd::cppstd::as_str;
 
 export namespace owe::vulkan
 {
-class DeclaredShaderArtifactProvider {
-public:
-    explicit DeclaredShaderArtifactProvider(const ResourceDeclarationContext& declarations)
-        : m_declarations(
-              ref<ResourceDeclarationContext>::from_raw_parts(rstd::addressof(declarations))) {}
-
-    auto LoadShader(const resource::ShaderRequest& request)
-        -> Result<resource::ShaderArtifact, resource::ResourceError> {
-        auto artifact = m_declarations->ShaderArtifact(request);
-        if (artifact.is_none()) {
-            return Err(resource::ResourceError {
-                .kind    = resource::ResourceErrorKind::MissingContent,
-                .message = rstd::format("shader artifact {} unavailable", request.name),
-            });
-        }
-        return Ok((**artifact).clone());
-    }
-
-private:
-    ref<ResourceDeclarationContext> m_declarations;
-};
-
 inline bool SameSceneRenderItemId(owe::RenderItemId lhs, owe::RenderItemId rhs) {
     return lhs.index == rhs.index && lhs.generation == rhs.generation;
 }
@@ -192,8 +170,8 @@ public:
     auto imageSource(Scene& scene) const -> Arc<SceneImageSource> {
         return image_source ? image_source->clone() : scene.CaptureImageSource();
     }
-    auto declarations(ShaderReflectionCache& cache) -> ResourceDeclarationContext {
-        return ResourceDeclarationContext(resource_plan, cache, rstd::move(resource_data));
+    auto declarations() -> ResourceDeclarationContext {
+        return ResourceDeclarationContext(resource_plan, rstd::move(resource_data));
     }
     void retainDeclarations(ResourceDeclarationData data) { resource_data = rstd::move(data); }
     auto createOutput() const -> vrento::vulkan::TextureOutput {
@@ -278,8 +256,7 @@ public:
         -> Result<empty, RenderPrepareError> {
         auto graphics = dyn<resource_registry::GraphicsResourcePreparer>::from_ref(rr.resources);
         DrawResourceContext context {
-            .shader_backend = (*rr.shader_reflection_cache)->Backend(),
-            .resources      = ref<resource_registry::PreparedResourceTable>::from_raw_parts(
+            .resources = ref<resource_registry::PreparedResourceTable>::from_raw_parts(
                 &rr.resources.Prepared()),
             .graphics         = graphics.as_mut_ref(),
             .pipeline_layouts = ref<PipelineLayoutAssignments>::from_raw_parts(&prepared.layouts())

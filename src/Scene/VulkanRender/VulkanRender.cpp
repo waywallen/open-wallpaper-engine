@@ -224,7 +224,7 @@ struct VulkanRender::Impl {
     void drawFrame(Scene&);
     auto preparationReady() -> Result<PrepareOutcome, RenderPrepareError>;
 
-    bool CreateRenderingResource(RenderingResources&);
+    bool CreateRenderingResource();
     void DestroyRenderingResource(RenderingResources&);
 
     void clearLastRenderGraph(RenderGraphResourceRetention);
@@ -283,7 +283,6 @@ struct VulkanRender::Impl {
     ReDrawCB                              m_redraw_cb;
 
     Box<dyn<ShaderBackend>>      m_shader_backend { MakeShaderBackend() };
-    ShaderReflectionCache        m_shader_reflection_cache { m_shader_backend.as_ref() };
     SceneUniformPreparationCache m_uniform_preparations;
     SceneLoadBenchRecorderView   m_pending_load_bench;
 
@@ -1109,7 +1108,7 @@ bool VulkanRender::Impl::init(RenderInitInfo info, SceneLoadBenchRecorderView lo
 }
 
 bool VulkanRender::Impl::initRes() {
-    if (! CreateRenderingResource(m_rendering_resources)) return false;
+    if (! CreateRenderingResource()) return false;
 
     return true;
 }
@@ -1146,7 +1145,7 @@ void VulkanRender::Impl::destroy() {
     m_present_format = VK_FORMAT_UNDEFINED;
 }
 
-bool VulkanRender::Impl::CreateRenderingResource(RenderingResources& rr) {
+bool VulkanRender::Impl::CreateRenderingResource() {
     if (m_with_surface) {
         VkSemaphoreCreateInfo info { VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO };
         m_sem_swap_finish_per_image.clear();
@@ -1156,13 +1155,10 @@ bool VulkanRender::Impl::CreateRenderingResource(RenderingResources& rr) {
             m_sem_swap_finish_per_image.push(rstd::move(semaphore));
         }
     }
-    rr.shader_reflection_cache =
-        Some(mut_ref<ShaderReflectionCache>::from_raw_parts(&m_shader_reflection_cache));
     return true;
 }
 void VulkanRender::Impl::DestroyRenderingResource(RenderingResources& rr) {
-    rr.scopes                  = Arc<vrento::vulkan::GraphicsScopeCache>::make();
-    rr.shader_reflection_cache = None();
+    rr.scopes = Arc<vrento::vulkan::GraphicsScopeCache>::make();
 }
 
 auto VulkanRender::Impl::waitForPreparedUploads(RenderingResources& rr)
@@ -1331,7 +1327,6 @@ void VulkanRender::Impl::clearLastRenderGraph(RenderGraphResourceRetention reten
     if (retention == RenderGraphResourceRetention::ReleaseSceneTextures) {
         m_uniform_preparations.clear();
         m_rendering_resources.resources.ClearTextures();
-        m_shader_reflection_cache.Clear();
     } else {
         m_rendering_resources.resources.ClearTransientTextures();
     }
@@ -1361,21 +1356,18 @@ auto VulkanRender::Impl::prepareSceneRenderState(Scene&                         
     if (resource::ResourcePlanIncludes(sections, resource::ResourcePlanBuffers) !=
         resource::ResourcePlanIncludes(sections, resource::ResourcePlanShaders))
         return Err(RenderPrepareError::State(PrepareStateError::InvalidSections));
-    auto declarations = m_scene_render_state.declarations(m_shader_reflection_cache);
+    auto                            declarations = m_scene_render_state.declarations();
     SnapshotImportedTextureProvider imported(render_scene, m_scene_render_state.imageSource(scene));
     SnapshotTexturePrepareObserver  observer(load_bench);
     auto content  = dyn<resource::TextureContentProvider>::from_ref(imported);
     auto observed = dyn<resource::TexturePrepareObserver>::from_ref(observer);
     auto buffers  = dyn<resource::BufferContentProvider>::from_ref(declarations);
-    DeclaredShaderArtifactProvider shaders(declarations);
-    auto artifacts = dyn<resource::ShaderArtifactProvider>::from_ref(shaders);
-    auto started   = [&] {
+    auto started  = [&] {
         auto span = SceneLoadSpan(load_bench, &SceneLoadProbeIds::render_resources_prepare);
         return m_rendering_resources.resources.BeginPreparePlan(
             m_scene_render_state.resourcePlan(),
             resource_registry::ResourceContentProviders { .texture = Some(content),
-                                                          .buffer  = Some(buffers.as_mut_ref()),
-                                                          .shader  = Some(artifacts.as_mut_ref()) },
+                                                          .buffer  = Some(buffers.as_mut_ref()) },
             sections,
             Some(observed.as_mut_ref()));
     }();

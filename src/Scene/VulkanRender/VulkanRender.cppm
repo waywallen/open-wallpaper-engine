@@ -89,7 +89,8 @@ auto BuildSceneRenderState(Scene&) -> Result<vulkan::SceneRenderStateInput, vren
 auto BuildSceneRenderState(Scene&, const RenderSceneSnapshot&,
                            vrento::fg::AnalysisStatistics*                    = nullptr,
                            Option<mut_ref<vulkan::SceneDrawPreparationCache>> = None(),
-                           Option<ref<vrento::vulkan::GraphicsDrawDesc>>      = None())
+                           Option<ref<vrento::vulkan::GraphicsDrawDesc>>      = None(),
+                           vulkan::ShaderArtifactCache*                       = nullptr)
     -> Result<vulkan::SceneRenderStateInput, vrento::fg::Error>;
 
 namespace vulkan

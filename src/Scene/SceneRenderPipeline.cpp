@@ -180,10 +180,12 @@ auto SceneRenderPipeline::flushChanges(SceneLoadBenchRecorderView bench)
                 &m_stats.graph_analysis,
                 Some(mut_ref<vulkan::SceneDrawPreparationCache>::from_raw_parts(
                     &m_draw_preparations)),
-                output.unwrap());
+                output.unwrap(),
+                &m_shader_artifacts);
         }();
         m_draw_preparations.prune();
         m_stats.draw_preparations = m_draw_preparations.stats();
+        m_stats.shader_artifacts  = m_shader_artifacts.stats();
         if (input.is_err()) return Err(ScenePrepareError::GraphBuild(input.unwrap_err()));
         m_depth_orders = rstd::move(input->depth_orders);
         if (m_options.graphviz) {

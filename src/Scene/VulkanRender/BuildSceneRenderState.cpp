@@ -974,7 +974,8 @@ static void EmitShadowPasses(ExtraInfo& extra) {
 auto owe::BuildSceneRenderState(Scene& scene, const RenderSceneSnapshot& render_scene,
                                 fg::AnalysisStatistics*                            statistics,
                                 Option<mut_ref<vulkan::SceneDrawPreparationCache>> draw_cache,
-                                Option<ref<vrento::vulkan::GraphicsDrawDesc>>      output_recipe)
+                                Option<ref<vrento::vulkan::GraphicsDrawDesc>>      output_recipe,
+                                vulkan::ShaderArtifactCache*                       shader_cache)
     -> Result<vulkan::SceneRenderStateInput, fg::Error> {
     ExtraInfo extra(scene, render_scene);
     auto      clear_id = extra.graph.reserve_pass_id();
@@ -1093,10 +1094,13 @@ auto owe::BuildSceneRenderState(Scene& scene, const RenderSceneSnapshot& render_
     auto output_id    = extra.graph.reserve_pass_id();
     auto release_id   = extra.graph.reserve_pass_id();
     if (extra.error) return Err(*extra.error);
-    resource::ResourcePlan             resource_plan { .generation = extra.textures.generation() };
-    auto                               shader_backend = vulkan::MakeShaderBackend();
-    vulkan::ShaderReflectionCache      shader_cache(shader_backend.as_ref());
-    vulkan::ResourceDeclarationContext declarations(resource_plan, shader_cache, {}, draw_cache);
+    resource::ResourcePlan resource_plan { .generation = extra.textures.generation() };
+    Option<Box<vulkan::ShaderArtifactCache>> local_shader_cache;
+    if (! shader_cache) {
+        local_shader_cache = Some(Box<vulkan::ShaderArtifactCache>::make());
+        shader_cache       = &**local_shader_cache;
+    }
+    vulkan::ResourceDeclarationContext declarations(resource_plan, {}, shader_cache, draw_cache);
     auto                               output = [&] {
         auto target = ContentRef::bind(extra.graph, surface);
         if (target.is_err())

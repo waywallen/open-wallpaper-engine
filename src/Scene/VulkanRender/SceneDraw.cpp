@@ -195,11 +195,16 @@ auto SceneDraw::declareResources(ResourceDeclarationContext& context)
     auto* material         = &*material_;
     m_desc.pipeline_use    = Some(context.ReservePipeline());
     m_desc.render_pass_use = Some(context.ReserveRenderPass());
-    auto shader_request    = MakeSceneShaderRequest(**material->shader);
-    auto artifact_request  = shader_request.clone();
-    m_desc.shader_use = Some(context.AddShader(rstd::move(shader_request), **material->shader));
+    auto shader_use        = context.AddShader(*material->shader);
+    if (shader_use.is_err()) {
+        rstd_error("prepare shader {} failed: {}",
+                   (*material->shader)->name,
+                   shader_use.unwrap_err().message);
+        return None();
+    }
+    m_desc.shader_use = Some(shader_use.unwrap());
 
-    auto artifact = context.ShaderArtifact(artifact_request);
+    auto artifact = context.ShaderArtifact(*m_desc.shader_use);
     if (artifact.is_some()) {
         Vec<String> sampler_members;
         sampler_members.reserve(m_desc.texture_bindings.len());

@@ -189,9 +189,18 @@ inline usize SceneShaderCodeHash(const SceneShader& shader) {
         hash_into(set.set.to_primitive(), seed);
         hash_into(set.identity.to_primitive(), seed);
         hash_into(set.push_descriptor, seed);
+        hash_into(set.bindings.len(), seed);
+        for (const auto& binding : set.bindings) {
+            hash_into(binding.name, seed);
+            hash_into(binding.binding, seed);
+            hash_into(binding.descriptor_type, seed);
+            hash_into(binding.descriptor_count, seed);
+            hash_into(binding.stage_flags, seed);
+        }
     }
     hash_into(shader.uniform_blocks.len(), seed);
     for (const auto& block : shader.uniform_blocks) {
+        hash_into(block.name, seed);
         hash_into(block.set.to_primitive(), seed);
         hash_into(block.binding.to_primitive(), seed);
         hash_into(block.identity.to_primitive(), seed);

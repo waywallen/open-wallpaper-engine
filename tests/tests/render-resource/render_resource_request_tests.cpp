@@ -1304,6 +1304,60 @@ TEST(ShaderBackend, CompilesBothLanguagesAndReusesReflection) {
     }
 }
 
+TEST(ResourceDeclarationContext, SharesShaderArtifactsWithinAndAcrossPlans) {
+    usize          reflections {};
+    auto           backend = Box<dyn<ShaderBackend>>::make(CountingShaderBackend { &reflections });
+    ShaderCompUnit unit {
+        .stage       = owe::ShaderType::VERTEX,
+        .src         = "#version 450\nvoid main() { gl_Position = vec4(0, 0, 0, 1); }"_Str,
+        .entry_point = "main"_Str,
+    };
+    Vec<Uni_ShaderSpv> spvs;
+    ASSERT_TRUE(backend->CompileAndLinkShaderUnits(
+        slice<ShaderCompUnit>::from_raw_parts(&unit, usize(1)), {}, spvs));
+    auto shader  = Arc<owe::SceneShader>::make();
+    shader->name = "shared"_Str;
+    shader->codes.push(spvs[usize()]->spirv.clone());
+    owe::SceneShaderDescriptorSetInterface set;
+    set.bindings.push({ .name = "unused"_Str, .descriptor_count = u32(1) });
+    shader->descriptor_sets.push(rstd::move(set));
+    auto equivalent             = Arc<owe::SceneShader>::make();
+    equivalent->name            = shader->name.clone();
+    equivalent->codes           = shader->codes.clone();
+    equivalent->descriptor_sets = shader->descriptor_sets.clone();
+
+    ShaderArtifactCache         cache(rstd::move(backend));
+    owe::resource::ResourcePlan first { .generation = u64(5) };
+    ResourceDeclarationContext  first_declarations(first, {}, &cache);
+    auto                        a = first_declarations.AddShader(shader).unwrap();
+    EXPECT_EQ(first_declarations.AddShader(shader).unwrap(), a);
+    EXPECT_EQ(first_declarations.AddShader(equivalent).unwrap(), a);
+    ASSERT_EQ(first.shaders.len(), usize(1));
+    EXPECT_EQ(cache.stats().builds, u64(1));
+    EXPECT_EQ(cache.stats().hits, u64(1));
+    EXPECT_EQ(reflections, usize(1));
+    auto original = (*first.shaders[usize()].artifact).clone();
+
+    owe::resource::ResourcePlan next { .generation = u64(6) };
+    ResourceDeclarationContext  next_declarations(next, {}, &cache);
+    auto                        b = next_declarations.AddShader(shader).unwrap();
+    EXPECT_NE(b, a);
+    ASSERT_EQ(next.shaders.len(), usize(1));
+    EXPECT_FALSE(next_declarations.ShaderArtifact(a));
+    EXPECT_EQ(&**next_declarations.ShaderArtifact(b), &*original);
+    auto next_clone = next.clone();
+    EXPECT_EQ(&**next_clone.shaders[usize()].artifact, &*original);
+
+    equivalent->descriptor_sets[usize()].bindings[usize()].descriptor_count = u32(2);
+    auto c = next_declarations.AddShader(equivalent).unwrap();
+    ASSERT_NE(b, c);
+    EXPECT_EQ(cache.stats().builds, u64(2));
+    EXPECT_EQ(reflections, usize(1));
+    auto changed = next_declarations.ShaderArtifact(c).unwrap();
+    EXPECT_EQ(changed->descriptor_sets[usize()].bindings[usize()].descriptor_count, u32(2));
+    EXPECT_EQ(original->descriptor_sets[usize()].bindings[usize()].descriptor_count, u32(1));
+}
+
 TEST(ShaderBackend, PreprocessesBoundedSourceAndAllowsAliasedOutput) {
     auto              backend = MakeShaderBackend();
     const std::string prefix  = "#version 450\nvoid main() { gl_Position = vec4(0, 0, 0, 1); }\n";
@@ -1720,8 +1774,8 @@ TEST(SceneDraw, TextureReadsFollowSamplerReflection) {
     SceneDraw draw(rstd::move(desc),
                    { .node = Some(mut_ref<owe::SceneNode>::from_raw_parts(node.as_ptr())) });
     owe::resource::ResourcePlan plan { .generation = u64(7) };
-    ShaderReflectionCache       cache(backend.as_ref());
-    ResourceDeclarationContext  declarations(plan, cache);
+    ShaderArtifactCache         cache(rstd::move(backend));
+    ResourceDeclarationContext  declarations(plan, {}, &cache);
     ASSERT_TRUE(draw.declareResources(declarations));
     auto resources = draw.describePass(builder, textures, pass).unwrap();
     ASSERT_EQ(resources.textures.len(), usize(3));
@@ -1778,8 +1832,8 @@ TEST(SceneDraw, StaticRecipeSurvivesSceneAndDeclarationDestruction) {
         override_material->SetBlendMode(owe::BlendMode::Disable);
         override_material->customShader.shader = None();
         owe::resource::ResourcePlan plan { .generation = u64(7) };
-        ShaderReflectionCache       cache(backend.as_ref());
-        ResourceDeclarationContext  declarations(plan, cache);
+        ShaderArtifactCache         cache(rstd::move(backend));
+        ResourceDeclarationContext  declarations(plan, {}, &cache);
         auto                        recipe = draw.declareResources(declarations);
         ASSERT_TRUE(recipe);
         override_description = override_draw.declareResources(declarations);
@@ -1868,9 +1922,7 @@ TEST(SceneRenderState, RetainsDeclaredInputsAndPublishesOutputAssociation) {
 
 TEST(ResourceDeclarationContext, ScopesLocalResourceNamesToThePlanGeneration) {
     owe::resource::ResourcePlan             plan { .generation = rstd::u64(7) };
-    auto                                    shader_backend = owe::vulkan::MakeShaderBackend();
-    owe::vulkan::ShaderReflectionCache      shader_cache(shader_backend.as_ref());
-    owe::vulkan::ResourceDeclarationContext declarations(plan, shader_cache);
+    owe::vulkan::ResourceDeclarationContext declarations(plan);
 
     auto name = declarations.ScopeResourceName(String::make("pass:25:0:vertex:0"_str));
 
@@ -1880,9 +1932,7 @@ TEST(ResourceDeclarationContext, ScopesLocalResourceNamesToThePlanGeneration) {
 TEST(ResourceDeclarationContext, RetainsSharedContentByDefinitionVersion) {
     using namespace owe::vulkan;
     owe::resource::ResourcePlan plan { .generation = u64(2) };
-    auto                        backend = MakeShaderBackend();
-    ShaderReflectionCache       cache(backend.as_ref());
-    ResourceDeclarationContext  declarations(plan, cache);
+    ResourceDeclarationContext  declarations(plan);
     Vec<u8>                     input;
     input.resize(usize(4), u8(3));
     auto pointer = input.as_slice().as_raw_ptr();
@@ -1898,7 +1948,7 @@ TEST(ResourceDeclarationContext, RetainsSharedContentByDefinitionVersion) {
     auto definition                     = plan.buffers[usize()].definition.clone();
     content                             = {};
     auto                       retained = declarations.takeData();
-    ResourceDeclarationContext restored(plan, cache, rstd::move(retained));
+    ResourceDeclarationContext restored(plan, rstd::move(retained));
     auto                       loaded = restored.LoadBuffer(definition).unwrap();
     EXPECT_EQ(loaded.as_slice().as_raw_ptr(), pointer);
     EXPECT_EQ(loaded.len(), usize(4));

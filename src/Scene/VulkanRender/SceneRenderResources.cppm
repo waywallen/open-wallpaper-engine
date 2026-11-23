@@ -10,6 +10,7 @@ import :uniform_buffer;
 import :scene_draw_preparation;
 
 using namespace rstd::prelude;
+using namespace rstd::literals;
 using rstd::collections::HashMap;
 using rstd::sync::Arc;
 
@@ -146,7 +147,6 @@ struct DrawUpdateContext {
 };
 
 struct DrawResourceContext {
-    ref<dyn<ShaderBackend>>                                   shader_backend;
     ref<resource_registry::PreparedResourceTable>             resources;
     mut_ref<dyn<resource_registry::GraphicsResourcePreparer>> graphics;
     ref<PipelineLayoutAssignments>                            pipeline_layouts;
@@ -158,25 +158,22 @@ struct ResourceDeclarationData {
         resource::BufferContent     content;
     };
     u64 m_next_buffer { 0 };
-    u64 m_next_shader { 0 };
     u64 m_next_pipeline { 0 };
     u64 m_next_render_pass { 0 };
     u64 m_next_framebuffer { 0 };
     u64 m_next_external { 0 };
     HashMap<resource::ResourceHandle<resource::BufferResourceTag>, BufferSource> m_buffers;
     HashMap<String, resource::BufferUseHandle>                                   m_shared_buffers;
-    HashMap<resource::ShaderRequest, resource::ShaderArtifact>                   m_shaders;
 };
 
 class ResourceDeclarationContext {
 public:
     explicit ResourceDeclarationContext(
-        resource::ResourcePlan& plan, ShaderReflectionCache& shader_cache,
-        ResourceDeclarationData                    data       = {},
-        Option<mut_ref<SceneDrawPreparationCache>> draw_cache = None())
+        resource::ResourcePlan& plan, ResourceDeclarationData data = {},
+        ShaderArtifactCache*                       shader_cache = nullptr,
+        Option<mut_ref<SceneDrawPreparationCache>> draw_cache   = None())
         : m_plan(plan),
-          m_shader_cache(
-              mut_ref<ShaderReflectionCache>::from_raw_parts(rstd::addressof(shader_cache))),
+          m_shader_cache(shader_cache),
           data_(rstd::move(data)),
           m_draw_cache(draw_cache) {}
 
@@ -206,23 +203,35 @@ public:
         return m_plan.DeclareTexture(rstd::move(request), access);
     }
 
-    auto AddShader(resource::ShaderRequest request, const SceneShader& shader)
-        -> resource::ShaderUseHandle {
-        auto handle = resource::ShaderUseHandle {
-            .index      = data_.m_next_shader++,
-            .generation = m_plan.generation,
-        };
-        SceneShaderArtifactProvider provider(*m_shader_cache, shader);
-        auto                        artifact = provider.LoadShader(request);
-        if (artifact.is_err()) return {};
-        auto artifact_key = request.clone();
-        (void)data_.m_shaders.insert(rstd::move(artifact_key),
-                                     rstd::move(artifact).unwrap_unchecked());
-        m_plan.shaders.push(resource::ShaderPlanEntry {
-            .handle  = handle,
-            .request = rstd::move(request),
-        });
-        return handle;
+    auto AddShader(const Arc<SceneShader>& shader)
+        -> Result<resource::ShaderUseHandle, resource::ResourceError> {
+        // Instance addresses are only keys for this graph; the plan owns the published artifact.
+        auto key = usize(reinterpret_cast<rstd::uintptr_t>(shader.as_ptr().as_raw_ptr()));
+        if (auto known = m_shader_instances.get(key)) return Ok((*known)->use);
+        if (! m_shader_cache)
+            return Err(resource::ResourceError {
+                .kind    = resource::ResourceErrorKind::MissingDefinition,
+                .message = "shader artifact cache unavailable"_Str,
+            });
+        auto published = m_shader_cache->Prepare(*shader);
+        if (published.is_err()) return Err(published.unwrap_err());
+        auto value = published.unwrap();
+        auto artifact =
+            usize(reinterpret_cast<rstd::uintptr_t>(value.artifact.as_ptr().as_raw_ptr()));
+        resource::ShaderUseHandle use;
+        if (auto known = m_shader_uses.get(artifact)) {
+            use = **known;
+        } else {
+            use = { rstd::as_cast<u64>(m_plan.shaders.len()), m_plan.generation };
+            m_plan.shaders.push(resource::ShaderPlanEntry {
+                .handle   = use,
+                .request  = rstd::move(value.request),
+                .artifact = Some(rstd::move(value.artifact)),
+            });
+            (void)m_shader_uses.insert(artifact, use);
+        }
+        (void)m_shader_instances.insert(key, ShaderInstance { shader.clone(), use });
+        return Ok(use);
     }
 
     auto ReservePipeline() -> resource::PipelineUseHandle {
@@ -273,9 +282,13 @@ public:
         return Ok((**content).content.clone());
     }
 
-    auto ShaderArtifact(const resource::ShaderRequest& request) const
+    auto ShaderArtifact(resource::ShaderUseHandle use) const
         -> Option<ref<resource::ShaderArtifact>> {
-        return data_.m_shaders.get(request);
+        if (use.generation != m_plan.generation ||
+            use.index >= rstd::as_cast<u64>(m_plan.shaders.len()))
+            return None();
+        const auto& entry = m_plan.shaders[rstd::as_cast<usize>(use.index)];
+        return entry.handle == use && entry.artifact ? Some((*entry.artifact).deref()) : None();
     }
 
     auto PrepareDraw(const resource::ShaderArtifact& artifact, slice<String> sampler_members,
@@ -307,8 +320,14 @@ public:
     }
 
 private:
+    struct ShaderInstance {
+        Arc<SceneShader>          source;
+        resource::ShaderUseHandle use;
+    };
     resource::ResourcePlan&                    m_plan;
-    mut_ref<ShaderReflectionCache>             m_shader_cache;
+    ShaderArtifactCache*                       m_shader_cache;
+    HashMap<usize, ShaderInstance>             m_shader_instances;
+    HashMap<usize, resource::ShaderUseHandle>  m_shader_uses;
     ResourceDeclarationData                    data_;
     Option<mut_ref<SceneDrawPreparationCache>> m_draw_cache;
 };

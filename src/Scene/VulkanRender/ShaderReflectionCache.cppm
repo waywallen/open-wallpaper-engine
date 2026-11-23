@@ -9,6 +9,7 @@ import wescene.vulkan;
 import wescene.scene;
 
 using rstd::collections::HashMap;
+using rstd::sync::Arc;
 
 using namespace rstd::prelude;
 
@@ -50,7 +51,6 @@ class ShaderReflectionCache : NoCopy, NoMove {
 public:
     explicit ShaderReflectionCache(rstd::ref<rstd::dyn<ShaderBackend>> backend)
         : m_backend(backend) {}
-    auto Backend() const -> rstd::ref<rstd::dyn<ShaderBackend>> { return m_backend; }
     auto Query(const SceneShader&) -> rstd::Option<rstd::ref<CachedShaderReflection>>;
     void Clear();
 
@@ -72,6 +72,37 @@ public:
 private:
     rstd::mut_ref<ShaderReflectionCache> m_cache;
     rstd::ref<SceneShader>               m_shader;
+};
+
+struct PublishedShaderArtifact {
+    resource::ShaderRequest       request;
+    Arc<resource::ShaderArtifact> artifact;
+};
+
+struct ShaderArtifactCacheStats {
+    u64 hits {}, builds {};
+};
+
+class ShaderArtifactCache : NoCopy, NoMove {
+public:
+    explicit ShaderArtifactCache(Box<dyn<ShaderBackend>> backend = MakeShaderBackend())
+        : m_backend(rstd::move(backend)) {}
+    auto Prepare(const SceneShader&) -> Result<PublishedShaderArtifact, resource::ResourceError>;
+    auto stats() const -> ShaderArtifactCacheStats { return m_stats; }
+
+private:
+    struct Entry {
+        Vec<ShaderCode>                        codes;
+        Vec<SceneShaderUniformBlockInterface>  blocks;
+        Vec<SceneShaderDescriptorSetInterface> sets;
+        Arc<resource::ShaderArtifact>          artifact;
+
+        bool Matches(const SceneShader&) const;
+    };
+    Box<dyn<ShaderBackend>>                 m_backend;
+    ShaderReflectionCache                   m_reflection { m_backend.as_ref() };
+    HashMap<resource::ShaderRequest, Entry> m_artifacts;
+    ShaderArtifactCacheStats                m_stats;
 };
 
 Vec<Uni_ShaderSpv> ShaderSpvsFromArtifact(const resource::ShaderArtifact&);

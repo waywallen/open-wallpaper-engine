@@ -22,6 +22,7 @@ struct SceneRenderPipelineOptions {
 struct SceneRenderPipelineStats {
     vrento::fg::AnalysisStatistics    graph_analysis;
     vulkan::SceneDrawPreparationStats draw_preparations;
+    vulkan::ShaderArtifactCacheStats  shader_artifacts;
     rstd::uint64_t                    graph_builds {};
     rstd::uint64_t                    prepared_frames {};
     rstd::uint64_t                    mesh_refreshes {};
@@ -116,6 +117,7 @@ private:
     RenderSceneSnapshot               m_snapshot;
     Vec<vulkan::SceneDepthDrawOrder>  m_depth_orders;
     vulkan::SceneDrawPreparationCache m_draw_preparations;
+    vulkan::ShaderArtifactCache       m_shader_artifacts;
     SceneRenderPipelineStats          m_stats;
 };
 

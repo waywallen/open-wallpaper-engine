@@ -21,7 +21,7 @@ namespace
 ShaderReflectionKey MakeShaderReflectionKey(const SceneShader& shader) {
     return ShaderReflectionKey {
         .shader_id = shader.id,
-        .code_hash = SceneShaderCodeHash(shader),
+        .code_hash = SceneShaderCodeHash(shader.codes.as_slice()),
     };
 }
 
@@ -83,28 +83,24 @@ auto SceneShaderArtifactProvider::Request() const -> resource::ShaderRequest {
     return MakeSceneShaderRequest(*m_shader);
 }
 
-auto SceneShaderArtifactProvider::LoadShader(const resource::ShaderRequest& request)
+namespace
+{
+auto BuildSceneShaderArtifact(ShaderReflectionCache& cache, const SceneShader& shader,
+                              const resource::ShaderRequest& request)
     -> Result<resource::ShaderArtifact, resource::ResourceError> {
-    if (request.source.index != m_shader->id ||
-        request.content_version != rstd::as_cast<u64>(SceneShaderCodeHash(*m_shader))) {
-        return rstd::Err(resource::ResourceError {
-            .kind    = resource::ResourceErrorKind::MissingDefinition,
-            .message = rstd::format("shader request does not match {}", m_shader->name),
-        });
-    }
-    auto reflection = m_cache->Query(*m_shader);
+    auto reflection = cache.Query(shader);
     if (reflection.is_none()) {
         return rstd::Err(resource::ResourceError {
             .kind    = resource::ResourceErrorKind::BackendFailure,
-            .message = rstd::format("compile shader {} failed", m_shader->name),
+            .message = rstd::format("compile shader {} failed", shader.name),
         });
     }
 
     resource::ShaderArtifact artifact {
         .source            = request.source,
         .content_version   = request.content_version,
-        .matrix_convention = m_shader->matrix_convention,
-        .matrix_abi        = m_shader->matrix_abi,
+        .matrix_convention = shader.matrix_convention,
+        .matrix_abi        = shader.matrix_abi,
     };
     artifact.stages.reserve((**reflection).Stages().len());
     for (const auto& stage : (**reflection).Stages()) {
@@ -118,7 +114,7 @@ auto SceneShaderArtifactProvider::LoadShader(const resource::ShaderRequest& requ
     for (const auto& block : (**reflection).Reflected().blocks) {
         auto scope = resource::ShaderArtifactUniformBlock::Scope::Local;
         u64  identity {};
-        for (const auto& declared : m_shader->uniform_blocks) {
+        for (const auto& declared : shader.uniform_blocks) {
             if (declared.name != block.name || declared.set != u32(block.set) ||
                 declared.binding != u32(block.binding)) {
                 continue;
@@ -171,9 +167,9 @@ auto SceneShaderArtifactProvider::LoadShader(const resource::ShaderRequest& requ
             .stage_flags      = u32(binding.layout.stageFlags),
         });
     }
-    if (! m_shader->descriptor_sets.is_empty()) {
-        artifact.descriptor_sets.reserve(m_shader->descriptor_sets.len());
-        for (const auto& declared : m_shader->descriptor_sets) {
+    if (! shader.descriptor_sets.is_empty()) {
+        artifact.descriptor_sets.reserve(shader.descriptor_sets.len());
+        for (const auto& declared : shader.descriptor_sets) {
             auto bindings = Vec<resource::ShaderArtifactDescriptorBinding>::with_capacity(
                 declared.bindings.len());
             for (const auto& binding : declared.bindings) {
@@ -252,6 +248,63 @@ auto SceneShaderArtifactProvider::LoadShader(const resource::ShaderRequest& requ
         });
     }
     return rstd::Ok(rstd::move(artifact));
+}
+} // namespace
+
+auto SceneShaderArtifactProvider::LoadShader(const resource::ShaderRequest& request)
+    -> Result<resource::ShaderArtifact, resource::ResourceError> {
+    if (request != Request())
+        return Err(resource::ResourceError {
+            .kind    = resource::ResourceErrorKind::MissingDefinition,
+            .message = rstd::format("shader request does not match {}", m_shader->name),
+        });
+    return BuildSceneShaderArtifact(*m_cache, *m_shader, request);
+}
+
+bool ShaderArtifactCache::Entry::Matches(const SceneShader& shader) const {
+    if (shader.matrix_convention != artifact->matrix_convention ||
+        shader.matrix_abi != artifact->matrix_abi || shader.codes.len() != codes.len() ||
+        shader.uniform_blocks.len() != blocks.len() || shader.descriptor_sets.len() != sets.len())
+        return false;
+    for (usize i {}; i < codes.len(); ++i)
+        if (codes[i] != shader.codes[i]) return false;
+    for (usize i {}; i < blocks.len(); ++i)
+        if (blocks[i] != shader.uniform_blocks[i]) return false;
+    for (usize i {}; i < sets.len(); ++i) {
+        const auto& old  = sets[i];
+        const auto& next = shader.descriptor_sets[i];
+        if (old.set != next.set || old.identity != next.identity ||
+            old.push_descriptor != next.push_descriptor ||
+            old.bindings.len() != next.bindings.len())
+            return false;
+        for (usize j {}; j < old.bindings.len(); ++j)
+            if (old.bindings[j] != next.bindings[j]) return false;
+    }
+    return true;
+}
+
+auto ShaderArtifactCache::Prepare(const SceneShader& shader)
+    -> Result<PublishedShaderArtifact, resource::ResourceError> {
+    auto request = MakeSceneShaderRequest(shader);
+    if (auto cached = m_artifacts.get(request)) {
+        if (! (*cached)->Matches(shader))
+            return Err(resource::ResourceError {
+                .kind    = resource::ResourceErrorKind::RevisionMismatch,
+                .message = rstd::format("conflicting shader artifact {}", request.name),
+            });
+        ++m_stats.hits;
+        return Ok(PublishedShaderArtifact { rstd::move(request), (*cached)->artifact.clone() });
+    }
+    auto prepared = BuildSceneShaderArtifact(m_reflection, shader, request);
+    if (prepared.is_err()) return Err(prepared.unwrap_err());
+    auto artifact = Arc<resource::ShaderArtifact>::make(prepared.unwrap());
+    ++m_stats.builds;
+    (void)m_artifacts.insert(request.clone(),
+                             Entry { shader.codes.clone(),
+                                     shader.uniform_blocks.clone(),
+                                     shader.descriptor_sets.clone(),
+                                     artifact.clone() });
+    return Ok(PublishedShaderArtifact { rstd::move(request), rstd::move(artifact) });
 }
 
 Vec<Uni_ShaderSpv> ShaderSpvsFromArtifact(const resource::ShaderArtifact& artifact) {

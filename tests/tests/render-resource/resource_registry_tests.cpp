@@ -1190,6 +1190,46 @@ TEST(BufferRegistry, UploadsReplacementSourceWithMatchingVersionAndCapacity) {
     EXPECT_EQ((**entry).content_version, rstd::u64(5));
 }
 
+TEST(ResourcePrepareService, RetainsPublishedShaderArtifactAcrossPlanGenerations) {
+    owe::resource::TextureRegistry         textures;
+    owe::resource_registry::BufferRegistry buffers;
+    owe::resource_registry::ShaderRegistry shaders;
+    BufferBackend                          backend;
+    auto upload = rstd::dyn<owe::vulkan::BufferBackend>::from_ref(backend);
+    owe::resource_registry::ResourcePrepareService service(
+        textures, rstd::None(), buffers, upload.as_mut_ref(), shaders);
+    auto request = ShaderRequest(5);
+    auto artifact =
+        rstd::sync::Arc<owe::resource::ShaderArtifact>::make(owe::resource::ShaderArtifact {
+            .source = request.source, .content_version = request.content_version });
+    owe::resource::ResourcePlan plan { .generation = rstd::u64(12) };
+    plan.shaders.push({
+        .handle   = { rstd::u64(0), plan.generation },
+        .request  = request.clone(),
+        .artifact = rstd::Some(artifact.clone()),
+    });
+    auto first = service.Prepare(plan, {}, owe::resource::ResourcePlanShaders).unwrap();
+    auto old   = first.Resolve(plan.shaders[rstd::usize()].handle).unwrap();
+    EXPECT_EQ(&old->shader.physical->artifact, &*artifact);
+
+    auto next               = plan.clone();
+    next.generation         = rstd::u64(13);
+    auto& entry             = next.shaders[rstd::usize()];
+    entry.handle.generation = next.generation;
+    auto prepared = service.Prepare(next, {}, owe::resource::ResourcePlanShaders).unwrap();
+    auto current  = prepared.Resolve(entry.handle).unwrap();
+    EXPECT_EQ(&*current->shader.physical, &*old->shader.physical);
+    EXPECT_EQ(&current->shader.physical->artifact, &*artifact);
+    auto replacement = rstd::sync::Arc<owe::resource::ShaderArtifact>::make(artifact->clone());
+    entry.artifact   = rstd::Some(replacement.clone());
+    auto reused      = service.Prepare(next, {}, owe::resource::ResourcePlanShaders).unwrap();
+    EXPECT_EQ(&reused.Resolve(entry.handle).unwrap()->shader.physical->artifact, &*artifact);
+    entry.request.content_version += rstd::u64(1);
+    auto rejected = service.Prepare(next, {}, owe::resource::ResourcePlanShaders);
+    ASSERT_TRUE(rejected.is_err());
+    EXPECT_EQ(rejected.unwrap_err().kind, owe::resource::ResourceErrorKind::MissingDefinition);
+}
+
 TEST(ResourcePrepareService, VisitsBufferAndShaderPlansThroughTypedProviders) {
     owe::resource::TextureRegistry         textures;
     owe::resource_registry::BufferRegistry buffers;

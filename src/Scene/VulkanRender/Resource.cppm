@@ -21,8 +21,6 @@ using rstd::sync::Arc;
 export namespace owe::vulkan
 {
 
-class ShaderReflectionCache;
-
 using resource::SetTextureRequestIfChanged;
 using resource::TextureBindingRequest;
 using resource::TextureContent;
@@ -406,8 +404,7 @@ struct RenderingResources {
         Arc<vrento::vulkan::GraphicsScopeCache>::make()
     };
 
-    rstd::Option<rstd::mut_ref<ShaderReflectionCache>> shader_reflection_cache;
-    Arc<resource_registry::RenderResourceSystem>       resource_owner {
+    Arc<resource_registry::RenderResourceSystem> resource_owner {
         Arc<resource_registry::RenderResourceSystem>::make()
     };
     resource_registry::RenderResourceSystem& resources { *resource_owner };
