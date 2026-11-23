@@ -73,6 +73,58 @@ struct CallbackSurfaceFactory {
     owe::CreateSurfaceCallback create;
 };
 
+struct CachedImportedTextureIdentity {
+    String                                   name;
+    Option<resource::TextureDefinitionId>    source;
+    resource::ImportedTextureContentIdentity identity;
+};
+
+class CachedImportedTextureProvider {
+public:
+    explicit CachedImportedTextureProvider(slice<CachedImportedTextureIdentity> entries)
+        : m_entries(entries) {}
+
+    bool Has(const resource::TextureRequest& request) const { return Find(request).is_some(); }
+
+    auto ResolveTextureContent(const resource::TextureRequest& request) const
+        -> Result<resource::ImportedTextureContentIdentity, resource::ResourceError> {
+        auto found = Find(request);
+        if (found.is_none()) {
+            return Err(resource::ResourceError {
+                .kind    = resource::ResourceErrorKind::MissingDefinition,
+                .message = rstd::format("cached imported texture {} unavailable", request.name),
+            });
+        }
+        return Ok((**found).identity.clone());
+    }
+
+    auto OpenTextureLoader() const
+        -> Result<Arc<dyn<resource::TextureLoader>>, resource::ResourceError> {
+        return Err(resource::ResourceError {
+            .kind    = resource::ResourceErrorKind::MissingContent,
+            .message = "cached imported texture provider cannot load new textures"_Str,
+        });
+    }
+
+    auto ResolveVideoPlayback(const resource::TextureRequest&) const
+        -> Option<Arc<dyn<vrento::VideoPlayback>>> {
+        return None();
+    }
+
+private:
+    auto Find(const resource::TextureRequest& request) const
+        -> Option<ref<CachedImportedTextureIdentity>> {
+        for (const auto& entry : m_entries) {
+            if (entry.source == request.source && entry.name == request.name.as_str()) {
+                return Some(ref<CachedImportedTextureIdentity>::from_raw_parts(&entry));
+            }
+        }
+        return None();
+    }
+
+    slice<CachedImportedTextureIdentity> m_entries;
+};
+
 namespace rstd
 {
 template<>
@@ -80,6 +132,25 @@ struct Impl<vrento::vulkan::SessionSurfaceFactory, CallbackSurfaceFactory>
     : ImplBase<CallbackSurfaceFactory> {
     auto create(const vvk::Instance& instance) -> owe::CreateSurfaceResult {
         return self().create->call_once(instance);
+    }
+};
+
+template<>
+struct Impl<owe::resource::TextureContentProvider, CachedImportedTextureProvider>
+    : ImplBase<CachedImportedTextureProvider> {
+    auto ResolveTextureContent(const owe::resource::TextureRequest& request) const
+        -> Result<owe::resource::ImportedTextureContentIdentity, owe::resource::ResourceError> {
+        return this->self().ResolveTextureContent(request);
+    }
+
+    auto OpenTextureLoader() const
+        -> Result<Arc<dyn<owe::resource::TextureLoader>>, owe::resource::ResourceError> {
+        return this->self().OpenTextureLoader();
+    }
+
+    auto ResolveVideoPlayback(const owe::resource::TextureRequest& request) const
+        -> Option<Arc<dyn<vrento::VideoPlayback>>> {
+        return this->self().ResolveVideoPlayback(request);
     }
 };
 } // namespace rstd
@@ -228,6 +299,7 @@ struct VulkanRender::Impl {
     void DestroyRenderingResource(RenderingResources&);
 
     void clearLastRenderGraph(RenderGraphResourceRetention);
+    void releaseTransientPreparedTextures();
     void configureRenderTargets(Scene&);
     auto installSceneRenderState(Scene&, vulkan::SceneRenderStateInput&&,
                                  const RenderSceneSnapshot&, SceneLoadBenchRecorderView)
@@ -300,7 +372,9 @@ struct VulkanRender::Impl {
     // for VUID-vkQueueSubmit-pSignalSemaphores-00067
     Vec<Arc<vvk::Semaphore>> m_sem_swap_finish_per_image;
 
-    SceneRenderState m_scene_render_state;
+    SceneRenderState                   m_scene_render_state;
+    Vec<CachedImportedTextureIdentity> m_prepared_imported_identities;
+    Vec<CachedImportedTextureIdentity> m_pending_imported_identities;
 
     struct FontUpdate {
         rstd::sync::Arc<owe::text::AtlasPage> page;
@@ -1131,6 +1205,8 @@ void VulkanRender::Impl::destroy() {
         m_graphics = None();
         ReleaseCompletedRetiredResources(*m_device, m_rendering_resources);
         m_scene_render_state.clear();
+        m_prepared_imported_identities.clear();
+        m_pending_imported_identities.clear();
         m_rendering_resources.resources.Reset();
     }
     m_sem_swap_finish_per_image.clear();
@@ -1316,6 +1392,48 @@ void VulkanRender::Impl::UpdateCameraFillMode(owe::Scene& scene, owe::FillMode f
     scene.UpdateCameraFillMode(u32(m_extent.width), u32(m_extent.height), fillmode);
 }
 
+void VulkanRender::Impl::releaseTransientPreparedTextures() {
+    auto& resources = m_rendering_resources.resources;
+    if (resources.PrepareStatus().state != resource_registry::ResourcePrepareState::Committed ||
+        ! m_scene_render_state.installed()) {
+        resources.ClearTransientTextures();
+        return;
+    }
+    const auto&                   previous = m_scene_render_state.resourcePlan();
+    CachedImportedTextureProvider cached(m_prepared_imported_identities.as_slice());
+    resource::ResourcePlan        keep_plan { .generation = previous.generation };
+    keep_plan.textures.reserve(previous.textures.len());
+    for (const auto& entry : previous.textures) {
+        const bool keep_imported = entry.request().kind == resource::TextureRequestKind::Imported &&
+                                   cached.Has(entry.source_request());
+        if (! keep_imported && ! entry.preserve_contents) continue;
+        keep_plan.textures.push({ entry.handle,
+                                  entry.definition.clone(),
+                                  entry.allocation_key.clone(),
+                                  entry.access,
+                                  entry.version,
+                                  entry.source,
+                                  entry.preserve_contents,
+                                  false });
+    }
+    if (keep_plan.textures.len() == previous.textures.len()) {
+        resources.ClearTransientTextures();
+        return;
+    }
+    auto content  = dyn<resource::TextureContentProvider>::from_ref(cached);
+    auto prepared = resources.PreparePlan(
+        keep_plan,
+        resource_registry::ResourceContentProviders { .texture = Some(content) },
+        resource::ResourcePlanTextures);
+    if (prepared.is_err()) {
+        resources.AbortPreparePlan();
+        resources.ClearTransientTextures();
+        return;
+    }
+    (void)waitForPreparedUploads(m_rendering_resources);
+    ReleaseCompletedRetiredResources(*m_device, m_rendering_resources);
+}
+
 void VulkanRender::Impl::clearLastRenderGraph(RenderGraphResourceRetention retention) {
     if (m_renderer) m_renderer->clear();
     m_rendering_resources.resources.AbortPreparePlan();
@@ -1323,13 +1441,18 @@ void VulkanRender::Impl::clearLastRenderGraph(RenderGraphResourceRetention reten
     m_texture_output.clear();
     m_graphics = None();
     ReleaseCompletedRetiredResources(*m_device, m_rendering_resources);
-    m_scene_render_state.clear();
     m_rendering_resources.resources.ClearPreparedGraphics();
     if (retention == RenderGraphResourceRetention::ReleaseSceneTextures) {
+        m_scene_render_state.clear();
+        m_prepared_imported_identities.clear();
+        m_pending_imported_identities.clear();
         m_rendering_resources.resources.ClearTextures();
         m_shader_reflection_cache.Clear();
     } else {
-        m_rendering_resources.resources.ClearTransientTextures();
+        // Evict transient RTs from both PreparedResourceTable and TextureRegistry
+        // before the replacement graph allocates new ones, preventing a 2x VRAM peak.
+        releaseTransientPreparedTextures();
+        m_scene_render_state.clear();
     }
     m_rendering_resources.resources.EvictUnusedBuffers();
 }
@@ -1359,7 +1482,22 @@ auto VulkanRender::Impl::prepareSceneRenderState(Scene&                         
         return Err(RenderPrepareError::State(PrepareStateError::InvalidSections));
     auto declarations = m_scene_render_state.declarations(m_shader_reflection_cache);
     SnapshotImportedTextureProvider imported(render_scene, m_scene_render_state.imageSource(scene));
-    SnapshotTexturePrepareObserver  observer(load_bench);
+    m_pending_imported_identities.clear();
+    if (resource::ResourcePlanIncludes(sections, resource::ResourcePlanTextures)) {
+        for (const auto& entry : m_scene_render_state.resourcePlan().textures) {
+            if (entry.request().kind != resource::TextureRequestKind::Imported) continue;
+            auto request  = entry.source_request();
+            auto resolved = imported.ResolveTextureContent(request);
+            if (resolved.is_ok()) {
+                m_pending_imported_identities.push(CachedImportedTextureIdentity {
+                    .name     = request.name.clone(),
+                    .source   = request.source,
+                    .identity = resolved.unwrap(),
+                });
+            }
+        }
+    }
+    SnapshotTexturePrepareObserver observer(load_bench);
     auto content  = dyn<resource::TextureContentProvider>::from_ref(imported);
     auto observed = dyn<resource::TexturePrepareObserver>::from_ref(observer);
     auto buffers  = dyn<resource::BufferContentProvider>::from_ref(declarations);
@@ -1400,6 +1538,7 @@ bool VulkanRender::Impl::sceneRenderReady() const {
 void VulkanRender::Impl::abortSceneRenderPreparation() {
     m_renderer->cancel_compile();
     m_rendering_resources.resources.AbortPreparePlan();
+    m_pending_imported_identities.clear();
 }
 auto VulkanRender::Impl::continueSceneRenderPreparation(Scene&                     scene,
                                                         SceneLoadBenchRecorderView bench)
@@ -1481,6 +1620,10 @@ auto VulkanRender::Impl::finishSceneRenderPreparation(
     if (committed.is_err())
         return fail(RenderPrepareError::Resources(ResourcePrepareOperation::Commit,
                                                   rstd::move(committed).unwrap_err()));
+    if (resource::ResourcePlanIncludes(resources.PrepareStatus().sections,
+                                       resource::ResourcePlanTextures)) {
+        m_prepared_imported_identities = rstd::move(m_pending_imported_identities);
+    }
     return Ok(PrepareOutcome::Ready);
 }
 
