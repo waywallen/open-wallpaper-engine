@@ -967,14 +967,14 @@ auto SceneDraw::frameData(const DrawBindingContext& context) const -> Option<Arc
         if (binding.use.is_none() || ! samplesTexture(index)) continue;
         auto prepared = context.resources->Resolve(*binding.use);
         if (prepared.is_none()) return None();
-        auto sampled =
-            (**prepared)
-                .physical->SampledBinding(index < m_desc.descriptor_image_slots.len()
-                                              ? usize(m_desc.descriptor_image_slots[index])
-                                              : usize());
+        auto slot    = index < m_desc.descriptor_image_slots.len()
+                           ? usize(m_desc.descriptor_image_slots[index])
+                           : usize();
+        auto sampled = (**prepared).physical->SampledBinding(slot);
         if (sampled.is_err()) return None();
         input->textures.push(vrento::texture::TextureViewRef(sampled->view));
         input->texture_uses.push(resource::TextureUseHandle(*binding.use));
+        input->texture_slots.push(usize(slot));
         input->samplers.push(vrento::texture::SamplerRef(sampled->sampler));
         input->texture_stages.push(vrento::texture::Stages(m_desc.texture_stages[index]));
     }

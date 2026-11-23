@@ -44,7 +44,8 @@ auto SceneRenderState::captureFrame(
         if (! value) return failure();
         auto snapshot = value.unwrap();
         for (usize i {}; i < snapshot->texture_uses.len(); ++i)
-            selections.push({ snapshot->texture_uses[i], snapshot->textures[i] });
+            selections.push(
+                { snapshot->texture_uses[i], snapshot->textures[i], snapshot->texture_slots[i] });
         auto frame = compiled.frame<vk::GraphicsDrawPass>(
             draw.id,
             (*desc)->revision(),

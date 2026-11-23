@@ -23,6 +23,7 @@ export namespace owe::vulkan
 
 struct ShaderDrawInput : vrento::vulkan::GraphicsFrameData {
     Vec<resource::TextureUseHandle> texture_uses;
+    Vec<usize>                      texture_slots;
     Vec<vrento::texture::Stages>    texture_stages;
 };
 
