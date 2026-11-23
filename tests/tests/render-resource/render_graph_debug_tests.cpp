@@ -241,16 +241,19 @@ TEST(RenderGraphOwnership, ContentReplacementKeepsGraphUntilSpecificationChanges
     auto original     = Arc<owe::Image>::make();
     original->content = MakeMissingTexturePlaceholder("asset"_str);
     scene.RegisterRuntimeImage("asset"_Str, original.clone());
+    auto snapshot = owe::ExtractRenderSceneSnapshot(scene);
+    auto definition =
+        snapshot.textureDesc(snapshot.textureDescId("asset"_str).unwrap())->desc.resource.clone();
     auto shape = vrento::texture::describe_image(*original->content).unwrap()[usize()];
     fg::FrameGraphBuilder builder(77);
     SceneRenderTextures   textures(u64(77));
-    auto             version = textures
-                                   .declare(builder,
-                                            { .key        = "asset"_Str,
-                                              .imported   = true,
-                                              .definition = MakeImportedTextureRequest("asset"_str),
-                                              .metadata   = Some(shape) })
-                                   .unwrap();
+    auto                  version = textures
+                                        .declare(builder,
+                                                 { .key        = "asset"_Str,
+                                                   .imported   = true,
+                                                   .definition = rstd::move(definition),
+                                                   .metadata   = Some(shape) })
+                                        .unwrap();
     SceneRenderState state;
     ASSERT_TRUE(state
                     .install(SceneRenderStateInput { rstd::move(builder).finish().unwrap(),
@@ -259,7 +262,7 @@ TEST(RenderGraphOwnership, ContentReplacementKeepsGraphUntilSpecificationChanges
     auto replacement     = Arc<owe::Image>::make();
     replacement->content = MakeMissingTexturePlaceholder("asset"_str);
     scene.RegisterRuntimeImage("asset"_Str, replacement.clone());
-    auto snapshot = owe::ExtractRenderSceneSnapshot(scene);
+    snapshot = owe::ExtractRenderSceneSnapshot(scene);
     EXPECT_TRUE(state.acceptsTextureContent(scene, snapshot, scene.CaptureImageSource()));
     EXPECT_EQ(state.inputGraph().scope(), 77u);
     EXPECT_TRUE(state.inputGraph().find_version(version));

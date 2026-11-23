@@ -251,6 +251,7 @@ struct VulkanRender::Impl {
     Option<Arc<vrento::vulkan::PreparedGraphicsResources>> m_graphics;
     vrento::vulkan::TextureOutput                          m_texture_output;
     VkFormat                                               m_present_format { VK_FORMAT_UNDEFINED };
+    Option<vrento::vulkan::GraphicsDrawDesc>               m_output_recipe;
     auto waitForPreparedUploads(RenderingResources&) -> Result<empty, vrento::texture::Error>;
     Option<vrento::vulkan::GraphFrame>                  m_frame;
     Option<vrento::vulkan::GraphExecutionErrorSnapshot> m_last_frame_error;
@@ -808,6 +809,21 @@ auto VulkanRender::tryClearLastRenderGraph(RenderGraphResourceRetention retentio
 }
 
 bool VulkanRender::hasSceneRenderState() const { return pImpl->m_scene_render_state.installed(); }
+
+auto VulkanRender::outputRecipe()
+    -> Result<Option<ref<vrento::vulkan::GraphicsDrawDesc>>, RenderPrepareError> {
+    auto& impl = *pImpl;
+    if (impl.m_present_format == VK_FORMAT_UNDEFINED) return Ok(None());
+    if (! impl.m_output_recipe ||
+        impl.m_output_recipe->request.color_format != impl.m_present_format) {
+        auto recipe = vrento::vulkan::texture_output_recipe(
+            impl.m_shader_backend.as_ref(), {}, {}, {}, impl.m_present_format, true);
+        if (recipe.is_err())
+            return Err(RenderPrepareError::OutputResources(rstd::move(recipe).unwrap_err()));
+        impl.m_output_recipe = Some(recipe.unwrap());
+    }
+    return Ok(Some(ref<vrento::vulkan::GraphicsDrawDesc>::from_raw_parts(&*impl.m_output_recipe)));
+}
 
 auto VulkanRender::tryInstallSceneRenderState(Scene& scene, vulkan::SceneRenderStateInput&& graph,
                                               const RenderSceneSnapshot& snapshot,
@@ -1415,13 +1431,11 @@ auto VulkanRender::Impl::continueSceneRenderPreparation(Scene&                  
         if (shared.is_err())
             return Err(RenderPrepareError::Resources(ResourcePrepareOperation::SharedBuffers,
                                                      rstd::move(shared).unwrap_err()));
-        Vec<vrento::vulkan::PipelineLayoutRequirement> additional;
-        if (auto output = m_texture_output.layout_requirement()) additional.push(output.unwrap());
         auto prepared = vrento::vulkan::PreparedGraphicsResources::prepare(
             m_rendering_resources.resource_owner.clone(),
             m_scene_render_state.inputDescriptions(),
             shared->as_slice(),
-            rstd::move(additional),
+            {},
             { .shared_set = Some(u32()) });
         if (prepared.is_err())
             return Err(RenderPrepareError::Resources(ResourcePrepareOperation::Graphics,
@@ -1439,25 +1453,12 @@ auto VulkanRender::Impl::continueSceneRenderPreparation(Scene&                  
     }();
     if (bound.is_err()) return Err(rstd::move(bound).unwrap_err());
     auto output = m_texture_output.prepare(m_rendering_resources.resource_owner.clone(),
-                                           m_shader_backend.as_ref(),
                                            (*m_graphics)->layouts());
     if (output.is_err())
         return Err(RenderPrepareError::OutputResources(rstd::move(output).unwrap_err()));
-    Vec<vrento::vulkan::PassInput> descriptions;
-    for (const auto& desc : m_scene_render_state.inputDescriptions()) {
-        if (m_scene_render_state.isOutputPass(desc.execution().id)) {
-            auto published = m_texture_output.description(desc, desc.revision());
-            if (published.is_err())
-                return Err(RenderPrepareError::OutputDescription(published.unwrap_err()));
-            descriptions.push(published.unwrap());
-        } else
-            descriptions.push(desc.clone());
-    }
-    auto input = m_scene_render_state.renderInput().with_descriptions(rstd::move(descriptions));
-    if (input.is_err()) return Err(RenderPrepareError::Graph(input.unwrap_err()));
     auto span = SceneLoadSpan(bench, &SceneLoadProbeIds::render_renderer_compile);
-    return SceneCompileProgress(
-        m_renderer->compile(input.unwrap(), Some((*m_graphics)->compilation())));
+    return SceneCompileProgress(m_renderer->compile(m_scene_render_state.renderInput(),
+                                                    Some((*m_graphics)->compilation())));
 }
 
 auto VulkanRender::Impl::finishSceneRenderPreparation(
@@ -1506,8 +1507,7 @@ auto VulkanRender::Impl::installSceneRenderState(Scene& scene, vulkan::SceneRend
         m_graphics = None();
         m_rendering_resources.resources.ClearPreparedGraphics();
         m_scene_render_state = rstd::move(next);
-        m_texture_output =
-            m_scene_render_state.createOutput(m_present_format, m_shader_reflection_cache);
+        m_texture_output     = m_scene_render_state.createOutput();
     }
 
     return prepareSceneRenderState(scene, render_scene, resource::ResourcePlanAll, load_bench);

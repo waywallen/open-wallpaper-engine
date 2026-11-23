@@ -30,7 +30,6 @@ struct ExtraInfo {
 
     HashMap<String, ContentRef> selected;
     Option<fg::Error>           error;
-    fg::Serial                  next_pass { 1 };
     Arc<SceneImageSource>       image_source;
     Scene*                      scene;
     const RenderSceneSnapshot*  render_scene;
@@ -90,7 +89,8 @@ void ImportHistory(ExtraInfo& extra, ContentRef version) {
 }
 template<typename Callback>
 void EmitDraw(ExtraInfo& extra, ref<str> name, Callback&& callback) {
-    auto id = Remember(extra, extra.graph.add_pass({ extra.next_pass++ }, {}, String::make(name)));
+    auto id = Remember(extra,
+                       extra.graph.add_pass(extra.graph.reserve_pass_id(), {}, String::make(name)));
     vulkan::SceneDraw::Input input {};
     callback(id, input);
     if (extra.error) return;
@@ -100,7 +100,8 @@ void EmitDraw(ExtraInfo& extra, ref<str> name, Callback&& callback) {
 }
 auto AddTextureCopy(ExtraInfo& extra, ContentRef source, ContentRef target) -> ContentRef {
     if (extra.error) return {};
-    auto id     = Remember(extra, extra.graph.add_pass({ extra.next_pass++ }, { 1 }, "copy"_Str));
+    auto id =
+        Remember(extra, extra.graph.add_pass(extra.graph.reserve_pass_id(), { 1 }, "copy"_Str));
     auto output = Remember(extra, extra.textures.output(extra.graph, id, target));
     if (extra.error) return {};
     fg::ResourceRange range { .aspect = extra.textures.shape(extra.graph, source)->aspects };
@@ -116,7 +117,7 @@ auto AddTextureCopy(ExtraInfo& extra, ContentRef source, ContentRef target) -> C
     auto shape = extra.textures.shape(extra.graph, output);
     if (shape->mip_levels > 1) {
         auto mip = vrento::vulkan::declare_texture_mips(
-            extra.graph, { extra.next_pass++ }, output, shape->mip_levels, shape->layers);
+            extra.graph, extra.graph.reserve_pass_id(), output, shape->mip_levels, shape->layers);
         if (mip.is_err()) {
             extra.error = Some(mip.unwrap_err());
             return {};
@@ -258,7 +259,7 @@ static void AddMaterialTextureReads(SceneMaterial& material, ref<str> pass_outpu
             auto        version = SelectTexture(
                 extra, { .key = request.name.clone(), .definition = resource->clone() });
             if (! extra.depth_initialized_outputs.contains(source.key.as_str())) {
-                auto clear_pass = fg::PassId { extra.next_pass++ };
+                auto clear_pass = extra.graph.reserve_pass_id();
                 Remember(extra, extra.graph.add_pass(clear_pass, {}, "clear-depth"_Str));
                 version = Remember(extra, extra.textures.output(extra.graph, clear_pass, version));
                 vrento::vulkan::GraphicsClearDesc clear;
@@ -937,10 +938,11 @@ static void EmitShadowPasses(ExtraInfo& extra) {
 
 auto owe::BuildSceneRenderState(Scene& scene, const RenderSceneSnapshot& render_scene,
                                 fg::AnalysisStatistics*                            statistics,
-                                Option<mut_ref<vulkan::SceneDrawPreparationCache>> draw_cache)
+                                Option<mut_ref<vulkan::SceneDrawPreparationCache>> draw_cache,
+                                Option<ref<vrento::vulkan::GraphicsDrawDesc>>      output_recipe)
     -> Result<vulkan::SceneRenderStateInput, fg::Error> {
     ExtraInfo extra(scene, render_scene);
-    auto      clear_id = fg::PassId { extra.next_pass++ };
+    auto      clear_id = extra.graph.reserve_pass_id();
     auto      result   = SelectTexture(extra, MakeTextureDesc(extra, SpecTex_Default));
     if (extra.error) return Err(*extra.error);
     auto color   = scene.ClearColor();
@@ -971,7 +973,7 @@ auto owe::BuildSceneRenderState(Scene& scene, const RenderSceneSnapshot& render_
                                     .unwrap() });
             auto clear = vrento::vulkan::declare_graphics_clear(
                 extra.graph,
-                fg::PassId { extra.next_pass++ },
+                extra.graph.reserve_pass_id(),
                 initial,
                 { color[usize()], color[usize(1)], color[usize(2)], 1.0f },
                 1,
@@ -1002,7 +1004,7 @@ auto owe::BuildSceneRenderState(Scene& scene, const RenderSceneSnapshot& render_
         if (extra.error) return Err(*extra.error);
         auto clear = vrento::vulkan::declare_graphics_clear(
             extra.graph,
-            { extra.next_pass++ },
+            extra.graph.reserve_pass_id(),
             reflection,
             { color[usize()], color[usize(1)], color[usize(2)], 1.0f },
             1,
@@ -1047,30 +1049,38 @@ auto owe::BuildSceneRenderState(Scene& scene, const RenderSceneSnapshot& render_
 
     auto           final_result = SelectTexture(extra, MakeTextureDesc(extra, SpecTex_Default));
     auto           final_use    = Use(extra, final_result);
-    fg::ResourceId surface_id { extra.textures.textures().len().to_primitive() + 1,
-                                extra.graph.data().scope };
+    auto           surface_id   = extra.graph.next_resource_id();
     auto           surface = Remember(extra,
                                       extra.graph.import_resource({ .id      = surface_id,
                                                                     .spec    = surface_id.value,
                                                                     .storage = surface_id.value,
                                                                     .name = "frame/surface"_Str }));
-    auto           output_id  = fg::PassId { extra.next_pass++ },
-                   release_id = fg::PassId { extra.next_pass++ };
-    auto           output     = vrento::vulkan::declare_surface_output(
-        extra.graph,
-        output_id,
-        release_id,
-        final_result,
-        Remember(extra, ContentRef::bind(extra.graph, surface)));
-    if (output.is_err()) return Err(output.unwrap_err());
-    extra.descriptions.push(rstd::move(output->transfer));
-    extra.descriptions.push(rstd::move(output->release));
-    scene.RebuildResourceIndex();
+    auto           output_id    = extra.graph.reserve_pass_id();
+    auto           release_id   = extra.graph.reserve_pass_id();
     if (extra.error) return Err(*extra.error);
     resource::ResourcePlan             resource_plan { .generation = extra.textures.generation() };
     auto                               shader_backend = vulkan::MakeShaderBackend();
     vulkan::ShaderReflectionCache      shader_cache(shader_backend.as_ref());
     vulkan::ResourceDeclarationContext declarations(resource_plan, shader_cache, {}, draw_cache);
+    auto                               output = [&] {
+        auto target = ContentRef::bind(extra.graph, surface);
+        if (target.is_err())
+            return Result<vrento::vulkan::DeclaredSurfaceOutput, fg::Error>(
+                Err(target.unwrap_err()));
+        if (! output_recipe)
+            return vrento::vulkan::declare_surface_output(
+                extra.graph, output_id, release_id, final_result, target.unwrap());
+        auto draw        = (*output_recipe)->clone();
+        draw.pipeline    = declarations.ReservePipeline();
+        draw.render_pass = declarations.ReserveRenderPass();
+        draw.layout      = Some(vrento::vulkan::texture_output_layout(draw.pipeline));
+        return vrento::vulkan::declare_graphics_surface_output(
+            extra.graph, output_id, release_id, final_result, target.unwrap(), rstd::move(draw));
+    }();
+    if (output.is_err()) return Err(output.unwrap_err());
+    extra.descriptions.push(rstd::move(output->transfer));
+    extra.descriptions.push(rstd::move(output->release));
+    scene.RebuildResourceIndex();
     struct DrawInput {
         fg::PassId                       id;
         vrento::vulkan::GraphicsDrawDesc description;

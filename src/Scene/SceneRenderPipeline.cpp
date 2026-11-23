@@ -159,6 +159,9 @@ auto SceneRenderPipeline::flushChanges(SceneLoadBenchRecorderView bench)
         finishGpuPreparation(m_gpu_preparation.take().unwrap());
     }
     if (m_graph_dirty) {
+        auto output = m_render.outputRecipe();
+        if (output.is_err())
+            return Err(ScenePrepareError::Renderer(rstd::move(output).unwrap_err()));
         [[maybe_unused]] auto reconciliation = m_scene.AudioDemandMut()->BeginReconciliation();
         auto cleared = ScenePreparation(m_render.tryClearLastRenderGraph(m_retention));
         if (cleared.is_err() || *cleared != PrepareOutcome::Ready) return cleared;
@@ -176,7 +179,8 @@ auto SceneRenderPipeline::flushChanges(SceneLoadBenchRecorderView bench)
                 m_snapshot,
                 &m_stats.graph_analysis,
                 Some(mut_ref<vulkan::SceneDrawPreparationCache>::from_raw_parts(
-                    &m_draw_preparations)));
+                    &m_draw_preparations)),
+                output.unwrap());
         }();
         m_draw_preparations.prune();
         m_stats.draw_preparations = m_draw_preparations.stats();

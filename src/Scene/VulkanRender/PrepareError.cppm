@@ -93,7 +93,6 @@ class RenderPrepareError {
                (ResourcePrepareOperation operation; vrento::resource::ResourceError source;)),
               (Draw, (vrento::vulkan::PassId pass; RenderItemId item; DrawPrepareError source;)),
               (OutputResources, (vrento::resource::ResourceError source;)),
-              (OutputDescription, (vrento::vulkan::GraphExecutionError source;)),
               (Compile, (vrento::vulkan::GraphExecutionError source;)),
               (Upload, (vrento::texture::Error source;)))
 public:
@@ -201,14 +200,6 @@ struct Impl<fmt::Display, owe::vulkan::RenderPrepareError>
                      error.context.compilation,
                      error.context.scope))
                     .as_str());
-        if (error.is_OutputDescription())
-            return formatter.write_str(
-                (rstd::format(
-                     "OutputDescription preparation failed transaction={} compilation={} scope={}",
-                     error.context.resource_transaction,
-                     error.context.compilation,
-                     error.context.scope))
-                    .as_str());
         if (error.is_Compile())
             return formatter.write_str(
                 (rstd::format("Compile preparation failed transaction={} compilation={} scope={}",
@@ -244,8 +235,6 @@ struct Impl<error::Error, owe::vulkan::RenderPrepareError>
         if (value.is_Draw()) return Some(dyn<error::Error>::from_ref(value.as_Draw().source));
         if (value.is_OutputResources())
             return Some(dyn<error::Error>::from_ref(value.as_OutputResources().source));
-        if (value.is_OutputDescription())
-            return Some(dyn<error::Error>::from_ref(value.as_OutputDescription().source));
         if (value.is_Compile()) return Some(dyn<error::Error>::from_ref(value.as_Compile().source));
         if (value.is_Upload()) return Some(dyn<error::Error>::from_ref(value.as_Upload().source));
         return None();

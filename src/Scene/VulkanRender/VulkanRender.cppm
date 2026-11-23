@@ -88,7 +88,8 @@ struct RenderInitInfo {
 auto BuildSceneRenderState(Scene&) -> Result<vulkan::SceneRenderStateInput, vrento::fg::Error>;
 auto BuildSceneRenderState(Scene&, const RenderSceneSnapshot&,
                            vrento::fg::AnalysisStatistics*                    = nullptr,
-                           Option<mut_ref<vulkan::SceneDrawPreparationCache>> = None())
+                           Option<mut_ref<vulkan::SceneDrawPreparationCache>> = None(),
+                           Option<ref<vrento::vulkan::GraphicsDrawDesc>>      = None())
     -> Result<vulkan::SceneRenderStateInput, vrento::fg::Error>;
 
 namespace vulkan
@@ -126,6 +127,8 @@ public:
     ~VulkanRender();
 
     bool hasSceneRenderState() const;
+    auto outputRecipe()
+        -> Result<Option<ref<vrento::vulkan::GraphicsDrawDesc>>, RenderPrepareError>;
     bool init(RenderInitInfo, SceneLoadBenchRecorderView load_bench = {});
     auto tryClearLastRenderGraph(RenderGraphResourceRetention)
         -> Result<PrepareOutcome, RenderPrepareError>;

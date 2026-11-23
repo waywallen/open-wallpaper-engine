@@ -196,28 +196,26 @@ public:
         return ResourceDeclarationContext(resource_plan, cache, rstd::move(resource_data));
     }
     void retainDeclarations(ResourceDeclarationData data) { resource_data = rstd::move(data); }
-    auto createOutput(VkFormat format, ShaderReflectionCache& cache)
-        -> vrento::vulkan::TextureOutput {
+    auto createOutput() const -> vrento::vulkan::TextureOutput {
         vrento::vulkan::TextureOutput output;
-        output.configure(result_use, format);
-        if (output.graphics()) {
-            auto context = declarations(cache);
-            output.graphics_resources(context.ReservePipeline(), context.ReserveRenderPass());
-            retainDeclarations(context.takeData());
+        for (const auto& description : inputDescriptions()) {
+            if (description.execution().id != output_pass) continue;
+            if (auto recipe = description.get<vrento::vulkan::GraphicsDrawDesc>()) {
+                const auto& value = **recipe;
+                output.configure(result_use, value.request.color_format);
+                output.graphics_resources(value.pipeline, value.render_pass);
+                return output;
+            }
+            break;
         }
+        output.configure(result_use, VK_FORMAT_UNDEFINED);
         return output;
-    }
-    auto isOutputPass(fg::PassId id) const -> bool {
-        return id == output_pass || id == release_pass;
     }
     auto install(SceneRenderStateInput input) -> Result<empty, fg::Error> {
         if (input.resource_plan.generation != input.textures.generation()) {
             auto plan = input.textures.resourcePlan(input.graph);
             if (plan.is_err()) return Err(plan.unwrap_err());
             input.resource_plan = plan.unwrap();
-        } else {
-            auto valid = input.textures.validate(input.graph);
-            if (valid.is_err()) return Err(valid.unwrap_err());
         }
         auto mapping = input.textures.bindings(input.graph, input.resource_plan);
         if (mapping.is_err()) return Err(mapping.unwrap_err());

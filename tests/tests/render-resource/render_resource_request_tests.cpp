@@ -1683,31 +1683,53 @@ TEST(SceneDraw, StaticRecipeSurvivesSceneAndDeclarationDestruction) {
 TEST(SceneRenderState, RetainsDeclaredInputsAndPublishesOutputAssociation) {
     namespace fg = vrento::fg;
     fg::FrameGraphBuilder graph(7);
-    graph.add_pass({ 1 }).unwrap();
-    owe::resource::ResourcePlan plan { .generation = u64(7) };
-    auto                        source = plan.DeclareTexture(
-        MakeRenderTargetTextureRequest(
-            "output"_str, owe::SceneRenderTarget { .width = i32(64), .height = i32(32) }),
-        owe::resource::ResourceAccess::Read);
-    SceneRenderStateInput input { .graph         = rstd::move(graph).finish().unwrap(),
-                                  .textures      = SceneRenderTextures(u64(7)),
+    SceneRenderTextures   textures(u64(7));
+    auto                  request = MakeRenderTargetTextureRequest(
+        "output"_str, owe::SceneRenderTarget { .width = i32(64), .height = i32(32) });
+    auto color =
+        textures
+            .initial(graph,
+                     { .key = "output"_Str, .imported = true, .definition = rstd::move(request) })
+            .unwrap();
+    auto source  = textures.handle(color).unwrap();
+    auto surface = graph.import_resource({ .id = graph.next_resource_id() }).unwrap();
+    auto backend = MakeShaderBackend();
+    auto draw    = texture_output_recipe(backend.as_ref(),
+                                         { u64(1), u64(7) },
+                                         { u64(2), u64(7) },
+                                         {},
+                                         VK_FORMAT_R8G8B8A8_UNORM,
+                                         true)
+                       .unwrap();
+    auto out =
+        declare_graphics_surface_output(graph,
+                                        { 1 },
+                                        { 2 },
+                                        color,
+                                        vrento::pass::ContentRef::bind(graph, surface).unwrap(),
+                                        rstd::move(draw))
+            .unwrap();
+    auto                  finished = rstd::move(graph).finish().unwrap();
+    auto                  plan     = textures.resourcePlan(finished).unwrap();
+    SceneRenderStateInput input { .graph         = rstd::move(finished),
+                                  .textures      = rstd::move(textures),
                                   .output_pass   = { 1 },
+                                  .release_pass  = { 2 },
+                                  .surface       = out.output,
                                   .result_use    = Some(source),
                                   .resource_plan = rstd::move(plan) };
-    input.descriptions.push(make_test_pass(
-        7, 9, vrento::vulkan::PassExecutionInfo { .id = { 1 }, .kind = 71 }, TestPassDesc {}));
+    input.descriptions.push(rstd::move(out.transfer));
+    input.descriptions.push(rstd::move(out.release));
     SceneRenderState state;
     state.install(rstd::move(input)).unwrap();
     EXPECT_EQ(state.resourcePlan().textures.len(), usize(1));
-    EXPECT_EQ(state.inputDescriptions()[usize()].revision(), 9u);
-    auto                  backend = MakeShaderBackend();
-    ShaderReflectionCache cache(backend.as_ref());
-    auto                  output = state.createOutput(VK_FORMAT_R8G8B8A8_UNORM, cache);
+    auto output = state.createOutput();
     EXPECT_EQ(output.source().unwrap(), source);
     EXPECT_TRUE(output.pipeline());
     EXPECT_TRUE(output.render_pass());
     EXPECT_EQ(state.resourcePlan().textures.len(), usize(1));
-    EXPECT_EQ(state.inputDescriptions()[usize()].execution().kind, 71u);
+    EXPECT_EQ(state.inputDescriptions()[usize()].execution().kind, graphics_draw_kind);
+    EXPECT_EQ(state.inputGraph().find_pass({ 1 })->uses[usize()].version, color.version());
     auto moved = rstd::move(state);
     EXPECT_EQ(moved.inputGraph().scope(), 7u);
     moved.clear();
