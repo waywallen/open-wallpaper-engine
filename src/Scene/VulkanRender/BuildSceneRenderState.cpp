@@ -1132,9 +1132,7 @@ auto owe::BuildSceneRenderState(Scene& scene, const RenderSceneSnapshot& render_
     if (buffers.is_err()) return Err(buffers.unwrap_err());
     for (usize i {}; i < extra.draws.len(); ++i) {
         const auto& draw  = extra.draws[i];
-        auto        uses  = draw.source->resourceUses();
-        auto        reads = vrento::vulkan::graphics_buffer_reads(
-            extra.graph, extra.textures, uses.buffers.as_slice());
+        auto        reads = draw.source->bufferReads(extra.graph, extra.textures);
         if (reads.is_err()) return Err(reads.unwrap_err());
         auto graphics = draw.source->describePass(extra.graph, extra.textures, draw.id);
         if (graphics.is_err()) return Err(graphics.unwrap_err());

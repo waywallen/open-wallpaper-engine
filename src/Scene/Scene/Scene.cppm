@@ -142,8 +142,7 @@ private:
     const vrento::vulkan::ShaderReflected m_reflected;
 };
 
-struct SceneShader {
-public:
+struct SceneShaderDesc {
     u32                    id { 0 };
     String                 name;
     ShaderMatrixConvention matrix_convention { ShaderMatrixConvention::ColumnVector };
@@ -157,6 +156,25 @@ public:
     Vec<SceneShaderUniformBlockInterface>  uniform_blocks;
     Vec<SceneShaderDescriptorSetInterface> descriptor_sets;
     SceneShaderDefaults                    default_uniforms;
+};
+
+class SceneShader {
+public:
+    explicit SceneShader(SceneShaderDesc desc = {});
+
+    const u32                                    id;
+    const String                                 name;
+    const ShaderMatrixConvention                 matrix_convention;
+    const ShaderMatrixAbi                        matrix_abi;
+    const Vec<ShaderCode>                        codes;
+    const Option<Arc<SceneShaderReflection>>     reflection;
+    const Vec<ShaderAttribute>                   attrs;
+    const Vec<SceneSamplerBinding>               sampler_bindings;
+    const Vec<SceneShaderUniformBlockInterface>  uniform_blocks;
+    const Vec<SceneShaderDescriptorSetInterface> descriptor_sets;
+    SceneShaderDefaults                          default_uniforms;
+
+    auto ContentVersion() const -> u64 { return m_content_version; }
 
     ref<str> SamplerMember(rstd::size_t texture_slot) const {
         for (const auto& binding : sampler_bindings) {
@@ -164,6 +182,10 @@ public:
         }
         return ""_str;
     }
+
+private:
+    auto      ComputeContentVersion() const -> u64;
+    const u64 m_content_version;
 };
 
 inline usize SceneShaderStageCodeHash(const ShaderCode& code) {
@@ -179,13 +201,13 @@ inline usize SceneShaderCodeHash(slice<ShaderCode> codes) {
     return rstd::as_cast<usize>(seed.finish());
 }
 
-inline usize SceneShaderCodeHash(const SceneShader& shader) {
+inline auto SceneShader::ComputeContentVersion() const -> u64 {
     DefaultHasher seed;
-    hash_into(SceneShaderCodeHash(shader.codes.as_slice()), seed);
-    hash_into(static_cast<unsigned>(shader.matrix_convention), seed);
-    hash_into(static_cast<unsigned>(shader.matrix_abi), seed);
-    hash_into(shader.descriptor_sets.len(), seed);
-    for (const auto& set : shader.descriptor_sets) {
+    hash_into(SceneShaderCodeHash(codes.as_slice()), seed);
+    hash_into(static_cast<unsigned>(matrix_convention), seed);
+    hash_into(static_cast<unsigned>(matrix_abi), seed);
+    hash_into(descriptor_sets.len(), seed);
+    for (const auto& set : descriptor_sets) {
         hash_into(set.set.to_primitive(), seed);
         hash_into(set.identity.to_primitive(), seed);
         hash_into(set.push_descriptor, seed);
@@ -198,16 +220,30 @@ inline usize SceneShaderCodeHash(const SceneShader& shader) {
             hash_into(binding.stage_flags, seed);
         }
     }
-    hash_into(shader.uniform_blocks.len(), seed);
-    for (const auto& block : shader.uniform_blocks) {
+    hash_into(uniform_blocks.len(), seed);
+    for (const auto& block : uniform_blocks) {
         hash_into(block.name, seed);
         hash_into(block.set.to_primitive(), seed);
         hash_into(block.binding.to_primitive(), seed);
         hash_into(block.identity.to_primitive(), seed);
         hash_into(static_cast<unsigned>(block.scope), seed);
     }
-    return rstd::as_cast<usize>(seed.finish());
+    return rstd::as_cast<u64>(rstd::as_cast<usize>(seed.finish()));
 }
+
+inline SceneShader::SceneShader(SceneShaderDesc desc)
+    : id(desc.id),
+      name(rstd::move(desc.name)),
+      matrix_convention(desc.matrix_convention),
+      matrix_abi(desc.matrix_abi),
+      codes(rstd::move(desc.codes)),
+      reflection(rstd::move(desc.reflection)),
+      attrs(rstd::move(desc.attrs)),
+      sampler_bindings(rstd::move(desc.sampler_bindings)),
+      uniform_blocks(rstd::move(desc.uniform_blocks)),
+      descriptor_sets(rstd::move(desc.descriptor_sets)),
+      default_uniforms(rstd::move(desc.default_uniforms)),
+      m_content_version(ComputeContentVersion()) {}
 
 struct SceneShaderTextureCompileInfo {
     bool                 enabled { false };

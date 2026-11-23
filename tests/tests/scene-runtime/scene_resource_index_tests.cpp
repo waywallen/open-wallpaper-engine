@@ -206,8 +206,8 @@ TEST(SceneMaterial, CopyKeepsShaderAliveUntilLastOwnerIsDestroyed) {
         owe::SceneMaterial copy;
         {
             owe::SceneMaterial source;
-            auto               shader  = Arc<owe::SceneShader>::make();
-            shader->name               = "shared"_Str;
+            auto               shader =
+                Arc<owe::SceneShader>::make(owe::SceneShaderDesc { .name = "shared"_Str });
             weak                       = shader.downgrade();
             source.customShader.shader = Some(rstd::move(shader));
             copy                       = source;
@@ -1510,9 +1510,10 @@ TEST(SceneMaterialShaderVariant, MovesPublishedDescriptionWithoutLeavingBorrowed
 }
 
 TEST(SceneShader, ResolvesLoaderDefinedSamplerMember) {
-    owe::SceneShader shader;
-    shader.sampler_bindings.push(
+    owe::SceneShaderDesc desc;
+    desc.sampler_bindings.push(
         owe::SceneSamplerBinding { .texture_slot = 3, .shader_member = "u_SourceImage"_Str });
+    owe::SceneShader shader(rstd::move(desc));
 
     EXPECT_EQ(shader.SamplerMember(3), "u_SourceImage"_str);
     EXPECT_TRUE(shader.SamplerMember(0).is_empty());
@@ -1609,10 +1610,10 @@ TEST(SceneMaterialShaderVariant, AppliesCompiledVariantThroughSceneOwner) {
     EXPECT_FALSE(scene.SetMaterialShaderVariant(*material, {}).changed);
     EXPECT_EQ(material->DirtyFlags(), owe::SceneMaterialDirtyNone);
 
-    auto shader  = Arc<owe::SceneShader>::make();
-    shader->name = "variant-next"_Str;
-    shader->codes.push(
+    owe::SceneShaderDesc shader_desc { .name = "variant-next"_Str };
+    shader_desc.codes.push(
         owe::ShaderCode::from(rstd::array<rstd::uint32_t, 3> { 1u, 2u, 3u }.as_slice()));
+    auto shader = Arc<owe::SceneShader>::make(rstd::move(shader_desc));
 
     owe::SceneShaderVariantDesc variant;
     variant.scene_id    = "scene"_Str;
@@ -1687,11 +1688,10 @@ TEST(SceneMaterialShaderVariant, ClassifiesVariantImpactAndAppliesActiveTextureS
 
     auto hash_only                       = current.clone();
     hash_only.stages[usize(0)].code_hash = rstd::usize(101);
-    auto hash_shader                     = Arc<owe::SceneShader>::make();
-    hash_shader->name                    = "variant"_Str;
-    hash_shader->codes.push(
-        owe::ShaderCode::from(rstd::array<rstd::uint32_t, 1> { 101u }.as_slice()));
-    auto hash_rt = scene.SetMaterialShaderVariant(
+    owe::SceneShaderDesc hash_desc { .name = "variant"_Str };
+    hash_desc.codes.push(owe::ShaderCode::from(rstd::array<rstd::uint32_t, 1> { 101u }.as_slice()));
+    auto hash_shader = Arc<owe::SceneShader>::make(rstd::move(hash_desc));
+    auto hash_rt     = scene.SetMaterialShaderVariant(
         *material,
         owe::SceneShaderVariantMutation {
             .shader  = Some(hash_shader.clone()),
@@ -1707,11 +1707,11 @@ TEST(SceneMaterialShaderVariant, ClassifiesVariantImpactAndAppliesActiveTextureS
 
     auto layout_only                   = hash_only.clone();
     layout_only.descriptor_layout_hash = usize(2000);
-    auto layout_shader                 = Arc<owe::SceneShader>::make();
-    layout_shader->name                = "variant"_Str;
-    layout_shader->codes.push(
+    owe::SceneShaderDesc layout_desc { .name = "variant"_Str };
+    layout_desc.codes.push(
         owe::ShaderCode::from(rstd::array<rstd::uint32_t, 1> { 102u }.as_slice()));
-    auto layout_rt = scene.SetMaterialShaderVariant(
+    auto layout_shader = Arc<owe::SceneShader>::make(rstd::move(layout_desc));
+    auto layout_rt     = scene.SetMaterialShaderVariant(
         *material,
         owe::SceneShaderVariantMutation {
             .shader  = Some(layout_shader.clone()),
@@ -1730,9 +1730,9 @@ TEST(SceneMaterialShaderVariant, ClassifiesVariantImpactAndAppliesActiveTextureS
     auto same_slots = layout_only.clone();
     (void)same_slots.resolved_combos.insert("USE_B"_Str, "2"_Str);
     same_slots.stages[usize(0)].code_hash = rstd::usize(103);
-    auto shader                           = Arc<owe::SceneShader>::make();
-    shader->name                          = "variant"_Str;
-    shader->codes.push(owe::ShaderCode::from(rstd::array<rstd::uint32_t, 1> { 1u }.as_slice()));
+    owe::SceneShaderDesc shader_desc { .name = "variant"_Str };
+    shader_desc.codes.push(owe::ShaderCode::from(rstd::array<rstd::uint32_t, 1> { 1u }.as_slice()));
+    auto shader      = Arc<owe::SceneShader>::make(rstd::move(shader_desc));
     auto pipeline_rt = scene.SetMaterialShaderVariant(
         *material,
         owe::SceneShaderVariantMutation {
@@ -1756,11 +1756,10 @@ TEST(SceneMaterialShaderVariant, ClassifiesVariantImpactAndAppliesActiveTextureS
     (void)graph_slots.resolved_combos.insert("USE_B"_Str, "1"_Str);
     graph_slots.stages[usize(0)].active_texture_slots.clear();
     (void)graph_slots.stages[usize(0)].active_texture_slots.insert(u32(1));
-    auto graph_shader  = Arc<owe::SceneShader>::make();
-    graph_shader->name = "variant"_Str;
-    graph_shader->codes.push(
-        owe::ShaderCode::from(rstd::array<rstd::uint32_t, 1> { 2u }.as_slice()));
-    auto graph_rt = scene.SetMaterialShaderVariant(
+    owe::SceneShaderDesc graph_desc { .name = "variant"_Str };
+    graph_desc.codes.push(owe::ShaderCode::from(rstd::array<rstd::uint32_t, 1> { 2u }.as_slice()));
+    auto graph_shader = Arc<owe::SceneShader>::make(rstd::move(graph_desc));
+    auto graph_rt     = scene.SetMaterialShaderVariant(
         *material,
         owe::SceneShaderVariantMutation {
             .shader  = Some(graph_shader.clone()),

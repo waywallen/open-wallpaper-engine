@@ -30,7 +30,7 @@ using namespace rstd::prelude;
 
 TEST(SceneShaderHash, PreservesStageOrderAndTracksRuntimeInterfaces) {
     auto make_shader = [] {
-        owe::SceneShader shader;
+        owe::SceneShaderDesc shader;
         shader.codes.push(owe::ShaderCode::from(array<rstd::uint32_t, 2> { 1u, 2u }.as_slice()));
         shader.codes.push(owe::ShaderCode::from(array<rstd::uint32_t, 2> { 3u, 4u }.as_slice()));
         shader.descriptor_sets.push(owe::SceneShaderDescriptorSetInterface {
@@ -46,36 +46,40 @@ TEST(SceneShaderHash, PreservesStageOrderAndTracksRuntimeInterfaces) {
         });
         return shader;
     };
-    auto       original = make_shader();
-    const auto expected = owe::SceneShaderCodeHash(original);
-    EXPECT_EQ(expected, owe::SceneShaderCodeHash(make_shader()));
+    const auto original = owe::SceneShader(make_shader());
+    const auto expected = original.ContentVersion();
+    const auto version  = [](owe::SceneShaderDesc desc) {
+        return owe::SceneShader(rstd::move(desc)).ContentVersion();
+    };
+    EXPECT_EQ(expected, version(make_shader()));
     auto changed = make_shader();
     rstd::mem::swap(changed.codes[usize()], changed.codes[usize(1)]);
-    EXPECT_NE(expected, owe::SceneShaderCodeHash(changed));
+    EXPECT_NE(expected, version(rstd::move(changed)));
     changed                = make_shader();
     changed.codes[usize()] = owe::ShaderCode::from(array<rstd::uint32_t, 2> { 5u, 2u }.as_slice());
-    EXPECT_NE(expected, owe::SceneShaderCodeHash(changed));
+    EXPECT_NE(expected, version(rstd::move(changed)));
     changed = make_shader();
     changed.codes.push(owe::ShaderCode {});
-    EXPECT_NE(expected, owe::SceneShaderCodeHash(changed));
+    EXPECT_NE(expected, version(rstd::move(changed)));
     changed            = make_shader();
     changed.matrix_abi = owe::ShaderMatrixAbi::Hlsl;
-    EXPECT_NE(expected, owe::SceneShaderCodeHash(changed));
+    EXPECT_NE(expected, version(rstd::move(changed)));
     changed                   = make_shader();
     changed.matrix_convention = owe::ShaderMatrixConvention::RowVector;
-    EXPECT_NE(expected, owe::SceneShaderCodeHash(changed));
+    EXPECT_NE(expected, version(rstd::move(changed)));
     changed                                   = make_shader();
     changed.descriptor_sets[usize()].identity = u64(43);
-    EXPECT_NE(expected, owe::SceneShaderCodeHash(changed));
+    EXPECT_NE(expected, version(rstd::move(changed)));
     changed                                          = make_shader();
     changed.descriptor_sets[usize()].push_descriptor = false;
-    EXPECT_NE(expected, owe::SceneShaderCodeHash(changed));
+    EXPECT_NE(expected, version(rstd::move(changed)));
     changed                                  = make_shader();
     changed.uniform_blocks[usize()].identity = u64(43);
-    EXPECT_NE(expected, owe::SceneShaderCodeHash(changed));
+    EXPECT_NE(expected, version(rstd::move(changed)));
     changed                               = make_shader();
     changed.uniform_blocks[usize()].scope = owe::SceneShaderUniformBlockScope::Shared;
-    EXPECT_NE(expected, owe::SceneShaderCodeHash(changed));
+    EXPECT_NE(expected, version(rstd::move(changed)));
+    EXPECT_EQ(expected, original.ContentVersion());
 }
 
 TEST(SceneShaderHash, FrozenStageHashPreservesExistingEncoding) {
@@ -1696,7 +1700,7 @@ TEST(ShaderParser, SharesReflectionWithoutSharingInstanceValues) {
     EXPECT_EQ(first.variant.default_textures[usize()].texture, "fallback-first"_str);
     EXPECT_EQ(second.variant.default_textures[usize()].texture, "fallback-second"_str);
     first.variant.uniform_blocks.clear();
-    (*first.shader)->uniform_blocks.clear();
+    first.shader = None();
     EXPECT_FALSE(second.variant.uniform_blocks.is_empty());
     EXPECT_FALSE((*second.shader)->uniform_blocks.is_empty());
 
@@ -1823,9 +1827,9 @@ void main() {
               (*(*memory_first.shader)->reflection)->Stages()[usize()].spirv.data());
     auto changed_words     = Vec<rstd::uint32_t>::from(original_codes[usize()].as_slice());
     changed_words[usize()] = 0u;
-    (*memory_first.shader)->codes[usize()] = owe::ShaderCode::from(rstd::move(changed_words));
-    EXPECT_FALSE(
-        (*(*memory_first.shader)->reflection)->Matches((*memory_first.shader)->codes.as_slice()));
+    auto changed_codes     = original_codes.clone();
+    changed_codes[usize()] = owe::ShaderCode::from(rstd::move(changed_words));
+    EXPECT_FALSE((*(*memory_first.shader)->reflection)->Matches(changed_codes.as_slice()));
     (void)memory_first.variant.stages[usize(1)].uniforms.insert("g_Brightness"_Str, "vec4"_Str);
     auto memory_second = owe::ShaderParser::CompileSceneShaderVariant(desc, vfs, {}, &memory_cache);
     ASSERT_TRUE(memory_second.ok) << memory_second.error;
@@ -1840,7 +1844,7 @@ void main() {
     EXPECT_EQ((**memory_second.variant.stages[usize(1)].uniforms.get("g_Brightness"_str)).as_str(),
               "float"_str);
     EXPECT_EQ((*memory_second.shader)->codes, (*first.shader)->codes);
-    (*memory_second.shader)->codes.clear();
+    memory_second.shader = None();
     auto memory_third = owe::ShaderParser::CompileSceneShaderVariant(desc, vfs, {}, &memory_cache);
     ASSERT_TRUE(memory_third.ok) << memory_third.error;
     ASSERT_TRUE(memory_third.shader);
@@ -1875,7 +1879,7 @@ void main() {
                (static_cast<std::uint32_t>(header[offset + 3]) << 24);
     };
     EXPECT_EQ(read_u32(8), 3u);
-    EXPECT_EQ(read_u32(12), 23u);
+    EXPECT_EQ(read_u32(12), 24u);
     EXPECT_EQ(read_u32(16), 112u);
     EXPECT_EQ(read_u32(24), 2u);
     const auto initial_write_time = std::filesystem::last_write_time(artifact_path);
@@ -1887,7 +1891,7 @@ void main() {
     EXPECT_EQ(second.variant.descriptor_layout_hash, first.variant.descriptor_layout_hash);
     EXPECT_EQ(second.variant.descriptor_sets, first.variant.descriptor_sets);
     EXPECT_EQ(second.variant.uniform_blocks, first.variant.uniform_blocks);
-    EXPECT_EQ(owe::SceneShaderCodeHash(**second.shader), owe::SceneShaderCodeHash(**first.shader));
+    EXPECT_EQ((*second.shader)->ContentVersion(), (*first.shader)->ContentVersion());
     EXPECT_TRUE(second.variant.stages[usize(1)].uniforms.contains_key("g_Brightness"_str));
     EXPECT_TRUE(second.variant.stages[usize(1)].active_texture_slots.contains(u32()));
     EXPECT_EQ(std::distance(std::filesystem::directory_iterator(shader_cache),

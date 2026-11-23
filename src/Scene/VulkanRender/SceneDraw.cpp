@@ -181,6 +181,20 @@ PassInvalidationFlags SceneDraw::finalizeResourceRequests(Scene& scene) {
     return flags;
 }
 
+namespace
+{
+enum class DrawBufferIdentityKind : unsigned
+{
+    Vertex,
+    Index,
+    Uniform,
+    SharedUniform,
+    GraphVertex,
+    GraphIndex,
+    GraphUniform,
+};
+}
+
 auto SceneDraw::declareResources(ResourceDeclarationContext& context)
     -> Option<vrento::vulkan::GraphicsDrawDesc> {
     m_desc.shader_use         = None();
@@ -220,29 +234,7 @@ auto SceneDraw::declareResources(ResourceDeclarationContext& context)
             const auto& block = (**artifact)->uniform_blocks[block_index];
             auto        size  = block.size;
             if (size != usize()) {
-                auto name =
-                    block.scope == resource::ShaderArtifactUniformBlock::Scope::Shared
-                        ? rstd::format("shared-uniform:{}", block.identity)
-                    : m_desc.draw_item.Valid() && ! updates_.material_override
-                        ? (m_desc.render_view == SceneRenderViewKind::Primary
-                               ? rstd::format("{}:{}:{}",
-                                              BuildDrawBufferResourceName(m_desc.draw_item,
-                                                                          DrawBufferRole::Uniform),
-                                              block.set,
-                                              block.binding)
-                               : rstd::format("draw:{}:{}:uniform:{}:{}:{}",
-                                              m_desc.draw_item.generation,
-                                              m_desc.draw_item.index,
-                                              static_cast<rstd::uint32_t>(m_desc.render_view),
-                                              block.set,
-                                              block.binding))
-                        : context.ScopeResourceName(rstd::format("pass:{}:{}:uniform:{}:{}",
-                                                                 m_desc.graph_pass_index,
-                                                                 m_desc.submesh_index,
-                                                                 block.set,
-                                                                 block.binding));
                 auto request = resource::BufferRequest {
-                    .name = rstd::move(name),
                     .definition =
                         resource::BufferDefinition {
                             .size      = size,
@@ -251,9 +243,29 @@ auto SceneDraw::declareResources(ResourceDeclarationContext& context)
                         },
                     .lifetime = resource::BufferLifetimeClass::Dynamic,
                 };
-                auto use = block.scope == resource::ShaderArtifactUniformBlock::Scope::Shared
-                               ? context.AddSharedBuffer(rstd::move(request))
-                               : context.AddBuffer(rstd::move(request));
+                resource::BufferUseHandle use;
+                if (block.scope == resource::ShaderArtifactUniformBlock::Scope::Shared) {
+                    use = context.AddSharedBuffer(
+                        {
+                            .kind    = u32(unsigned(DrawBufferIdentityKind::SharedUniform)),
+                            .binding = block.identity,
+                        },
+                        rstd::move(request));
+                } else {
+                    const bool stable = m_desc.draw_item.Valid() && ! updates_.material_override;
+                    request.identity  = Some(resource::BufferIdentity {
+                        .kind   = u32(unsigned(stable ? DrawBufferIdentityKind::Uniform
+                                                      : DrawBufferIdentityKind::GraphUniform)),
+                        .detail = stable ? u32(unsigned(m_desc.render_view)) : m_desc.submesh_index,
+                        .scope  = stable ? rstd::as_cast<u64>(m_desc.draw_item.generation)
+                                         : context.generation(),
+                        .object = stable ? rstd::as_cast<u64>(m_desc.draw_item.index)
+                                         : rstd::as_cast<u64>(m_desc.graph_pass_index),
+                        .binding = (rstd::as_cast<u64>(block.set) << u64(32)) |
+                                   rstd::as_cast<u64>(block.binding),
+                    });
+                    use               = context.AddBuffer(rstd::move(request));
+                }
                 m_desc.uniform_block_uses.push(UniformBlockUse {
                     .block_index = block_index,
                     .use         = use,
@@ -266,25 +278,31 @@ auto SceneDraw::declareResources(ResourceDeclarationContext& context)
                               DrawBufferRole                      role,
                               u32                                 slot,
                               resource::BufferContent             content) {
-        auto name = m_desc.draw_item.Valid()
-                        ? BuildDrawBufferResourceName(m_desc.draw_item, role, slot)
-                        : context.ScopeResourceName(rstd::format("pass:{}:{}:buffer:{}:{}",
-                                                                 m_desc.graph_pass_index,
-                                                                 m_desc.submesh_index,
-                                                                 unsigned(role),
-                                                                 slot));
-        auto use  = context.AddBuffer(
-            resource::BufferRequest { .name       = rstd::move(name),
-                                      .definition = { .size  = buffer.capacity,
-                                                      .usage = role == DrawBufferRole::Index
-                                                                   ? resource::BufferUsage::Index
-                                                                   : resource::BufferUsage::Vertex,
-                                                      .alignment = usize(4) },
-                                      .lifetime   = geometry.dynamic
-                                                        ? resource::BufferLifetimeClass::Dynamic
-                                                        : resource::BufferLifetimeClass::Retained,
-                                      .content_version  = buffer.data_generation,
-                                      .content_identity = buffer.storage_generation },
+        const bool indexed = role == DrawBufferRole::Index;
+        const bool stable  = m_desc.draw_item.Valid();
+        const auto kind =
+            stable ? (indexed ? DrawBufferIdentityKind::Index : DrawBufferIdentityKind::Vertex)
+                   : (indexed ? DrawBufferIdentityKind::GraphIndex
+                              : DrawBufferIdentityKind::GraphVertex);
+        auto use = context.AddBuffer(
+            resource::BufferRequest {
+                .definition       = { .size      = buffer.capacity,
+                                      .usage     = indexed ? resource::BufferUsage::Index
+                                                           : resource::BufferUsage::Vertex,
+                                      .alignment = usize(4) },
+                .lifetime         = geometry.dynamic ? resource::BufferLifetimeClass::Dynamic
+                                                     : resource::BufferLifetimeClass::Retained,
+                .content_version  = buffer.data_generation,
+                .content_identity = buffer.storage_generation,
+                .identity         = Some(resource::BufferIdentity {
+                    .kind    = u32(unsigned(kind)),
+                    .detail  = stable ? u32() : m_desc.submesh_index,
+                    .scope   = stable ? rstd::as_cast<u64>(m_desc.draw_item.generation)
+                                      : context.generation(),
+                    .object  = stable ? rstd::as_cast<u64>(m_desc.draw_item.index)
+                                      : rstd::as_cast<u64>(m_desc.graph_pass_index),
+                    .binding = rstd::as_cast<u64>(slot),
+                }) },
             rstd::move(content));
         m_desc.buffer_uses.push(resource::BufferUseHandle(use));
     };
@@ -303,6 +321,24 @@ bool SceneDraw::samplesTexture(usize index) const {
     return index < m_desc.vk_tex_binding.len() && m_desc.vk_tex_binding[index] >= 0 &&
            index < m_desc.texture_stages.len() &&
            m_desc.texture_stages[index] != vrento::texture::Stages::None;
+}
+
+auto SceneDraw::bufferReads(const vrento::fg::FrameGraphBuilder& graph,
+                            const SceneRenderTextures&           textures) const
+    -> Result<Vec<vrento::vulkan::GraphicsBufferRead>, vrento::fg::Error> {
+    auto reads = Vec<vrento::vulkan::GraphicsBufferRead>::with_capacity(
+        m_desc.buffer_uses.len() + m_desc.uniform_block_uses.len());
+    auto append = [&](resource::BufferUseHandle use) -> Result<empty, vrento::fg::Error> {
+        auto read = vrento::vulkan::graphics_buffer_read(graph, textures, use);
+        if (read.is_err()) return Err(read.unwrap_err());
+        reads.push(read.unwrap());
+        return Ok(empty {});
+    };
+    for (auto use : m_desc.buffer_uses)
+        if (auto result = append(use); result.is_err()) return Err(result.unwrap_err());
+    for (const auto& block : m_desc.uniform_block_uses)
+        if (auto result = append(block.use); result.is_err()) return Err(result.unwrap_err());
+    return Ok(rstd::move(reads));
 }
 
 auto SceneDraw::textureAccesses() const -> Vec<PassTextureAccess> {

@@ -1305,9 +1305,10 @@ TEST(ShaderBackend, CompilesBothLanguagesAndReusesReflection) {
         ASSERT_TRUE(backend->CompileAndLinkShaderUnits(
             rstd::slice<ShaderCompUnit>::from_raw_parts(&unit, rstd::usize(1)), {}, spvs));
         ASSERT_EQ(spvs.len(), rstd::usize(1));
-        owe::SceneShader shader;
-        shader.codes.push(spvs[rstd::usize()]->spirv.clone());
-        auto first = cache.Query(shader);
+        owe::SceneShaderDesc desc;
+        desc.codes.push(spvs[rstd::usize()]->spirv.clone());
+        owe::SceneShader shader(rstd::move(desc));
+        auto             first = cache.Query(shader);
         ASSERT_TRUE(first.is_some());
         auto second = cache.Query(shader);
         ASSERT_TRUE(second.is_some());
@@ -1315,11 +1316,14 @@ TEST(ShaderBackend, CompilesBothLanguagesAndReusesReflection) {
         SceneShaderArtifactProvider provider(cache, shader);
         auto                        original_request = provider.Request();
         EXPECT_TRUE(provider.LoadShader(original_request).is_ok());
-        shader.matrix_abi    = owe::ShaderMatrixAbi::Hlsl;
-        auto changed_request = provider.Request();
+        owe::SceneShader changed(
+            { .matrix_abi = owe::ShaderMatrixAbi::Hlsl, .codes = shader.codes.clone() });
+        SceneShaderArtifactProvider changed_provider(cache, changed);
+        auto                        changed_request = changed_provider.Request();
         EXPECT_NE(changed_request.content_version, original_request.content_version);
-        EXPECT_TRUE(provider.LoadShader(original_request).is_err());
-        EXPECT_TRUE(provider.LoadShader(changed_request).is_ok());
+        EXPECT_TRUE(changed_provider.LoadShader(original_request).is_err());
+        EXPECT_TRUE(changed_provider.LoadShader(changed_request).is_ok());
+        EXPECT_TRUE(provider.LoadShader(original_request).is_ok());
         cache.Clear();
         EXPECT_TRUE(cache.Query(shader).is_some());
         unit.src = "invalid shader"_Str;
@@ -1340,16 +1344,17 @@ TEST(ResourceDeclarationContext, SharesShaderArtifactsWithinAndAcrossPlans) {
     Vec<Uni_ShaderSpv> spvs;
     ASSERT_TRUE(backend->CompileAndLinkShaderUnits(
         slice<ShaderCompUnit>::from_raw_parts(&unit, usize(1)), {}, spvs));
-    auto shader  = Arc<owe::SceneShader>::make();
-    shader->name = "shared"_Str;
-    shader->codes.push(spvs[usize()]->spirv.clone());
+    owe::SceneShaderDesc desc { .name = "shared"_Str };
+    desc.codes.push(spvs[usize()]->spirv.clone());
     owe::SceneShaderDescriptorSetInterface set;
     set.bindings.push({ .name = "unused"_Str, .descriptor_count = u32(1) });
-    shader->descriptor_sets.push(rstd::move(set));
-    auto equivalent             = Arc<owe::SceneShader>::make();
-    equivalent->name            = shader->name.clone();
-    equivalent->codes           = shader->codes.clone();
-    equivalent->descriptor_sets = shader->descriptor_sets.clone();
+    desc.descriptor_sets.push(rstd::move(set));
+    auto equivalent = Arc<owe::SceneShader>::make(owe::SceneShaderDesc {
+        .name            = desc.name.clone(),
+        .codes           = desc.codes.clone(),
+        .descriptor_sets = desc.descriptor_sets.clone(),
+    });
+    auto shader     = Arc<owe::SceneShader>::make(rstd::move(desc));
 
     ShaderArtifactCache         cache(rstd::move(backend));
     owe::resource::ResourcePlan first { .generation = u64(5) };
@@ -1374,8 +1379,13 @@ TEST(ResourceDeclarationContext, SharesShaderArtifactsWithinAndAcrossPlans) {
     auto next_clone = next.clone();
     EXPECT_EQ(&**next_clone.shaders[usize()].artifact, &*original);
 
-    equivalent->descriptor_sets[usize()].bindings[usize()].descriptor_count = u32(2);
-    auto c = next_declarations.AddShader(equivalent).unwrap();
+    owe::SceneShaderDesc variant {
+        .name            = equivalent->name.clone(),
+        .codes           = equivalent->codes.clone(),
+        .descriptor_sets = equivalent->descriptor_sets.clone(),
+    };
+    variant.descriptor_sets[usize()].bindings[usize()].descriptor_count = u32(2);
+    auto c = next_declarations.AddShader(Arc<owe::SceneShader>::make(rstd::move(variant))).unwrap();
     ASSERT_NE(b, c);
     EXPECT_EQ(cache.stats().builds, u64(2));
     EXPECT_EQ(reflections, usize(1));
@@ -1411,10 +1421,10 @@ TEST(ShaderBackend, ReusesPreparedReflectionAndRejectsChangedCode) {
     Vec<Uni_ShaderSpv> compiled;
     ASSERT_TRUE(backend->CompileAndLinkShaderUnits(
         slice<ShaderCompUnit>::from_raw_parts(&unit, usize(1)), {}, compiled));
-    owe::SceneShader shader;
-    shader.codes.push(compiled[usize()]->spirv.clone());
+    owe::SceneShaderDesc desc;
+    desc.codes.push(compiled[usize()]->spirv.clone());
     ShaderReflected reflected;
-    ASSERT_TRUE(backend->GenReflect(shader.codes.as_slice(), compiled, reflected));
+    ASSERT_TRUE(backend->GenReflect(desc.codes.as_slice(), compiled, reflected));
     EXPECT_EQ(reflections, usize(1));
     auto stages = Vec<owe::SceneShaderStage>::with_capacity(compiled.len());
     for (auto& stage : compiled) {
@@ -1426,7 +1436,8 @@ TEST(ShaderBackend, ReusesPreparedReflectionAndRejectsChangedCode) {
     }
     auto prepared =
         Arc<owe::SceneShaderReflection>::make(rstd::move(stages), rstd::move(reflected));
-    shader.reflection = Some(prepared.clone());
+    desc.reflection = Some(prepared.clone());
+    owe::SceneShader      shader(rstd::move(desc));
     ShaderReflectionCache cache(backend.as_ref());
     auto                  first = cache.Query(shader);
     ASSERT_TRUE(first.is_some());
@@ -1446,17 +1457,15 @@ TEST(ShaderBackend, ReusesPreparedReflectionAndRejectsChangedCode) {
     ASSERT_TRUE(reloaded.is_some());
     EXPECT_EQ(&**reloaded, &*prepared);
     EXPECT_EQ(reflections, usize(1));
-    auto original          = shader.codes.clone();
+    owe::SceneShaderDesc invalid { .codes      = shader.codes.clone(),
+                                   .reflection = Some(prepared.clone()) };
     auto changed_words     = Vec<rstd::uint32_t>::from(shader.codes[usize()].as_slice());
     changed_words[usize()] = 0;
-    shader.codes[usize()]  = owe::ShaderCode::from(rstd::move(changed_words));
-    EXPECT_TRUE(cache.Query(shader).is_none());
+    invalid.codes[usize()] = owe::ShaderCode::from(rstd::move(changed_words));
+    EXPECT_TRUE(cache.Query(owe::SceneShader(rstd::move(invalid))).is_none());
     EXPECT_EQ(reflections, usize(2));
-    shader.codes = rstd::move(original);
     EXPECT_EQ(&**cache.Query(shader), &*prepared);
     EXPECT_EQ(reflections, usize(2));
-    shader.reflection = None();
-    shader.codes.clear();
     cache.Clear();
     EXPECT_FALSE(artifact.stages.is_empty());
     EXPECT_EQ(artifact.stages[usize()].code, prepared->Stages()[usize()].spirv);
@@ -1530,7 +1539,7 @@ TEST(ShaderBackend, CompilesOwnedSourcesWithDefaultAndExplicitEntryPoints) {
 TEST(ShaderBackend, OwnsOrderedReflectionAcrossCacheAndArtifact) {
     auto backend = MakeShaderBackend();
     for (int fragment_count : { 2, 3 }) {
-        owe::SceneShader shader;
+        owe::SceneShaderDesc desc;
         for (auto stage : { owe::ShaderType::VERTEX, owe::ShaderType::FRAGMENT }) {
             const bool     vertex = stage == owe::ShaderType::VERTEX;
             ShaderCompUnit unit {
@@ -1549,10 +1558,11 @@ TEST(ShaderBackend, OwnsOrderedReflectionAcrossCacheAndArtifact) {
             ASSERT_TRUE(backend->CompileAndLinkShaderUnits(
                 rstd::slice<ShaderCompUnit>::from_raw_parts(&unit, rstd::usize(1)), {}, compiled));
             ASSERT_EQ(compiled.len(), usize(1));
-            shader.codes.push(rstd::move(compiled[rstd::usize()]->spirv));
+            desc.codes.push(rstd::move(compiled[rstd::usize()]->spirv));
         }
+        auto                  shader = Some(Arc<owe::SceneShader>::make(rstd::move(desc)));
         ShaderReflectionCache cache(backend.as_ref());
-        auto                  cached = cache.Query(shader);
+        auto                  cached = cache.Query(**shader);
         if (fragment_count != 2) {
             EXPECT_TRUE(cached.is_none());
             continue;
@@ -1571,12 +1581,14 @@ TEST(ShaderBackend, OwnsOrderedReflectionAcrossCacheAndArtifact) {
         EXPECT_EQ((**binding).layout.stageFlags,
                   VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
 
-        SceneShaderArtifactProvider provider(cache, shader);
-        auto                        loaded = provider.LoadShader(provider.Request());
+        auto loaded = [&] {
+            SceneShaderArtifactProvider provider(cache, **shader);
+            return provider.LoadShader(provider.Request());
+        }();
         ASSERT_TRUE(loaded.is_ok());
         auto artifact = rstd::move(loaded).unwrap();
         cache.Clear();
-        shader.codes.clear();
+        shader        = None();
         auto restored = ShaderReflectionFromArtifact(artifact);
         artifact      = {};
         ASSERT_EQ(restored.blocks.len(), rstd::usize(1));
@@ -1757,12 +1769,13 @@ TEST(SceneDraw, TextureReadsFollowSamplerReflection) {
     };
     Vec<Uni_ShaderSpv> compiled;
     ASSERT_TRUE(backend->CompileAndLinkShaderUnits(units.as_slice(), {}, compiled));
-    auto shader = Arc<owe::SceneShader>::make();
-    for (auto& stage : compiled) shader->codes.push(rstd::move(stage->spirv));
-    shader->sampler_bindings.push({ 1, "vertexTexture"_Str });
-    shader->sampler_bindings.push({ 2, "geometryTexture"_Str });
-    shader->sampler_bindings.push({ 3, "sharedTexture"_Str });
-    auto node = Arc<owe::SceneNode>::make();
+    owe::SceneShaderDesc shader_desc;
+    for (auto& stage : compiled) shader_desc.codes.push(rstd::move(stage->spirv));
+    shader_desc.sampler_bindings.push({ 1, "vertexTexture"_Str });
+    shader_desc.sampler_bindings.push({ 2, "geometryTexture"_Str });
+    shader_desc.sampler_bindings.push({ 3, "sharedTexture"_Str });
+    auto shader = Arc<owe::SceneShader>::make(rstd::move(shader_desc));
+    auto node   = Arc<owe::SceneNode>::make();
     node->AddMesh(MakeUniformMesh(shader.clone()));
 
     fg::FrameGraphBuilder builder(7);
@@ -1839,9 +1852,10 @@ TEST(SceneDraw, StaticRecipeSurvivesSceneAndDeclarationDestruction) {
         Vec<Uni_ShaderSpv> compiled;
         ASSERT_TRUE(backend->CompileAndLinkShaderUnits(
             slice<ShaderCompUnit>::from_raw_parts(&unit, usize(1)), {}, compiled));
-        auto shader = Arc<owe::SceneShader>::make();
-        shader->codes.push(compiled[usize()]->spirv.clone());
-        auto node = Arc<owe::SceneNode>::make();
+        owe::SceneShaderDesc desc;
+        desc.codes.push(compiled[usize()]->spirv.clone());
+        auto shader = Arc<owe::SceneShader>::make(rstd::move(desc));
+        auto node   = Arc<owe::SceneNode>::make();
         node->AddMesh(MakeUniformMesh(shader.clone()));
         auto& material = *node->Mesh()->MaterialSlots()[usize()];
         material.SetBlendMode(owe::BlendMode::Translucent);
@@ -1947,13 +1961,17 @@ TEST(SceneRenderState, RetainsDeclaredInputsAndPublishesOutputAssociation) {
     EXPECT_FALSE(moved.installed());
 }
 
-TEST(ResourceDeclarationContext, ScopesLocalResourceNamesToThePlanGeneration) {
-    owe::resource::ResourcePlan             plan { .generation = rstd::u64(7) };
+TEST(ResourceDeclarationContext, DeduplicatesOnlyMatchingSharedBufferIdentities) {
+    owe::resource::ResourcePlan             plan { .generation = u64(7) };
     owe::vulkan::ResourceDeclarationContext declarations(plan);
-
-    auto name = declarations.ScopeResourceName(String::make("pass:25:0:vertex:0"_str));
-
-    EXPECT_EQ(rstd::cppstd::as_string_view(name.as_str()), "plan:7:pass:25:0:vertex:0");
+    owe::resource::BufferIdentity           identity { .kind = u32(2), .binding = u64(10) };
+    owe::resource::BufferRequest            request { .definition = { .size = usize(16) } };
+    auto first = declarations.AddSharedBuffer(identity, request.clone());
+    EXPECT_EQ(declarations.AddSharedBuffer(identity, request.clone()), first);
+    ++identity.binding;
+    EXPECT_NE(declarations.AddSharedBuffer(identity, rstd::move(request)), first);
+    ASSERT_EQ(plan.buffers.len(), usize(2));
+    EXPECT_EQ(plan.buffers[usize(1)].request().identity, Some(identity));
 }
 
 TEST(ResourceDeclarationContext, RetainsSharedContentByDefinitionVersion) {

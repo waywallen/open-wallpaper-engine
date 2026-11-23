@@ -75,7 +75,7 @@ auto MakeSceneShaderRequest(const SceneShader& shader) -> resource::ShaderReques
                 .index      = shader.id,
                 .generation = u64(1),
             },
-        .content_version = rstd::as_cast<u64>(SceneShaderCodeHash(shader)),
+        .content_version = shader.ContentVersion(),
     };
 }
 

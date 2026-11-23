@@ -189,7 +189,9 @@ auto SceneRenderPipeline::flushChanges(SceneLoadBenchRecorderView bench)
         if (input.is_err()) return Err(ScenePrepareError::GraphBuild(input.unwrap_err()));
         m_depth_orders = rstd::move(input->depth_orders);
         if (m_options.graphviz) {
-            auto dot = vrento::fg::graphviz(input->graph);
+            auto dot = vrento::fg::graphviz(input->graph, [&](vrento::fg::ResourceId id) {
+                return input->textures.buffer_label(id);
+            });
             (void)rstd::fs::write(ref<rstd::path::Path>("graph.dot"_str), dot->as_bytes());
         }
         auto compiled = ScenePreparation(m_render.tryInstallSceneRenderState(

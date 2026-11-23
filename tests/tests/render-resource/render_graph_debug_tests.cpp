@@ -93,12 +93,12 @@ auto GraphMaterial(usize texture_count = usize()) -> owe::SceneMaterial {
     Vec<Uni_ShaderSpv> compiled;
     rstd_assert(backend->CompileAndLinkShaderUnits(
         slice<ShaderCompUnit>::from_raw_parts(&unit, usize(1)), {}, compiled));
-    auto shader = Arc<owe::SceneShader>::make();
-    shader->codes.push(compiled[usize()]->spirv.clone());
+    owe::SceneShaderDesc shader;
+    shader.codes.push(compiled[usize()]->spirv.clone());
     for (usize index {}; index < texture_count; ++index)
-        shader->sampler_bindings.push({ index.to_primitive(), rstd::format("g_Texture{}", index) });
+        shader.sampler_bindings.push({ index.to_primitive(), rstd::format("g_Texture{}", index) });
     owe::SceneMaterial material;
-    material.customShader.shader = Some(rstd::move(shader));
+    material.customShader.shader = Some(Arc<owe::SceneShader>::make(rstd::move(shader)));
     return material;
 }
 auto CompositeDesc() -> SceneRenderTextureSpec {

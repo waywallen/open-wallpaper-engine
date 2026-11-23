@@ -157,7 +157,7 @@ struct ResourceDeclarationData {
     u64 m_next_framebuffer { 0 };
     u64 m_next_external { 0 };
     HashMap<resource::ResourceHandle<resource::BufferResourceTag>, BufferSource> m_buffers;
-    HashMap<String, resource::BufferUseHandle>                                   m_shared_buffers;
+    HashMap<resource::BufferIdentity, resource::BufferUseHandle>                 m_shared_buffers;
 };
 
 class ResourceDeclarationContext {
@@ -183,12 +183,13 @@ public:
         return AddBuffer(rstd::move(request), rstd::move(bytes));
     }
 
-    auto AddSharedBuffer(resource::BufferRequest request) -> resource::BufferUseHandle {
-        auto existing = data_.m_shared_buffers.get(request.name);
+    auto AddSharedBuffer(resource::BufferIdentity identity, resource::BufferRequest request)
+        -> resource::BufferUseHandle {
+        auto existing = data_.m_shared_buffers.get(identity);
         if (existing.is_some()) return **existing;
-        auto name   = request.name.clone();
-        auto handle = AddBuffer(rstd::move(request));
-        if (handle.Valid()) (void)data_.m_shared_buffers.insert(rstd::move(name), handle);
+        request.identity = Some(identity);
+        auto handle      = AddBuffer(rstd::move(request));
+        if (handle.Valid()) (void)data_.m_shared_buffers.insert(identity, handle);
         return handle;
     }
 
@@ -270,7 +271,7 @@ public:
             return Err(resource::ResourceError {
                 .kind = resource::ResourceErrorKind::MissingContent,
                 .message =
-                    rstd::format("buffer content {} unavailable", definition.definition().name),
+                    rstd::format("buffer content {} unavailable", definition.definition().label()),
             });
         }
         return Ok((**content).content.clone());
@@ -294,9 +295,7 @@ public:
                             : PrepareSceneDraw(artifact, sampler_members, vertices);
     }
 
-    auto ScopeResourceName(String local_name) const -> String {
-        return rstd::format("plan:{}:{}", m_plan.generation, local_name);
-    }
+    auto generation() const -> u64 { return m_plan.generation; }
 
     auto AddBuffer(resource::BufferRequest request, resource::BufferContent content)
         -> resource::BufferUseHandle {

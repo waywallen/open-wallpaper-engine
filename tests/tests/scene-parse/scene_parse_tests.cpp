@@ -1815,7 +1815,8 @@ TEST(SceneShaderReflection, InitialMaterialsRetainSharedReflectionAfterFinalize)
     EXPECT_NE(&**a.shader, &**b.shader);
     EXPECT_EQ(&**(*a.shader)->reflection, &**(*b.shader)->reflection);
     EXPECT_TRUE((*(*a.shader)->reflection)->Matches((*a.shader)->codes.as_slice()));
-    (*a.shader)->codes.clear();
+    EXPECT_EQ((*a.shader)->ContentVersion(), (*b.shader)->ContentVersion());
+    a.shader = None();
     EXPECT_FALSE((*b.shader)->codes.is_empty());
     EXPECT_TRUE((*(*b.shader)->reflection)->Matches((*b.shader)->codes.as_slice()));
 }

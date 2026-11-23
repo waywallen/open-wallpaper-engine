@@ -97,7 +97,9 @@ public:
 
     PassInvalidationFlags finalizeResourceRequests(Scene&);
     auto declareResources(ResourceDeclarationContext&) -> Option<vrento::vulkan::GraphicsDrawDesc>;
-    auto textureAccesses() const -> Vec<PassTextureAccess>;
+    auto bufferReads(const vrento::fg::FrameGraphBuilder&, const SceneRenderTextures&) const
+        -> Result<Vec<vrento::vulkan::GraphicsBufferRead>, vrento::fg::Error>;
+    auto             textureAccesses() const -> Vec<PassTextureAccess>;
     PassResourceUses resourceUses() const;
     auto             globalDescriptorBufferUses(const PreparedPassResources&) const
         -> Result<Vec<GlobalDescriptorBufferUse>, resource::ResourceError>;

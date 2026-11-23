@@ -280,12 +280,7 @@ auto BuildMaterial(fs::VFS& vfs, ShaderCache& shader_cache,
 
     SceneMaterialCustomShader materialShader;
 
-    materialShader.shader     = Some(Arc<SceneShader>::make());
-    auto& shader              = *materialShader.shader;
-    shader->name              = rstd::into(wpmat.shader.as_str());
-    shader->matrix_convention = ShaderMatrixConvention::RowVector;
-    shader->matrix_abi        = ShaderMatrixAbi::Hlsl;
-    auto shaderPath           = rstd::format("/assets/shaders/{}", wpmat.shader);
+    auto shaderPath = rstd::format("/assets/shaders/{}", wpmat.shader);
 
     auto            sources_span = SceneLoadSpan(bench, &SceneLoadProbeIds::material_sources);
     Vec<ShaderUnit> sd_units;
@@ -554,16 +549,21 @@ auto BuildMaterial(fs::VFS& vfs, ShaderCache& shader_cache,
             .message = rstd::move(compiled).unwrap_err_unchecked().message,
         });
     }
-    auto artifact      = rstd::move(compiled).unwrap_unchecked();
-    shader->codes      = artifact->Codes();
-    shader->reflection = Some(artifact->ReflectionOwner());
+    auto artifact = rstd::move(compiled).unwrap_unchecked();
     (void)compile_span.finish();
-    shader->default_uniforms      = SceneShaderDefaults::from(shader_info_ref.svs.clone());
-    variant_desc.default_uniforms = shader->default_uniforms.clone();
+    variant_desc.default_uniforms = SceneShaderDefaults::from(shader_info_ref.svs.clone());
     ShaderParser::ApplyCompiledShaderInterface(variant_desc, *artifact, bench);
-    shader->sampler_bindings = variant_desc.sampler_bindings.clone();
-    shader->uniform_blocks   = variant_desc.uniform_blocks.clone();
-    shader->descriptor_sets  = variant_desc.descriptor_sets.clone();
+    materialShader.shader = Some(Arc<SceneShader>::make(SceneShaderDesc {
+        .name              = String::make(wpmat.shader.as_str()),
+        .matrix_convention = ShaderMatrixConvention::RowVector,
+        .matrix_abi        = ShaderMatrixAbi::Hlsl,
+        .codes             = artifact->Codes(),
+        .reflection        = Some(artifact->ReflectionOwner()),
+        .sampler_bindings  = variant_desc.sampler_bindings.clone(),
+        .uniform_blocks    = variant_desc.uniform_blocks.clone(),
+        .descriptor_sets   = variant_desc.descriptor_sets.clone(),
+        .default_uniforms  = variant_desc.default_uniforms.clone(),
+    }));
 
     auto pipeline        = material.Pipeline();
     pipeline.blend_mode  = blend_mode;
@@ -595,7 +595,8 @@ auto BuildMaterial(fs::VFS& vfs, ShaderCache& shader_cache,
             .name          = var.name.clone(),
             .default_value = var.default_value.clone(),
         });
-        if (auto value = shader->default_uniforms.get(var.name.as_str()); value.is_some()) {
+        if (auto value = (*materialShader.shader)->default_uniforms.get(var.name.as_str());
+            value.is_some()) {
             (void)materialShader.constValues.insert(var.name.clone(), **value);
         }
     }

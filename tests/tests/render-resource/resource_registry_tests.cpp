@@ -1125,9 +1125,13 @@ TEST(BufferRegistry, ReusesPhysicalAllocationAcrossPreparedContentVersions) {
     auto content        = rstd::vec::Vec<rstd::u8>::make();
     content.push(rstd::u8(1));
     auto request = owe::resource::BufferRequest {
-        .name            = rstd::string::String::make("retained-vertices"_str),
         .definition      = { .size = rstd::usize(64), .usage = owe::resource::BufferUsage::Vertex },
         .content_version = rstd::u64(1),
+        .identity        = rstd::Some(owe::resource::BufferIdentity {
+            .kind   = rstd::u32(1),
+            .scope  = rstd::u64(7),
+            .object = rstd::u64(11),
+        }),
     };
 
     auto first = registry.Ensure(request.clone(), content.as_slice(), buffer_backend.as_mut_ref());
@@ -1152,6 +1156,34 @@ TEST(BufferRegistry, ReusesPhysicalAllocationAcrossPreparedContentVersions) {
     EXPECT_NE(first_physical.as_ptr().as_raw_ptr(), replacement.as_ptr().as_raw_ptr());
     EXPECT_EQ(replacement->generation, rstd::u64(2));
     EXPECT_EQ(backend.allocations, rstd::usize(2));
+}
+
+TEST(BufferRegistry, StructuredIdentityIsIndependentOfLabelsAndKeepsScopesSeparate) {
+    owe::resource_registry::BufferRegistry registry;
+    owe::resource::BufferRequest           request {
+        .name       = "debug-name"_Str,
+        .definition = { .size = rstd::usize(64) },
+        .identity   = rstd::Some(owe::resource::BufferIdentity {
+            .kind   = rstd::u32(2),
+            .scope  = rstd::u64(7),
+            .object = rstd::u64(8),
+        }),
+    };
+    auto original = registry.Declare(request.clone());
+    ASSERT_TRUE(original.Valid());
+    auto named     = request.clone();
+    named.identity = rstd::None();
+    EXPECT_NE(registry.Declare(rstd::move(named)), original);
+    request.name.clear();
+    EXPECT_EQ(registry.Declare(request.clone()), original);
+    request.identity->detail = rstd::u32(1);
+    EXPECT_NE(registry.Declare(request.clone()), original);
+    request.identity->detail = rstd::u32();
+    request.identity->scope  = rstd::u64(8);
+    EXPECT_NE(registry.Declare(request.clone()), original);
+    request.identity->scope   = rstd::u64(7);
+    request.identity->binding = rstd::u64(1);
+    EXPECT_NE(registry.Declare(rstd::move(request)), original);
 }
 
 TEST(BufferRegistry, UploadsReplacementSourceWithMatchingVersionAndCapacity) {

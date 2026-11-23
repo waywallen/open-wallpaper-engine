@@ -357,19 +357,17 @@ Option<Arc<owe::SceneShader>> CompileInlineShader(ref<str> name, ref<str> source
         return None();
     }
 
-    auto shader        = Arc<owe::SceneShader>::make();
-    shader->id         = owe::u32();
-    shader->name       = rstd::into(name);
-    shader->matrix_abi = owe::ShaderMatrixAbi::Hlsl;
-    shader->codes.reserve(spvs.len());
+    owe::SceneShaderDesc shader { .name       = String::make(name),
+                                  .matrix_abi = owe::ShaderMatrixAbi::Hlsl };
+    shader.codes.reserve(spvs.len());
     for (auto& spv : spvs) {
-        shader->codes.push(rstd::move(spv->spirv));
+        shader.codes.push(rstd::move(spv->spirv));
     }
-    shader->sampler_bindings.push(owe::SceneSamplerBinding {
+    shader.sampler_bindings.push(owe::SceneSamplerBinding {
         .texture_slot  = 0,
         .shader_member = "g_Texture0"_Str,
     });
-    return Some(rstd::move(shader));
+    return Some(Arc<owe::SceneShader>::make(rstd::move(shader)));
 }
 
 } // namespace

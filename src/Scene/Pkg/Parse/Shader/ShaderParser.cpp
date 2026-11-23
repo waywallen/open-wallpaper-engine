@@ -3522,18 +3522,19 @@ ShaderParser::CompileSceneShaderVariant(const SceneShaderVariantDesc& desc, fs::
     result.variant.default_uniforms = SceneShaderDefaults::from(result.info.svs.clone());
     ApplyCompiledShaderInterface(result.variant, *artifact);
 
-    auto shader               = Arc<SceneShader>::make();
-    shader->name              = desc.shader_name.clone();
-    shader->matrix_convention = ShaderMatrixConvention::RowVector;
-    shader->matrix_abi        = ShaderMatrixAbi::Hlsl;
-    shader->codes             = artifact->Codes();
-    shader->reflection        = Some(artifact->ReflectionOwner());
-    shader->sampler_bindings  = result.variant.sampler_bindings.clone();
-    shader->uniform_blocks    = result.variant.uniform_blocks.clone();
-    shader->descriptor_sets   = result.variant.descriptor_sets.clone();
-    shader->default_uniforms  = result.variant.default_uniforms.clone();
-    result.shader             = Some(rstd::move(shader));
-    result.ok                 = true;
+    auto shader   = Arc<SceneShader>::make(SceneShaderDesc {
+        .name              = desc.shader_name.clone(),
+        .matrix_convention = ShaderMatrixConvention::RowVector,
+        .matrix_abi        = ShaderMatrixAbi::Hlsl,
+        .codes             = artifact->Codes(),
+        .reflection        = Some(artifact->ReflectionOwner()),
+        .sampler_bindings  = result.variant.sampler_bindings.clone(),
+        .uniform_blocks    = result.variant.uniform_blocks.clone(),
+        .descriptor_sets   = result.variant.descriptor_sets.clone(),
+        .default_uniforms  = result.variant.default_uniforms.clone(),
+    });
+    result.shader = Some(rstd::move(shader));
+    result.ok     = true;
     return result;
 }
 

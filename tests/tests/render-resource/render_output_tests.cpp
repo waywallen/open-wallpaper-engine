@@ -589,19 +589,19 @@ TEST(RenderOutput, IgnoresInactiveSamplerContentsAndFeedback) {
     Vec<owe::vulkan::Uni_ShaderSpv> compiled;
     ASSERT_TRUE(backend->CompileAndLinkShaderUnits(
         slice<owe::vulkan::ShaderCompUnit>::from_raw_parts(&fragment, usize(1)), {}, compiled));
-    auto                            shader   = rstd::sync::Arc<owe::SceneShader>::make();
     const auto&                     original = **material->customShader.shader;
+    owe::SceneShaderDesc            shader { .matrix_convention = original.matrix_convention,
+                                             .matrix_abi        = original.matrix_abi };
     Vec<owe::vulkan::Uni_ShaderSpv> stages;
     owe::vulkan::ShaderReflected    reflected;
     ASSERT_TRUE(backend->GenReflect(original.codes.as_slice(), stages, reflected));
     for (const auto& stage : stages)
-        if (stage->stage != owe::ShaderType::FRAGMENT) shader->codes.push(stage->spirv.clone());
-    shader->codes.push(rstd::move(compiled[usize()]->spirv));
-    shader->attrs                 = original.attrs.clone();
-    shader->uniform_blocks        = original.uniform_blocks.clone();
-    shader->matrix_convention     = original.matrix_convention;
-    shader->matrix_abi            = original.matrix_abi;
-    material->customShader.shader = Some(rstd::move(shader));
+        if (stage->stage != owe::ShaderType::FRAGMENT) shader.codes.push(stage->spirv.clone());
+    shader.codes.push(rstd::move(compiled[usize()]->spirv));
+    shader.attrs          = original.attrs.clone();
+    shader.uniform_blocks = original.uniform_blocks.clone();
+    material->customShader.shader =
+        Some(rstd::sync::Arc<owe::SceneShader>::make(rstd::move(shader)));
     material->textures.clear();
     material->textures.push("_rt_undefined"_Str);
     material->textures.push("_rt_default"_Str);

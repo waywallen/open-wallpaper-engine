@@ -1727,7 +1727,9 @@ int CmdRendergraph(const Matches& matches, const RendergraphArgs& args) {
         if (close_out) std::fclose(out);
         return 1;
     }
-    auto dot        = vrento::fg::graphviz(built->graph);
+    auto dot        = vrento::fg::graphviz(built->graph, [&](vrento::fg::ResourceId id) {
+        return built->textures.buffer_label(id);
+    });
     auto graph_text = rstd::cppstd::as_string_view(dot.as_str());
     std::fwrite(graph_text.data(), 1, graph_text.size(), out);
 
