@@ -80,8 +80,11 @@ void SceneDraw::captureGeometry() {
 PassInvalidationFlags SceneDraw::finalizeResourceRequests(Scene& scene) {
     PassInvalidationFlags flags    = PassInvalidationNone;
     auto*                 material = ResolvePassMaterial(m_desc, updates_);
+    texture_authored_extents_.clear();
+    texture_authored_extents_.reserve(m_desc.texture_bindings.len());
     for (usize index {}; index < m_desc.texture_bindings.len(); ++index) {
-        auto& binding = m_desc.texture_bindings[index];
+        auto&                   binding = m_desc.texture_bindings[index];
+        Option<array<float, 2>> authored_extent;
         if (material && index < material->texture_sources.len() &&
             material->texture_sources[index].kind ==
                 SceneMaterialTextureSourceKind::DepthAttachment) {
@@ -95,13 +98,33 @@ PassInvalidationFlags SceneDraw::finalizeResourceRequests(Scene& scene) {
                                            request ? Some(request->definition().clone())
                                                    : None<TextureRequest>()))
                 flags |= ToPassInvalidationFlags(PassInvalidation::Resources);
+            texture_authored_extents_.push(rstd::move(authored_extent));
             continue;
         }
         auto name = binding.name.as_str();
-        if (name.is_empty() || ! IsSpecTex(name)) continue;
+        if (name.is_empty() || ! IsSpecTex(name)) {
+            texture_authored_extents_.push(rstd::move(authored_extent));
+            continue;
+        }
         if (SetTextureRequestIfChanged(binding.request, TextureRequestFromScene(scene, name))) {
             flags |= ToPassInvalidationFlags(PassInvalidation::Resources);
         }
+        auto target = scene.RenderTarget(name);
+        if (target.is_none() && ! m_desc.output.is_empty() &&
+            name.starts_with(m_desc.output.as_str()) && name.ends_with("_copy"_str)) {
+            target = scene.RenderTarget(m_desc.output.as_str());
+        }
+        if (target.is_some()) {
+            const auto& rt = **target;
+            if (rt.width > i32() && rt.height > i32() &&
+                (rt.PhysicalWidth() != rt.width || rt.PhysicalHeight() != rt.height)) {
+                authored_extent = Some(array<float, 2> {
+                    static_cast<float>(rt.width.to_primitive()),
+                    static_cast<float>(rt.height.to_primitive()),
+                });
+            }
+        }
+        texture_authored_extents_.push(rstd::move(authored_extent));
     }
 
     auto output_name = m_desc.output.as_str();
@@ -567,6 +590,12 @@ auto SceneDraw::createUniformBufferUpdates(ref<dyn<UniformBindingPrepareContext>
             metadata.has_mipmap    = binding.request->kind == TextureRequestKind::RenderTarget;
             metadata.mipmap_level  = static_cast<float>(definition.mip_levels.to_primitive());
             metadata.revision      = u64(1);
+        }
+        if (index < texture_authored_extents_.len().to_primitive() &&
+            texture_authored_extents_[usize(index)].is_some()) {
+            metadata.available     = true;
+            metadata.source_extent = *texture_authored_extents_[usize(index)];
+            metadata.sample_extent = metadata.source_extent;
         }
         if (index < draw->material->texture_metadata.len().to_primitive()) {
             const auto& authored = draw->material->texture_metadata[usize(index)];

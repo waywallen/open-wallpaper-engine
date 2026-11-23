@@ -2118,6 +2118,61 @@ TEST(RenderTargets, PreservesPhysicalExtentAndMipLevelsOnResize) {
     EXPECT_EQ((**target).mipmap_level, 1u);
 }
 
+TEST(RenderTargets, ScalesNonFullscreenTransientTargetsToCanvasOutputRatio) {
+    owe::Scene scene;
+    scene.SetOrtho({ i32(3840), i32(2160) });
+    scene.RegisterRenderTarget(
+        "effect_rt"_Str,
+        owe::SceneRenderTarget { .width = i32(3840), .height = i32(2160), .allowReuse = true });
+    scene.RegisterRenderTarget("pixel_art_rt"_Str,
+                               owe::SceneRenderTarget {
+                                   .width      = i32(3840),
+                                   .height     = i32(2160),
+                                   .allowReuse = true,
+                                   .sample     = { owe::TextureWrap::CLAMP_TO_EDGE,
+                                                   owe::TextureWrap::CLAMP_TO_EDGE,
+                                                   owe::TextureFilter::NEAREST,
+                                                   owe::TextureFilter::NEAREST },
+                               });
+    scene.RegisterRenderTarget(
+        "retained_rt"_Str,
+        owe::SceneRenderTarget { .width = i32(3840), .height = i32(2160), .allowReuse = false });
+    scene.RegisterRenderTarget(
+        "shadow_rt"_Str,
+        owe::SceneRenderTarget { .width      = i32(1024),
+                                 .height     = i32(256),
+                                 .allowReuse = true,
+                                 .kind       = owe::SceneRenderTargetKind::DepthSampled });
+
+    owe::vulkan::FinalizeRenderTargetSizes(
+        scene, { 1920, 1080 }, { 16384, 16384 }, VK_SAMPLE_COUNT_1_BIT);
+
+    auto effect = scene.RenderTarget("effect_rt"_str).unwrap();
+    EXPECT_EQ(effect->width, i32(3840));
+    EXPECT_EQ(effect->height, i32(2160));
+    EXPECT_EQ(effect->physical_width, i32(1920));
+    EXPECT_EQ(effect->physical_height, i32(1080));
+
+    auto pixel_art = scene.RenderTarget("pixel_art_rt"_str).unwrap();
+    EXPECT_EQ(pixel_art->physical_width, i32(3840));
+    EXPECT_EQ(pixel_art->physical_height, i32(2160));
+
+    auto retained = scene.RenderTarget("retained_rt"_str).unwrap();
+    EXPECT_EQ(retained->physical_width, i32(3840));
+    EXPECT_EQ(retained->physical_height, i32(2160));
+
+    auto shadow = scene.RenderTarget("shadow_rt"_str).unwrap();
+    EXPECT_EQ(shadow->physical_width, i32(1024));
+    EXPECT_EQ(shadow->physical_height, i32(256));
+
+    // Upscaling above authored dimensions is never applied when output exceeds ortho.
+    owe::vulkan::FinalizeRenderTargetSizes(
+        scene, { 5120, 2880 }, { 16384, 16384 }, VK_SAMPLE_COUNT_1_BIT);
+    effect = scene.RenderTarget("effect_rt"_str).unwrap();
+    EXPECT_EQ(effect->physical_width, i32(3840));
+    EXPECT_EQ(effect->physical_height, i32(2160));
+}
+
 TEST(PipelineLayoutPlanner, MergesCompatibleRequirementsWithOneGlobalPrefix) {
     auto pipeline = [](rstd::u64 index) {
         return owe::resource::PipelineUseHandle {
