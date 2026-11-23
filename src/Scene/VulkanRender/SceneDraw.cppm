@@ -147,6 +147,7 @@ private:
     bool                                   default_alpha_ {}, force_clear_ {}, output_depth_ {};
     Option<bool>                           output_alpha_;
     array<float, 3>                        clear_color_ {};
+    Vec<Option<array<float, 2>>>           texture_authored_extents_;
     Desc                                   m_desc;
     UpdateSource                           updates_;
 };

@@ -99,6 +99,16 @@ inline void FinalizeRenderTargetSizes(owe::Scene& scene, VkExtent2D extent,
         rt.width  = rstd::as_cast<i32>(rt.bind.scale * rstd::as_cast<double>((**bind_rt).width));
         rt.height = rstd::as_cast<i32>(rt.bind.scale * rstd::as_cast<double>((**bind_rt).height));
     }
+    double     canvas_scale = 1.0;
+    const auto ortho        = scene.Ortho();
+    if (ortho[usize()] > i32() && ortho[usize(1)] > i32() && extent.width > 0 &&
+        extent.height > 0) {
+        const double scale_x =
+            static_cast<double>(extent.width) / static_cast<double>(ortho[usize()].to_primitive());
+        const double scale_y = static_cast<double>(extent.height) /
+                               static_cast<double>(ortho[usize(1)].to_primitive());
+        canvas_scale         = rstd::cmp::min(1.0, rstd::cmp::max(scale_x, scale_y));
+    }
     for (usize index {}; index < names.len(); ++index) {
         auto target = scene.RenderTargetMut(names[index].as_str());
         if (target.is_none()) continue;
@@ -107,20 +117,38 @@ inline void FinalizeRenderTargetSizes(owe::Scene& scene, VkExtent2D extent,
             rstd_error("wrong size for render target: {}", names[index].as_str());
         }
 
+        i32        scaled_width    = rt.width;
+        i32        scaled_height   = rt.height;
+        const bool scale_to_output = canvas_scale < 1.0 && ! rt.bind.enable && rt.allowReuse &&
+                                     rt.kind == SceneRenderTargetKind::Color &&
+                                     rt.sample.magFilter != TextureFilter::NEAREST &&
+                                     rt.sample.minFilter != TextureFilter::NEAREST;
+        if (scale_to_output && rt.width > i32() && rt.height > i32()) {
+            scaled_width = rstd::cmp::max(
+                i32(1),
+                rstd::as_cast<i32>(
+                    f64(static_cast<double>(rt.width.to_primitive()) * canvas_scale).round()));
+            scaled_height = rstd::cmp::max(
+                i32(1),
+                rstd::as_cast<i32>(
+                    f64(static_cast<double>(rt.height.to_primitive()) * canvas_scale).round()));
+        }
+
         const auto physical_width = rstd::cmp::min(
-            rstd::cmp::max(rt.width, i32(1)), rstd::as_cast<i32>(max_framebuffer_extent.width));
-        const auto physical_height = rstd::cmp::min(
-            rstd::cmp::max(rt.height, i32(1)), rstd::as_cast<i32>(max_framebuffer_extent.height));
+            rstd::cmp::max(scaled_width, i32(1)), rstd::as_cast<i32>(max_framebuffer_extent.width));
+        const auto physical_height =
+            rstd::cmp::min(rstd::cmp::max(scaled_height, i32(1)),
+                           rstd::as_cast<i32>(max_framebuffer_extent.height));
         const bool physical_size_changed =
             rt.physical_width != physical_width || rt.physical_height != physical_height;
         rt.physical_width  = physical_width;
         rt.physical_height = physical_height;
         if (physical_size_changed &&
-            (rt.physical_width != rt.width || rt.physical_height != rt.height)) {
+            (rt.physical_width != scaled_width || rt.physical_height != scaled_height)) {
             rstd_warn("clamp render target {} from {}x{} to {}x{}",
                       names[index].as_str(),
-                      rt.width,
-                      rt.height,
+                      scaled_width,
+                      scaled_height,
                       rt.physical_width,
                       rt.physical_height);
         }
