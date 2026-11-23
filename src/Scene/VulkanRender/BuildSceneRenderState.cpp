@@ -1116,24 +1116,21 @@ auto owe::BuildSceneRenderState(Scene& scene, const RenderSceneSnapshot& render_
     extra.descriptions.push(rstd::move(output->transfer));
     extra.descriptions.push(rstd::move(output->release));
     scene.RebuildResourceIndex();
-    struct DrawInput {
-        fg::PassId                       id;
-        vrento::vulkan::GraphicsDrawDesc description;
-    };
-    Vec<DrawInput> recipes;
+    auto recipes = Vec<vrento::vulkan::GraphicsDrawDesc>::with_capacity(extra.draws.len());
     for (auto& draw : extra.draws) {
         auto recipe = draw.source->declareResources(declarations);
         if (! recipe || ! draw.source->parameters().shader_use ||
             ! draw.source->parameters().shader_use->Valid())
             return Err(fg::Error { fg::ErrorKind::Conflict, draw.id });
-        recipes.push({ draw.id, rstd::move(*recipe) });
+        recipes.push(rstd::move(*recipe));
     }
     auto buffers = extra.textures.declare_buffers(extra.graph, resource_plan.buffers.as_slice());
     if (buffers.is_err()) return Err(buffers.unwrap_err());
-    for (const auto& draw : extra.draws) {
-        auto uses  = draw.source->resourceUses();
-        auto reads = vrento::vulkan::graphics_buffer_reads(
-            extra.graph, extra.textures, resource_plan, uses.buffers.as_slice());
+    for (usize i {}; i < extra.draws.len(); ++i) {
+        const auto& draw  = extra.draws[i];
+        auto        uses  = draw.source->resourceUses();
+        auto        reads = vrento::vulkan::graphics_buffer_reads(
+            extra.graph, extra.textures, uses.buffers.as_slice());
         if (reads.is_err()) return Err(reads.unwrap_err());
         auto graphics = draw.source->describePass(extra.graph, extra.textures, draw.id);
         if (graphics.is_err()) return Err(graphics.unwrap_err());
@@ -1141,15 +1138,11 @@ auto owe::BuildSceneRenderState(Scene& scene, const RenderSceneSnapshot& render_
         auto declared =
             vrento::vulkan::resolve_graphics_inputs(extra.graph, draw.id, graphics.unwrap());
         if (declared.is_err()) return Err(declared.unwrap_err());
-        for (auto& recipe : recipes)
-            if (recipe.id == draw.id) {
-                recipe.description.resources = declared.unwrap();
-                auto input                   = vrento::vulkan::declare_input(
-                    extra.graph, draw.id, rstd::move(recipe.description));
-                if (input.is_err()) return Err(input.unwrap_err());
-                extra.descriptions.push(input.unwrap());
-                break;
-            }
+        auto& recipe     = recipes[i];
+        recipe.resources = declared.unwrap();
+        auto input       = vrento::vulkan::declare_input(extra.graph, draw.id, rstd::move(recipe));
+        if (input.is_err()) return Err(input.unwrap_err());
+        extra.descriptions.push(input.unwrap());
     }
     auto graph = rstd::move(extra.graph).finish({}, statistics);
     if (graph.is_err()) return Err(graph.unwrap_err());
