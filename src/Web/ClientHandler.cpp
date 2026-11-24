@@ -146,6 +146,15 @@ bool ClientHandler::OnProcessMessageReceived(CefRefPtr<CefBrowser> /*browser*/,
     return true;
 }
 
+void ClientHandler::OnLoadStart(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame,
+                                TransitionType /*transition_type*/) {
+    if (IsClosing() || ! frame || ! frame->IsMain() || ! browser_ || ! browser_->IsSame(browser))
+        return;
+    // Chromium resets the mute state when a new primary page commits, so the
+    // value set in OnAfterCreated does not survive the initial navigation.
+    browser->GetHost()->SetAudioMuted(audio_muted_);
+}
+
 void ClientHandler::OnLoadEnd(CefRefPtr<CefBrowser> browser, CefRefPtr<CefFrame> frame,
                               int /*httpStatusCode*/) {
     if (IsClosing() || ! frame || ! frame->IsMain() || ! browser_ || ! browser_->IsSame(browser))
