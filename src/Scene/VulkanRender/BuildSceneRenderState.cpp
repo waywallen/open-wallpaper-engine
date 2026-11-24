@@ -750,32 +750,45 @@ static Option<bool> DepthDrawKind(SceneNode& node, Scene& scene) {
 }
 
 static void FlushDepthDraws(ExtraInfo& extra) {
-    if (extra.pending_depth_draws.is_empty()) return;
-    auto camera = extra.scene->ActiveCameraHandle();
-    if (camera) {
-        const auto view = (*camera)->GetViewMatrix();
-        for (auto& draw : extra.pending_depth_draws)
-            draw.depth = vulkan::SceneDepthDrawOrder::Depth(*draw.node, view);
-        // Blended draws must follow farther blended draws even when neither writes depth.
-        rstd::slice_::sort_by(
-            extra.pending_depth_draws.as_mut_slice().as_mut_ref(),
-            [](const ExtraInfo::DepthDraw& left, const ExtraInfo::DepthDraw& right) {
-                if (left.writes_depth != right.writes_depth)
-                    return right.writes_depth <=> left.writes_depth;
-                return left.writes_depth ? f64().total_cmp(f64())
-                                         : left.depth.total_cmp(right.depth);
+    auto& draws = extra.pending_depth_draws;
+    if (draws.is_empty()) return;
+    for (const auto& draw : draws) {
+        if (draw.writes_depth) ToGraphPass(draw.node, SpecTex_Default, extra);
+    }
+    draws.retain([](const ExtraInfo::DepthDraw& draw) {
+        return ! draw.writes_depth;
+    });
+
+    auto camera       = extra.scene->ActiveCameraHandle();
+    auto emit_blended = [&](usize begin, usize end) {
+        if (begin == end) return;
+        if (camera && end - begin > usize(1)) {
+            const auto view = (*camera)->GetViewMatrix();
+            for (usize i = begin; i < end; ++i)
+                draws[i].depth = vulkan::SceneDepthDrawOrder::Depth(*draws[i].node, view);
+            auto run = mut_ref<ExtraInfo::DepthDraw[]>::from_raw_parts(
+                draws.data() + begin.to_primitive(), end - begin);
+            rstd::slice_::sort_by(run, [](const auto& left, const auto& right) {
+                return left.depth.total_cmp(right.depth);
             });
-    }
-    vulkan::SceneDepthDrawOrder order;
-    for (bool writes : { true, false }) {
-        for (const auto& draw : extra.pending_depth_draws) {
-            if (draw.writes_depth != writes) continue;
-            if (! writes) order.nodes.push(draw.node->Identity());
-            ToGraphPass(draw.node, SpecTex_Default, extra);
+            vulkan::SceneDepthDrawOrder order;
+            for (usize i = begin; i < end; ++i) order.nodes.push(draws[i].node->Identity());
+            extra.depth_orders.push(rstd::move(order));
         }
+        for (usize i = begin; i < end; ++i) ToGraphPass(draws[i].node, SpecTex_Default, extra);
+    };
+
+    // Blended effect composites keep their authored position among blended draws.
+    usize begin {};
+    for (usize i {}; i < draws.len(); ++i) {
+        auto* node = draws[i].node;
+        if (! node->HasLayer() || ! node->Layer()->HasRenderEffects()) continue;
+        emit_blended(begin, i);
+        ToGraphPass(node, SpecTex_Default, extra);
+        begin = i + usize(1);
     }
-    if (order.nodes.len() > usize(1)) extra.depth_orders.push(rstd::move(order));
-    extra.pending_depth_draws.clear();
+    emit_blended(begin, draws.len());
+    draws.clear();
 }
 
 static void ConfigureNestedOutput(SceneNode* node, ref<str> output, ref<str> inherited_camera) {

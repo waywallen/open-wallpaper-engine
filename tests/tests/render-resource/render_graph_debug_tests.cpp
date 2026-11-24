@@ -644,6 +644,78 @@ TEST(SceneRenderGraph, SortsBlendedDepthDrawsBackToFrontAndTracksChanges) {
     EXPECT_FALSE(order.Matches(scene));
 }
 
+TEST(SceneRenderGraph, PreservesBlendedEffectOrderAfterDepthWriters) {
+    owe::Scene scene;
+    scene.RegisterRenderTarget(
+        "_rt_default"_Str,
+        owe::SceneRenderTarget { .width = i32(1280), .height = i32(720), .withDepth = true });
+    scene.RegisterRenderTarget("_rt_effect"_Str,
+                               owe::SceneRenderTarget { .width                = i32(64),
+                                                        .height               = i32(64),
+                                                        .force_clear          = true,
+                                                        .clear_on_first_write = true });
+    auto camera = Arc<owe::SceneCamera>::make(
+        owe::SceneCamera::MakePerspective(16.0 / 9.0, 0.1, 1000.0, 50.0));
+    camera->SetLookAt({ 0.0, 0.0, 9.0 }, { 0.0, 0.0, 0.0 }, Eigen::Vector3d::UnitY());
+    scene.RegisterCamera("perspective"_Str, rstd::move(camera));
+    ASSERT_TRUE(scene.SetActiveCamera("perspective"_str));
+
+    auto material = GraphMaterial();
+    material.SetBlendMode(owe::BlendMode::Translucent);
+    material.SetDepthTest(true);
+    material.SetDepthWrite(false);
+    auto add = [&](ref<str> name, float z, bool writes_depth) {
+        auto node = Arc<owe::SceneNode>::make();
+        node->SetTranslate({ 0.0f, 0.0f, z });
+        auto mesh          = Arc<owe::SceneMesh>::make();
+        auto draw_material = material;
+        draw_material.name = String::make(name);
+        if (writes_depth) draw_material.SetBlendMode(owe::BlendMode::Disable);
+        draw_material.SetDepthWrite(writes_depth);
+        mesh->AddMaterial(rstd::move(draw_material));
+        mesh->Submeshes().push(owe::SceneMesh::Submesh {});
+        node->AddMesh(rstd::move(mesh));
+        scene.RootMut()->AppendChild(node.clone());
+        return node;
+    };
+    (void)add("background"_str, 1.0f, false);
+    auto layer_node = add("source"_str, -30.0f, false);
+    (void)add("opaque"_str, 0.0f, true);
+
+    auto layer =
+        Arc<owe::SceneNodeLayer>::make(layer_node.as_ptr(), 64.0f, 64.0f, "_rt_effect"_str);
+    layer->SetIntermediateSourceBlend(owe::BlendMode::Normal);
+    layer->SetFinalMaterialState(material);
+    layer->FinalMesh().Submeshes().push(owe::SceneMesh::Submesh {});
+    auto effect_node     = Arc<owe::SceneNode>::make();
+    auto effect_mesh     = Arc<owe::SceneMesh>::make();
+    auto effect_material = GraphMaterial(usize(1));
+    effect_material.name = "composite"_Str;
+    effect_material.textures.push("_rt_effect"_Str);
+    effect_mesh->AddMaterial(rstd::move(effect_material));
+    effect_mesh->Submeshes().push(owe::SceneMesh::Submesh {});
+    effect_node->AddMesh(rstd::move(effect_mesh));
+    auto effect = Arc<owe::SceneImageEffect>::make();
+    effect->AddNode(
+        { .output = owe::SceneEffectTarget::LayerNext(), .sceneNode = rstd::move(effect_node) });
+    layer->AddEffect(effect);
+    layer_node->AttachLayer(rstd::move(layer));
+
+    auto graph = owe::BuildSceneRenderState(scene).unwrap();
+    ASSERT_TRUE(graph.graph.compile().is_ok());
+    Vec<String> names;
+    for (auto id : graph.graph.inspect().order) {
+        const auto& name = graph.graph.passes()[usize(id)].name;
+        if (name == "opaque"_str || name == "background"_str || name == "composite"_str)
+            names.push(name.clone());
+    }
+    ASSERT_EQ(names.len(), usize(3));
+    EXPECT_EQ(names[usize()], "opaque"_str);
+    EXPECT_EQ(names[usize(1)], "background"_str);
+    EXPECT_EQ(names[usize(2)], "composite"_str);
+    EXPECT_TRUE(graph.depth_orders.is_empty());
+}
+
 TEST(SceneRenderGraph, DoesNotReorderAcrossFramebufferSampling) {
     owe::Scene scene;
     scene.RegisterRenderTarget(
