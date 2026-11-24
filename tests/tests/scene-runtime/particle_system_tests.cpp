@@ -989,7 +989,7 @@ TEST(ParticleSubSystem, AppliesVortexAroundWorldSpaceOwner) {
 }
 
 TEST(ParticleSubSystem, AppliesTurbulenceMaskAsAxisWeights) {
-    auto simulate = [](ref<str> config) -> Eigen::Vector3f {
+    auto simulate = [](ref<str> config, bool orthographic_scene = true) -> Eigen::Vector3f {
         owe::Scene             scene;
         auto                   mesh = Arc<owe::SceneMesh>::make();
         owe::ParticleSubSystem subsystem(scene,
@@ -1015,7 +1015,8 @@ TEST(ParticleSubSystem, AppliesTurbulenceMaskAsAxisWeights) {
                                            owe::wpscene::Particle::EFlags { 0 },
                                            false),
             subsystem,
-            usize()));
+            usize(),
+            orthographic_scene));
         subsystem.Finalize();
         subsystem.Tick(f64(1.0 / 60.0), false);
         subsystem.Tick(f64(1.0 / 60.0), false);
@@ -1041,6 +1042,15 @@ TEST(ParticleSubSystem, AppliesTurbulenceMaskAsAxisWeights) {
     EXPECT_FLOAT_EQ(defaults.x(), full.x());
     EXPECT_FLOAT_EQ(defaults.y(), full.y());
     EXPECT_FLOAT_EQ(defaults.z(), 0.0f);
+
+    constexpr auto speed_only        = R"({"name":"turbulence","speedmin":100,"speedmax":100})"_str;
+    auto           perspective       = simulate(speed_only, false);
+    auto           explicit_defaults = simulate(
+        R"({"name":"turbulence","speedmin":100,"speedmax":100,"timescale":1,"scale":0.5,"mask":"1 1 1"})"_str);
+    ASSERT_GT(f32(explicit_defaults.z()).abs().to_primitive(), 0.001f);
+    EXPECT_FLOAT_EQ(perspective.x(), explicit_defaults.x());
+    EXPECT_FLOAT_EQ(perspective.y(), explicit_defaults.y());
+    EXPECT_FLOAT_EQ(perspective.z(), explicit_defaults.z());
 }
 
 TEST(ParticleSubSystem, UsesEmitterPeriodLimitForImplicitControlpointSequenceCount) {

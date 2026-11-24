@@ -682,8 +682,15 @@ struct Turbulence {
 
     array<float, 3> mask { 1.0f, 1.0f, 0.0f };
 
-    static auto ReadFromJson(const Json& j) {
+    static auto ReadFromJson(const Json& j, bool orthographic_scene) {
         Turbulence v;
+        if (! orthographic_scene) {
+            v.speedmin  = 1.0f;
+            v.speedmax  = 5.0f;
+            v.timescale = 1.0f;
+            v.scale     = 0.5f;
+            v.mask      = { 1.0f, 1.0f, 1.0f };
+        }
         owe::GetJsonValue(j, "phasemin"_str, v.phasemin, false);
         owe::GetJsonValue(j, "phasemax"_str, v.phasemax, false);
         owe::GetJsonValue(j, "speedmin"_str, v.speedmin, false);
@@ -1387,7 +1394,8 @@ struct NoopUpdateOperator {
 
 Box<dyn<particle::ParticleUpdateProgram>>
 ParticleParser::GenOperator(const Json& wpj, ParticleInstanceModifiers modifiers,
-                            ParticleSubSystem& subsystem, usize operator_index) {
+                            ParticleSubSystem& subsystem, usize operator_index,
+                            bool orthographic_scene) {
     auto attributes = subsystem.Attributes();
     do {
         if (wpj.get("name"_str).is_none()) break;
@@ -1471,7 +1479,7 @@ ParticleParser::GenOperator(const Json& wpj, ParticleInstanceModifiers modifiers
                     },
                 });
         } else if (name == "turbulence"_str) {
-            auto config = Turbulence::ReadFromJson(wpj);
+            auto config = Turbulence::ReadFromJson(wpj, orthographic_scene);
             return Box<dyn<particle::ParticleUpdateProgram>>::make(TurbulenceOperator {
                 .attributes = attributes,
                 .config     = config,

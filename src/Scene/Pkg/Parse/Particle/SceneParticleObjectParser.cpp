@@ -310,11 +310,11 @@ void LoadInitializer(ParticleSubSystem& system, const wpscene::Particle& particl
     }
 }
 void LoadOperator(ParticleSubSystem& system, const wpscene::Particle& particle,
-                  ParticleInstanceModifiers modifiers) {
+                  ParticleInstanceModifiers modifiers, bool orthographic_scene) {
     usize index {};
     for (const auto& operation : particle.operators) {
-        system.AddOperator(
-            ParticleParser::GenOperator(operation, modifiers.Clone(), system, index++));
+        system.AddOperator(ParticleParser::GenOperator(
+            operation, modifiers.Clone(), system, index++, orthographic_scene));
     }
 }
 void LoadEmitter(ParticleSubSystem& system, const wpscene::Particle& particle,
@@ -635,7 +635,10 @@ void BuildParticleObjectNode(ParticleObjectParseServices& services,
                     particle_obj,
                     modifiers.Clone(),
                     services.construction_context.layer_resources->orthographic_scene);
-    LoadOperator(*particleSub, particle_obj, modifiers.Clone());
+    LoadOperator(*particleSub,
+                 particle_obj,
+                 modifiers.Clone(),
+                 services.construction_context.layer_resources->orthographic_scene);
     LoadControlPoint(services.construction_context, *particleSub, particle_obj, modifiers.Clone());
     {
         auto span = SceneLoadSpan(services.construction_context.load_bench,

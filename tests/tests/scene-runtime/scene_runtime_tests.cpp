@@ -640,7 +640,7 @@ TEST(SceneLightUniformSource, PacksConfiguredKindsWithoutMixedSlotLimit) {
         (void)scene.RegisterLight(rstd::move(light));
     }
     owe::SceneLightUniformSource source(ref<owe::Scene>::from_raw_parts(&scene),
-                                        { .point = u32(2), .directional = u32(4) });
+                                        { .point = u32(2), .directional = u32(5) });
     owe::SceneFrame              frame;
     auto points = scene_test::Capture(frame, source, owe::SceneLightUniformOutput::PointColor);
     ASSERT_EQ(points.size(), usize(8));
@@ -652,12 +652,18 @@ TEST(SceneLightUniformSource, PacksConfiguredKindsWithoutMixedSlotLimit) {
     EXPECT_FLOAT_EQ(origins[usize(3)], 2.0f);
     auto colors =
         scene_test::Capture(frame, source, owe::SceneLightUniformOutput::DirectionalColor);
-    ASSERT_EQ(colors.size(), usize(16));
+    ASSERT_EQ(colors.size(), usize(20));
     EXPECT_FLOAT_EQ(colors[usize(12)], 4.0f);
+    for (usize index(16); index < usize(20); ++index) EXPECT_FLOAT_EQ(colors[index], 0.0f);
     auto directions =
         scene_test::Capture(frame, source, owe::SceneLightUniformOutput::DirectionalDirection);
+    ASSERT_EQ(directions.size(), usize(20));
     EXPECT_FLOAT_EQ(directions[usize()], -0.5f);
     EXPECT_FLOAT_EQ(directions[usize(12)], -0.5f);
+    EXPECT_FLOAT_EQ(directions[usize(16)], 0.0f);
+    EXPECT_FLOAT_EQ(directions[usize(17)], 1.0f);
+    EXPECT_FLOAT_EQ(directions[usize(18)], 0.0f);
+    EXPECT_FLOAT_EQ(directions[usize(19)], 0.0f);
 }
 
 TEST(SceneLightUniformSource, TransformsTubeEndpointAndReadsLiveParameters) {

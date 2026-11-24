@@ -1172,6 +1172,12 @@ auto SceneLightUniformSource::Evaluate(ref<dyn<UniformUpdateContext>>,
         }
         ++index;
     }
+    // Legacy PBR shaders divide by the direction length even for black lights.
+    for (auto index = counts[usize(static_cast<rstd::uint8_t>(SceneLightType::Directional))];
+         index < rstd::as_cast<usize>(m_config.directional);
+         ++index) {
+        write(O::DirectionalDirection, index, Vector3f::UnitY(), 0.0f);
+    }
     UniformWriter writer(sink);
     for (const auto& field : SceneLightUniformFields()) {
         const auto& data = values[usize(static_cast<rstd::uint32_t>(field.output))];

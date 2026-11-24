@@ -18,7 +18,8 @@ public:
     static ParticleSpawnInstruction GenInitializer(const Json&, u32 implicit_sequence_count,
                                                    bool orthographic_scene = true);
     static Box<dyn<particle::ParticleUpdateProgram>>
-    GenOperator(const Json&, ParticleInstanceModifiers, ParticleSubSystem&, usize operator_index);
+    GenOperator(const Json&, ParticleInstanceModifiers, ParticleSubSystem&, usize operator_index,
+                bool orthographic_scene = true);
     static Box<dyn<particle::ParticleEmitterProgram>> GenEmitter(const wpscene::Emitter&,
                                                                  ParticleSubSystem&, usize);
     static ParticleSpawnInstruction                   GenOverride(ParticleInstanceModifiers);
