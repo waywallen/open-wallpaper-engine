@@ -2771,6 +2771,7 @@ TEST(TextColorBlendParsing, PreservesOverlayAdditiveAndDirectModes) {
         *material->customShader.variant->Description().input_combos.get("BLENDMODE"_str).unwrap(),
         "11"_str);
     EXPECT_EQ(material->Pipeline().blend_mode, owe::BlendMode::Translucent);
+    EXPECT_FALSE(material->Pipeline().depth_test);
     auto additive = scene.scene->RootMut()->FindByName("Additive"_str);
     ASSERT_NE(additive, nullptr);
     ASSERT_NE(additive->Mesh(), nullptr);
@@ -2781,6 +2782,59 @@ TEST(TextColorBlendParsing, PreservesOverlayAdditiveAndDirectModes) {
     ASSERT_NE(direct->Mesh(), nullptr);
     ASSERT_NE(direct->Mesh()->Material(), nullptr);
     EXPECT_EQ(direct->Mesh()->Material()->name, "text"_str);
+    EXPECT_FALSE(direct->Mesh()->Material()->Pipeline().depth_test);
+}
+
+TEST(TextDepthParsing, PerspectiveTextReadsDepthOnlyWhenDrawnIntoScene) {
+    auto document = owe::wpscene::ParseSceneDocumentJson(
+        R"JSON({
+            "camera": {"eye":"0 0 5"},
+            "general": {"orthogonalprojection":null},
+            "objects": [
+                {"id": 1, "name": "Direct", "text": "Direct",
+                 "font": "systemfont_DejaVu Sans", "pointsize": 24},
+                {"id": 2, "name": "Scrolled", "text": "Scrolled",
+                 "font": "systemfont_DejaVu Sans", "pointsize": 24,
+                 "effects":[{"id":3,"file":"effects/scroll/effect.json","visible":true}]}
+            ]
+        })JSON"_str,
+        owe::wpscene::kSceneVersionUnknown);
+    ASSERT_TRUE(document.is_some());
+    auto assets = owe::fs::make_physical_fs(
+        owe::fs::Path(rstd::cppstd::as_str(WAYWALLEN_ASSETS_DIR).unwrap()));
+    ASSERT_TRUE(assets.is_ok());
+    owe::fs::VFS vfs;
+    ASSERT_TRUE(vfs.mount("/assets"_str, rstd::move(assets).unwrap_unchecked()).is_ok());
+    wavsen::audio::SoundManager sound;
+    auto                        parsed = owe::SceneParser().Parse(
+        "text-depth"_str,
+        rstd::ref<owe::wpscene::SceneDocument>::from_raw_parts(rstd::addressof(*document)),
+        rstd::mut_ref<owe::fs::VFS>::from_raw_parts(&vfs),
+        rstd::mut_ref<wavsen::audio::SoundManager>::from_raw_parts(&sound));
+    ASSERT_TRUE(parsed.is_ok());
+    auto root = parsed->scene->RootMut();
+    for (auto name : { "Direct"_str, "Scrolled"_str }) {
+        auto* node = root->FindByName(name);
+        ASSERT_NE(node, nullptr);
+        ASSERT_NE(node->Mesh(), nullptr);
+        auto* material = node->Mesh()->Material();
+        ASSERT_NE(material, nullptr);
+        EXPECT_TRUE(material->Pipeline().depth_test);
+        EXPECT_FALSE(material->Pipeline().depth_write);
+        EXPECT_EQ(material->Pipeline().depth_compare, owe::CompareOp::Less);
+        EXPECT_EQ(material->Pipeline().cull_mode, owe::CullMode::None);
+    }
+    bool found_glyph_source = false;
+    for (const auto& child : root->GetChildren()) {
+        if (! child->HasLayer() || ! child->Mesh() || ! child->Mesh()->Material() ||
+            child->Mesh()->Material()->name != "text"_str)
+            continue;
+        EXPECT_FALSE(child->Mesh()->Material()->Pipeline().depth_test);
+        EXPECT_FALSE(child->Mesh()->Material()->Pipeline().depth_write);
+        EXPECT_FALSE(child->Layer()->FinalDepthTest());
+        found_glyph_source = true;
+    }
+    EXPECT_TRUE(found_glyph_source);
 }
 
 TEST(ImageColorBlendParsing, LinearDodgeUsesAdditiveAttachmentOwner) {

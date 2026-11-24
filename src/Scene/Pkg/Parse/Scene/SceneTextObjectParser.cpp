@@ -196,6 +196,12 @@ void ParseTextObjImpl(SceneLayerBuildContext& context, wpscene::TextObject& obj)
     });
     const bool direct_text          = text_render_mode == TextRenderMode::Direct;
     const bool copy_background_seed = has_text_effect || obj.copybackground;
+    const auto apply_scene_depth    = [&](SceneMaterial& material) {
+        if (context.layer_resources->orthographic_scene) return;
+        material.SetDepthTest(true);
+        material.SetDepthWrite(false);
+        material.SetDepthCompare(CompareOp::Less);
+    };
 
     String s_text;
     if (obj.text.is_string()) {
@@ -324,6 +330,7 @@ void ParseTextObjImpl(SceneLayerBuildContext& context, wpscene::TextObject& obj)
         material.defines.push("g_Texture0"_Str);
         material.SetBlendMode(direct_text || copy_background_seed || has_bg ? BlendMode::Translucent
                                                                             : BlendMode::Normal);
+        if (direct_text) apply_scene_depth(material);
         material.customShader.shader = shader.clone();
         sp_mesh->AddMaterial(rstd::move(material));
     }
@@ -855,6 +862,7 @@ void ParseTextObjImpl(SceneLayerBuildContext& context, wpscene::TextObject& obj)
         if (loaded.is_none()) return;
         compose_sv = rstd::move(loaded->sv);
         compose_sv.SetParallaxContract(obj.parallax, obj.id);
+        apply_scene_depth(loaded->material);
         compose_mesh->AddMaterial(rstd::move(loaded->material));
         RegisterMaterialBindings(scene,
                                  compose_mesh->MaterialSlots().first_mut().unwrap().get_mut(),
