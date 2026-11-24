@@ -1265,20 +1265,35 @@ auto ShadowUniformSource::Evaluate(ref<dyn<UniformUpdateContext>>,
         view_y.normalize();
         view_z.normalize();
 
+        // Keep texel phase in the light rig's space, independent of the light's local position.
+        Vector3d grid_origin = Vector3d::Zero();
+        if (const auto* parent = light_node->Parent()) {
+            grid_origin = parent->ModelTrans().block<3, 1>(0, 3);
+        }
+        const auto snap_offset = [grid_origin](const Vector3d& axis,
+                                               const Vector3d& center,
+                                               double          texel_size) {
+            const auto texels = f64(axis.dot(grid_origin - center) / texel_size);
+            return texels.is_finite() ? (texels.round() - texels).to_primitive() * texel_size : 0.0;
+        };
         const double camera_far =
             rstd::cmp::max(0.001, f64(m_camera->FarClip()).abs().to_primitive());
         const double shared_depth = static_cast<double>(light->desc().cascade_distances[1]) * 4.0;
         for (usize cascade {}; cascade < usize(3); ++cascade) {
             const float     authored = light->desc().cascade_distances[cascade.to_primitive()];
             const double    distance = authored > 0.0f ? static_cast<double>(authored) : camera_far;
-            const auto      center   = camera_transform.eye + forward * (distance * 0.5);
-            Eigen::Matrix4d view     = Eigen::Matrix4d::Identity();
-            view.block<1, 3>(0, 0)   = view_x.transpose();
-            view.block<1, 3>(1, 0)   = view_y.transpose();
-            view.block<1, 3>(2, 0)   = view_z.transpose();
-            view(0, 3)               = -view_x.dot(center);
-            view(1, 3)               = -view_y.dot(center);
-            view(2, 3)               = -view_z.dot(center);
+            const Vector3d  lateral_center = camera_transform.eye + forward * (distance * 0.5);
+            const Vector3d  depth_center   = camera_transform.eye + forward * (distance * 0.25);
+            const double    texel_size = distance / ShadowAtlasLayout::kTileExtent.to_primitive();
+            Eigen::Matrix4d view       = Eigen::Matrix4d::Identity();
+            view.block<1, 3>(0, 0)     = view_x.transpose();
+            view.block<1, 3>(1, 0)     = view_y.transpose();
+            view.block<1, 3>(2, 0)     = view_z.transpose();
+            view(0, 3) =
+                -view_x.dot(lateral_center) + snap_offset(view_x, lateral_center, texel_size);
+            view(1, 3) =
+                -view_y.dot(lateral_center) + snap_offset(view_y, lateral_center, texel_size);
+            view(2, 3) = -view_z.dot(depth_center);
 
             const double half_extent = distance * 0.5;
             // WE shares the middle cascade's depth range with the near cascade.

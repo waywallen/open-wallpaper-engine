@@ -816,6 +816,73 @@ TEST(ShadowUniformSource, SpotAndDirectionalReceiversUseTheirOwnViewportRanges) 
     EXPECT_FLOAT_EQ(dir_params[usize(1)], 1.0f);
 }
 
+TEST(ShadowUniformSource, DirectionalCascadeUsesSeparateLateralAndDepthCenters) {
+    owe::Scene scene;
+    auto       camera =
+        Arc<owe::SceneCamera>::make(owe::SceneCamera::MakePerspective(1.0, 0.1, 1000.0, 50.0));
+    camera->SetLookAt(
+        Eigen::Vector3d::Zero(), Eigen::Vector3d(1.0, 0.0, 1.0), Eigen::Vector3d::UnitY());
+    auto light_node  = Arc<owe::SceneNode>::make();
+    light_node->ID() = i32(1);
+    scene.RootMut()->AppendChild(light_node.clone());
+    auto light = scene.RegisterLight(Box<owe::SceneLight>::make(owe::SceneLight::Desc {
+        .type              = owe::SceneLightType::Directional,
+        .cascade_distances = { 4.0f, 8.0f, 12.0f },
+        .cast_shadow       = true,
+    }));
+    light->setNode(light_node.as_ptr());
+    auto shadows = Arc<owe::ShadowAtlasLayout>::make();
+    ASSERT_TRUE(shadows->Add(i32(1), owe::SceneLightType::Directional));
+    owe::ShadowUniformSource source(
+        rstd::move(camera), ref<owe::Scene>::from_raw_parts(&scene), rstd::move(shadows));
+
+    const auto matrices = scene_test::Capture(
+        owe::SceneFrame {}, source, owe::ShadowUniformOutput::ViewProjectionMatrices);
+    ASSERT_EQ(matrices.size(), usize(96));
+    const float     diagonal       = static_cast<float>(1.0 / rstd::f64(2.0).sqrt().to_primitive());
+    constexpr float half_texel_ndc = 1.0f / owe::ShadowAtlasLayout::kTileExtent.to_primitive();
+    EXPECT_NEAR(matrices[usize(12)], -diagonal, half_texel_ndc);
+    EXPECT_NEAR(matrices[usize(14)], 0.5f + diagonal / 32.0f, 1e-6f);
+    EXPECT_NEAR(matrices[usize(16 + 12)], -diagonal, half_texel_ndc);
+    EXPECT_NEAR(matrices[usize(16 + 14)], 0.5f + diagonal / 16.0f, 1e-6f);
+}
+
+TEST(ShadowUniformSource, DirectionalCascadeKeepsTexelPhaseInLightRigSpace) {
+    owe::Scene scene;
+    auto       camera =
+        Arc<owe::SceneCamera>::make(owe::SceneCamera::MakePerspective(1.0, 0.1, 1000.0, 50.0));
+    camera->SetLookAt(Eigen::Vector3d::Zero(), -Eigen::Vector3d::UnitZ(), Eigen::Vector3d::UnitY());
+    auto rig         = Arc<owe::SceneNode>::make();
+    auto light_node  = Arc<owe::SceneNode>::make();
+    light_node->ID() = i32(1);
+    scene.RootMut()->AppendChild(rig.clone());
+    rig->AppendChild(light_node.clone());
+    auto light = scene.RegisterLight(Box<owe::SceneLight>::make(owe::SceneLight::Desc {
+        .type              = owe::SceneLightType::Directional,
+        .cascade_distances = { 32.0f, 64.0f, 128.0f },
+        .cast_shadow       = true,
+    }));
+    light->setNode(light_node.as_ptr());
+    auto shadows = Arc<owe::ShadowAtlasLayout>::make();
+    ASSERT_TRUE(shadows->Add(i32(1), owe::SceneLightType::Directional));
+    owe::ShadowUniformSource source(
+        rstd::move(camera), ref<owe::Scene>::from_raw_parts(&scene), rstd::move(shadows));
+
+    const auto grid_x = [&](float rig_z) {
+        const auto matrices = scene_test::Capture(
+            owe::SceneFrame {}, source, owe::ShadowUniformOutput::ViewProjectionMatrices);
+        const float projected_x = matrices[usize(8)] * (rig_z - 3.03125f) + matrices[usize(12)];
+        return (0.5f * projected_x + 0.5f) * owe::ShadowAtlasLayout::kTileExtent.to_primitive();
+    };
+    const auto initial = grid_x(0.0f);
+    light_node->SetTranslate({ 0.0f, 0.0f, 0.03125f });
+    EXPECT_FLOAT_EQ(grid_x(0.0f), initial);
+    rig->SetTranslate({ 0.0f, 0.0f, 0.03125f });
+    EXPECT_FLOAT_EQ(grid_x(0.03125f), initial);
+    rig->SetTranslate({ 0.0f, 0.0f, 0.21875f });
+    EXPECT_FLOAT_EQ(grid_x(0.21875f), initial + 2.0f);
+}
+
 TEST(VolumetricUniformSource, SpotConeUsesShadowSlotAndRuntimeLightParameters) {
     using O = owe::VolumetricUniformOutput;
     owe::Scene scene;

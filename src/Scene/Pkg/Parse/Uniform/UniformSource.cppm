@@ -23,6 +23,8 @@ struct ShadowLightBinding {
 
 class ShadowAtlasLayout {
 public:
+    static constexpr u32 kTileExtent { 256 };
+
     auto Add(i32 object_id, SceneLightType type) -> bool {
         if (Find(object_id)) return false;
         const auto count = type == SceneLightType::Directional ? usize(3) : usize(1);

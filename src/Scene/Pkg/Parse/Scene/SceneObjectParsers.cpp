@@ -772,11 +772,14 @@ BuildContext(Scene& scene, fs::VFS& vfs, ref<str> scene_id, const wpscene::Scene
     if (context.layer_resources->shader_environment.shadow_mapping) {
         const auto view_count =
             rstd::as_cast<u32>(context.layer_resources->shadow_layout->ViewCount());
+        constexpr auto tile_extent = ShadowAtlasLayout::kTileExtent;
+        constexpr auto tile_pixels = rstd::as_cast<i32>(tile_extent);
+        constexpr auto tile_width  = static_cast<float>(tile_extent.to_primitive());
         context.scene->RegisterRenderTarget(
             String::make(WE_SHADOW_ATLAS_PREFIX),
             SceneRenderTarget {
-                .width             = i32(256) * rstd::as_cast<i32>(view_count),
-                .height            = i32(256),
+                .width             = tile_pixels * rstd::as_cast<i32>(view_count),
+                .height            = tile_pixels,
                 .kind              = SceneRenderTargetKind::DepthSampled,
                 .depth_clear_value = 0.0f,
                 .sample =
@@ -793,14 +796,14 @@ BuildContext(Scene& scene, fs::VFS& vfs, ref<str> scene_id, const wpscene::Scene
         auto viewports = Vec<SceneShadowViewport>::make();
         for (u32 index {}; index < view_count; ++index) {
             viewports.push(SceneShadowViewport {
-                .x              = f32(256.0f * static_cast<float>(index.to_primitive())),
-                .y              = f32(256.0f),
-                .width          = f32(256.0f),
-                .height         = f32(-256.0f),
-                .scissor_x      = i32(256) * rstd::as_cast<i32>(index),
+                .x              = f32(tile_width * static_cast<float>(index.to_primitive())),
+                .y              = f32(tile_width),
+                .width          = f32(tile_width),
+                .height         = f32(-tile_width),
+                .scissor_x      = tile_pixels * rstd::as_cast<i32>(index),
                 .scissor_y      = i32(),
-                .scissor_width  = u32(256),
-                .scissor_height = u32(256),
+                .scissor_width  = tile_extent,
+                .scissor_height = tile_extent,
             });
         }
         context.scene->RegisterShadowDefinition(SceneShadowDefinition {
