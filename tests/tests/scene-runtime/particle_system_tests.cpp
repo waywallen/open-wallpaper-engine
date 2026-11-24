@@ -90,6 +90,13 @@ struct TraceLifecycle {
     void Update(particle::ParticleLifecycleContext&) { trace->push(i32(3)); }
 };
 
+struct TraceParticleSteps {
+    Vec<f64>* steps;
+
+    void Compile(particle::ParticleViewCompiler&) {}
+    void Update(particle::ParticleUpdateContext& context) { steps->emplace_back(context.delta); }
+};
+
 struct LifetimeSpawn {
     particle::ParticleAttributeKey<TemperatureAttribute> lifetime;
     particle::ParticleWriteIndex<TemperatureAttribute>   index;
@@ -988,6 +995,82 @@ TEST(ParticleSubSystem, AppliesVortexAroundWorldSpaceOwner) {
     EXPECT_GT(std::abs(positions[usize()].z()), 0.01f);
 }
 
+TEST(ParticleSubSystem, SelectsFixedWarmupStepsByCapacity) {
+    auto simulate = [](u32 max_count) {
+        owe::Scene             scene;
+        Vec<f64>               steps;
+        owe::ParticleSubSystem subsystem(scene,
+                                         Arc<owe::SceneMesh>::make(),
+                                         max_count,
+                                         f64(1.0),
+                                         u32(1),
+                                         f64(1.0),
+                                         owe::ParticleSubSystem::SpawnType::STATIC,
+                                         owe::ParticleAnimationSpec {},
+                                         {},
+                                         u32(),
+                                         f64(),
+                                         f64(50.01));
+        subsystem.AddOperator(
+            Box<dyn<particle::ParticleUpdateProgram>>::make(TraceParticleSteps { &steps }));
+        subsystem.Finalize();
+        subsystem.Tick(f64(0.03), false);
+        return steps;
+    };
+
+    auto small = simulate(u32(499));
+    ASSERT_EQ(small.len(), usize(1002));
+    EXPECT_EQ(small[usize(1000)], f64(0.05));
+    EXPECT_EQ(small[usize(1001)], f64(0.03));
+
+    auto large = simulate(u32(500));
+    ASSERT_EQ(large.len(), usize(252));
+    EXPECT_EQ(large[usize(250)], f64(0.2));
+    EXPECT_EQ(large[usize(251)], f64(0.03));
+}
+
+TEST(ParticleSubSystem, StartsRopeHistoryAtWarmedPosition) {
+    owe::Scene             scene;
+    owe::ParticleSubSystem subsystem(scene,
+                                     Arc<owe::SceneMesh>::make(),
+                                     u32(1),
+                                     f64(1.0),
+                                     u32(1),
+                                     f64(1.0),
+                                     owe::ParticleSubSystem::SpawnType::STATIC,
+                                     owe::ParticleAnimationSpec {},
+                                     {},
+                                     u32(4),
+                                     f64(2.0),
+                                     f64(1.0));
+    subsystem.AddInitializer(owe::ParticleParser::GenInitializer(
+        owe::ParseJson(R"({"name":"lifetimerandom","min":10,"max":10})"_str).unwrap(), u32(1)));
+    subsystem.AddInitializer(owe::ParticleParser::GenInitializer(
+        owe::ParseJson(R"({"name":"velocityrandom","min":"1 0 0","max":"1 0 0"})"_str).unwrap(),
+        u32(1)));
+    subsystem.AddEmitter(Box<dyn<particle::ParticleEmitterProgram>>::make(
+        owe::BoxEmitterProgram(subsystem.SpawnPipeline(),
+                               owe::ParticleBoxEmitterArgs { .instantaneous = u32(1) },
+                               usize())));
+    subsystem.AddOperator(owe::ParticleParser::GenOperator(
+        owe::ParseJson(R"({"name":"movement"})"_str).unwrap(),
+        owe::ParticleInstanceModifiers(Arc<owe::wpscene::ParticleInstanceoverride>::make(),
+                                       owe::wpscene::Particle::EFlags { 0 },
+                                       false),
+        subsystem,
+        usize()));
+    subsystem.Finalize();
+    subsystem.Tick(f64(0.1), false);
+
+    auto& instance  = subsystem.System().Instance(usize());
+    auto  positions = instance.Binding().Read().Positions();
+    auto  trail     = instance.Storage().AttributeRef(subsystem.TrailKey().unwrap());
+    ASSERT_EQ(positions.len(), usize(1));
+    EXPECT_NEAR(positions[usize()].x(), 1.1f, 1e-6f);
+    ASSERT_EQ(trail->State(particle::ParticleSlot {}).sample_count, usize(1));
+    EXPECT_NEAR(trail->At(particle::ParticleSlot {}, usize(3)).x(), 1.0f, 1e-6f);
+}
+
 TEST(ParticleSubSystem, AppliesTurbulenceMaskAsAxisWeights) {
     auto simulate = [](ref<str> config, bool orthographic_scene = true) -> Eigen::Vector3f {
         owe::Scene             scene;
@@ -1005,7 +1088,7 @@ TEST(ParticleSubSystem, AppliesTurbulenceMaskAsAxisWeights) {
         subsystem.AddEmitter(Box<dyn<particle::ParticleEmitterProgram>>::make(
             owe::BoxEmitterProgram(subsystem.SpawnPipeline(),
                                    owe::ParticleBoxEmitterArgs {
-                                       .origin        = { 31.0f, 73.0f, 17.0f },
+                                       .origin        = { 31.25f, 73.5f, 17.75f },
                                        .instantaneous = u32(1),
                                    },
                                    usize())));

@@ -107,7 +107,8 @@ public:
     }
 
     void Update(particle::ParticleUpdateContext& context) {
-        auto frame     = ParticleFrameFrom(context.frame);
+        auto frame = ParticleFrameFrom(context.frame);
+        if (frame->warming_up) return;
         auto positions = context.view.Positions();
         auto trail     = context.view.WriteObject(m_trail_object);
 
@@ -743,31 +744,38 @@ void ParticleSubSystem::Advance(f64 frame_time, f64 child_frame_time, bool updat
 void ParticleSubSystem::Warmup(ParticleInstanceRef current, ref<dyn<rstd::any::Any>> frame_ref) {
     if (! current.state->warmup_pending) return;
     current.state->warmup_pending = false;
-    if (m_start_time <= f64()) return;
+    if (m_start_time <= f64() || ! m_start_time.is_finite()) return;
 
-    constexpr double kFrameTime  = 1.0 / 60.0;
-    constexpr auto   kMaxFrames  = u32(240);
-    auto             frame_count = u32(static_cast<rstd::uint32_t>(
-        rstd::cmp::max(f64(m_start_time.to_primitive() / kFrameTime).ceil().to_primitive(), 1.0)));
-    frame_count                  = rstd::cmp::min(frame_count, kMaxFrames);
-    auto frame_time =
-        f64(m_start_time.to_primitive() / static_cast<double>(frame_count.to_primitive()));
+    const auto frame_time  = m_max_count < u32(500) ? f64(0.05) : f64(0.2);
+    const auto frame_count = (m_start_time / frame_time).ceil();
 
     auto saved_time          = m_frame.time;
     auto saved_delta         = m_frame.delta;
     auto saved_emitter_delta = m_frame.emitter_delta;
-    auto warmup_start = rstd::cmp::max(m_time.to_primitive() - m_start_time.to_primitive(), 0.0);
-    for (u32 index {}; index < frame_count; ++index) {
-        m_frame.time = f64(warmup_start + frame_time.to_primitive() *
-                                              static_cast<double>((index + u32(1)).to_primitive()));
-        m_frame.delta         = frame_time;
-        m_frame.emitter_delta = frame_time;
+    auto warmup_start        = rstd::cmp::max(m_time - m_start_time, f64());
+    m_frame.delta            = frame_time;
+    m_frame.emitter_delta    = frame_time;
+    m_frame.warming_up       = true;
+    for (f64 index {}; index < frame_count; index += f64(1.0)) {
+        m_frame.time = warmup_start + frame_time * (index + f64(1.0));
         m_pending_child_deaths.clear();
         System().Advance(*current.instance, frame_ref, frame_time, m_frame.time);
     }
+    m_frame.warming_up    = false;
     m_frame.time          = saved_time;
     m_frame.delta         = saved_delta;
     m_frame.emitter_delta = saved_emitter_delta;
+
+    // The warmup establishes live particles, not a visible trail before time zero.
+    if (m_trail_key.is_some()) {
+        auto positions = current.instance->Binding().Read().Positions();
+        auto trail     = current.instance->Storage().AttributeMut(*m_trail_key);
+        for (auto slot : current.instance->ActiveSlots()) {
+            const auto& position = positions[slot.index];
+            trail->Initialize(slot, position);
+            trail->SetPreviousPosition(slot, position);
+        }
+    }
 }
 
 bool ParticleSubSystem::SyncPlayback() {

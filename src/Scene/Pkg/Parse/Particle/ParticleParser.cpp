@@ -1192,30 +1192,39 @@ struct TurbulenceOperator {
     ParticleAttributes                                        attributes;
     Turbulence                                                config;
     ParticleInstanceModifiers                                 modifiers;
-    double                                                    phase {};
-    double                                                    speed {};
+    particle::ParticleReadIndex<particle::RandomAttribute>    random;
     particle::ParticleWriteIndex<particle::VelocityAttribute> velocity;
 
     void Compile(particle::ParticleViewCompiler& compiler) {
         compiler.ReadBase(attributes.position);
+        random   = compiler.Read(attributes.random);
         velocity = compiler.Write(attributes.velocity);
     }
 
     void Update(particle::ParticleUpdateContext& context) {
         auto frame      = ParticleFrameFrom(context.frame);
         auto positions  = context.view.Positions();
+        auto randoms    = context.view.Read(random);
         auto velocities = context.view.Write(velocity);
-        auto delta      = context.delta.to_primitive();
+        auto time       = static_cast<float>(frame->time.to_primitive()) * config.timescale;
+        auto delta      = static_cast<float>(context.delta.to_primitive()) * modifiers.Speed();
         for (auto slot : context.slots) {
-            Eigen::Vector3d position = positions[slot.index].cast<double>();
-            position.x() += phase + config.timescale * frame->time.to_primitive();
-            Eigen::Vector3d result = speed * modifiers.Speed() *
-                                     algorism::CurlNoise(position * config.scale * 2).normalized();
-            for (usize component {}; component < usize(3); ++component) {
-                result[component.to_primitive()] *= config.mask[component];
-            }
-            velocities[slot.index] =
-                (velocities[slot.index].cast<double>() + result * delta).cast<float>();
+            const auto weight = randoms[slot.index];
+            const auto offset =
+                config.phasemin + (config.phasemax - config.phasemin) * weight + time;
+            const auto speed =
+                (config.speedmin + (config.speedmax - config.speedmin) * weight) * delta;
+            const auto& position = positions[slot.index];
+            const auto  x        = (position.x() + offset) * config.scale;
+            const auto  y        = (position.y() + offset) * config.scale;
+            const auto  z        = (position.z() + offset) * config.scale;
+            auto&       v        = velocities[slot.index];
+            if (auto mask = config.mask[usize(0)]; mask != 0.0f)
+                v.x() += speed * mask * algorism::SimplexNoise(x, y, z);
+            if (auto mask = config.mask[usize(1)]; mask != 0.0f)
+                v.y() += speed * mask * algorism::SimplexNoise(z, x, y);
+            if (auto mask = config.mask[usize(2)]; mask != 0.0f)
+                v.z() += speed * mask * algorism::SimplexNoise(y, z, x);
         }
     }
 };
@@ -1484,8 +1493,6 @@ ParticleParser::GenOperator(const Json& wpj, ParticleInstanceModifiers modifiers
                 .attributes = attributes,
                 .config     = config,
                 .modifiers  = modifiers.Clone(),
-                .phase      = Random::get(config.phasemin, config.phasemax),
-                .speed      = Random::get(config.speedmin, config.speedmax),
             });
         } else if (name == "vortex"_str) {
             return Box<dyn<particle::ParticleUpdateProgram>>::make(VortexOperator {

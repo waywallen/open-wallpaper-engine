@@ -38,6 +38,7 @@ namespace algorism
 double CalculatePersperctiveDistance(double fov, double height) noexcept;
 double CalculatePersperctiveFov(double distence, double height) noexcept;
 double PerlinNoise(double x, double y, double z) noexcept;
+float  SimplexNoise(float x, float y, float z) noexcept;
 
 constexpr u32 PowOfTwo(u32 x) {
     u32 pow2 { 8 };

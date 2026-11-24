@@ -248,6 +248,7 @@ struct ParticleFrame {
     f64                      emitter_delta {};
     usize                    trail_sample_steps {};
     f64                      trail_sample_remainder {};
+    bool                     warming_up { false };
     bool                     world_space { false };
 };
 
