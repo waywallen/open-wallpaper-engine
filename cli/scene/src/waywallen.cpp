@@ -198,9 +198,16 @@ void log_prepared_pass_diagnostics(Vec<owe::vulkan::PreparedPassDiagnostic> diag
             diagnostic.pass_id.is_some() ? rstd::format("{}", diagnostic.pass_id->value) : "-"_Str;
         const String pass_kind =
             diagnostic.pass_kind ? rstd::format("{}", *diagnostic.pass_kind) : "-"_Str;
-        const String pipeline_cache_key =
-            diagnostic.pipeline_cache_key ? rstd::format("{}", diagnostic.pipeline_cache_key->value)
-                                          : "-"_Str;
+        String pipeline_cache_key = "-"_Str;
+        if (const auto& key = diagnostic.pipeline_cache_key; key) {
+            pipeline_cache_key = rstd::format("{}/{}:color={},depth={},samples={},attachments={}",
+                                              key->state,
+                                              key->generation,
+                                              static_cast<rstd::uint32_t>(key->color),
+                                              static_cast<rstd::uint32_t>(key->depth),
+                                              static_cast<rstd::uint32_t>(key->samples),
+                                              key->attachments);
+        }
         const String render_pass_cache_key =
             diagnostic.render_pass_cache_key
                 ? rstd::format("{}", diagnostic.render_pass_cache_key->value)
