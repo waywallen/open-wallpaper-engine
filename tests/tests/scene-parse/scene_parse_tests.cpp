@@ -1018,12 +1018,12 @@ TEST(SceneSoundMount, ConcurrentAttachAndCancelHaveOneOwner) {
     }
 }
 
-TEST(SceneSoundMount, DecodesAfterSourceVfsIsDestroyed) {
+namespace
+{
+bool WriteSoundFixture(rstd::ref<rstd::path::Path> path) {
     using namespace rstd::prelude;
-    auto temporary = rstd::fs::TempDir::make("owe-sound-vfs"_str).unwrap();
-    auto root      = rstd::path::PathBuf::from(temporary.path().as_os_str().to_os_string());
-    auto bytes     = Vec<u8>::make();
-    auto tag       = [&bytes](ref<str> value) {
+    auto bytes = Vec<u8>::make();
+    auto tag   = [&bytes](ref<str> value) {
         bytes.extend_from_slice(value->as_bytes());
     };
     auto word = [&bytes](rstd::uint32_t value, int count) {
@@ -1044,26 +1044,96 @@ TEST(SceneSoundMount, DecodesAfterSourceVfsIsDestroyed) {
     tag("data"_str);
     word(data_size, 4);
     for (rstd::uint32_t i = 0; i < data_size / 2; ++i) word(0x4000, 2);
-    ASSERT_TRUE(rstd::fs::write(root.join("sound.wav"_str).as_path(), bytes.as_slice()).is_ok());
-    auto prepared = [&] {
-        owe::fs::VFS vfs;
-        auto         local = owe::fs::make_physical_fs(temporary.path());
-        EXPECT_TRUE(local.is_ok());
-        EXPECT_TRUE(vfs.mount("/assets"_str, rstd::move(local).unwrap()).is_ok());
-        owe::wpscene::SoundObject sound;
-        sound.sound.push("sound.wav"_Str);
-        return owe::SoundParser::PrepareAsync(
-            sound,
-            vfs,
-            nullptr,
-            owe::SceneSoundUnmountCallback::make([](wavsen::audio::SoundStreamId) {
-            }));
-    }();
+    return rstd::fs::write(path, bytes.as_slice()).is_ok();
+}
+
+auto PrepareSoundFixture(rstd::ref<rstd::path::Path> root, const owe::wpscene::SoundObject& sound)
+    -> owe::ScenePreparedSound {
+    owe::fs::VFS vfs;
+    auto         local = owe::fs::make_physical_fs(root);
+    EXPECT_TRUE(local.is_ok());
+    EXPECT_TRUE(vfs.mount("/assets"_str, rstd::move(local).unwrap()).is_ok());
+    return owe::SoundParser::PrepareAsync(
+        sound, vfs, nullptr, owe::SceneSoundUnmountCallback::make([](wavsen::audio::SoundStreamId) {
+        }));
+}
+} // namespace
+
+TEST(SceneSoundMount, DecodesAfterSourceVfsIsDestroyed) {
+    using namespace rstd::prelude;
+    auto temporary = rstd::fs::TempDir::make("owe-sound-vfs"_str).unwrap();
+    auto root      = rstd::path::PathBuf::from(temporary.path().as_os_str().to_os_string());
+    ASSERT_TRUE(WriteSoundFixture(root.join("sound.wav"_str).as_path()));
+    owe::wpscene::SoundObject sound;
+    sound.sound.push("sound.wav"_Str);
+    auto prepared = PrepareSoundFixture(temporary.path(), sound);
     prepared.stream->stream().pass_desc({ u32(2), u32(48000) });
     float output[512] {};
     auto  frames = prepared.stream->stream().next_pcm(output, u32(256));
     EXPECT_GT(frames, u64());
     EXPECT_GT(output[0], 0.1f);
+}
+
+TEST(SceneSoundPlayback, RandomWaitsBetweenClipsAtTheSampleBoundary) {
+    using namespace rstd::prelude;
+    auto temporary = rstd::fs::TempDir::make("owe-random-sound"_str).unwrap();
+    auto root      = rstd::path::PathBuf::from(temporary.path().as_os_str().to_os_string());
+    ASSERT_TRUE(WriteSoundFixture(root.join("sound.wav"_str).as_path()));
+    owe::wpscene::SoundObject sound {
+        .playbackmode = "random"_Str,
+        .maxtime      = 0.25f,
+        .mintime      = 0.25f,
+    };
+    sound.sound.push("sound.wav"_Str);
+    auto  prepared = PrepareSoundFixture(temporary.path(), sound);
+    auto& stream   = prepared.stream->stream();
+    stream.pass_desc({ u32(2), u32(48000) });
+    auto pcm = Vec<float>::with_capacity(usize(12000 * 2));
+    pcm.resize(usize(12000 * 2), 1.0f);
+
+    // A 4800-frame clip followed by a 12000-frame gap; the first request consumes
+    // 200 frames of that gap even though it reports only the PCM it produced.
+    ASSERT_EQ(stream.next_pcm(pcm.data(), u32(5000)), u64(4800));
+    EXPECT_GT(pcm[usize()], 0.1f);
+    EXPECT_EQ(stream.next_pcm(pcm.data(), u32(11740)), u64());
+    ASSERT_EQ(stream.next_pcm(pcm.data(), u32(256)), u64(256));
+    for (usize i {}; i < usize(60 * 2); ++i) EXPECT_EQ(pcm[i], 0.0f);
+    EXPECT_GT(pcm[usize(60 * 2)], 0.1f);
+
+    ASSERT_EQ(stream.next_pcm(pcm.data(), u32(5000)), u64(4604));
+    prepared.control->Stop();
+    EXPECT_EQ(stream.next_pcm(pcm.data(), u32(256)), u64());
+    prepared.control->Play();
+    EXPECT_EQ(stream.next_pcm(pcm.data(), u32(256)), u64(256));
+    EXPECT_GT(pcm[usize()], 0.1f);
+}
+
+TEST(SceneSoundPlayback, LoopAndSingleIgnoreRandomDelay) {
+    using namespace rstd::prelude;
+    auto temporary = rstd::fs::TempDir::make("owe-continuous-sound"_str).unwrap();
+    auto root      = rstd::path::PathBuf::from(temporary.path().as_os_str().to_os_string());
+    ASSERT_TRUE(WriteSoundFixture(root.join("sound.wav"_str).as_path()));
+    for (auto mode : { "loop"_str, "single"_str }) {
+        owe::wpscene::SoundObject sound {
+            .playbackmode = String::make(mode),
+            .maxtime      = 0.25f,
+            .mintime      = 0.25f,
+        };
+        sound.sound.push("sound.wav"_Str);
+        auto  prepared = PrepareSoundFixture(temporary.path(), sound);
+        auto& stream   = prepared.stream->stream();
+        stream.pass_desc({ u32(2), u32(48000) });
+        Vec<float> pcm;
+        pcm.resize(usize(5000 * 2), 0.0f);
+        ASSERT_EQ(stream.next_pcm(pcm.data(), u32(5000)), u64(4800));
+        if (mode == "loop"_str) {
+            EXPECT_EQ(stream.next_pcm(pcm.data(), u32(256)), u64(256));
+            EXPECT_GT(pcm[usize()], 0.1f);
+        } else {
+            EXPECT_EQ(stream.next_pcm(pcm.data(), u32(256)), u64());
+            EXPECT_FALSE(prepared.control->IsPlaying());
+        }
+    }
 }
 
 TEST(SceneDynamicLayer, CreatesAndCancelsAsynchronousSounds) {

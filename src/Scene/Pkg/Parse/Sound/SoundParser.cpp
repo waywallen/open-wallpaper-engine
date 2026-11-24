@@ -118,20 +118,9 @@ public:
         if (m_dead) return u64();
         if (! m_state->playing.load(Ordering::Acquire)) return u64();
 
-        if (! m_curActive) {
-            Switch();
-        }
-
-        u64 frameReads = m_curActive ? (*m_curActive)->stream().next_pcm(pData, frameCount) : u64();
-        if (frameReads == u64() && ! m_dead) {
-            m_curActive = None();
-            if (m_config.mode == PlaybackMode::Single) {
-                m_state->playing.store(false, Ordering::Release);
-                return u64();
-            }
-            Switch();
-            frameReads = m_curActive ? (*m_curActive)->stream().next_pcm(pData, frameCount) : u64();
-        }
+        const auto frameReads = m_config.mode == PlaybackMode::Random && m_config.maxtime > f32()
+                                    ? ReadRandom(static_cast<float*>(pData), frameCount)
+                                    : ReadContinuous(pData, frameCount);
         UpdateAudioAverage(pData, frameReads);
         {
             float*     pData_float = static_cast<float*>(pData);
@@ -145,6 +134,75 @@ public:
         return frameReads;
     };
     void pass_desc(const Desc& d) override { m_desc = d; }
+
+private:
+    auto ReadContinuous(void* output, u32 frames) -> u64 {
+        if (! m_curActive) Switch();
+        if (! m_curActive) return u64();
+        const auto produced = (*m_curActive)->stream().next_pcm(output, frames);
+        if (produced != u64()) return produced;
+
+        m_curActive = None();
+        if (m_config.mode == PlaybackMode::Single) {
+            m_state->playing.store(false, Ordering::Release);
+            return u64();
+        }
+        Switch();
+        return m_curActive ? (*m_curActive)->stream().next_pcm(output, frames) : u64();
+    }
+
+    auto NextRandomGap() const -> u64 {
+        const auto lo      = double(m_config.mintime.to_primitive());
+        const auto hi      = double(m_config.maxtime.to_primitive());
+        const auto seconds = lo == hi ? lo : Random::get<double>(lo, hi);
+        const auto frames  = f64(seconds * m_desc.sample_rate.to_primitive()).ceil().to_primitive();
+        if (frames >= double(u64::MAX.to_primitive())) return u64::MAX;
+        return u64(static_cast<rstd::uint64_t>(frames));
+    }
+
+    auto ReadRandom(float* output, u32 frames) -> u64 {
+        const auto channels = rstd::as_cast<usize>(m_desc.channels);
+        const auto capacity = rstd::as_cast<u64>(frames);
+        u64        written {};
+        u64        offset {};
+        bool       retried_empty = false;
+        while (offset < capacity) {
+            const auto available = capacity - offset;
+            const auto skipped   = m_random_gap.min(available);
+            m_random_gap -= skipped;
+            offset += skipped;
+            if (skipped == available) break;
+
+            if (! m_curActive) Switch();
+            if (! m_curActive) break;
+
+            const auto request = available - skipped;
+            auto*      next    = output + (rstd::as_cast<usize>(offset) * channels).to_primitive();
+            const auto produced =
+                (*m_curActive)->stream().next_pcm(next, rstd::as_cast<u32>(request));
+            if (produced != u64()) {
+                // The mixer supplies trailing silence, but any gap before new PCM is ours.
+                if (written != offset) {
+                    auto* start =
+                        output + (rstd::as_cast<usize>(written) * channels).to_primitive();
+                    auto samples = rstd::as_cast<usize>(offset - written) * channels;
+                    rstd::mem::memset(start, u8(), samples * usize(sizeof(float)));
+                }
+                offset += produced;
+                written       = offset;
+                retried_empty = false;
+            }
+            if (produced == request) break;
+
+            m_curActive  = None();
+            m_random_gap = NextRandomGap();
+            if (produced == u64() && m_random_gap == u64()) {
+                if (retried_empty) break;
+                retried_empty = true;
+            }
+        }
+        return written;
+    }
 
     // Walk paths until one opens. If all fail, disable the stream so the
     // audio callback stops re-trying every tick (which spammed FFmpeg's
@@ -186,18 +244,19 @@ public:
         return idx;
     }
 
-private:
     void SyncControl() {
         const u32 stop_seq = m_state->stop_seq.load(Ordering::Acquire);
         if (stop_seq != m_seenStopSeq) {
             m_seenStopSeq = stop_seq;
             m_curActive   = None();
+            m_random_gap  = u64();
             m_dead        = false;
         }
         const u32 play_seq = m_state->play_seq.load(Ordering::Acquire);
         if (play_seq != m_seenPlaySeq) {
             m_seenPlaySeq = play_seq;
             m_curActive   = None();
+            m_random_gap  = u64();
             m_dead        = false;
         }
     }
@@ -233,6 +292,7 @@ private:
     u32             m_curIndex {};
     u32             m_seenPlaySeq {};
     u32             m_seenStopSeq {};
+    u64             m_random_gap {};
     bool            m_dead { false };
 
     const Vec<String>                                  m_soundPaths;
@@ -244,8 +304,10 @@ namespace
 {
 auto PrepareSound(const wpscene::SoundObject& obj, fs::VFS& vfs, Scene* scene,
                   Option<SceneSoundUnmountCallback> unmount) -> ScenePreparedSound {
-    SoundStream::Config config { .maxtime = f32(obj.maxtime),
-                                 .mintime = f32(obj.mintime),
+    const auto min_delay = f32(obj.mintime).is_finite() ? f32(obj.mintime).max(f32()) : f32();
+    const auto max_delay = f32(obj.maxtime).is_finite() ? f32(obj.maxtime).max(f32()) : f32();
+    SoundStream::Config config { .maxtime = min_delay.max(max_delay),
+                                 .mintime = min_delay.min(max_delay),
                                  .volume  = f32(obj.volume).clamp(f32(), f32(1.0f)),
                                  .mode    = ToPlaybackMode(obj.playbackmode.as_str()) };
 
