@@ -212,6 +212,9 @@ TEST(SoundObjectJson, OwnsPathsAndPreservesReparseSemantics) {
         "volume":{"value":0.25,"user":"level"},
         "playbackmode":"random",
         "queuemode":"queue",
+        "spatialization":true,
+        "mindistance":3.0,
+        "attenuation":0.25,
         "visible":{"value":false,"user":"enabled"}
     })"_str)
                                          .unwrap();
@@ -223,6 +226,9 @@ TEST(SoundObjectJson, OwnsPathsAndPreservesReparseSemantics) {
     EXPECT_EQ(sound.sound[rstd::usize(2)], "first.ogg"_str);
     EXPECT_EQ(sound.playbackmode, "random"_str);
     EXPECT_EQ(sound.queuemode, "queue"_str);
+    EXPECT_TRUE(sound.spatialization);
+    EXPECT_FLOAT_EQ(sound.mindistance, 3.0f);
+    EXPECT_FLOAT_EQ(sound.attenuation, 0.25f);
     EXPECT_EQ(sound.volume_user_key, "level"_str);
     EXPECT_EQ(sound.visible_user_key, "enabled"_str);
     EXPECT_FALSE(sound.visible);
@@ -1020,7 +1026,8 @@ TEST(SceneSoundMount, ConcurrentAttachAndCancelHaveOneOwner) {
 
 namespace
 {
-bool WriteSoundFixture(rstd::ref<rstd::path::Path> path) {
+bool WriteSoundFixture(rstd::ref<rstd::path::Path> path, rstd::uint32_t channels = 1,
+                       bool varying = false) {
     using namespace rstd::prelude;
     auto bytes = Vec<u8>::make();
     auto tag   = [&bytes](ref<str> value) {
@@ -1036,14 +1043,15 @@ bool WriteSoundFixture(rstd::ref<rstd::path::Path> path) {
     tag("fmt "_str);
     word(16, 4);
     word(1, 2);
-    word(1, 2);
+    word(channels, 2);
     word(48000, 4);
-    word(96000, 4);
-    word(2, 2);
+    word(96000 * channels, 4);
+    word(2 * channels, 2);
     word(16, 2);
     tag("data"_str);
     word(data_size, 4);
-    for (rstd::uint32_t i = 0; i < data_size / 2; ++i) word(0x4000, 2);
+    for (rstd::uint32_t i = 0; i < data_size / 2; ++i)
+        word((i % channels == 0 ? 0x4000 : 0x2000) + (varying ? i : 0), 2);
     return rstd::fs::write(path, bytes.as_slice()).is_ok();
 }
 
@@ -1053,9 +1061,7 @@ auto PrepareSoundFixture(rstd::ref<rstd::path::Path> root, const owe::wpscene::S
     auto         local = owe::fs::make_physical_fs(root);
     EXPECT_TRUE(local.is_ok());
     EXPECT_TRUE(vfs.mount("/assets"_str, rstd::move(local).unwrap()).is_ok());
-    return owe::SoundParser::PrepareAsync(
-        sound, vfs, nullptr, owe::SceneSoundUnmountCallback::make([](wavsen::audio::SoundStreamId) {
-        }));
+    return owe::SoundParser::Prepare(sound, vfs, nullptr);
 }
 } // namespace
 
@@ -1072,6 +1078,130 @@ TEST(SceneSoundMount, DecodesAfterSourceVfsIsDestroyed) {
     auto  frames = prepared.stream->stream().next_pcm(output, u32(256));
     EXPECT_GT(frames, u64());
     EXPECT_GT(output[0], 0.1f);
+}
+
+TEST(SceneSoundPlayback, SpatializesMonoWithOpenALDistanceAndDirection) {
+    using namespace rstd::prelude;
+    auto temporary = rstd::fs::TempDir::make("owe-spatial-sound"_str).unwrap();
+    auto root      = rstd::path::PathBuf::from(temporary.path().as_os_str().to_os_string());
+    ASSERT_TRUE(WriteSoundFixture(root.join("mono.wav"_str).as_path()));
+    ASSERT_TRUE(WriteSoundFixture(root.join("stereo.wav"_str).as_path(), 2));
+
+    auto render = [&](array<float, 3> position, float rolloff, ref<str> path = "mono.wav"_str) {
+        owe::wpscene::SoundObject sound {
+            .spatialization = true,
+            .mindistance    = 3.0f,
+            .attenuation    = rolloff,
+        };
+        sound.sound.push(String::make(path));
+        auto prepared = PrepareSoundFixture(temporary.path(), sound);
+        {
+            auto locked = (*prepared.position)->lock().unwrap();
+            *locked     = position;
+        }
+        auto& stream = prepared.stream->stream();
+        stream.pass_desc({ u32(2), u32(48000) });
+        float output[512] {};
+        EXPECT_EQ(stream.next_pcm(output, u32(256)), u64(256));
+        const array<float, 2> first { output[0], output[1] };
+        for (int frames : { 17, 173, 256 }) {
+            EXPECT_EQ(stream.next_pcm(output, u32(frames)), u64(frames));
+            for (int i = 0; i < frames * 2; ++i)
+                EXPECT_NEAR(output[i], first[usize(i % 2)], 1.0e-5f);
+        }
+        return first;
+    };
+
+    const auto near = render({ 0.0f, 0.0f, -2.0f }, 0.25f);
+    const auto far  = render({ 0.0f, 0.0f, -15.0f }, 0.25f);
+    const auto flat = render({ 0.0f, 0.0f, -15.0f }, 0.0f);
+    EXPECT_GT(near[usize()], 0.1f);
+    for (usize i {}; i < usize(2); ++i) {
+        EXPECT_NEAR(far[i], 0.5f * near[i], 1.0e-4f);
+        EXPECT_NEAR(flat[i], near[i], 1.0e-4f);
+    }
+    const auto left  = render({ -3.0f, 0.0f, 0.0f }, 0.0f);
+    const auto right = render({ 3.0f, 0.0f, 0.0f }, 0.0f);
+    EXPECT_GT(left[usize()], left[usize(1)] + 0.1f);
+    EXPECT_GT(right[usize(1)], right[usize()] + 0.1f);
+    EXPECT_NEAR(left[usize()], right[usize(1)], 1.0e-4f);
+    EXPECT_NEAR(left[usize(1)], right[usize()], 1.0e-4f);
+
+    const auto stereo = render({ -3.0f, 0.0f, 0.0f }, 1.0f, "stereo.wav"_str);
+    EXPECT_NEAR(stereo[usize()], 0.5f, 1.0e-4f);
+    EXPECT_NEAR(stereo[usize(1)], 0.25f, 1.0e-4f);
+}
+
+TEST(SceneSoundPlayback, PublishesParentAndCameraTransforms) {
+    using namespace rstd::prelude;
+    using rstd::sync::Arc;
+    owe::Scene scene;
+    auto       camera =
+        Arc<owe::SceneCamera>::make(owe::SceneCamera::MakePerspective(1.0, 0.1, 100.0, 60.0));
+    camera->SetLookAt({ 1.0, 0.0, 0.0 }, { 1.0, 0.0, -1.0 }, Eigen::Vector3d::UnitY());
+    scene.RegisterCamera("camera"_Str, camera.clone());
+    ASSERT_TRUE(scene.SetActiveCamera("camera"_str));
+
+    auto parent  = Arc<owe::SceneNode>::make();
+    auto emitter = Arc<owe::SceneNode>::make();
+    parent->SetTranslate({ 5.0, 0.0, 0.0 });
+    emitter->SetTranslate({ 2.0, 0.0, -4.0 });
+    parent->AppendChild(emitter.clone());
+    scene.RootMut()->AppendChild(parent.clone());
+
+    auto perspective = Arc<owe::SceneSoundPosition>::make(array<float, 3> {});
+    auto ortho       = Arc<owe::SceneSoundPosition>::make(array<float, 3> {});
+    scene.SetOrtho({ i32(32), i32(32) });
+    owe::SoundParser::TrackPosition(scene, *emitter, perspective.clone(), false);
+    owe::SoundParser::TrackPosition(scene, *emitter, ortho.clone(), true);
+    {
+        auto p = perspective->lock().unwrap();
+        EXPECT_FLOAT_EQ((*p)[usize()], 6.0f);
+        EXPECT_FLOAT_EQ((*p)[usize(2)], -4.0f);
+    }
+    {
+        auto p = ortho->lock().unwrap();
+        EXPECT_NEAR((*p)[usize()], 1.25f * 6.0f / std::sqrt(52.0f), 1.0e-5f);
+        EXPECT_NEAR((*p)[usize(2)], -1.25f * 4.0f / std::sqrt(52.0f), 1.0e-5f);
+    }
+
+    parent->SetTranslate({ -2.0, 0.0, 0.0 });
+    camera->SetLookAt({ 2.0, 0.0, 0.0 }, { 1.0, 0.0, 0.0 }, Eigen::Vector3d::UnitY());
+    scene.TickTransformUpdaters();
+    auto p = perspective->lock().unwrap();
+    EXPECT_FLOAT_EQ((*p)[usize()], 4.0f);
+    EXPECT_FLOAT_EQ((*p)[usize(2)], -2.0f);
+}
+
+TEST(SceneSoundPlayback, SpatialBufferBoundariesPreserveEveryDecodedFrame) {
+    using namespace rstd::prelude;
+    auto temporary = rstd::fs::TempDir::make("owe-spatial-pcm"_str).unwrap();
+    auto root      = rstd::path::PathBuf::from(temporary.path().as_os_str().to_os_string());
+    ASSERT_TRUE(WriteSoundFixture(root.join("ramp.wav"_str).as_path(), 1, true));
+    owe::wpscene::SoundObject sound { .spatialization = true };
+    sound.sound.push("ramp.wav"_Str);
+    auto  prepared = PrepareSoundFixture(temporary.path(), sound);
+    auto& stream   = prepared.stream->stream();
+    stream.pass_desc({ u32(2), u32(48000) });
+    float    output[512] {};
+    unsigned cursor = 0;
+    float    gain   = 0.0f;
+    for (unsigned frames : { 13u, 1u, 256u, 27u }) {
+        ASSERT_EQ(stream.next_pcm(output, u32(frames)), u64(frames));
+        if (cursor == 0) gain = output[0] * 2.0f;
+        for (unsigned i = 0; i < frames; ++i) {
+            const auto expected = gain * (0x4000u + cursor + i) / 32768.0f;
+            EXPECT_NEAR(output[i * 2], expected, 1.0e-6f);
+            EXPECT_NEAR(output[i * 2 + 1], expected, 1.0e-6f);
+        }
+        cursor += frames;
+    }
+    EXPECT_GT(gain, 0.1f);
+    prepared.control->Stop();
+    ASSERT_EQ(stream.next_pcm(output, u32(16)), u64());
+    prepared.control->Play();
+    ASSERT_EQ(stream.next_pcm(output, u32(16)), u64(16));
+    EXPECT_NEAR(output[0], gain * 0.5f, 1.0e-6f);
 }
 
 TEST(SceneSoundPlayback, RandomWaitsBetweenClipsAtTheSampleBoundary) {

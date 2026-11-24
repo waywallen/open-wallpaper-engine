@@ -324,7 +324,7 @@ void InitContext(SceneParseContext& context, fs::VFS& vfs, const wpscene::SceneM
 }
 
 void ParseSoundObjImpl(SceneLayerBuildContext& context, wpscene::SoundObject& obj,
-                       Arc<dyn<SceneSoundControl>> control) {
+                       ScenePreparedSound& prepared) {
     auto node = Arc<SceneNode>::make(Vector3f(obj.origin.data()),
                                      Vector3f(obj.scale.data()),
                                      Vector3f(obj.angles.data()),
@@ -336,11 +336,18 @@ void ParseSoundObjImpl(SceneLayerBuildContext& context, wpscene::SoundObject& ob
         node->SetVisibleUserBinding(ToSceneUserVisibilityBinding(obj.visible_user));
 
     if (! obj.volume_user_key.is_empty()) {
-        context.scene->RegisterSoundVolumeBinding(
-            obj.volume_user_key.as_str(), control.clone(), context.scene->RegisterNode(*node));
+        context.scene->RegisterSoundVolumeBinding(obj.volume_user_key.as_str(),
+                                                  prepared.control.clone(),
+                                                  context.scene->RegisterNode(*node));
     }
-    node->SetSoundControl(rstd::move(control));
+    node->SetSoundControl(prepared.control.clone());
     node->SetVolume(obj.volume);
+    if (prepared.position) {
+        SoundParser::TrackPosition(*context.scene,
+                                   *node,
+                                   (*prepared.position).clone(),
+                                   context.layer_resources->orthographic_scene);
+    }
 
     AssignNodeFieldAnimations(context, *node.as_ptr(), obj.field_bindings);
     WireFieldScripts(context, node, obj.field_bindings);
@@ -623,23 +630,21 @@ namespace owe
 void ParseSoundObj(SceneParseContext& context, wpscene::SoundObject& sound,
                    wavsen::audio::SoundManager& manager) {
     PrepareAnimationBindings(context, sound);
-    auto control = SoundParser::Parse(sound,
-                                      *context.vfs,
-                                      manager,
-                                      context.scene,
-                                      context.layer_resources->sound_unmount.clone());
-    ParseSoundObjImpl(context, sound, rstd::move(control));
+    auto prepared = SoundParser::Prepare(
+        sound, *context.vfs, context.scene, context.layer_resources->sound_unmount.clone());
+    ParseSoundObjImpl(context, sound, prepared);
+    auto id = manager.mount(rstd::move(prepared.stream));
+    if (id.is_some() && ! prepared.mount->Attach(*id)) (void)manager.unmount(*id);
 }
 
 bool ParseSoundObj(SceneLayerBuildContext& context, wpscene::SoundObject& sound) {
     auto& resources = *context.layer_resources;
     if (resources.sound_mount.is_none() || resources.sound_unmount.is_none()) return false;
     PrepareAnimationBindings(context, sound);
-    auto prepared = SoundParser::PrepareAsync(
-        sound, *context.vfs, context.scene, (*resources.sound_unmount).clone());
-    auto control = prepared.control.clone();
+    auto prepared =
+        SoundParser::Prepare(sound, *context.vfs, context.scene, resources.sound_unmount.clone());
+    ParseSoundObjImpl(context, sound, prepared);
     context.pending_sounds.push(rstd::move(prepared));
-    ParseSoundObjImpl(context, sound, rstd::move(control));
     return true;
 }
 

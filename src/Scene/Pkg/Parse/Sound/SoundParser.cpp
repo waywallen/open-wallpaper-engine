@@ -1,4 +1,5 @@
 module wescene.pkg.parse;
+import wescene.scene_spatial_audio;
 import wescene.core;
 import wescene.scene;
 import rstd.log;
@@ -103,14 +104,18 @@ public:
         f32          mintime {};
         f32          volume { 1.0f };
         PlaybackMode mode { PlaybackMode::Loop };
+        float        reference_distance { 1.0f };
+        float        rolloff { 1.0f };
     };
     SoundStream(Vec<String> paths, Arc<fs::VFS> vfs, Config c, Arc<SoundState> state,
-                Option<Arc<SceneAudioAverage>> audio_average)
+                Option<Arc<SceneAudioAverage>>  audio_average,
+                Option<Arc<SceneSoundPosition>> position)
         : vfs(rstd::move(vfs)),
           m_config(c),
           m_state(rstd::move(state)),
           m_soundPaths(rstd::move(paths)),
-          m_audio_average(rstd::move(audio_average)) {};
+          m_audio_average(rstd::move(audio_average)),
+          m_position(rstd::move(position)) {};
     virtual ~SoundStream() = default;
 
     u64 next_pcm(void* pData, u32 frameCount) override {
@@ -133,13 +138,67 @@ public:
         }
         return frameReads;
     };
-    void pass_desc(const Desc& d) override { m_desc = d; }
+    void pass_desc(const Desc& d) override {
+        if (m_desc.channels == d.channels && m_desc.sample_rate == d.sample_rate) return;
+        m_desc = d;
+        m_spatial.Reset();
+        m_spatial_attempted = false;
+        m_spatial_ready     = false;
+        if (m_curActive && ! RetargetClip(*m_curActive)) m_curActive = None();
+    }
 
 private:
+    bool RetargetClip(wavsen::audio::StreamDecoder& clip) {
+        if (m_position && m_desc.channels == u32(2) && clip.channels() == u32(1) &&
+            ! m_spatial_attempted) {
+            m_spatial_attempted = true;
+            m_spatial_ready =
+                m_spatial.Init(m_desc.sample_rate, m_config.reference_distance, m_config.rolloff);
+            if (! m_spatial_ready) {
+                m_spatial.Reset();
+                rstd::log::warn(
+                    "SoundStream: OpenAL loopback unavailable; using ordinary playback");
+            }
+        }
+        m_spatial_clip = m_spatial_ready && clip.channels() == u32(1);
+        if (m_spatial_clip)
+            clip.retarget({ u32(1), m_desc.sample_rate });
+        else
+            clip.retarget({ m_desc.channels, m_desc.sample_rate });
+        return clip.error().kind == wavsen::audio::MediaErrorKind::None;
+    }
+
+    auto ReadClip(void* output, u32 frames) -> u64 {
+        if (! m_spatial_clip) return m_curActive->next_pcm(output, frames);
+        const auto count = rstd::as_cast<usize>(frames);
+        if (m_mono.len() <= count) m_mono.resize(count + usize(1), 0.0f);
+        const auto produced = m_curActive->next_pcm(m_mono.data(), frames);
+        if (produced == u64()) return produced;
+        auto* stereo = static_cast<float*>(output);
+        auto  mono   = slice<float>::from_raw_parts(m_mono.data(), rstd::as_cast<usize>(produced));
+        const auto position = [&] {
+            auto locked = (*m_position)->lock().unwrap_unchecked();
+            return array<float, 3>(*locked);
+        }();
+        if (m_spatial_ready) {
+            auto queued = mut_ref<float[]>::from_raw_parts(m_mono.data(), mono.len() + usize(1));
+            if (m_spatial.Render(queued, position, stereo)) return produced;
+            m_spatial_ready = false;
+            m_spatial.Reset();
+            rstd::log::warn("SoundStream: OpenAL loopback render failed; using ordinary playback");
+        }
+        for (const float sample : mono) {
+            const float value = sample * 0.70710678f;
+            *stereo++         = value;
+            *stereo++         = value;
+        }
+        return produced;
+    }
+
     auto ReadContinuous(void* output, u32 frames) -> u64 {
         if (! m_curActive) Switch();
         if (! m_curActive) return u64();
-        const auto produced = (*m_curActive)->stream().next_pcm(output, frames);
+        const auto produced = ReadClip(output, frames);
         if (produced != u64()) return produced;
 
         m_curActive = None();
@@ -148,7 +207,7 @@ private:
             return u64();
         }
         Switch();
-        return m_curActive ? (*m_curActive)->stream().next_pcm(output, frames) : u64();
+        return m_curActive ? ReadClip(output, frames) : u64();
     }
 
     auto NextRandomGap() const -> u64 {
@@ -176,10 +235,9 @@ private:
             if (! m_curActive) Switch();
             if (! m_curActive) break;
 
-            const auto request = available - skipped;
-            auto*      next    = output + (rstd::as_cast<usize>(offset) * channels).to_primitive();
-            const auto produced =
-                (*m_curActive)->stream().next_pcm(next, rstd::as_cast<u32>(request));
+            const auto request  = available - skipped;
+            auto*      next     = output + (rstd::as_cast<usize>(offset) * channels).to_primitive();
+            const auto produced = ReadClip(next, rstd::as_cast<u32>(request));
             if (produced != u64()) {
                 // The mixer supplies trailing silence, but any gap before new PCM is ours.
                 if (written != offset) {
@@ -208,6 +266,7 @@ private:
     // audio callback stops re-trying every tick (which spammed FFmpeg's
     // demuxer-probe errors at audio-callback rate).
     void Switch() {
+        m_spatial.Stop();
         m_curActive  = None();
         const auto n = rstd::as_cast<u32>(m_soundPaths.len());
         if (n == u32()) {
@@ -221,9 +280,10 @@ private:
             if (source.is_err()) continue;
             auto handle =
                 rstd::io::ReadSeekHandle::make(rstd::move(source).unwrap_unchecked().into_reader());
-            auto stream = wavsen::audio::make_stream(rstd::move(handle), m_desc);
-            if (stream) {
-                m_curActive = rstd::move(stream);
+            wavsen::audio::StreamDecoder stream;
+            if (stream.open(rstd::move(handle), { m_desc.channels, m_desc.sample_rate })) {
+                if (m_position && ! RetargetClip(stream)) continue;
+                m_curActive = Some(rstd::move(stream));
                 return;
             }
         }
@@ -247,6 +307,7 @@ private:
     void SyncControl() {
         const u32 stop_seq = m_state->stop_seq.load(Ordering::Acquire);
         if (stop_seq != m_seenStopSeq) {
+            m_spatial.Stop();
             m_seenStopSeq = stop_seq;
             m_curActive   = None();
             m_random_gap  = u64();
@@ -254,6 +315,7 @@ private:
         }
         const u32 play_seq = m_state->play_seq.load(Ordering::Acquire);
         if (play_seq != m_seenPlaySeq) {
+            m_spatial.Stop();
             m_seenPlaySeq = play_seq;
             m_curActive   = None();
             m_random_gap  = u64();
@@ -287,7 +349,7 @@ private:
 
     Arc<fs::VFS>    vfs;
     Config          m_config;
-    Desc            m_desc;
+    Desc            m_desc {};
     Arc<SoundState> m_state;
     u32             m_curIndex {};
     u32             m_seenPlaySeq {};
@@ -295,21 +357,32 @@ private:
     u64             m_random_gap {};
     bool            m_dead { false };
 
-    const Vec<String>                                  m_soundPaths;
-    Option<Box<dyn<wavsen::audio::SoundStreamObject>>> m_curActive;
-    Option<Arc<SceneAudioAverage>>                     m_audio_average;
+    const Vec<String>                    m_soundPaths;
+    Option<wavsen::audio::StreamDecoder> m_curActive;
+    Option<Arc<SceneAudioAverage>>       m_audio_average;
+    Option<Arc<SceneSoundPosition>>      m_position;
+    SpatialSoundMixer                    m_spatial;
+    Vec<float>                           m_mono;
+    bool                                 m_spatial_attempted {};
+    bool                                 m_spatial_ready {};
+    bool                                 m_spatial_clip {};
 };
 
-namespace
-{
-auto PrepareSound(const wpscene::SoundObject& obj, fs::VFS& vfs, Scene* scene,
-                  Option<SceneSoundUnmountCallback> unmount) -> ScenePreparedSound {
+auto SoundParser::Prepare(const wpscene::SoundObject& obj, fs::VFS& vfs, Scene* scene,
+                          Option<SceneSoundUnmountCallback> unmount) -> ScenePreparedSound {
     const auto min_delay = f32(obj.mintime).is_finite() ? f32(obj.mintime).max(f32()) : f32();
     const auto max_delay = f32(obj.maxtime).is_finite() ? f32(obj.maxtime).max(f32()) : f32();
     SoundStream::Config config { .maxtime = min_delay.max(max_delay),
                                  .mintime = min_delay.min(max_delay),
                                  .volume  = f32(obj.volume).clamp(f32(), f32(1.0f)),
-                                 .mode    = ToPlaybackMode(obj.playbackmode.as_str()) };
+                                 .mode    = ToPlaybackMode(obj.playbackmode.as_str()),
+                                 .reference_distance =
+                                     f32(obj.mindistance).is_finite()
+                                         ? f32(obj.mindistance).max(f32()).to_primitive()
+                                         : 1.0f,
+                                 .rolloff = f32(obj.attenuation).is_finite()
+                                                ? f32(obj.attenuation).max(f32()).to_primitive()
+                                                : 1.0f };
 
     Option<Arc<SceneAudioAverage>> audio_average = None();
     if (scene != nullptr) audio_average = Some(scene->AudioAverageHandle());
@@ -319,8 +392,14 @@ auto PrepareSound(const wpscene::SoundObject& obj, fs::VFS& vfs, Scene* scene,
     // something toggles it.
     state->playing.store(obj.visible && ! obj.startsilent, Ordering::Release);
     state->volume.store(config.volume, Ordering::Release);
-    auto ss = Box<SoundStream>::make(
-        obj.sound.clone(), vfs.Snapshot(), config, state.clone(), rstd::move(audio_average));
+    Option<Arc<SceneSoundPosition>> position;
+    if (obj.spatialization) position = Some(Arc<SceneSoundPosition>::make(array<float, 3> {}));
+    auto ss    = Box<SoundStream>::make(obj.sound.clone(),
+                                        vfs.Snapshot(),
+                                        config,
+                                        state.clone(),
+                                        rstd::move(audio_average),
+                                        position.clone());
     auto mount = Arc<SceneSoundMountState>::make();
     auto lease = Arc<SoundLease>::make(mount.clone(), rstd::move(unmount));
     return {
@@ -328,21 +407,47 @@ auto PrepareSound(const wpscene::SoundObject& obj, fs::VFS& vfs, Scene* scene,
             SoundControl(rstd::move(state), Some(rstd::move(lease)))),
         .stream = Box<dyn<wavsen::audio::SoundStreamObject>>::from_raw(
             dyn<wavsen::audio::SoundStreamObject>::from_ptr(rstd::move(ss).into_raw())),
-        .mount = rstd::move(mount),
+        .mount    = rstd::move(mount),
+        .position = rstd::move(position),
     };
+}
+
+namespace
+{
+auto ListenerPosition(Scene& scene, SceneNode& node, bool orthographic) -> array<float, 3> {
+    auto camera = scene.ActiveCamera();
+    if (! camera) return {};
+
+    node.UpdateTrans();
+    const Eigen::Vector3d world    = node.ModelTrans().block<3, 1>(0, 3);
+    const auto            listener = (*camera)->Transforms();
+    const Eigen::Vector3d delta    = world - listener.eye;
+    const Eigen::Vector3d forward  = (listener.center - listener.eye).normalized();
+    const Eigen::Vector3d right    = forward.cross(listener.up).normalized();
+    const Eigen::Vector3d up       = right.cross(forward);
+    Eigen::Vector3d       position(right.dot(delta), up.dot(delta), -forward.dot(delta));
+    if (orthographic) {
+        auto         extent = scene.Ortho();
+        const double size =
+            (rstd::as_cast<double>(extent[usize()]) + rstd::as_cast<double>(extent[usize(1)])) *
+            0.25;
+        if (size <= 0.0) return {};
+        position = position.normalized() * (rstd::cmp::max(0.0, size - world.z()) / size);
+    }
+    const Eigen::Vector3f value = position.cast<float>();
+    if (! value.allFinite()) return {};
+    return { value.x(), value.y(), value.z() };
 }
 } // namespace
 
-Arc<dyn<SceneSoundControl>> SoundParser::Parse(const wpscene::SoundObject& obj, fs::VFS& vfs,
-                                               wavsen::audio::SoundManager& sm, Scene* scene,
-                                               Option<SceneSoundUnmountCallback> unmount) {
-    auto prepared = PrepareSound(obj, vfs, scene, rstd::move(unmount));
-    auto id       = sm.mount(rstd::move(prepared.stream));
-    if (id.is_some() && ! prepared.mount->Attach(*id)) (void)sm.unmount(*id);
-    return rstd::move(prepared.control);
-}
-
-auto SoundParser::PrepareAsync(const wpscene::SoundObject& obj, fs::VFS& vfs, Scene* scene,
-                               SceneSoundUnmountCallback unmount) -> ScenePreparedSound {
-    return PrepareSound(obj, vfs, scene, Some(rstd::move(unmount)));
+void SoundParser::TrackPosition(Scene& scene, SceneNode& node, Arc<SceneSoundPosition> state,
+                                bool orthographic) {
+    auto publish = [&scene, &node, state = rstd::move(state), orthographic](f64) {
+        const auto position = ListenerPosition(scene, node, orthographic);
+        auto       locked   = state->lock().unwrap_unchecked();
+        *locked             = position;
+    };
+    publish(f64());
+    scene.RegisterTransformUpdater(Box<dyn<FnMut<void(f64)>>>::make(rstd::move(publish)),
+                                   scene.RegisterNode(node));
 }

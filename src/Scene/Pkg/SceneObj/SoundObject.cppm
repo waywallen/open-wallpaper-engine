@@ -44,7 +44,9 @@ struct SoundObject {
     bool   startsilent { false };    // PKGV0002+
     bool   blockalign { false };     // PKGV0018+
     bool   spatialization { false }; // PKGV0023+
-    String queuemode;                // PKGV0020+
+    float  mindistance { 1.0f };
+    float  attenuation { 1.0f };
+    String queuemode; // PKGV0020+
 
     VisibleUserBinding visible_user;
     String             visible_user_key;
@@ -83,6 +85,8 @@ struct SoundObject {
         owe::GetJsonValue(json, "startsilent"_str, startsilent, false);
         owe::GetJsonValue(json, "blockalign"_str, blockalign, false);
         owe::GetJsonValue(json, "spatialization"_str, spatialization, false);
+        owe::GetJsonValue(json, "mindistance"_str, mindistance, false);
+        owe::GetJsonValue(json, "attenuation"_str, attenuation, false);
         owe::GetJsonValue(json, "queuemode"_str, queuemode, false);
 
         auto sound_json = json.get("sound"_str);

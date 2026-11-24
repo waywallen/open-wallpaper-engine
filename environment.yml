@@ -33,6 +33,7 @@ dependencies:
   - freetype
   - expat
   - lz4-c
+  - openal-soft
   - zlib
 
   # CEF and vui-host dependencies (wayland includes wayland-scanner).

@@ -14,6 +14,7 @@ export namespace owe
 
 using rstd::sync::Arc;
 using SceneSoundUnmountCallback = Arc<rstd::dyn<rstd::Fn<void(wavsen::audio::SoundStreamId)>>>;
+using SceneSoundPosition        = rstd::sync::Mutex<array<float, 3>>;
 
 class SceneSoundMountState {
 public:
@@ -36,15 +37,14 @@ struct ScenePreparedSound {
     Arc<rstd::dyn<SceneSoundControl>>                control;
     Box<rstd::dyn<wavsen::audio::SoundStreamObject>> stream;
     Arc<SceneSoundMountState>                        mount;
+    Option<Arc<SceneSoundPosition>>                  position;
 };
 
 class SoundParser {
 public:
-    static Arc<rstd::dyn<SceneSoundControl>> Parse(const wpscene::SoundObject&, fs::VFS&,
-                                                   wavsen::audio::SoundManager&, Scene*,
-                                                   rstd::Option<SceneSoundUnmountCallback> = {});
-    static auto PrepareAsync(const wpscene::SoundObject&, fs::VFS&, Scene*,
-                             SceneSoundUnmountCallback) -> ScenePreparedSound;
+    static auto Prepare(const wpscene::SoundObject&, fs::VFS&, Scene*,
+                        Option<SceneSoundUnmountCallback> = {}) -> ScenePreparedSound;
+    static void TrackPosition(Scene&, SceneNode&, Arc<SceneSoundPosition>, bool orthographic);
 };
 
 } // namespace owe

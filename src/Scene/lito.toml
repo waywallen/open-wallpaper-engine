@@ -11,6 +11,7 @@ sources = [
   "third_party/stb_image.cppm",
   "src/Scene/Audio/SceneAudioResponse.cppm",
   "src/Scene/Audio/SceneAudioResponse.cpp",
+  "src/Scene/Audio/SpatialSoundMixer.cppm",
   "src/Scene/Lighting/Lighting.cppm",
   "src/Scene/LoadBench.cppm",
   "src/Scene/FrameCapture.cppm",
@@ -227,6 +228,9 @@ targets = [{ name = "qjs", pub = true }]
 [external-dependencies.pkg-config.lz4]
 workspace = true
 pub = true
+
+[external-dependencies.pkg-config.openal]
+module = "openal"
 
 [dependencies.vectext]
 workspace = true
