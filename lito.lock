@@ -218,32 +218,32 @@ dependencies = [
 
 [[packages.externals]]
 name = "cef"
-source = "archive+https://cef-builds.spotifycdn.com/cef_binary_149.0.4%2Bg2f1bfd8%2Bchromium-149.0.7827.156_linuxarm64_minimal.tar.bz2"
-checksum = "8909a79689eec7b23ed80084b69766952d44e00f9a345832951b32903f8a80a0"
+source = "archive+https://cef-builds.spotifycdn.com/cef_binary_158.0.3%2Bg8c29be2%2Bchromium-158.0.8127.18_linuxarm64_minimal.tar.bz2"
+checksum = "99b96d19bc43b74d721638444af4c9b9ce240d6f3d1a27d1d0c33794549538f3"
 architectures = [
   "aarch64",
 ]
 
 [[packages.externals]]
 name = "cef"
-source = "archive+https://cef-builds.spotifycdn.com/cef_binary_149.0.4%2Bg2f1bfd8%2Bchromium-149.0.7827.156_linux64_minimal.tar.bz2"
-checksum = "6d43607675e47ed6bfa40d1cfce136d04e7720529f8f1c4435d4ba1dcd1839b2"
+source = "archive+https://cef-builds.spotifycdn.com/cef_binary_158.0.3%2Bg8c29be2%2Bchromium-158.0.8127.18_linux64_minimal.tar.bz2"
+checksum = "2c5dfc7c1073f61f2511ab0183e835e0810d6ace7e17811ae9d375faa838fd25"
 architectures = [
   "x86_64",
 ]
 
 [[packages.externals]]
 name = "cef-macos"
-source = "archive+https://cef-builds.spotifycdn.com/cef_binary_149.0.4%2Bg2f1bfd8%2Bchromium-149.0.7827.156_macosarm64_minimal.tar.bz2"
-checksum = "7eb30795aa583de17ce59ce38a420ef776a9f0412f9fe0e90306bf3dc94b0b62"
+source = "archive+https://cef-builds.spotifycdn.com/cef_binary_158.0.3%2Bg8c29be2%2Bchromium-158.0.8127.18_macosarm64_minimal.tar.bz2"
+checksum = "eb4877f894615c0f1b806b699c74d19c476696f7716daee22811b883a9e8441f"
 architectures = [
   "aarch64",
 ]
 
 [[packages.externals]]
 name = "cef-macos"
-source = "archive+https://cef-builds.spotifycdn.com/cef_binary_149.0.4%2Bg2f1bfd8%2Bchromium-149.0.7827.156_macosx64_minimal.tar.bz2"
-checksum = "75639ff6181a63194b1aae1c69ad1aa7fc2033dcc92b11554c57844c86f4e4bb"
+source = "archive+https://cef-builds.spotifycdn.com/cef_binary_158.0.3%2Bg8c29be2%2Bchromium-158.0.8127.18_macosx64_minimal.tar.bz2"
+checksum = "38e5264c72ab4bdc7e3c0889faed8a30496344a7a76a81e2ad6557006d3e24d7"
 architectures = [
   "x86_64",
 ]

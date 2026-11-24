@@ -3,6 +3,7 @@ export module owe.cli.web.waywallen.web_producer_device;
 import rstd;
 import vvk;
 import weweb;
+import owe.cli.web.dmabuf_image;
 
 using namespace rstd::prelude;
 
@@ -45,30 +46,7 @@ public:
     const uint8_t* DeviceUuid() const { return device_uuid_; }
     const uint8_t* DriverUuid() const { return driver_uuid_; }
 
-    // CEF DMA-BUF wrapped as a temporary VkImage. Lives until
-    // `DestroyImported` is called. The blit must finish reading
-    // `image` before destruction — `BlitToSlot` ensures that with a
-    // CPU-side fence wait before returning.
-    struct ImportedFrame {
-        VkImage        image { VK_NULL_HANDLE };
-        VkDeviceMemory memory { VK_NULL_HANDLE };
-        uint32_t       width { 0 };
-        uint32_t       height { 0 };
-        VkFormat       format { VK_FORMAT_UNDEFINED };
-        bool           ok { false };
-    };
-
-    // Import a CEF DMA-BUF as a temporary VkImage. The plane FD is
-    // dup()ed internally so the caller can hand the original back to
-    // CEF on callback return. `frame.modifier == DRM_FORMAT_MOD_INVALID`
-    // is folded onto LINEAR (matches CEF's stride-equals-width*bpp
-    // observation).
-    ImportedFrame Import(const ::weweb::DmaBufFrame& frame);
-
-    // Free the temp image + memory. Must be called from the same
-    // thread; the GPU must already be finished reading (BlitToSlot
-    // waits a fence on the caller's behalf).
-    void DestroyImported(ImportedFrame& imp);
+    Option<::weweb::DmaBufImage> Import(const ::weweb::DmaBufFrame& frame);
 
     // Record vkCmdBlitImage `imp.image → slot_image` (scaled to
     // `slot_extent`), submit, signal an exportable binary semaphore. Blocks on
@@ -76,7 +54,8 @@ public:
     // success returns a sync_file fd suitable for
     // `ww_bridge_pool_submit_slot` (caller hands ownership to bridge);
     // returns -1 on failure.
-    int BlitToSlot(const ImportedFrame& imp, VkImage slot_image, VkExtent2D slot_extent);
+    int BlitToSlot(const ::weweb::DmaBufImage& imported, VkImage slot_image,
+                   VkExtent2D slot_extent);
 
     // Upload a CEF CPU paint buffer into a bridge slot. `slot_format`
     // must be the VkFormat published by BridgeProducerCore for the

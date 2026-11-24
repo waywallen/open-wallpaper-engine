@@ -17,8 +17,6 @@ if lito.target:match("-linux") then
         mode = "symbols",
         files = {
             "chrome-sandbox",
-            "libEGL.so",
-            "libGLESv2.so",
             "libcef.so",
             "libvk_swiftshader.so",
             "libvulkan.so.1",

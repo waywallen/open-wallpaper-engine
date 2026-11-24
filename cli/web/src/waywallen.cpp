@@ -777,17 +777,16 @@ int run(int argc, char** argv) {
             frame.visible_height != static_cast<int>(core.height()))
             return;
 
-        auto imp = producer.Import(frame);
-        if (! imp.ok) return;
+        auto imported = producer.Import(frame);
+        if (imported.is_none()) return;
 
         submit_bridge_slot(state,
                            core,
-                           [&producer, &imp](VkImage    slot_image,
-                                             VkExtent2D slot_extent,
-                                             VkFormat /*slot_format*/) {
-                               return producer.BlitToSlot(imp, slot_image, slot_extent);
+                           [&producer, &imported](VkImage    slot_image,
+                                                  VkExtent2D slot_extent,
+                                                  VkFormat /*slot_format*/) {
+                               return producer.BlitToSlot(*imported, slot_image, slot_extent);
                            });
-        producer.DestroyImported(imp);
     });
 
     host.SetCpuPaintCallback([&state, &core, &producer](const weweb::CpuPaintFrame& frame) {

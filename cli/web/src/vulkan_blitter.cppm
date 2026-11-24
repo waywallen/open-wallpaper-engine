@@ -12,7 +12,7 @@ export namespace weweb
 
 // Vulkan presenter for CEF accelerated-paint frames.
 //
-// AcceptDmaBuf imports a CEF DMA-BUF as a temporary linear VkImage,
+// AcceptDmaBuf imports a CEF DMA-BUF as a temporary VkImage,
 // vkCmdCopyImage's it into a persistent device-local "owned" VkImage,
 // waits on a fence (CEF reclaims the buffer the moment the callback
 // returns), and tears down the temporaries.
@@ -38,7 +38,9 @@ public:
     rstd::uint32_t Height() const { return extent_.height; }
 
     bool Resize();
+#if __is_target_os(linux)
     bool AcceptDmaBuf(const DmaBufFrame& frame);
+#endif
     bool AcceptCpuPaint(const CpuPaintFrame& frame);
     bool RenderFrame();
 
@@ -58,7 +60,7 @@ private:
     bool CopyCpuStagingToOwned(int width, int height);
 #endif
 
-    bool EnsureOwnedImage(int width, int height);
+    bool EnsureOwnedImage(int width, int height, VkFormat format = VK_FORMAT_B8G8R8A8_UNORM);
     void DestroyOwnedImage();
 
     void DestroySwapchain();
@@ -96,6 +98,7 @@ private:
     VkImage        owned_image_ { VK_NULL_HANDLE };
     VkDeviceMemory owned_image_mem_ { VK_NULL_HANDLE };
     VkImageLayout  owned_layout_ { VK_IMAGE_LAYOUT_UNDEFINED };
+    VkFormat       owned_format_ { VK_FORMAT_UNDEFINED };
     int            owned_width_ { 0 };
     int            owned_height_ { 0 };
     bool           owned_has_data_ { false };

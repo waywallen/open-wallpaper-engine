@@ -11,6 +11,9 @@ import weweb;
 import vvk;
 
 import vui.host;
+#if __is_target_os(linux)
+import owe.cli.web.dmabuf_image;
+#endif
 
 using rstd::mem::memcpy;
 
@@ -53,14 +56,6 @@ bool HasInstanceExtension(slice<VkExtensionProperties> extensions, const char* n
     });
 }
 #endif
-
-VkFormat FormatToVk(DmaBufFormat f) {
-    switch (f) {
-    case DmaBufFormat::BGRA8_UNORM: return VK_FORMAT_B8G8R8A8_UNORM;
-    case DmaBufFormat::RGBA8_UNORM: return VK_FORMAT_R8G8B8A8_UNORM;
-    }
-    return VK_FORMAT_B8G8R8A8_UNORM;
-}
 
 } // namespace
 
@@ -236,7 +231,7 @@ bool VulkanBlitter::PickPhysicalDevice() {
             bool has_portability_subset = false;
 #else
             bool has_swapchain = false, has_ext_mem_fd = false, has_dma_buf = false,
-                 has_modifier = false, has_fmt_list = false;
+                 has_modifier = false, has_fmt_list = false, has_q_foreign = false;
 #endif
             for (auto& e : exts) {
                 if ((CStr::from_ptr(e.extensionName).to_bytes() ==
@@ -259,6 +254,9 @@ bool VulkanBlitter::PickPhysicalDevice() {
                 if ((CStr::from_ptr(e.extensionName).to_bytes() ==
                      CStr::from_ptr(VK_KHR_IMAGE_FORMAT_LIST_EXTENSION_NAME).to_bytes()))
                     has_fmt_list = true;
+                if ((CStr::from_ptr(e.extensionName).to_bytes() ==
+                     CStr::from_ptr(VK_EXT_QUEUE_FAMILY_FOREIGN_EXTENSION_NAME).to_bytes()))
+                    has_q_foreign = true;
 #endif
             }
 #if __is_target_os(macos)
@@ -266,7 +264,7 @@ bool VulkanBlitter::PickPhysicalDevice() {
             portability_subset_supported_ = has_portability_subset;
 #else
             if (! has_swapchain || ! has_ext_mem_fd || ! has_dma_buf || ! has_modifier ||
-                ! has_fmt_list)
+                ! has_fmt_list || ! has_q_foreign)
                 continue;
 #endif
 
@@ -279,7 +277,7 @@ bool VulkanBlitter::PickPhysicalDevice() {
 #if __is_target_os(macos)
     eprint("weweb: no suitable Vulkan device with graphics/present support\n");
 #else
-    eprint("weweb: no suitable Vulkan device (need swapchain + external_memory_fd + dma_buf)\n");
+    eprint("weweb: no suitable Vulkan device (need swapchain and DMA-BUF modifier import)\n");
 #endif
     return false;
 }
@@ -303,6 +301,7 @@ bool VulkanBlitter::CreateDevice() {
         VK_KHR_SWAPCHAIN_EXTENSION_NAME,
         VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME,
         VK_EXT_EXTERNAL_MEMORY_DMA_BUF_EXTENSION_NAME,
+        VK_EXT_QUEUE_FAMILY_FOREIGN_EXTENSION_NAME,
         // Required by VK_EXT_image_drm_format_modifier on Vulkan 1.1
         // (promoted to core in 1.2). Validation rejects the device otherwise.
         VK_KHR_IMAGE_FORMAT_LIST_EXTENSION_NAME,
@@ -676,8 +675,9 @@ rstd::uint32_t VulkanBlitter::FindMemoryType(rstd::uint32_t        type_bits,
     return u32::MAX.to_primitive();
 }
 
-bool VulkanBlitter::EnsureOwnedImage(int width, int height) {
-    if (owned_image_ != VK_NULL_HANDLE && owned_width_ == width && owned_height_ == height) {
+bool VulkanBlitter::EnsureOwnedImage(int width, int height, VkFormat format) {
+    if (owned_image_ != VK_NULL_HANDLE && owned_width_ == width && owned_height_ == height &&
+        owned_format_ == format) {
         return true;
     }
 #if __is_target_os(macos)
@@ -701,7 +701,7 @@ bool VulkanBlitter::EnsureOwnedImage(int width, int height) {
     VkImageCreateInfo ii {};
     ii.sType       = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     ii.imageType   = VK_IMAGE_TYPE_2D;
-    ii.format      = VK_FORMAT_B8G8R8A8_UNORM;
+    ii.format      = format;
     ii.extent      = { static_cast<rstd::uint32_t>(width), static_cast<rstd::uint32_t>(height), 1 };
     ii.mipLevels   = 1;
     ii.arrayLayers = 1;
@@ -727,6 +727,7 @@ bool VulkanBlitter::EnsureOwnedImage(int width, int height) {
 
     owned_width_    = width;
     owned_height_   = height;
+    owned_format_   = format;
     owned_layout_   = VK_IMAGE_LAYOUT_UNDEFINED;
     owned_has_data_ = false;
     return true;
@@ -778,191 +779,36 @@ bool VulkanBlitter::AcceptCpuPaint(const CpuPaintFrame& frame) {
 #endif
 }
 
+#if __is_target_os(linux)
 bool VulkanBlitter::AcceptDmaBuf(const DmaBufFrame& frame) {
-    if (frame.plane_count < 1) return false;
-    if (frame.coded_width <= 0 || frame.coded_height <= 0) return false;
+    // RenderFrame may still be reading the owned image.
+    if (device_dispatch_.vkDeviceWaitIdle(device_) != VK_SUCCESS) return false;
 
-    // Wait for *any* in-flight GPU work on owned_image_ from a prior
-    // RenderFrame blit to finish. Single-threaded design, sub-ms cost.
-    if (device_) device_dispatch_.vkDeviceWaitIdle(device_);
+    auto imported = DmaBufImage::Import(device_owner_, frame, true);
+    if (imported.is_none()) return false;
+    if (! EnsureOwnedImage(frame.coded_width, frame.coded_height, imported->format())) return false;
 
-    if (! EnsureOwnedImage(frame.coded_width, frame.coded_height)) return false;
-
-    // Dup the FD — vkAllocateMemory consumes ownership on success and
-    // CEF reclaims its own FD when the callback returns.
-    int dup_fd = ::dup(frame.planes[0].fd);
-    if (dup_fd < 0) {
-        eprint("weweb: dup(dmabuf fd) failed\n");
-        return false;
-    }
-
-    // Look up which Vulkan memory types are valid for this FD.
-    VkMemoryFdPropertiesKHR fd_props {};
-    fd_props.sType = VK_STRUCTURE_TYPE_MEMORY_FD_PROPERTIES_KHR;
-    VkResult fdr   = device_dispatch_.vkGetMemoryFdPropertiesKHR(
-        device_, VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT, dup_fd, &fd_props);
-    if (fdr != VK_SUCCESS) {
-        eprint("weweb: vkGetMemoryFdPropertiesKHR={}\n", static_cast<int>(fdr));
-        ::close(dup_fd);
-        return false;
-    }
-
-    // Create a temporary image that references the imported memory.
-    // VK_EXT_image_drm_format_modifier is required on Mesa radv: a plain
-    // TILING_LINEAR image with VK_EXT_external_memory_dma_buf isn't
-    // enough — radv needs the explicit modifier + plane layout to map
-    // the imported pages into the GPU page table correctly. CEF's
-    // INVALID modifier (= no negotiated modifier; in practice the
-    // implementation picked LINEAR with stride matching width*bpp) is
-    // substituted with DRM_FORMAT_MOD_LINEAR (0).
-    constexpr rstd::uint64_t DRM_FORMAT_MOD_INVALID = 0x00ffffffffffffffULL;
-    constexpr rstd::uint64_t DRM_FORMAT_MOD_LINEAR  = 0x0;
-    rstd::uint64_t           modifier =
-        (frame.modifier == DRM_FORMAT_MOD_INVALID) ? DRM_FORMAT_MOD_LINEAR : frame.modifier;
-
-    // VUID-VkImageDrmFormatModifierExplicitCreateInfoEXT-size-02267:
-    // size must be 0; driver derives it from rowPitch + extent + format.
-    VkSubresourceLayout plane_layout {};
-    plane_layout.offset     = frame.planes[0].offset;
-    plane_layout.rowPitch   = frame.planes[0].stride;
-    plane_layout.arrayPitch = 0;
-    plane_layout.depthPitch = 0;
-
-    VkImageDrmFormatModifierExplicitCreateInfoEXT mod_info {};
-    mod_info.sType = VK_STRUCTURE_TYPE_IMAGE_DRM_FORMAT_MODIFIER_EXPLICIT_CREATE_INFO_EXT;
-    mod_info.drmFormatModifier           = modifier;
-    mod_info.drmFormatModifierPlaneCount = 1;
-    mod_info.pPlaneLayouts               = &plane_layout;
-
-    VkExternalMemoryImageCreateInfo ext_img {};
-    ext_img.sType       = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO;
-    ext_img.pNext       = &mod_info;
-    ext_img.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT;
-
-    VkImageCreateInfo ii {};
-    ii.sType         = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-    ii.pNext         = &ext_img;
-    ii.imageType     = VK_IMAGE_TYPE_2D;
-    ii.format        = FormatToVk(frame.format);
-    ii.extent        = { static_cast<rstd::uint32_t>(frame.coded_width),
-                         static_cast<rstd::uint32_t>(frame.coded_height),
-                         1 };
-    ii.mipLevels     = 1;
-    ii.arrayLayers   = 1;
-    ii.samples       = VK_SAMPLE_COUNT_1_BIT;
-    ii.tiling        = VK_IMAGE_TILING_DRM_FORMAT_MODIFIER_EXT;
-    ii.usage         = VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
-    ii.sharingMode   = VK_SHARING_MODE_EXCLUSIVE;
-    ii.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-
-    VkImage temp_img = VK_NULL_HANDLE;
-    if (device_dispatch_.vkCreateImage(device_, &ii, nullptr, &temp_img) != VK_SUCCESS) {
-        eprint("weweb: vkCreateImage(temp dma-buf) failed\n");
-        ::close(dup_fd);
-        return false;
-    }
-
-    VkMemoryRequirements mr {};
-    device_dispatch_.vkGetImageMemoryRequirements(device_, temp_img, &mr);
-
-    // Memory type must satisfy *both* the image's requirements AND the
-    // FD's allowable types. ANDing memoryTypeBits accomplishes that.
-    rstd::uint32_t allowed = mr.memoryTypeBits & fd_props.memoryTypeBits;
-    rstd::uint32_t mtype   = u32::MAX.to_primitive();
-    for (rstd::uint32_t i = 0; i < mem_props_.memoryTypeCount; ++i) {
-        if (allowed & (1u << i)) {
-            mtype = i;
-            break;
-        }
-    }
-    if (mtype == u32::MAX.to_primitive()) {
-        eprint("weweb: no compatible memory type for DMA-BUF\n");
-        device_dispatch_.vkDestroyImage(device_, temp_img, nullptr);
-        ::close(dup_fd);
-        return false;
-    }
-
-    // Dedicated allocation for an imported DMA-BUF is the safe path.
-    VkMemoryDedicatedAllocateInfo dedicated {};
-    dedicated.sType = VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO;
-    dedicated.image = temp_img;
-
-    VkImportMemoryFdInfoKHR import {};
-    import.sType      = VK_STRUCTURE_TYPE_IMPORT_MEMORY_FD_INFO_KHR;
-    import.pNext      = &dedicated;
-    import.handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT_EXT;
-    import.fd         = dup_fd;
-
-    VkMemoryAllocateInfo mi {};
-    mi.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    mi.pNext = &import;
-    // Use the size CEF reported for the plane — Mesa ignores the
-    // allocationSize for imports but the spec wants a valid-looking value.
-    mi.allocationSize  = frame.planes[0].size > 0 ? frame.planes[0].size : mr.size;
-    mi.memoryTypeIndex = mtype;
-
-    VkDeviceMemory imported_mem = VK_NULL_HANDLE;
-    VkResult       ar = device_dispatch_.vkAllocateMemory(device_, &mi, nullptr, &imported_mem);
-    if (ar != VK_SUCCESS) {
-        eprint("weweb: vkAllocateMemory(import fd)={}\n", static_cast<int>(ar));
-        device_dispatch_.vkDestroyImage(device_, temp_img, nullptr);
-        ::close(dup_fd);
-        return false;
-    }
-    // From here on Vulkan owns the FD; we MUST NOT close dup_fd.
-
-    if (device_dispatch_.vkBindImageMemory(
-            device_, temp_img, imported_mem, frame.planes[0].offset) != VK_SUCCESS) {
-        eprint("weweb: vkBindImageMemory(temp) failed\n");
-        device_dispatch_.vkFreeMemory(device_, imported_mem, nullptr);
-        device_dispatch_.vkDestroyImage(device_, temp_img, nullptr);
-        return false;
-    }
-
-    // Copy temp_img → owned_image_. Use cmd_bufs_[0] as a scratch
-    // buffer; we wait for it inline.
     VkCommandBuffer cmd = cmd_bufs_[0];
     device_dispatch_.vkResetCommandBuffer(cmd, 0);
     VkCommandBufferBeginInfo bi {};
     bi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    if (device_dispatch_.vkBeginCommandBuffer(cmd, &bi) != VK_SUCCESS) {
-        device_dispatch_.vkFreeMemory(device_, imported_mem, nullptr);
-        device_dispatch_.vkDestroyImage(device_, temp_img, nullptr);
-        return false;
-    }
+    if (device_dispatch_.vkBeginCommandBuffer(cmd, &bi) != VK_SUCCESS) return false;
 
-    // temp_img: UNDEFINED → TRANSFER_SRC_OPTIMAL.
-    VkImageMemoryBarrier b_src {};
-    b_src.sType                       = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-    b_src.oldLayout                   = VK_IMAGE_LAYOUT_UNDEFINED;
-    b_src.newLayout                   = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-    b_src.srcQueueFamilyIndex         = VK_QUEUE_FAMILY_IGNORED;
-    b_src.dstQueueFamilyIndex         = VK_QUEUE_FAMILY_IGNORED;
-    b_src.image                       = temp_img;
-    b_src.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-    b_src.subresourceRange.levelCount = 1;
-    b_src.subresourceRange.layerCount = 1;
-    b_src.srcAccessMask               = 0;
-    b_src.dstAccessMask               = VK_ACCESS_TRANSFER_READ_BIT;
-    device_dispatch_.vkCmdPipelineBarrier(cmd,
-                                          VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-                                          VK_PIPELINE_STAGE_TRANSFER_BIT,
-                                          0,
-                                          0,
-                                          nullptr,
-                                          0,
-                                          nullptr,
-                                          1,
-                                          &b_src);
+    imported->Acquire(device_dispatch_, cmd, queue_family_);
 
-    // owned_image_: <prev_layout> → TRANSFER_DST_OPTIMAL.
-    VkImageMemoryBarrier b_dst = b_src;
-    b_dst.oldLayout            = owned_layout_;
-    b_dst.newLayout            = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-    b_dst.image                = owned_image_;
-    b_dst.srcAccessMask        = 0;
-    b_dst.dstAccessMask        = VK_ACCESS_TRANSFER_WRITE_BIT;
+    VkImageMemoryBarrier b_dst {};
+    b_dst.sType                       = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    b_dst.srcQueueFamilyIndex         = VK_QUEUE_FAMILY_IGNORED;
+    b_dst.dstQueueFamilyIndex         = VK_QUEUE_FAMILY_IGNORED;
+    b_dst.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    b_dst.subresourceRange.levelCount = 1;
+    b_dst.subresourceRange.layerCount = 1;
+    b_dst.oldLayout                   = owned_layout_;
+    b_dst.newLayout                   = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    b_dst.image                       = owned_image_;
+    b_dst.srcAccessMask               = 0;
+    b_dst.dstAccessMask               = VK_ACCESS_TRANSFER_WRITE_BIT;
     device_dispatch_.vkCmdPipelineBarrier(cmd,
                                           VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
                                           VK_PIPELINE_STAGE_TRANSFER_BIT,
@@ -983,13 +829,16 @@ bool VulkanBlitter::AcceptDmaBuf(const DmaBufFrame& frame) {
                                          static_cast<rstd::uint32_t>(frame.coded_height),
                                          1 };
     device_dispatch_.vkCmdCopyImage(cmd,
-                                    temp_img,
+                                    imported->image(),
                                     VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
                                     owned_image_,
                                     VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
                                     1,
                                     &region);
 
+    imported->Release(device_dispatch_, cmd, queue_family_);
+
+    // Make the copy visible to RenderFrame.
     // owned_image_: TRANSFER_DST → TRANSFER_SRC (so RenderFrame can read).
     VkImageMemoryBarrier b_owned_src {};
     b_owned_src.sType                       = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
@@ -1014,36 +863,29 @@ bool VulkanBlitter::AcceptDmaBuf(const DmaBufFrame& frame) {
                                           1,
                                           &b_owned_src);
 
-    if (device_dispatch_.vkEndCommandBuffer(cmd) != VK_SUCCESS) {
-        device_dispatch_.vkFreeMemory(device_, imported_mem, nullptr);
-        device_dispatch_.vkDestroyImage(device_, temp_img, nullptr);
-        return false;
-    }
+    if (device_dispatch_.vkEndCommandBuffer(cmd) != VK_SUCCESS) return false;
 
     VkSubmitInfo submit {};
     submit.sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO;
     submit.commandBufferCount = 1;
     submit.pCommandBuffers    = &cmd;
 
-    // Use the in_flight_fence_[0] which CreateSyncObjects signaled
-    // initially. Reset, submit, then wait — must be done before this
-    // function returns since CEF reclaims the FD.
     device_dispatch_.vkResetFences(device_, 1, &in_flight_fence_[0]);
     if (device_dispatch_.vkQueueSubmit(queue_, 1, &submit, in_flight_fence_[0]) != VK_SUCCESS) {
         eprint("weweb: vkQueueSubmit(import-copy) failed\n");
-        device_dispatch_.vkFreeMemory(device_, imported_mem, nullptr);
-        device_dispatch_.vkDestroyImage(device_, temp_img, nullptr);
         return false;
     }
-    device_dispatch_.vkWaitForFences(device_, 1, &in_flight_fence_[0], VK_TRUE, kFenceTimeoutNs);
-
-    device_dispatch_.vkDestroyImage(device_, temp_img, nullptr);
-    device_dispatch_.vkFreeMemory(device_, imported_mem, nullptr);
+    // CEF can reuse the buffer as soon as the paint callback returns.
+    if (device_dispatch_.vkWaitForFences(
+            device_, 1, &in_flight_fence_[0], VK_TRUE, u64::MAX.to_primitive()) != VK_SUCCESS) {
+        return false;
+    }
 
     owned_layout_   = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
     owned_has_data_ = true;
     return true;
 }
+#endif
 
 bool VulkanBlitter::RenderFrame() {
     if (! swapchain_ || extent_.width == 0 || extent_.height == 0) {
