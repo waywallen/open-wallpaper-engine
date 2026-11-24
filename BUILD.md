@@ -14,7 +14,7 @@ OWE is built with [lito](https://github.com/litocpp/lito).
 | Vulkan SDK | 1.1+ | loader and headers |
 | Wayland client, wayland-scanner, X11, XCB, XCB RandR, xkbcommon | - | Linux vui-host window backends |
 | liblz4 | - | `.pkg` decompression |
-| OpenAL Soft | - | Scene spatial audio; |
+| OpenAL Soft | - | Headers and `openal.pc` for builds; optional shared library at runtime for Scene spatial audio |
 
 The complete release environment is declared in `environment.yml`.
 

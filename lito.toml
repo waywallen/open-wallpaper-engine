@@ -32,6 +32,7 @@ owe-cli-scene = { path = "cli/scene" }
 owe-cli-web = { path = "cli/web" }
 rstd-std = { version = "0.1.9" }
 rstd-cppstd = { version = "0.1.9" }
+rstd-dlopn = { version = "0.1.9" }
 rstd-json = { version = "0.1.9" }
 rstd-parse = { version = "0.1.9" }
 rstd-log = { version = "0.1.9" }

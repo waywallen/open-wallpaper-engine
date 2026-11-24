@@ -198,6 +198,9 @@ pub = true
 workspace = true
 pub = true
 
+[dependencies.rstd-dlopn]
+workspace = true
+
 [dependencies.rstd-json]
 workspace = true
 pub = true
@@ -231,6 +234,7 @@ pub = true
 
 [external-dependencies.pkg-config.openal]
 module = "openal"
+usage = "compile"
 
 [dependencies.vectext]
 workspace = true
