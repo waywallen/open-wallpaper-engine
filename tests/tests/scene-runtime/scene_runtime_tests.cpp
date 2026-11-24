@@ -1860,6 +1860,17 @@ TEST(SceneCameraState, TracksParentChangesAndPreservesNodeInverse) {
     EXPECT_EQ(camera.CameraSnapshot().revision, changed.revision);
 }
 
+TEST(SceneCameraState, PreservesSmallInvertibleAttachment) {
+    auto node = Arc<owe::SceneNode>::make();
+    node->SetTranslate({ 0.44792f, -0.09217f, 0.16818f });
+    node->SetScale({ 0.00025f, 0.00025f, 0.00025f });
+    auto camera = owe::SceneCamera::MakeOrthographic(2560, 1440, -1, 1);
+    camera.AttachOwnedNode(node.clone());
+    const auto frame = camera.CameraSnapshot();
+    EXPECT_TRUE((frame.view * node->ModelTrans()).isIdentity(1e-12));
+    EXPECT_TRUE((frame.view_projection * node->ModelTrans()).isApprox(frame.projection, 1e-12));
+}
+
 TEST(SceneCameraState, ReattachesNodesWithTheSameWorldRevision) {
     auto first  = Arc<owe::SceneNode>::make();
     auto second = Arc<owe::SceneNode>::make();

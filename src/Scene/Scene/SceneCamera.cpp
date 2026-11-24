@@ -20,18 +20,19 @@ Matrix4d SanitizeNodeCameraFrame(Matrix4d frame) {
     if (! frame.allFinite()) return Matrix4d::Identity();
 
     constexpr double kAxisEps = 1e-10;
-    Vector3d         x        = frame.block<3, 1>(0, 0);
-    Vector3d         y        = frame.block<3, 1>(0, 1);
-    Vector3d         z        = frame.block<3, 1>(0, 2);
+    const Vector3d   x        = frame.block<3, 1>(0, 0).stableNormalized();
+    const Vector3d   y        = frame.block<3, 1>(0, 1).stableNormalized();
+    const Vector3d   normal   = x.cross(y);
+    Vector3d         z        = frame.block<3, 1>(0, 2).stableNormalized();
 
-    if (! z.allFinite() || z.squaredNorm() <= kAxisEps) {
-        z = x.cross(y);
-        if (! z.allFinite() || z.squaredNorm() <= kAxisEps) z = Vector3d::UnitZ();
-        frame.block<3, 1>(0, 2) = z.normalized();
+    if (z.isZero(0.0)) {
+        if (normal.squaredNorm() <= kAxisEps) return Matrix4d::Identity();
+        z                       = normal.normalized();
+        frame.block<3, 1>(0, 2) = z;
     }
 
-    if (! frame.allFinite() || f64(frame.determinant()).abs().to_primitive() <= kAxisEps)
-        return Matrix4d::Identity();
+    // Test the axes, not the world-space volume of a small but invertible frame.
+    if (f64(normal.dot(z)).abs().to_primitive() <= kAxisEps) return Matrix4d::Identity();
     return frame;
 }
 } // namespace
