@@ -552,8 +552,8 @@ void ParseModelObjImpl(SceneLayerBuildContext& context, wpscene::ModelObject& mo
                 LoadConstvalue(
                     context, shadow_build.material, shadow_material, shadow_build.shader_info);
                 context.scene->ResolveMaterialTextureSources(shadow_build.material);
-                scene_mat.shadow_variant =
-                    Some(Arc<SceneMaterial>::make(rstd::move(shadow_build.material)));
+                scene_mat.SetShadowVariant(
+                    Arc<SceneMaterial>::make(rstd::move(shadow_build.material)));
             } else {
                 rstd_warn("load shadow material '{}' failed for '{}'",
                           shadow_material.shader,

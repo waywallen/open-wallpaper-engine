@@ -2372,6 +2372,8 @@ bool SceneMaterial::TickShaderValueAnimations() {
             return;
         }
         (void)customShader.constValues.insert(name->clone(), rstd::move(value));
+        MirrorShaderValueToShadow(
+            uniform_name, **customShader.constValues.get(uniform_name), false);
         changed = true;
     });
     if (changed) TouchShaderValues();

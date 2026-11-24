@@ -1288,6 +1288,34 @@ TEST(SceneMaterialRuntimeMutation, ZeroFillsShortShaderVectorsToDeclaredShape) {
     EXPECT_FLOAT_EQ(value[rstd::usize(3)], 0.0f);
 }
 
+TEST(SceneMaterialRuntimeMutation, MirrorsShaderValuesToShadowVariant) {
+    auto shadow = Arc<owe::SceneMaterial>::make();
+    owe::SceneShaderVariantDesc shadow_variant;
+    shadow_variant.shader_name = "shadowcaster"_Str;
+    shadow_variant.stages.push(owe::SceneShaderVariantStage {});
+    (void)shadow_variant.stages[usize()].uniforms.insert("g_StrengthBase"_Str, "float"_Str);
+    shadow->customShader.variant =
+        Some(owe::SceneShaderVariant::from(rstd::move(shadow_variant)));
+
+    owe::SceneMaterial material;
+    auto               shader = Arc<owe::SceneShader>::make();
+    owe::ShaderValues  defaults;
+    (void)defaults.insert("g_StrengthBase"_Str, owe::ShaderValue(0.04f));
+    shader->default_uniforms     = owe::SceneShaderDefaults::from(rstd::move(defaults));
+    material.customShader.shader = Some(rstd::move(shader));
+    material.SetShadowVariant(shadow.clone());
+
+    auto value = shadow->customShader.constValues.get("g_StrengthBase"_str);
+    ASSERT_TRUE(value.is_some());
+    EXPECT_FLOAT_EQ((**value)[usize()], 0.04f);
+
+    ASSERT_TRUE(material.SetShaderValue("g_StrengthBase"_str, owe::ShaderValue(0.08f)));
+
+    value = shadow->customShader.constValues.get("g_StrengthBase"_str);
+    ASSERT_TRUE(value.is_some());
+    EXPECT_FLOAT_EQ((**value)[usize()], 0.08f);
+}
+
 TEST(SceneMaterialShaderVariant, CarriesCompileDescriptorThroughMaterialMove) {
     owe::SceneMaterial material;
     material.name = "variant"_Str;

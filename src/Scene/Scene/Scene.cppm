@@ -865,13 +865,21 @@ public:
         return true;
     }
     bool SetShaderValue(ref<str> uniform_name, const ShaderValue& value) {
-        if (uniform_name.is_empty()) return false;
-        auto shaped = ShapeShaderValue(uniform_name, value);
-        (void)customShader.constValues.insert(rstd::into(uniform_name), shaped);
-        auto animation = customShader.valueAnimations.get_mut(uniform_name);
-        if (animation.is_some()) (**animation).base = shaped;
-        TouchShaderValues();
+        if (! SetShaderValueLocal(uniform_name, value, true)) return false;
+        MirrorShaderValueToShadow(
+            uniform_name, **customShader.constValues.get(uniform_name), true);
         return true;
+    }
+    void SetShadowVariant(Arc<SceneMaterial> variant) {
+        shadow_variant = Some(rstd::move(variant));
+        if (customShader.shader) {
+            for (const auto& [name, value] : (*customShader.shader)->default_uniforms.iter()) {
+                MirrorShaderValueToShadow(name->as_str(), *value, true);
+            }
+        }
+        for (const auto& [name, value] : customShader.constValues.iter()) {
+            MirrorShaderValueToShadow(name->as_str(), *value, true);
+        }
     }
     void TouchShaderValues() {
         ++customShader.value_version;
@@ -933,6 +941,35 @@ public:
     Option<Arc<SceneMaterial>> shadow_variant;
 
 private:
+    bool AcceptsShaderValue(ref<str> uniform_name) const {
+        if (customShader.constValues.contains_key(uniform_name)) return true;
+        if (customShader.shader &&
+            (*customShader.shader)->default_uniforms.contains_key(uniform_name))
+            return true;
+        if (customShader.variant) {
+            for (const auto& stage : customShader.variant->Description().stages) {
+                if (stage.uniforms.contains_key(uniform_name)) return true;
+            }
+        }
+        return false;
+    }
+    bool SetShaderValueLocal(ref<str> uniform_name, const ShaderValue& value,
+                             bool update_animation_base) {
+        if (uniform_name.is_empty()) return false;
+        auto shaped = ShapeShaderValue(uniform_name, value);
+        (void)customShader.constValues.insert(rstd::into(uniform_name), shaped);
+        if (update_animation_base) {
+            auto animation = customShader.valueAnimations.get_mut(uniform_name);
+            if (animation.is_some()) (**animation).base = shaped;
+        }
+        TouchShaderValues();
+        return true;
+    }
+    void MirrorShaderValueToShadow(ref<str> uniform_name, const ShaderValue& value,
+                                   bool update_animation_base) {
+        if (! shadow_variant || ! (*shadow_variant)->AcceptsShaderValue(uniform_name)) return;
+        (void)(*shadow_variant)->SetShaderValueLocal(uniform_name, value, update_animation_base);
+    }
     ShaderValue ShapeShaderValue(ref<str> uniform_name, const ShaderValue& value) const {
         if (value.size() == usize()) return value;
 
