@@ -306,7 +306,7 @@ TEST(TextGeometry, DynamicEffectFollowsCurrentTextBounds) {
         .text_height   = 157.0f,
         .source_width  = 563.0f,
         .source_height = 143.0f,
-        .padding       = 32.0f,
+        .padding       = { 32.0f, 32.0f },
     };
 
     const auto geometry = owe::text::ResolveTextGeometry(policy, metrics);

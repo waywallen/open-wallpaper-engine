@@ -482,14 +482,15 @@ TextGeometry ResolveTextGeometry(const TextGeometryPolicy& policy,
     const float text_h  = positive(metrics.text_height, 1.0f);
     const float src_w   = positive(metrics.source_width, text_w);
     const float src_h   = positive(metrics.source_height, text_h);
-    const float pad     = rstd::cmp::max(metrics.padding, 0.0f);
+    const float pad_x   = rstd::cmp::max(metrics.padding[usize()], 0.0f);
+    const float pad_y   = rstd::cmp::max(metrics.padding[usize(1)], 0.0f);
     const float src_cx  = f32(metrics.source_center_x).is_finite() ? metrics.source_center_x : 0.0f;
     const float src_cy  = f32(metrics.source_center_y).is_finite() ? metrics.source_center_y : 0.0f;
 
-    const float text_bbox_w = text_w + 2.0f * pad;
-    const float text_bbox_h = text_h + 2.0f * pad;
-    const float src_bbox_w  = src_w + 2.0f * pad;
-    const float src_bbox_h  = src_h + 2.0f * pad;
+    const float text_bbox_w = text_w + 2.0f * pad_x;
+    const float text_bbox_h = text_h + 2.0f * pad_y;
+    const float src_bbox_w  = src_w + 2.0f * pad_x;
+    const float src_bbox_h  = src_h + 2.0f * pad_y;
 
     const float dynamic_w = rstd::cmp::max(
         1024.0f, rstd::cmp::max(frame_w * 3.0f, rstd::cmp::max(text_bbox_w, src_bbox_w)));
@@ -557,7 +558,7 @@ struct TextLayouter::Impl {
           style(rstd::move(s)),
           peak(p),
           scene(sc) {}
-    auto Update(ref<str> next, double size, ref<str> alignment)
+    auto Update(ref<str> next, double size, ref<str> alignment, array<float, 2> padding)
         -> Result<empty, vectext::TextError> {
         vectext::TextRequest request;
         request.bytes        = Some(next->as_bytes());
@@ -591,16 +592,17 @@ struct TextLayouter::Impl {
         measured.text_height     = float(bounds.height);
         measured.source_width    = measured.text_width;
         measured.source_height   = measured.text_height;
-        measured.padding         = style.padding;
+        measured.padding         = padding;
         auto pages               = resources->Pages();
         if (pages.is_empty()) return Err(vectext::TextError::Limit);
         if (style.opaquebackground) {
-            auto pad = style.padding;
+            const float pad_x = padding[usize()];
+            const float pad_y = padding[usize(1)];
             quads.push(Quad { AtlasGlyph { .x = 1, .y = 1, .width = 2, .height = 2 },
-                              -measured.text_width / 2 - pad,
-                              measured.text_width / 2 + pad,
-                              -measured.text_height / 2 - pad,
-                              measured.text_height / 2 + pad,
+                              -measured.text_width / 2 - pad_x,
+                              measured.text_width / 2 + pad_x,
+                              -measured.text_height / 2 - pad_y,
+                              measured.text_height / 2 + pad_y,
                               { style.background_color[usize()] * style.background_brightness,
                                 style.background_color[usize(1)] * style.background_brightness,
                                 style.background_color[usize(2)] * style.background_brightness,
@@ -748,6 +750,7 @@ struct TextLayouter::Impl {
         text         = String::make(next);
         font.size    = size;
         style.halign = String::make(alignment);
+        style.padding = padding;
         layout       = Some(rstd::move(output));
         metrics      = measured;
         if (topology)
@@ -764,15 +767,23 @@ TextLayouter::TextLayouter(Arc<TextResources> resources, TextFont font, Arc<Scen
 TextLayouter::~TextLayouter() = default;
 auto TextLayouter::SetText(ref<str> text) -> Result<empty, vectext::TextError> {
     if (m_impl->layout.is_some() && text == m_impl->text.as_str()) return Ok(empty {});
-    return m_impl->Update(text, m_impl->font.size, m_impl->style.halign.as_str());
+    return m_impl->Update(
+        text, m_impl->font.size, m_impl->style.halign.as_str(), m_impl->style.padding);
 }
 auto TextLayouter::SetPixelSize(double size) -> Result<empty, vectext::TextError> {
     if (m_impl->layout.is_some() && size == m_impl->font.size) return Ok(empty {});
-    return m_impl->Update(m_impl->text.as_str(), size, m_impl->style.halign.as_str());
+    return m_impl->Update(
+        m_impl->text.as_str(), size, m_impl->style.halign.as_str(), m_impl->style.padding);
 }
 auto TextLayouter::SetHorizontalAlign(ref<str> alignment) -> Result<empty, vectext::TextError> {
     if (m_impl->layout.is_some() && alignment == m_impl->style.halign.as_str()) return Ok(empty {});
-    return m_impl->Update(m_impl->text.as_str(), m_impl->font.size, alignment);
+    return m_impl->Update(
+        m_impl->text.as_str(), m_impl->font.size, alignment, m_impl->style.padding);
+}
+auto TextLayouter::SetPadding(array<float, 2> padding) -> Result<empty, vectext::TextError> {
+    if (m_impl->layout.is_some() && padding == m_impl->style.padding) return Ok(empty {});
+    return m_impl->Update(
+        m_impl->text.as_str(), m_impl->font.size, m_impl->style.halign.as_str(), padding);
 }
 auto  TextLayouter::Layout() const -> const Option<vectext::TextLayout>& { return m_impl->layout; }
 float TextLayouter::TextWidth() const noexcept { return m_impl->metrics.text_width; }

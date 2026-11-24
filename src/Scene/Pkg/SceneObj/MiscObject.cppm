@@ -50,7 +50,7 @@ struct TextObject {
     UserValueBinding text_user;
     owe::Json        font; // string | {value: ...}
     float            pointsize { 12.0f };
-    u32              padding { 0 };
+    array<float, 2>  padding { 0.0f, 0.0f };
     String           horizontalalign;
     String           verticalalign;
     String           anchor;
@@ -107,7 +107,14 @@ struct TextObject {
         if (auto value = json.get("font"_str); value.is_some()) font = (*value)->clone();
 
         owe::GetJsonValue(json, "pointsize"_str, pointsize, false);
-        owe::GetJsonValue(json, "padding"_str, padding, false);
+        Vec<float> padding_components;
+        padding = { 0.0f, 0.0f };
+        if (owe::GetJsonValue(json, "padding"_str, padding_components, false) &&
+            ! padding_components.is_empty()) {
+            padding[usize()]  = padding_components[usize()];
+            padding[usize(1)] = padding_components.len() == usize(1) ? padding[usize()]
+                                                                     : padding_components[usize(1)];
+        }
         owe::GetJsonValue(json, "horizontalalign"_str, horizontalalign, false);
         owe::GetJsonValue(json, "verticalalign"_str, verticalalign, false);
         owe::GetJsonValue(json, "anchor"_str, anchor, false);

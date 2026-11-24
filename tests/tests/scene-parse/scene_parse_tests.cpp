@@ -576,6 +576,48 @@ TEST(SceneGeneralScript, ReceivesConfiguredGeneralSettingsBeforeUpdate) {
     EXPECT_DOUBLE_EQ((**camera).Fov(), 60.0);
 }
 
+TEST(SceneTextScript, CanvasExtentAndPaddingAreAvailableBeforeFirstFrame) {
+    using namespace rstd::prelude;
+    auto document = owe::wpscene::ParseSceneDocumentJson(R"JSON({
+        "camera": {},
+        "general": {"orthogonalprojection": {"width": 3840, "height": 2160}},
+        "objects": [
+            {"id":1, "name":"Label", "text":"Day", "font":"systemfont_DejaVu Sans",
+             "padding":{"value":"2 4", "script":
+                "const canvas = engine.canvasSize; shared.paddingLoaded = true; export function init(v) { shared.initialized = canvas.x === 3840 && engine.canvasSize.y === 2160 && v.x === 2 && v.y === 4; } export function update(v) { return shared.entered ? new Vec2(10, 16) : v; }"}},
+            {"id":2, "name":"Hover region", "image":"models/util/solidlayer.json",
+             "origin":"960 540 0", "size":"200 100", "alpha":0,
+             "visible":{"value":true, "script":
+                "export function cursorEnter() { shared.entered = shared.paddingLoaded && shared.initialized; }"}}
+        ]
+    })JSON"_str,
+                                                         owe::wpscene::kSceneVersionUnknown);
+    ASSERT_TRUE(document.is_some());
+    auto assets = owe::fs::make_physical_fs(
+        owe::fs::Path(rstd::cppstd::as_str(WAYWALLEN_ASSETS_DIR).unwrap()));
+    ASSERT_TRUE(assets.is_ok());
+    owe::fs::VFS vfs;
+    ASSERT_TRUE(vfs.mount("/assets"_str, rstd::move(assets).unwrap()).is_ok());
+    wavsen::audio::SoundManager sound;
+    owe::SceneParser            parser;
+    auto parsed = parser.Parse("text-padding-script"_str,
+                               ref<owe::wpscene::SceneDocument>::from_raw_parts(&*document),
+                               mut_ref<owe::fs::VFS>::from_raw_parts(&vfs),
+                               mut_ref<wavsen::audio::SoundManager>::from_raw_parts(&sound));
+    ASSERT_TRUE(parsed.is_ok());
+    auto  scene = rstd::move(parsed).unwrap();
+    auto* label = scene.scene->RootMut()->FindByName("Label"_str);
+    ASSERT_NE(label, nullptr);
+    const Eigen::Vector2f    initial = label->Size();
+    owe::script::FrameInputs frame;
+    frame.cursor_x         = 0.25f;
+    frame.cursor_y         = 0.75f;
+    frame.cursor_in_window = true;
+    owe::script::TickSceneScripts(*scene.scene, frame);
+    EXPECT_FLOAT_EQ(label->Size().x(), initial.x() + 16.0f);
+    EXPECT_FLOAT_EQ(label->Size().y(), initial.y() + 24.0f);
+}
+
 TEST(SceneDynamicLayer, CreatesImageConfigurationDuringInitialization) {
     using namespace rstd::prelude;
     auto document = owe::wpscene::ParseSceneDocumentJson(R"JSON({

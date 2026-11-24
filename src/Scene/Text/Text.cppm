@@ -159,8 +159,8 @@ struct TextLayoutStyle {
     array<float, 3> background_color { 0.0f, 0.0f, 0.0f };
     float           background_brightness { 1.0f };
 
-    String halign; // "left" / "right" / contains-substring; default = center
-    float  padding { 0.0f };
+    String          halign; // "left" / "right" / contains-substring; default = center
+    array<float, 2> padding { 0.0f, 0.0f };
 
     // Text-flow limits from the layer (`maxwidth` / `maxrows`, gated by
     // `limitwidth` / `limitrows`). `wrap_width` is in the same pixel space
@@ -177,7 +177,7 @@ struct TextLayoutMetrics {
     float source_height { 0.0f };
     float source_center_x { 0.0f };
     float source_center_y { 0.0f };
-    float padding { 0.0f };
+    array<float, 2> padding { 0.0f, 0.0f };
 };
 
 struct TextGeometryPolicy {
@@ -216,6 +216,7 @@ public:
     auto SetText(ref<str> utf8) -> Result<empty, vectext::TextError>;
     auto SetPixelSize(double size) -> Result<empty, vectext::TextError>;
     auto SetHorizontalAlign(ref<str> align) -> Result<empty, vectext::TextError>;
+    auto SetPadding(array<float, 2> padding) -> Result<empty, vectext::TextError>;
     auto Layout() const -> const Option<vectext::TextLayout>&;
 
     // For ParseTextObj's initial-bbox log; reflects the most recent layout.

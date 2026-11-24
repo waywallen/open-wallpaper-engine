@@ -407,6 +407,10 @@ JSValue EngineGetterTimeOfDay(JSContext* ctx, JSValueConst, int, JSValueConst*) 
 }
 JSValue EngineGetterCanvasSize(JSContext* ctx, JSValueConst, int, JSValueConst*) {
     auto* host = static_cast<EngineHostState*>(JS_GetContextOpaque(ctx));
+    if (host->scene) {
+        const auto extent = host->scene->Ortho();
+        return MakeVec2Value(ctx, extent[usize()].to_primitive(), extent[usize(1)].to_primitive());
+    }
     return MakeVec2Value(ctx, host->inputs.canvas_w, host->inputs.canvas_h);
 }
 JSValue EngineGetterScreenRes(JSContext* ctx, JSValueConst, int, JSValueConst*) {

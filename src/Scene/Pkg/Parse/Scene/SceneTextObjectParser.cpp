@@ -164,6 +164,8 @@ void ParseTextObjImpl(SceneLayerBuildContext& context, wpscene::TextObject& obj)
     auto pointsize_binding = obj.field_bindings.Get("pointsize"_str);
     bool has_pointsize_script =
         pointsize_binding.is_some() && (**pointsize_binding).script.is_some();
+    auto padding_binding    = obj.field_bindings.Get("padding"_str);
+    bool has_padding_script = padding_binding.is_some() && (**padding_binding).script.is_some();
     // Scripts can also drive `text` indirectly: a script attached to any
     // other field (commonly `visible`) writes `thisLayer.text = "..."` from
     // its update() side-effect (e.g. workshop 2283810443's clock). Transform
@@ -183,7 +185,7 @@ void ParseTextObjImpl(SceneLayerBuildContext& context, wpscene::TextObject& obj)
     }
     const bool has_text_user = ! obj.text_user.empty();
     bool wants_dynamic_text = has_text_script || has_indirect_text_script || has_pointsize_script ||
-                              has_text_user || context.runtime_created ||
+                              has_padding_script || has_text_user || context.runtime_created ||
                               context.layer_resources->scene_layer_text_writes;
     bool has_text_effect    = ! obj.effects.is_empty();
     const bool linked_source        = context.IsLinkedSource(obj.id);
@@ -347,7 +349,8 @@ void ParseTextObjImpl(SceneLayerBuildContext& context, wpscene::TextObject& obj)
                                     obj.backgroundcolor[usize(2)] };
     style.background_brightness = obj.backgroundbrightness;
     style.halign  = (obj.horizontalalign.is_empty() ? obj.alignment : obj.horizontalalign).clone();
-    style.padding = rstd::as_cast<float>(obj.padding);
+    style.padding = { rstd::cmp::max(obj.padding[usize()], 0.0f),
+                      rstd::cmp::max(obj.padding[usize(1)], 0.0f) };
     if (obj.limitwidth && obj.maxwidth > 0.0f) style.wrap_width = obj.maxwidth;
     if (obj.limitrows && obj.maxrows > u32()) style.max_rows = obj.maxrows.to_primitive();
     style.row_limit_ellipsis = obj.limituseellipsis;
@@ -365,7 +368,7 @@ void ParseTextObjImpl(SceneLayerBuildContext& context, wpscene::TextObject& obj)
         obj.verticalalign.as_str(), obj.alignment.as_str(), "top"_str, "bottom"_str);
     style.halign = rstd::into(initial_halign);
 
-    const float text_padding = style.padding;
+    const auto  text_padding = style.padding;
     const float wrap_width   = style.wrap_width;
     auto        layouter     = Arc<text::TextLayouter>::make(resources.clone(),
                                                              rstd::move(font),
@@ -404,8 +407,8 @@ void ParseTextObjImpl(SceneLayerBuildContext& context, wpscene::TextObject& obj)
                                         Vector3f(obj.angles.data()),
                                         direct_text ? obj.name.as_str() : ""_str);
     context.TrackCreatedNode(sp_node);
-    const float text_bbox_w = text_w + 2.0f * text_padding;
-    const float text_bbox_h = text_h + 2.0f * text_padding;
+    const float text_bbox_w = text_w + 2.0f * text_padding[usize()];
+    const float text_bbox_h = text_h + 2.0f * text_padding[usize(1)];
     sp_node->SetSize({ text_bbox_w, text_bbox_h });
     sp_node->AddMesh(sp_mesh.clone());
 
@@ -435,7 +438,7 @@ void ParseTextObjImpl(SceneLayerBuildContext& context, wpscene::TextObject& obj)
     // The authored `size` only measures the text the layer shipped with, which
     // on a scripted layer is a placeholder ("..." in workshop 3425253832), so
     // on its own it clips every longer message the script writes.
-    const float limit_w = wrap_width > 0.0f ? wrap_width + 2.0f * text_padding : 0.0f;
+    const float limit_w = wrap_width > 0.0f ? wrap_width + 2.0f * text_padding[usize()] : 0.0f;
     const float object_w =
         rstd::cmp::max(limit_w, obj.size[usize(0)] > 0.0f ? obj.size[usize(0)] : text_bbox_w);
     const float object_h = obj.size[usize(1)] > 0.0f ? obj.size[usize(1)] : text_bbox_h;
@@ -905,15 +908,13 @@ void ParseTextObjImpl(SceneLayerBuildContext& context, wpscene::TextObject& obj)
          apply_text_anchor = apply_text_anchor.clone(),
          runtime_targets   = runtime_targets.clone(),
          geometry_policy,
-         direct_text,
-         text_padding](text::TextLayoutMetrics metrics) {
+         direct_text](text::TextLayoutMetrics metrics) {
             auto* layer_ptr      = layer_hold.as_ptr().as_raw_ptr();
-            metrics.padding      = text_padding;
             anchor_state->width  = metrics.text_width;
             anchor_state->height = metrics.text_height;
             if (direct_text) {
-                layer_ptr->SetSize({ metrics.text_width + 2.0f * text_padding,
-                                     metrics.text_height + 2.0f * text_padding });
+                layer_ptr->SetSize({ metrics.text_width + 2.0f * metrics.padding[usize()],
+                                     metrics.text_height + 2.0f * metrics.padding[usize(1)] });
                 apply_text_anchor->operator()();
                 return;
             }
@@ -1079,6 +1080,42 @@ void ParseTextObjImpl(SceneLayerBuildContext& context, wpscene::TextObject& obj)
                 [set_pointsize = set_pointsize.clone()](const script::ScriptValue& v) {
                     auto scalar = ScriptValueAsFloat(v);
                     if (scalar) set_pointsize->operator()(*scalar);
+                },
+            });
+        }
+    }
+    if (has_padding_script) {
+        const auto& binding = **padding_binding;
+        const auto& sb      = *binding.script;
+        auto&       ss      = EnsureScriptScene(context);
+        auto        sha     = utils::genSha1(rstd::as_bytes(sb.source.as_str().as_bytes()));
+        auto        initial = rstd::json::Array::make();
+        for (float component : text_padding) initial.push(rstd::into<Json>(f32(component)));
+        auto* fs = ss.runtime().MakeFieldScript(
+            sb.source.as_str(),
+            sha.as_str(),
+            script::FieldKind::Vec2,
+            binding.ScriptProperties(),
+            Json::Array(rstd::move(initial)),
+            script::ScriptBindingContext::ForLayer(layer_node.as_ptr(), "padding"_str),
+            context.script_initialization);
+        if (fs) {
+            SetScriptInitializationOrder(context, *fs, layer_node.as_ptr());
+            TrackFieldScript(context, fs);
+            ss.AddActuator({
+                fs,
+                [layouter           = layouter.clone(),
+                 update_text_layout = update_text_layout.clone()](const script::ScriptValue& v) {
+                    auto value = ScriptValueAsVec2(v);
+                    if (value.is_none()) return;
+                    const array<float, 2> padding { rstd::cmp::max((*value)[usize()], 0.0f),
+                                                    rstd::cmp::max((*value)[usize(1)], 0.0f) };
+                    if (padding == layouter->Metrics().padding) return;
+                    if (layouter->SetPadding(padding).is_err()) {
+                        rstd_warn("text padding update failed");
+                        return;
+                    }
+                    update_text_layout->operator()(layouter->Metrics());
                 },
             });
         }

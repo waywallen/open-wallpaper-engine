@@ -215,6 +215,7 @@ script::ScriptScene& EnsureScriptScene(SceneLayerBuildContext& context) {
     if (context.script_scene.is_none()) {
         context.script_scene = Some(Box<script::ScriptScene>::make(
             Some(context.layer_resources->audio_response_demand.clone())));
+        (*context.script_scene)->runtime().SetScene(context.scene);
         auto layers          = context.layer_resources->puppet_layers.clone();
         (*context.script_scene)
             ->runtime()

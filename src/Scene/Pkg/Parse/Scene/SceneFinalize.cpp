@@ -362,7 +362,6 @@ void FinalizeScene(SceneParseContext& context) {
             if (node.is_none() || (**node).node.is_none() || config.is_none()) continue;
             runtime.RegisterInitialLayerConfig((*(**node).node).as_ptr(), (**config).clone());
         }
-        runtime.SetScene(context.scene);
         auto parallax_state = CopyableArcHold(context.layer_resources->uniform_state.clone());
         runtime.SetNodeParallaxDepthAccessors(
             script::JsRuntime::NodeParallaxDepthGetter::make(
