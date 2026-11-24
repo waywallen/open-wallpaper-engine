@@ -199,7 +199,7 @@ TEST(RenderOutput, ClearAndResize) {
     rstd_assert(renderer.init(rstd::move(info)));
     auto session = renderer.deviceSession().unwrap();
     auto queue   = vk::TextureContext::create(session).unwrap();
-    auto build   = [&](bool uninitialized = false) {
+    auto build   = [&](bool uninitialized = false, bool hold_only = false) {
         vrento::fg::FrameGraphBuilder    graph(81);
         owe::vulkan::SceneRenderTextures textures(u64(81));
         Vec<vk::PassInput>               descriptions;
@@ -233,13 +233,36 @@ TEST(RenderOutput, ClearAndResize) {
             (void)textures.handle(target).unwrap();
             return target;
         };
-        copy({ 1 }, uninitialized ? "_rt_uninitialized"_str : "_rt_copy"_str, "_rt_seen"_str);
+        if (! hold_only)
+            copy({ 1 }, uninitialized ? "_rt_uninitialized"_str : "_rt_copy"_str, "_rt_seen"_str);
         auto result = textures
                           .declare(graph,
                                    { .key        = "_rt_default"_Str,
                                      .definition = scene.TargetResource("_rt_default"_str).unwrap(),
                                      .initialize_history_transparent = true })
                           .unwrap();
+        auto finish = [&](vrento::fg::ResourceVersion source) {
+            auto surface =
+                graph.import_resource({ .id = { 20, 81 }, .spec = 20, .storage = 20 }).unwrap();
+            auto output =
+                vk::declare_surface_output(graph, { 11 }, { 12 }, source, surface).unwrap();
+            descriptions.push(rstd::move(output.transfer));
+            descriptions.push(rstd::move(output.release));
+            auto source_use = textures.handle(source).unwrap();
+            return owe::vulkan::SceneRenderStateInput { rstd::move(graph).finish().unwrap(),
+                                                        rstd::move(textures),
+                                                        {},
+                                                        rstd::move(descriptions),
+                                                        { 11 },
+                                                        { 12 },
+                                                        output.output,
+                                                        Some(source_use) };
+        };
+        if (hold_only) {
+            graph.import_initial(result.resource).unwrap();
+            copy({ 1 }, "_rt_default"_str, "_rt_seen"_str);
+            return finish(result);
+        }
         auto clear_id = vrento::fg::PassId { 10 };
         auto color    = scene.ClearColor();
         auto clear =
@@ -258,25 +281,13 @@ TEST(RenderOutput, ClearAndResize) {
                 .unwrap();
         (void)textures.handle(mip.output).unwrap();
         descriptions.push(rstd::move(mip.description));
-        auto surface =
-            graph.import_resource({ .id = { 20, 81 }, .spec = 20, .storage = 20 }).unwrap();
-        auto output = vk::declare_surface_output(graph, { 11 }, { 12 }, cleared, surface).unwrap();
-        descriptions.push(rstd::move(output.transfer));
-        descriptions.push(rstd::move(output.release));
-        auto source_use = textures.handle(cleared).unwrap();
-        return owe::vulkan::SceneRenderStateInput { rstd::move(graph).finish().unwrap(),
-                                                    rstd::move(textures),
-                                                    {},
-                                                    rstd::move(descriptions),
-                                                    { 11 },
-                                                    { 12 },
-                                                    output.output,
-                                                    Some(source_use) };
+        return finish(cleared);
     };
     renderer.configureRenderTargets(scene);
     auto snapshot = owe::ExtractRenderSceneSnapshot(scene);
-    auto install  = [&](bool uninitialized = false) {
-        auto result = renderer.tryInstallSceneRenderState(scene, build(uninitialized), snapshot);
+    auto install  = [&](bool uninitialized = false, bool hold_only = false) {
+        auto result =
+            renderer.tryInstallSceneRenderState(scene, build(uninitialized, hold_only), snapshot);
         for (unsigned attempt {};
              result.is_ok() && *result == owe::PrepareOutcome::Pending && attempt < 2000;
              ++attempt) {
@@ -362,6 +373,23 @@ TEST(RenderOutput, ClearAndResize) {
     rstd_assert(renderer.frameSubmitted() && ! renderer.framePending());
     rstd_assert(! renderer.diagnostics().frame_error);
     rstd_assert(counts->acquired == 6 && counts->submitted == 4 && counts->aborted == 2);
+    auto retained = renderer.renderedTarget("_rt_default"_str).unwrap().take_ready();
+    (void)pixels(queue, retained);
+    for (unsigned repeat {}; repeat < 2; ++repeat) {
+        auto cleared = renderer.tryClearLastRenderGraph(
+            owe::vulkan::RenderGraphResourceRetention::KeepSceneTextures);
+        rstd_assert(cleared.is_ok() && *cleared == owe::PrepareOutcome::Ready);
+        install(false, true);
+        draw();
+        rstd_assert(renderer.frameSubmitted() && ! renderer.diagnostics().frame_error);
+        auto held = renderer.renderedTarget("_rt_default"_str).unwrap().take_ready();
+        rstd_assert(held.texture().identity() == retained.texture().identity());
+        auto data = pixels(queue, renderer.renderedTarget("_rt_seen"_str).unwrap().take_ready());
+        for (usize i {}; i < data.len(); ++i)
+            rstd_assert(data[i] ==
+                        u8(i.to_primitive() % 4 == 1 || i.to_primitive() % 4 == 3 ? 255 : 0));
+        rstd_assert(renderer.renderedTarget("_rt_copy"_str).is_err());
+    }
     renderer.destroy();
     rstd_assert(counts->aborted == 2);
     rstd_assert(! renderer.diagnostics().frame_error);

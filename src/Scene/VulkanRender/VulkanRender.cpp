@@ -1324,11 +1324,11 @@ void VulkanRender::Impl::clearLastRenderGraph(RenderGraphResourceRetention reten
     ReleaseCompletedRetiredResources(*m_device, m_rendering_resources);
     m_scene_render_state.clear();
     m_rendering_resources.resources.ClearPreparedGraphics();
+    // The next plan can import an output that was write-only in the old graph.
+    // CommitPreparePlan retires textures absent from that plan.
     if (retention == RenderGraphResourceRetention::ReleaseSceneTextures) {
         m_uniform_preparations.clear();
         m_rendering_resources.resources.ClearTextures();
-    } else {
-        m_rendering_resources.resources.ClearTransientTextures();
     }
     m_rendering_resources.resources.EvictUnusedBuffers();
 }
