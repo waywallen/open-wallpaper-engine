@@ -16,6 +16,8 @@ bool LightObject::FromJson(const owe::Json& json, fs::VFS&, SceneVersion /*v*/) 
     ReadLayerScale(json, scale);
     owe::GetJsonValue(json, "color"_str, color);
     owe::GetJsonValue(json, "light"_str, light);
+    owe::GetJsonValue(json, "usecookie"_str, usecookie, false);
+    owe::GetJsonValue(json, "cookie"_str, cookie, false);
     owe::GetJsonValue(json, "radius"_str, radius);
     owe::GetJsonValue(json, "intensity"_str, intensity);
     ReadVisibleProperty(json, visible, visible_user);

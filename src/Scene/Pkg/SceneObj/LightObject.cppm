@@ -29,6 +29,8 @@ public:
     array<float, 3>      color { 1.0f, 1.0f, 1.0f };
     String               light; // "point" / "spot" / "directional" / ...
     String               shape; // PKGV0021+
+    String               cookie;
+    bool                 usecookie { false };
     float                radius { 1000.0f };
     float                intensity { 1.0f };
     bool                 visible { true };

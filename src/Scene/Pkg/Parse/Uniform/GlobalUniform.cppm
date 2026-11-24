@@ -70,10 +70,11 @@ inline auto SceneLightingUniformBlock() -> ref<GlobalUniformBlockSchema> {
 }
 
 struct SceneLightingUniformConfig {
-    u32 point {};
-    u32 spot {};
-    u32 tube {};
-    u32 directional {};
+    u32         point {};
+    u32         spot {};
+    u32         tube {};
+    u32         directional {};
+    Option<i32> spot_cookie_light;
 
     auto Count(SceneLightType type) const -> u32 {
         switch (type) {
@@ -105,7 +106,10 @@ enum class SceneLightUniformOutput : rstd::uint32_t
     DirectionalColor,
     DirectionalDirection,
     DirectionalShadow,
+    SpotCookieProjection,
 };
+
+inline constexpr ref<str> kSpotCookieProjection { "g_LSpot_CookieProjection"_str };
 
 struct SceneLightUniformField {
     ref<str>                name;

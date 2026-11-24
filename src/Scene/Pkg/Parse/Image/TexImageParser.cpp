@@ -12,6 +12,7 @@ import wescene.utils;
 import wescene.scene;
 import wescene.pkg_asset_version;
 import wescene.stb_image;
+import wescene.json;
 
 using rstd::mem::memcmp;
 
@@ -140,6 +141,8 @@ TextureFormat ToTexFormate(int type) {
 struct TexBodyHeader {
     TexFormatVersion version;
     rstd::uint32_t   condition_count {};
+    Vec<u32>         selected_patches;
+    bool             unsupported_conditions {};
 };
 
 auto InvalidTextureData(ref<str> name, ref<str> section) -> ImageParseError {
@@ -264,9 +267,11 @@ bool SkipTextureBytes(fs::BinaryReader& file, rstd::uint32_t size) {
     return u64(size) <= file.remaining() && file.SeekCur(static_cast<rstd::ptrdiff_t>(size));
 }
 
-auto SkipConditionalPatches(fs::BinaryReader& file, const TexBodyHeader& body, ref<str> name)
-    -> Result<empty, ImageParseError> {
-    if (body.condition_count == 0) return Ok(empty {});
+auto SelectConditionalVideo(fs::BinaryReader& file, const rstd::io::ReadRange& input,
+                            const TexBodyHeader& body, ref<str> name, bool& unsupported)
+    -> Result<Option<rstd::io::ReadRange>, ImageParseError> {
+    Option<rstd::io::ReadRange> selected;
+    if (body.condition_count == 0) return Ok(rstd::move(selected));
     if (file.remaining() < u64(4)) return Err(InvalidTextureData(name, "patch groups"_str));
     const auto groups = file.ReadUint32();
     if (u64(groups) > file.remaining() / u64(4))
@@ -277,24 +282,44 @@ auto SkipConditionalPatches(fs::BinaryReader& file, const TexBodyHeader& body, r
         if (u64(patches) > file.remaining() / u64(32))
             return Err(InvalidTextureData(name, "patch count"_str));
         for (rstd::uint32_t patch = 0; patch < patches; ++patch) {
-            // Conditional overrides follow each base mip, including when not applied.
             if (file.remaining() < u64(32)) return Err(InvalidTextureData(name, "patch"_str));
             file.ReadUint32(); // unknown
-            file.ReadUint32(); // condition id
-            file.ReadUint32(); // x
-            file.ReadUint32(); // y
-            file.ReadUint32(); // width
-            file.ReadUint32(); // height
-            file.ReadInt32();  // image type
-            if (! SkipTextureBytes(file, file.ReadUint32()))
+            const auto patch_id = u32(file.ReadUint32());
+            const auto x        = file.ReadUint32();
+            const auto y        = file.ReadUint32();
+            const auto width    = file.ReadUint32();
+            const auto height   = file.ReadUint32();
+            const auto type     = static_cast<ImageType>(file.ReadInt32());
+            const auto size     = file.ReadUint32();
+            const auto pos      = file.position();
+            if (! SkipTextureBytes(file, size))
                 return Err(InvalidTextureData(name, "patch payload"_str));
+            if (! body.selected_patches.iter().any([&](auto id) {
+                    return *id == patch_id;
+                }))
+                continue;
+            if (x || y || width || height ||
+                (type != ImageType::VIDEO && type != ImageType::UNKNOWN)) {
+                unsupported = true;
+                continue;
+            }
+            auto range = input.subrange(pos, u64(size));
+            if (range.is_err()) return Err(InvalidTextureData(name, "patch range"_str));
+            auto             source = range.unwrap();
+            fs::BinaryReader reader(source.clone());
+            unsigned char    prefix[16] {};
+            const auto       n = reader.Read(prefix, sizeof(prefix));
+            if (DetectEmbeddedImageType(prefix, static_cast<int>(n)) == ImageType::VIDEO)
+                selected = Some(rstd::move(source));
+            else
+                unsupported = true;
         }
     }
-    return Ok(empty {});
+    return Ok(rstd::move(selected));
 }
 
-auto LoadHeader(fs::BinaryReader& file, ImageHeader& header, ref<str> name)
-    -> Result<TexBodyHeader, ImageParseError> {
+auto LoadHeader(fs::BinaryReader& file, ImageHeader& header, ref<str> name,
+                const rstd::json::Map& properties) -> Result<TexBodyHeader, ImageParseError> {
     TexBodyHeader    body;
     TexFormatVersion v;
     v.texv = ReadTexVersion(file);
@@ -354,13 +379,35 @@ auto LoadHeader(fs::BinaryReader& file, ImageHeader& header, ref<str> name)
         if (u64(body.condition_count) > file.remaining() / u64(13))
             return Err(InvalidTextureData(name, "condition count"_str));
         for (rstd::uint32_t index = 0; index < body.condition_count; ++index) {
-            if (! SkipTextureBytes(file, 12))
+            if (file.remaining() < u64(12))
                 return Err(InvalidTextureData(name, "condition record"_str));
-            char value;
+            file.ReadUint32(); // condition group
+            const auto patch_id = u32(file.ReadUint32());
+            const auto flags    = file.ReadUint32();
+            const bool examine  = flags == 2 && ! properties.is_empty();
+            body.unsupported_conditions |= flags != 2;
+            Vec<u8> bytes;
+            u8      value;
             do {
                 if (file.Read(&value, 1) != 1)
                     return Err(InvalidTextureData(name, "condition string"_str));
-            } while (value != '\0');
+                if (examine && value != u8()) bytes.push(u8(value));
+            } while (value != u8());
+            if (! examine) continue;
+            auto text = String::from_utf8(rstd::move(bytes));
+            if (! text) continue;
+            auto json = ParseJson(text->as_str());
+            if (! json) continue;
+            const auto rule = json->get("condition"_str);
+            if (! rule) continue;
+            const auto key      = (*rule)->get("name"_str);
+            const auto expected = (*rule)->get("condition"_str);
+            if (! key || ! expected) continue;
+            const auto key_name = (*key)->as_str();
+            if (! key_name) continue;
+            auto actual = properties.get(*key_name);
+            if (actual && SceneJsonScalarEquals(SceneUserPropertyPayload(**actual), **expected))
+                body.selected_patches.push(u32(patch_id));
         }
     }
 
@@ -369,7 +416,7 @@ auto LoadHeader(fs::BinaryReader& file, ImageHeader& header, ref<str> name)
             "TexImageParser: unsupported version texv={} texi={} texb={}", v.texv, v.texi, v.texb);
     }
     body.version = v;
-    return Ok(body);
+    return Ok(rstd::move(body));
 }
 
 void SetHeaderPow2(ImageHeader& header, rstd::int32_t mip_0_w, rstd::int32_t mip_0_h) {
@@ -593,8 +640,8 @@ auto TexImageParser::Decode(ref<str> name) const -> Result<Arc<Image>, ImagePars
     Option<Arc<DecodedImageLease>> lease;
     image->content->key = String::make(name);
     image->header       = prepared->description.header.clone();
-    if (prepared->condition_count > 0)
-        rstd_warn("texture {}: conditional patches are not applied; using base mipmaps", name);
+    if (prepared->unsupported_conditions)
+        rstd_warn("texture {}: unsupported conditional patches were skipped", name);
     image->content->slots.reserve(prepared->slots.len());
     for (const auto& source_slot : prepared->slots) {
         vrento::Image::Slot slot;
@@ -744,11 +791,11 @@ auto TexImageParser::Prepare(ref<str> name) const -> Result<Arc<PreparedImage>, 
         });
     auto             input = rstd::move(source).unwrap();
     fs::BinaryReader file(input.clone());
-    auto             prepared = Arc<PreparedImage>::make();
-    auto&            header   = prepared->description.header;
-    auto             body     = rstd_try(LoadHeader(file, header, name));
-    prepared->condition_count = body.condition_count;
-    auto ver                  = body.version;
+    auto             prepared        = Arc<PreparedImage>::make();
+    auto&            header          = prepared->description.header;
+    auto             body            = rstd_try(LoadHeader(file, header, name, m_properties));
+    prepared->unsupported_conditions = body.unsupported_conditions;
+    auto ver                         = body.version;
     if (header.count < 0 || u64(header.count) > file.remaining() / u64(4))
         return Err(InvalidTextureData(name, "image count"_str));
     auto                         declared = header.type;
@@ -783,7 +830,16 @@ auto TexImageParser::Prepare(ref<str> name) const -> Result<Arc<PreparedImage>, 
                               .source       = rstd::move(range).unwrap(),
                               .compressed   = compressed,
                               .decoded_size = decoded_size };
-            if (ver.body_has_image_type()) {
+            if (! SkipTextureBytes(file, stored_size))
+                return Err(InvalidTextureData(name, "mip payload"_str));
+            auto conditional = rstd_try(
+                SelectConditionalVideo(file, input, body, name, prepared->unsupported_conditions));
+            if (conditional) {
+                mip.source       = conditional.take().unwrap_unchecked();
+                mip.compressed   = false;
+                mip.decoded_size = 0;
+                mip.type         = ImageType::VIDEO;
+            } else if (ver.body_has_image_type()) {
                 mip.type = rstd_try(DescribeMip(mip.source.clone(),
                                                 mip.compressed,
                                                 mip.decoded_size,
@@ -792,19 +848,16 @@ auto TexImageParser::Prepare(ref<str> name) const -> Result<Arc<PreparedImage>, 
                                                 mip.height,
                                                 name,
                                                 m_memory));
-                if (mip.type != ImageType::UNKNOWN) {
-                    header.type   = mip.type;
-                    header.format = TextureFormat::RGBA8;
-                }
+            }
+            if (mip.type != ImageType::UNKNOWN) {
+                header.type   = mip.type;
+                header.format = TextureFormat::RGBA8;
             }
             if (mip_index == 0) {
                 imageDatas[usize(index)] =
                     Some(array<float, 2> { float(mip.width), float(mip.height) });
                 SetHeaderPow2(header, mip.width, mip.height);
             }
-            if (! SkipTextureBytes(file, stored_size))
-                return Err(InvalidTextureData(name, "mip payload"_str));
-            rstd_try(SkipConditionalPatches(file, body, name));
             mips.push(rstd::move(mip));
         }
         ImageSlotDescription slot { .mip_count = mips.len() };

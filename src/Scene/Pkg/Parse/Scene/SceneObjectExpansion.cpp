@@ -133,6 +133,8 @@ HashSet<i32> CollectLinkedSourceIds(slice<SceneObjectVar> objects) {
             RSTD_CASE(Light, value) {
                 CollectExternalDependencies(value.dependencies, i32(value.id), out);
                 CollectLinkedSourceIdsFromValue(value.instance, out);
+                if (value.usecookie && (value.light == "spot"_str || value.light == "lspot"_str))
+                    CollectLinkedSourceId(value.cookie.as_str(), out);
             }
             RSTD_CASE(Text, value) {
                 CollectExternalDependencies(value.dependencies, i32(value.id), out);

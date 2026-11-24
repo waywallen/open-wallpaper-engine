@@ -210,8 +210,11 @@ void InitContext(SceneParseContext& context, fs::VFS& vfs, const wpscene::SceneM
                  TextureMemoryOptions texture_memory) {
     context.vfs = &vfs;
     auto& scene = *context.scene;
-    scene.SetImageParser(Arc<dyn<IImageParser>>::make(
-        TexImageParser(&vfs, rstd::move(image_ready), rstd::move(texture_memory))));
+    scene.SetImageParser(Arc<dyn<IImageParser>>::make(TexImageParser(
+        &vfs,
+        rstd::move(image_ready),
+        rstd::move(texture_memory),
+        context.user_properties ? (*context.user_properties)->clone() : rstd::json::Map::make())));
     context.layer_resources->particle_runtime = Some(Arc<ParticleRuntime>::make());
     GenCardMesh(*scene.DefaultEffectMeshMut(), { 2.0f, 2.0f });
 

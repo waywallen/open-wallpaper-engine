@@ -4,6 +4,7 @@ import rstd;
 import wescene.types;
 import wescene.scene;
 import wescene.fs;
+import wescene.json;
 export import wescene.texture_memory;
 
 using rstd::collections::HashMap;
@@ -105,8 +106,12 @@ struct ImageDecodeStatistics {
 class TexImageParser {
 public:
     TexImageParser(fs::VFS* vfs, Option<ImageReadyCallback> ready = None(),
-                   TextureMemoryOptions memory = {})
-        : m_ready(rstd::move(ready)), m_memory(rstd::move(memory)), m_vfs(vfs->Snapshot()) {}
+                   TextureMemoryOptions memory     = {},
+                   rstd::json::Map      properties = rstd::json::Map::make())
+        : m_ready(rstd::move(ready)),
+          m_memory(rstd::move(memory)),
+          m_properties(rstd::move(properties)),
+          m_vfs(vfs->Snapshot()) {}
 
     auto Parse(ref<str> name) const -> Result<Arc<Image>, ImageParseError>;
     auto ParseMany(slice<String> names) const -> Vec<Result<Arc<Image>, ImageParseError>>;
@@ -138,6 +143,7 @@ private:
         ImageDecodeStatistics {}) };
     Option<ImageReadyCallback>        m_ready;
     TextureMemoryOptions              m_memory;
+    rstd::json::Map                   m_properties;
     struct PreparedMip {
         rstd::int32_t       width {}, height {};
         rstd::io::ReadRange source;
@@ -148,7 +154,7 @@ private:
     struct PreparedImage {
         ImageDescription      description;
         Vec<Vec<PreparedMip>> slots;
-        rstd::uint32_t        condition_count {};
+        bool                  unsupported_conditions {};
     };
     using HeaderCache = HashMap<String, Arc<PreparedImage>>;
     auto Prepare(ref<str> name) const -> Result<Arc<PreparedImage>, ImageParseError>;

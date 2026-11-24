@@ -8,6 +8,7 @@ import rstd;
 import vrento;
 import rstd.cppstd;
 import wescene.fs;
+import wescene.json;
 import wescene.pkg.parse;
 import wescene.pkg_asset_version;
 import wescene.scene;
@@ -877,6 +878,49 @@ TEST_F(ConditionalTextureTest, BaseMipmapsRemainAlignedWithMultipleConditions) {
         ASSERT_TRUE(header.is_ok());
         EXPECT_EQ(header->width, image->header.width);
         EXPECT_EQ(header->mipmap_larger, image->header.mipmap_larger);
+    }
+}
+
+TEST_F(ConditionalTextureTest, SelectsFullVideoPayloadByComboProperty) {
+    {
+        std::ofstream output(root / "materials" / "alternate.tex", std::ios::binary);
+        output.write("TEXV0005", 9);
+        output.write("TEXI0001", 9);
+        for (auto value : { 0u, 0u, 16u, 8u, 16u, 8u, 0u }) WriteU32(output, value);
+        output.write("TEXB0004", 9);
+        for (auto value : { 1u, 0xffffffffu, 2u }) WriteU32(output, value);
+        for (auto id : { 7u, 9u }) {
+            for (auto value : { 1u, id, 2u }) WriteU32(output, value);
+            const char first[]  = R"({"condition":{"name":"mode","condition":"1"}})";
+            const char second[] = R"({"condition":{"name":"mode","condition":"2"}})";
+            output.write(id == 7 ? first : second, sizeof(first));
+        }
+        for (auto value : { 1u, 16u, 8u, 0u, 0u, 16u }) WriteU32(output, value);
+        output.write("\0\0\0\x10"
+                     "ftypisom0000",
+                     16);
+        for (auto value : { 1u, 2u }) WriteU32(output, value);
+        for (auto id : { 7u, 9u }) {
+            for (auto value : { 1u, id, 0u, 0u, 0u, 0u, 0xffffffffu, 16u }) WriteU32(output, value);
+            output.write("\0\0\0\x10"
+                         "ftypisom000",
+                         15);
+            output.put(id == 7 ? '1' : '2');
+        }
+    }
+
+    for (auto mode : { "0"_str, "1"_str, "2"_str }) {
+        auto property = rstd::json::Map::make();
+        property.insert("value"_Str, owe::Json::String(String::make(mode)));
+        auto properties = rstd::json::Map::make();
+        properties.insert("mode"_Str, owe::Json::Object(rstd::move(property)));
+        owe::TexImageParser parser(&vfs, None(), {}, rstd::move(properties));
+        EXPECT_EQ(parser.Describe("alternate"_str).unwrap().header.type, owe::ImageType::VIDEO);
+        auto  image = parser.Parse("alternate"_str).unwrap();
+        auto& mip   = image->content->slots[usize()].mipmaps[usize()];
+        ASSERT_TRUE(mip.video_source.is_some());
+        owe::fs::BinaryReader reader(mip.video_source->clone());
+        EXPECT_EQ(reader.read_all_bytes().unwrap()[usize(15)], u8(mode.as_bytes()[usize()]));
     }
 }
 

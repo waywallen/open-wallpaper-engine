@@ -51,6 +51,7 @@ struct SceneShaderEnvironment {
     bool                       fog_height { false };
     bool                       shadow_mapping { false };
     SceneLightingUniformConfig lighting;
+    String                     spot_cookie_texture;
 };
 
 struct GeometryShaderLimits {
@@ -297,18 +298,18 @@ void ApplyUserTextureBindings(SceneLayerBuildContext&, wpscene::Material&);
 void IndexSystemMediaImageFallbacks(SceneLayerBuildContext&, slice<SceneObjectVar>);
 
 struct ParticleObjectParseServices {
-    Scene*                  scene { nullptr };
-    fs::VFS*                vfs { nullptr };
-    Arc<ShaderCache>        shader_cache;
-    SceneShaderEnvironment  shader_environment;
-    GeometryShaderLimits    geometry_shader_limits;
-    bool                    geometry_shader_supported { true };
-    ShaderValueMap          global_base_uniforms;
-    Arc<ParticleRuntime>    particle_runtime;
-    i32                     ortho_w { 0 };
-    i32                     ortho_h { 0 };
-    SceneLayerBuildContext& construction_context;
-    bool                    wire_scripts { true };
+    Scene*                        scene { nullptr };
+    fs::VFS*                      vfs { nullptr };
+    Arc<ShaderCache>              shader_cache;
+    const SceneShaderEnvironment& shader_environment;
+    GeometryShaderLimits          geometry_shader_limits;
+    bool                          geometry_shader_supported { true };
+    ShaderValueMap                global_base_uniforms;
+    Arc<ParticleRuntime>          particle_runtime;
+    i32                           ortho_w { 0 };
+    i32                           ortho_h { 0 };
+    SceneLayerBuildContext&       construction_context;
+    bool                          wire_scripts { true };
 };
 
 struct ParticleObjectParseOutput {

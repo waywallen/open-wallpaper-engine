@@ -705,6 +705,46 @@ TEST(SceneLightUniformSource, TransformsTubeEndpointAndReadsLiveParameters) {
     EXPECT_FLOAT_EQ(color[usize()], 0.0f);
 }
 
+TEST(SceneLightUniformSource, ProjectsCookieForConfiguredSpotAfterVisibilityChanges) {
+    owe::Scene scene;
+    const auto add_spot = [&](i32 id) {
+        auto node  = Arc<owe::SceneNode>::make();
+        node->ID() = id;
+        scene.RootMut()->AppendChild(node.clone());
+        auto light = Box<owe::SceneLight>::make(owe::SceneLight::Desc {
+            .type = owe::SceneLightType::Spot, .radius = 7.0f, .outer_cone_cos = 0.98162717f });
+        light->setNode(node.as_ptr());
+        (void)scene.RegisterLight(rstd::move(light));
+        return node;
+    };
+    const auto regular   = add_spot(i32(1));
+    const auto projector = add_spot(i32(2));
+    projector->SetTranslate({ 2.0f, 3.0f, 4.0f });
+    owe::SceneLightUniformSource source(ref<owe::Scene>::from_raw_parts(&scene),
+                                        { .spot = u32(2), .spot_cookie_light = Some(i32(2)) });
+    using O = owe::SceneLightUniformOutput;
+    const owe::SceneFrame frame;
+    auto                  params = scene_test::Capture(frame, source, O::SpotParams);
+    ASSERT_EQ(params.size(), usize(8));
+    EXPECT_FLOAT_EQ(params[usize(3)], 0.0f);
+    EXPECT_FLOAT_EQ(params[usize(7)], 1.0f);
+
+    regular->SetVisible(false);
+    params = scene_test::Capture(frame, source, O::SpotParams);
+    EXPECT_FLOAT_EQ(params[usize(3)], 1.0f);
+    EXPECT_FLOAT_EQ(params[usize(7)], 0.0f);
+    const auto rows = scene_test::Capture(frame, source, O::SpotCookieProjection);
+    ASSERT_EQ(rows.size(), usize(12));
+    const auto project = [&](usize row, float x, float y, float z) {
+        return rows[row] * x + rows[row + usize(1)] * y + rows[row + usize(2)] * z +
+               rows[row + usize(3)];
+    };
+    EXPECT_NEAR(project(usize(0), 3.0f, 3.0f, 4.0f), 0.0f, 1e-5f);
+    EXPECT_NEAR(project(usize(4), 3.0f, 3.0f, 4.0f), 0.0f, 1e-5f);
+    EXPECT_FLOAT_EQ(project(usize(8), 3.0f, 3.0f, 4.0f), 1.0f);
+    EXPECT_FLOAT_EQ(project(usize(8), 1.0f, 3.0f, 4.0f), -1.0f);
+}
+
 TEST(ShadowUniformSource, UsesAuthoredCascadeExtentAndLightObjectFrame) {
     auto camera =
         Arc<owe::SceneCamera>::make(owe::SceneCamera::MakePerspective(1.0, 0.1, 1000.0, 50.0));

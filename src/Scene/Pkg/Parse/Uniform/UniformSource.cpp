@@ -1094,6 +1094,11 @@ auto SceneLightUniformSource::Describe(mut_ref<dyn<UniformBindingSink>> sink) co
         auto bound = Bind(sink, field.output, field.name, UniformValueShape::Float(count * u32(4)));
         if (bound.is_err()) return bound;
     }
+    if (m_config.spot_cookie_light.is_some())
+        return Bind(sink,
+                    SceneLightUniformOutput::SpotCookieProjection,
+                    kSpotCookieProjection,
+                    UniformValueShape::Float(u32(12)));
     return Ok(empty {});
 }
 
@@ -1106,6 +1111,7 @@ auto SceneLightUniformSource::Evaluate(ref<dyn<UniformUpdateContext>>,
     -> Result<empty, UniformError> {
     using O = SceneLightUniformOutput;
     array<Vec<float>, 13> values;
+    array<float, 12>      cookie_projection {};
     for (const auto& field : SceneLightUniformFields()) {
         auto index = usize(static_cast<rstd::uint32_t>(field.output));
         values[index].resize(rstd::as_cast<usize>(m_config.Count(field.type)) * usize(4), 0.0f);
@@ -1138,7 +1144,9 @@ auto SceneLightUniformSource::Evaluate(ref<dyn<UniformUpdateContext>>,
             write(
                 O::PointShadow, index, Vector3f(desc.cast_shadow ? 1.0f : 0.0f, 0.0f, 0.0f), 0.0f);
             break;
-        case SceneLightType::Spot:
+        case SceneLightType::Spot: {
+            const bool projected =
+                m_config.spot_cookie_light.is_some() && node.ID() == *m_config.spot_cookie_light;
             write(O::SpotColor, index, color, light.radius());
             write(O::SpotOrigin, index, origin, desc.outer_cone_cos);
             write(O::SpotDirection, index, transform.block<3, 1>(0, 0), desc.inner_cone_cos);
@@ -1148,8 +1156,18 @@ auto SceneLightUniformSource::Evaluate(ref<dyn<UniformUpdateContext>>,
                 Vector3f(light.exponent(),
                          desc.cast_shadow ? 1.0f : 0.0f,
                          shadow ? static_cast<float>((*shadow)->first_view.to_primitive()) : -1.0f),
-                0.0f);
+                projected ? 1.0f : 0.0f);
+            if (projected) {
+                const Matrix4f matrix = SpotLightViewProjection(light).cast<float>();
+                for (usize component {}; component < usize(4); ++component) {
+                    const auto column                       = component.to_primitive();
+                    cookie_projection[component]            = matrix(0, column);
+                    cookie_projection[usize(4) + component] = matrix(1, column);
+                    cookie_projection[usize(8) + component] = matrix(3, column);
+                }
+            }
             break;
+        }
         case SceneLightType::Tube: {
             const Vector3f endpoint = transform.block<3, 3>(0, 0) * light.controlPoint() + origin;
             write(O::TubeColor, index, color, light.radius());
@@ -1183,6 +1201,8 @@ auto SceneLightUniformSource::Evaluate(ref<dyn<UniformUpdateContext>>,
         const auto& data = values[usize(static_cast<rstd::uint32_t>(field.output))];
         if (! data.is_empty()) writer.Write(field.output, data.as_slice());
     }
+    if (m_config.spot_cookie_light.is_some())
+        writer.Write(O::SpotCookieProjection, cookie_projection.as_slice());
     return writer.Finish();
 }
 

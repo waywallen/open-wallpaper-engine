@@ -404,6 +404,7 @@ auto BuildMaterial(fs::VFS& vfs, ShaderCache& shader_cache,
 
     for (usize i {}; i < textures.len(); ++i) {
         auto name = textures[i].clone();
+        if (name == "_alias_lightCookie"_str) name = environment.spot_cookie_texture.clone();
         ParseSpecTexName(name, wpmat, shader_info_ref, scene);
         material.textures.push(rstd::into(name.as_str()));
         material.texture_metadata.push(SceneMaterialTextureMetadata {});
@@ -504,6 +505,8 @@ auto BuildMaterial(fs::VFS& vfs, ShaderCache& shader_cache,
     }
     if (environment.lighting.Enabled()) {
         (void)shader_info_ref.combos.insert("OWE_SCENE_LIGHTING"_Str, "1"_Str);
+        if (environment.lighting.spot_cookie_light.is_some())
+            (void)shader_info_ref.combos.insert("LIGHTS_COOKIE"_Str, "1"_Str);
         for (const auto& field : SceneLightUniformFields()) {
             (void)shader_info_ref.combos.insert(
                 String::make(field.combo),

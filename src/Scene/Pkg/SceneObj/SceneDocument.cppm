@@ -94,6 +94,7 @@ public:
     u32  tube { 0 };
     u32  spot { 0 };
     u32  spotshadow { 0 };
+    u32  spotcookie { 0 };
 };
 
 class SceneGeneral {

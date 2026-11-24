@@ -92,6 +92,24 @@ auto owe::SceneParser::Parse(ref<str> scene_id, ref<wpscene::SceneDocument> docu
                      rstd::move(options.texture_memory));
     context.load_bench       = options.load_bench;
     context.general_settings = options.general_settings;
+    auto& shader_environment = context.layer_resources->shader_environment;
+    if (metadata.general.lightconfig.spotcookie > u32() &&
+        shader_environment.lighting.spot > u32()) {
+        for (const auto& object : objects) {
+            if (! object.is_Light()) continue;
+            const auto& light = object.as_Light().value;
+            if (! light.usecookie || light.cookie.is_empty() ||
+                (light.light != "spot"_str && light.light != "lspot"_str))
+                continue;
+            // LightingV1 assets declare a single cookie sampler.
+            if (shader_environment.lighting.spot_cookie_light.is_some()) {
+                rstd_warn("additional projected spotlight {} is not supported", light.id);
+                break;
+            }
+            shader_environment.lighting.spot_cookie_light = Some(i32(light.id));
+            shader_environment.spot_cookie_texture        = light.cookie.clone();
+        }
+    }
     for (const auto& record : document->objects) {
         const auto& object = record.metadata;
         if (object.has_id || (object.kind != wpscene::SceneObjectKind::Unknown &&

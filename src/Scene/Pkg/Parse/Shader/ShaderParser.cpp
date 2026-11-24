@@ -349,6 +349,9 @@ uniform vec4 g_LSpot_Color[LIGHTS_SPOT];
 uniform vec4 g_LSpot_Origin[LIGHTS_SPOT];
 uniform vec4 g_LSpot_Direction[LIGHTS_SPOT];
 uniform vec4 g_LSpot_Params[LIGHTS_SPOT];
+#if LIGHTS_COOKIE && defined(COOKIE_SAMPLER)
+uniform vec4 g_LSpot_CookieProjection[3];
+#endif
 #endif
 #if LIGHTS_TUBE
 uniform vec4 g_LTube_Color[LIGHTS_TUBE];
@@ -384,8 +387,22 @@ float3 PerformLighting_V1(float3 worldPos, float3 albedo, float3 normal, float3 
     for (int i = 0; i < LIGHTS_SPOT; ++i) {
         if (dot(g_LSpot_Color[i].rgb, g_LSpot_Color[i].rgb) <= 0.0) continue;
         float3 delta = g_LSpot_Origin[i].xyz - worldPos;
-        float cone = smoothstep(g_LSpot_Origin[i].w, g_LSpot_Direction[i].w,
-            dot(-normalize(delta), g_LSpot_Direction[i].xyz));
+        float3 lightColor = g_LSpot_Color[i].rgb;
+#if LIGHTS_COOKIE && defined(COOKIE_SAMPLER)
+        if (g_LSpot_Params[i].w > 0.5) {
+            float4 worldPoint = float4(worldPos, 1.0);
+            float projectedW = dot(worldPoint, g_LSpot_CookieProjection[2]);
+            float2 projected = float2(dot(worldPoint, g_LSpot_CookieProjection[0]),
+                                      dot(worldPoint, g_LSpot_CookieProjection[1]));
+            float2 uv = projected / max(projectedW, 1e-6) * float2(0.5, -0.5) + 0.5;
+            bool covered = projectedW > 0.0 && all(uv >= 0.0) && all(uv <= 1.0);
+            lightColor *= texSample2D(COOKIE_SAMPLER, saturate(uv)).rgb * (covered ? 1.0 : 0.0);
+        } else
+#endif
+        {
+            lightColor *= smoothstep(g_LSpot_Origin[i].w, g_LSpot_Direction[i].w,
+                dot(-normalize(delta), g_LSpot_Direction[i].xyz));
+        }
         float shadowFactor = 1.0;
 #if LIGHTS_SHADOW_MAPPING
         if (g_LSpot_Params[i].y > 0.5 && g_LSpot_Params[i].z >= 0.0) {
@@ -399,7 +416,7 @@ float3 PerformLighting_V1(float3 worldPos, float3 albedo, float3 normal, float3 
         shadowFactor = 1.0 - step(0.5, g_LSpot_Params[i].y);
 #endif
         light += ComputePBRLightShadow(normal, delta, viewVector, albedo,
-            g_LSpot_Color[i].rgb * cone, g_LSpot_Color[i].w, g_LSpot_Params[i].x,
+            lightColor, g_LSpot_Color[i].w, g_LSpot_Params[i].x,
             specularTint, f0, roughness, metallic, shadowFactor);
     }
 #endif
@@ -1702,6 +1719,7 @@ void SplitSceneLightUniforms(UniformCompileInterface& interface, const ShaderInf
     bool active = false;
     for (const auto& field : SceneLightUniformFields())
         active |= interface.local.remove(field.name).is_some();
+    active |= interface.local.remove(kSpotCookieProjection).is_some();
     if (! active) return;
     // All materials in a scene share one complete layout, including unused light kinds.
     for (const auto& field : SceneLightUniformFields()) {
@@ -1710,6 +1728,8 @@ void SplitSceneLightUniforms(UniformCompileInterface& interface, const ShaderInf
         (void)interface.scene_lighting.insert(String::make(field.name),
                                               rstd::format("vec4[{}]", (**count).as_str()));
     }
+    if (auto cookie = info.combos.get("LIGHTS_COOKIE"_str); cookie && **cookie == "1"_str)
+        (void)interface.scene_lighting.insert(String::make(kSpotCookieProjection), "vec4[3]"_Str);
 }
 
 UniformCompileInterface BuildUniformInterface(mut_ref<ShaderUnit[]> units, const ShaderInfo& info) {
