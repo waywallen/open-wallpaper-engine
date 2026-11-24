@@ -1058,6 +1058,62 @@ TEST(MdlMesh, FindsMeshByNormalizedMaterialReference) {
     EXPECT_TRUE(owe::MdlParser::FindMeshByMaterial(mdl, "missing"_str).is_none());
 }
 
+TEST(MdlMesh, Mdlv16StaticModelMixesUint16AndUint32Indices) {
+    auto path = rstd::format("{}/2860542003/scene.pkg",
+                             rstd::cppstd::as_str(WAYWALLEN_WORKSHOP_DIR).unwrap());
+    auto pkg  = owe::fs::WPPkgFs::open(owe::fs::Path(path.as_str()));
+    if (pkg.is_err()) GTEST_SKIP() << "workshop 2860542003 is not available";
+
+    owe::fs::VFS vfs;
+    ASSERT_TRUE(vfs.mount("/assets"_str, pkg->mount_handle()).is_ok());
+
+    owe::Mdl mdl;
+    ASSERT_TRUE(owe::MdlParser::Parse("models/paris/paris.mdl"_str, vfs, mdl));
+    ASSERT_EQ(mdl.header.mdlv, 16);
+    ASSERT_EQ(mdl.meshes.len(), usize(42));
+
+    struct ExpectedMesh {
+        ref<str> material;
+        usize    vertex_count;
+        usize    index_count;
+        u64      index_hash;
+    };
+    const array<ExpectedMesh, 3> expected {
+        ExpectedMesh { "materials/models/paris/T_Cnsw_11_N_Obj_010_Alb.json"_str,
+                       usize(32138),
+                       usize(39840),
+                       u64(719829342) },
+        ExpectedMesh { "materials/models/paris/T_Cnsw_11_N_UniqueBuilding_Alb.json"_str,
+                       usize(93980),
+                       usize(109815),
+                       u64(100986075) },
+        ExpectedMesh { "materials/models/paris/T_Cnsw_11_Nature_Alb.json"_str,
+                       usize(76863),
+                       usize(114951),
+                       u64(555944558) },
+    };
+    for (const auto& wanted : expected) {
+        const auto mesh_index = owe::MdlParser::FindMeshByMaterial(mdl, wanted.material);
+        ASSERT_TRUE(mesh_index.is_some());
+        const auto& mesh = mdl.meshes[*mesh_index];
+        ASSERT_EQ(mesh.positions.len(), wanted.vertex_count);
+        ASSERT_EQ(mesh.indices.len() * usize(3), wanted.index_count);
+        EXPECT_EQ(usize(MaxMeshIndex(mesh)), wanted.vertex_count - usize(1));
+
+        u64 hash;
+        for (const auto& triangle : mesh.indices) {
+            for (auto index : triangle) hash = (hash * u64(257) + u64(index)) % u64(1000000007);
+        }
+        EXPECT_EQ(hash, wanted.index_hash);
+
+        owe::SceneMesh::Submesh submesh;
+        owe::MdlParser::GenMeshFromMdl(submesh, mesh);
+        ASSERT_EQ(submesh.index_arrays.len(), usize(1));
+        EXPECT_EQ(submesh.index_arrays[usize()].DataCount(), wanted.index_count);
+        EXPECT_TRUE(submesh.draw_ranges.is_empty());
+    }
+}
+
 TEST(MdlMesh, Mdlv23LargeStaticMeshUsesUint32GlobalIndices) {
     const std::filesystem::path pkg_path =
         std::filesystem::path(WAYWALLEN_WORKSHOP_DIR) / "3557068717" / "scene.pkg";

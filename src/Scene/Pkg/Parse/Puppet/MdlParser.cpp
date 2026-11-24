@@ -273,8 +273,9 @@ bool is_mdls_v2_indexed_trailer(fs::BinaryReader& f, rstd::ptrdiff_t start, uint
 
 void ParseMasks(fs::BinaryReader& f, Mdl::Mesh& mesh);
 
-bool UsesUint32Indices(const MdlHeader& header, uint32_t vertex_num) {
-    return header.mdlv >= 23 && vertex_num > rstd::u16::MAX.to_primitive();
+bool UsesUint32Indices(uint32_t vertex_num) {
+    // Large static meshes already use 32-bit indices in MDLV16.
+    return vertex_num > rstd::u16::MAX.to_primitive();
 }
 
 // hexpat Mesh<MdlV, TopFlag, SinglePuppet, SkinCount>:
@@ -348,7 +349,7 @@ bool ParseMesh(fs::BinaryReader& f, const MdlHeader& header, Mdl::Mesh& mesh, re
     }
 
     uint32_t       indices_size    = f.ReadUint32();
-    const bool     use_u32_indices = UsesUint32Indices(header, vertex_num);
+    const bool     use_u32_indices = UsesUint32Indices(vertex_num);
     const uint32_t index_stride    = use_u32_indices ? singile_indices_u32 : singile_indices_u16;
     if (indices_size % index_stride != 0) {
         rstd_error(
