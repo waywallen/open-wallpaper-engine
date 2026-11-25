@@ -338,8 +338,10 @@ void ParseTextObjImpl(SceneLayerBuildContext& context, wpscene::TextObject& obj)
     }
 
     text::TextLayoutStyle style;
-    style.mesh_origin =
-        direct_text ? text::TextMeshOrigin::Layout : text::TextMeshOrigin::InkBounds;
+    // Only tightly cropped surfaces restore the ink origin when compositing.
+    style.mesh_origin           = direct_text || copy_background_seed || has_bg
+                                      ? text::TextMeshOrigin::Layout
+                                      : text::TextMeshOrigin::InkBounds;
     style.color                 = { obj.color[usize(0)], obj.color[usize(1)], obj.color[usize(2)] };
     style.alpha                 = direct_text ? 1.0f : obj.alpha;
     style.brightness            = obj.brightness;

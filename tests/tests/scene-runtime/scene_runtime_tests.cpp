@@ -1602,6 +1602,129 @@ TEST(SceneParserText, VerticalAlignmentUsesAscentBoundsAt300Dpi) {
     }
 }
 
+TEST(SceneParserText, SurfaceOriginPreservesGlyphLayoutAcrossUpdates) {
+    auto document = owe::wpscene::ParseSceneDocumentJson(R"JSON({
+        "camera": {},
+        "general": {"orthogonalprojection":{"width":1920,"height":1080}},
+        "objects": [
+            {"id":1,"name":"Direct","text":{"value":"02","user":"caption"},
+             "font":"systemfont_DejaVu Sans","pointsize":24,"verticalalign":"center"},
+            {"id":2,"name":"Effect","text":{"value":"02","user":"caption"},
+             "font":"systemfont_DejaVu Sans","pointsize":24,"verticalalign":"center",
+             "effects":[{"file":"effects/blur/effect.json"}]},
+            {"id":3,"name":"Tight","text":{"value":"02","user":"caption"},
+             "font":"systemfont_DejaVu Sans","pointsize":24,"verticalalign":"center",
+             "colorBlendMode":11},
+            {"id":4,"name":"Copy","text":{"value":"02","user":"caption"},
+             "font":"systemfont_DejaVu Sans","pointsize":24,"verticalalign":"center",
+             "copybackground":true},
+            {"id":5,"name":"Opaque","text":{"value":"02","user":"caption"},
+             "font":"systemfont_DejaVu Sans","pointsize":24,"verticalalign":"center",
+             "opaquebackground":true}
+        ]
+    })JSON"_str,
+                                                         owe::wpscene::kSceneVersionUnknown);
+    ASSERT_TRUE(document);
+    for (auto& object : document->objects) {
+        object.authored.as_object_mut().unwrap()->insert(
+            "visible"_Str,
+            owe::ParseJson(R"JSON({"value":true,"script":
+                "let frame = 0; export function update(v) { frame++; thisLayer.pointsize = frame === 1 ? 36 : 12; thisLayer.verticalalign = frame === 1 ? 'bottom' : 'top'; return v; }"
+            })JSON"_str)
+                .unwrap());
+    }
+    auto assets = owe::fs::make_physical_fs(
+        owe::fs::Path(rstd::cppstd::as_str(WAYWALLEN_ASSETS_DIR).unwrap()));
+    ASSERT_TRUE(assets);
+    owe::fs::VFS vfs;
+    ASSERT_TRUE(vfs.mount("/assets"_str, rstd::move(assets).unwrap()));
+    wavsen::audio::SoundManager sound;
+    auto                        parsed =
+        owe::SceneParser().Parse("text-surface-origin"_str,
+                                 ref<owe::wpscene::SceneDocument>::from_raw_parts(&*document),
+                                 mut_ref<owe::fs::VFS>::from_raw_parts(&vfs),
+                                 mut_ref<wavsen::audio::SoundManager>::from_raw_parts(&sound));
+    ASSERT_TRUE(parsed);
+    auto&                    scene = *parsed->scene;
+    owe::text::TextResources resources;
+    auto                     verify = [&](ref<str> text, double size, ref<str> alignment) {
+        SCOPED_TRACE(to_string(text));
+        SCOPED_TRACE(size);
+        auto       layout = resources
+                                .Layout({ .text         = text,
+                                          .family       = "DejaVu Sans"_str,
+                                          .size         = size,
+                                          .line_metrics = vectext::TextLineMetrics::PrimaryFont,
+                                          .line_advance = vectext::TextLineAdvance::FontHeight })
+                                .unwrap();
+        const auto bounds = layout.typographic_bounds();
+        double     first_left {}, first_top {}, min_x {}, max_x {}, min_y {}, max_y {};
+        bool       first = true;
+        for (const auto& glyph : layout.glyphs()) {
+            if (! glyph.drawable) continue;
+            auto bitmap = layout.fonts()[usize(glyph.font)].rasterize(glyph.glyph, 1).unwrap();
+            if (! bitmap.width || ! bitmap.height) continue;
+            const double left = glyph.position.x + bitmap.origin.x - bounds.width / 2;
+            const double top  = bounds.height / 2 - (glyph.position.y - bounds.y + bitmap.origin.y);
+            const double right = left + bitmap.width, bottom = top - bitmap.height;
+            if (first) {
+                first_left = min_x = left;
+                first_top = max_y = top;
+                max_x             = right;
+                min_y             = bottom;
+                first             = false;
+            } else {
+                min_x = rstd::cmp::min(min_x, left);
+                max_x = rstd::cmp::max(max_x, right);
+                min_y = rstd::cmp::min(min_y, bottom);
+                max_y = rstd::cmp::max(max_y, top);
+            }
+        }
+        ASSERT_FALSE(first);
+        const double descent = layout.lines().last().unwrap()->descent;
+        double       anchor  = -descent / 2;
+        if (alignment == "top"_str) anchor -= (bounds.height - descent) / 2;
+        if (alignment == "bottom"_str) anchor += (bounds.height - descent) / 2;
+        for (auto name : { "Direct"_str, "Effect"_str, "Tight"_str, "Copy"_str, "Opaque"_str }) {
+            SCOPED_TRACE(to_string(name));
+            auto* node = scene.RootMut()->FindByName(name);
+            ASSERT_NE(node, nullptr);
+            EXPECT_NEAR(node->GeometryTransform()(1, 3), anchor, 1e-5);
+            auto*                       source = node;
+            Option<Arc<owe::SceneNode>> source_hold;
+            if (name != "Direct"_str) {
+                auto key    = scene.NodeResourceKey(node->Identity(), "text_camera"_str);
+                auto camera = scene.CameraHandle(key.as_str());
+                ASSERT_TRUE(camera);
+                source_hold = (**camera).AttachedNodeHandle();
+                ASSERT_TRUE(source_hold);
+                source = source_hold->as_ptr().as_raw_ptr();
+                ASSERT_TRUE(source->HasLayer());
+                for (const auto& prefill : source->Layer()->PrefillNodes()) {
+                    EXPECT_TRUE(prefill.sceneNode->GeometryTransform().isIdentity());
+                    EXPECT_TRUE(prefill.sceneNode->Translate().isZero());
+                }
+            }
+            ASSERT_NE(source->Mesh(), nullptr);
+            const auto&  vertices = source->Mesh()->GetVertexArray(usize());
+            const auto   base = name == "Opaque"_str ? vertices.OneSize().to_primitive() * 4 : 0;
+            const double offset_x = name == "Tight"_str ? (min_x + max_x) / 2 : 0;
+            const double offset_y = name == "Tight"_str ? (min_y + max_y) / 2 : 0;
+            EXPECT_NEAR(vertices.Data()[base], first_left - offset_x, 1e-4);
+            EXPECT_NEAR(vertices.Data()[base + 1], first_top - offset_y, 1e-4);
+        }
+    };
+    verify("02"_str, 100, "center"_str);
+    auto caption = owe::ParseJson(R"({"value":"Ag\n10"})"_str).unwrap();
+    ASSERT_TRUE(scene.ApplyUserTextBindings("caption"_str, caption));
+    owe::script::TickSceneScripts(scene, owe::script::FrameInputs {});
+    verify("Ag\n10"_str, 150, "bottom"_str);
+    caption = owe::ParseJson(R"({"value":"g"})"_str).unwrap();
+    ASSERT_TRUE(scene.ApplyUserTextBindings("caption"_str, caption));
+    owe::script::TickSceneScripts(scene, owe::script::FrameInputs {});
+    verify("g"_str, 50, "top"_str);
+}
+
 TEST(SceneUserTextBinding, AppliesDescriptorPayloadToMatchingBindings) {
     owe::Scene  scene;
     std::string first;
