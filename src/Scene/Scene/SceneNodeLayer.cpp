@@ -97,12 +97,15 @@ void SceneNodeLayer::ResolveEffect(const SceneMesh& default_mesh, ref<str> effec
             if (it->output.kind == SceneEffectTargetKind::LayerNext) last_output = &(*it);
             effect_output = &(*it);
 
-            {
-                material.SetBlendMode(BlendMode::Normal);
-                it->sceneNode->SetCamera(effect_cam);
-                it->sceneNode->CopyTrans(default_node);
-                set_geometry(*it->sceneNode, default_mesh);
-            }
+            auto& node = *it->sceneNode;
+            material.SetBlendMode(BlendMode::Normal);
+            // A former final pass can become a local pass when another effect is enabled.
+            node.SetParentAnchor(nullptr);
+            node.SetPerspective(false);
+            node.SetAlphaSource(nullptr);
+            node.SetCamera(effect_cam);
+            node.CopyTrans(default_node);
+            set_geometry(node, default_mesh);
         }
         m_resolved_effects.push(&eff);
         return effect_output;
@@ -131,17 +134,7 @@ void SceneNodeLayer::ResolveEffect(const SceneMesh& default_mesh, ref<str> effec
         material.SetDepthTest(m_final_depth_test);
         material.SetDepthWrite(m_final_depth_write);
         material.SetCullMode(m_final_cull_mode);
-        if (m_final_local) {
-            final_output->sceneNode->SetCamera(effect_cam);
-            final_output->sceneNode->SetParentAnchor(nullptr);
-            final_output->sceneNode->CopyTrans(default_node);
-            set_geometry(*final_output->sceneNode, default_mesh);
-        } else if (fullscreen) {
-            final_output->sceneNode->SetCamera(effect_cam);
-            final_output->sceneNode->SetParentAnchor(nullptr);
-            final_output->sceneNode->CopyTrans(default_node);
-            set_geometry(*final_output->sceneNode, default_mesh);
-        } else {
+        if (! m_final_local && ! fullscreen) {
             const bool perspective = m_worldNode != nullptr && m_worldNode->Perspective();
             final_output->sceneNode->SetCamera(
                 m_final_camera.is_empty() ? (perspective ? "global_perspective"_str : ""_str)

@@ -832,6 +832,46 @@ TEST(SceneNodeLayer, FinalResolveTargetsFinalOutputBeforePublish) {
     EXPECT_EQ(publish_target.key, "_rt_link"_str);
 }
 
+TEST(SceneNodeLayer, EffectReturnsToLocalSpaceWhenAnotherEffectTakesFinalOutput) {
+    owe::Scene scene;
+    auto       owner = scene.RootMut();
+    owner->SetTranslate({ 1920.0f, 1080.0f, 0.0f });
+    owner->SetPerspective(true);
+    owner->SetUserAlpha(0.5f);
+    auto layer =
+        Arc<owe::SceneNodeLayer>::make(owner.as_raw_ptr(), 16.0f, 16.0f, "_rt_composite"_str);
+
+    auto first  = Arc<owe::SceneImageEffect>::make();
+    auto second = Arc<owe::SceneImageEffect>::make();
+    auto pass   = Arc<owe::SceneNode>::make();
+    pass->AddMesh(MakeSingleSubmesh("first"));
+    first->AddNode({ .output = owe::SceneEffectTarget::LayerNext(), .sceneNode = pass.clone() });
+    auto next = Arc<owe::SceneNode>::make();
+    next->AddMesh(MakeSingleSubmesh("second"));
+    second->AddNode({ .output = owe::SceneEffectTarget::LayerNext(), .sceneNode = next.clone() });
+    second->runtime_visible = false;
+    layer->AddEffect(first);
+    layer->AddEffect(second);
+
+    auto check_pass = [&](owe::SceneNode& node, bool final) {
+        node.UpdateTrans();
+        EXPECT_TRUE(
+            node.ModelTrans().isApprox(final ? owner->ModelTrans() : Eigen::Matrix4d::Identity()));
+        EXPECT_EQ(node.Camera(), final ? "global_perspective"_str : "effect"_str);
+        EXPECT_EQ(node.Perspective(), final);
+        EXPECT_FLOAT_EQ(node.EffectiveAlpha(), final ? 0.5f : 1.0f);
+    };
+    owner->UpdateTrans();
+    layer->ResolveEffect(*scene.DefaultEffectMesh(), "effect"_str);
+    check_pass(*pass, true);
+    for (bool enabled : { true, false, true }) {
+        ASSERT_TRUE(layer->SetEffectRuntimeVisible(*second, enabled));
+        layer->ResolveEffect(*scene.DefaultEffectMesh(), "effect"_str);
+        check_pass(*pass, ! enabled);
+        if (enabled) check_pass(*next, true);
+    }
+}
+
 TEST(SceneResourceIndex, PreservesTypedLayerPreviousSourceAcrossResolution) {
     owe::Scene         scene;
     owe::SceneMaterial material;
