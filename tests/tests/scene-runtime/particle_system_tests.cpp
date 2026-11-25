@@ -871,7 +871,7 @@ TEST(ParticleInstanceModifiers, PreservesNormalizedSpawnColors) {
     }
 }
 
-TEST(ParticleSubSystem, ResolvesWorldControlpointOverridesThroughOwnerTransform) {
+TEST(ParticleSubSystem, ResolvesControlpointOverridesInTheirAuthoredSpace) {
     owe::Scene             scene;
     auto                   mesh = Arc<owe::SceneMesh>::make();
     owe::ParticleSubSystem subsystem(scene,
@@ -906,7 +906,16 @@ TEST(ParticleSubSystem, ResolvesWorldControlpointOverridesThroughOwnerTransform)
     auto resolved = subsystem.Controlpoints();
     EXPECT_TRUE(resolved[usize(1)].offset.isApprox(Eigen::Vector3d { 10.0, 10.0, 0.0 }));
     EXPECT_TRUE(resolved[usize(2)].offset.isApprox(Eigen::Vector3d { 3.0, 4.0, 0.0 }));
-    EXPECT_TRUE(resolved[usize(3)].offset.isApprox(Eigen::Vector3d { 4.0, 6.0, 0.0 }));
+    EXPECT_TRUE(resolved[usize(3)].offset.isApprox(Eigen::Vector3d { 3.0, 4.0, 0.0 }));
+
+    override->controlpoint[usize(3)] = Some(rstd::array<float, 3> { 0.0f, 0.0f, 0.0f });
+    subsystem.Tick(f64(), false);
+    EXPECT_TRUE(subsystem.Controlpoints()[usize(3)].offset.isZero());
+
+    override->controlpoint[usize(3)] = None();
+    subsystem.Tick(f64(), false);
+    EXPECT_TRUE(
+        subsystem.Controlpoints()[usize(3)].offset.isApprox(Eigen::Vector3d { 1.0, 2.0, 0.0 }));
 }
 
 TEST(ParticleSubSystem, ResolvesWorldSpaceControlpointsForSimulation) {

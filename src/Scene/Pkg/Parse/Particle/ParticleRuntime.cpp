@@ -619,7 +619,7 @@ void ParticleSubSystem::UpdateControlpoints(ParticleInstanceRef current) {
                         Eigen::Vector4d(position.x(), position.y(), position.z(), 1.0);
                     controlpoint.offset = local.head<3>();
                 } else {
-                    controlpoint.offset += position;
+                    controlpoint.offset = position;
                 }
             }
             angles = Eigen::Vector3f { (*m_instance_modifiers).ControlpointAngle(index).data() };
