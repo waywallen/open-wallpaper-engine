@@ -87,10 +87,10 @@ void ParseCamera(SceneParseContext& context, const wpscene::SceneMetadata& sc) {
     }
     scene.RegisterCamera("global_perspective"_Str, perspective_camera.clone());
     scene.RootMut()->AppendChild((*context.global_perspective_camera_node).clone());
-    // Perspective layers share camera motion, not the orthographic projection.
+    // Orthographic depth offsets must not move the perspective camera towards or away from layers.
     if (general.isOrtho)
         scene.RegisterLinkedCamera(
-            "global"_Str, "global_perspective"_Str, SceneCameraLinkMode::ViewDelta);
+            "global"_Str, "global_perspective"_Str, SceneCameraLinkMode::ViewPlaneDelta);
 
     // Perspective scene (orthogonalprojection==null). The content is authored
     // in WE world units around the origin and viewed by an explicit eye/center

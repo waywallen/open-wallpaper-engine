@@ -3170,8 +3170,8 @@ void Scene::RegisterCameraPathUserBinding(String key, Arc<SceneCameraPath> path)
 }
 
 void Scene::RegisterLinkedCamera(String source, String linked, SceneCameraLinkMode mode) {
-    LinkedCamera value { .name = rstd::move(linked) };
-    if (mode == SceneCameraLinkMode::ViewDelta) {
+    LinkedCamera value { .name = rstd::move(linked), .mode = mode };
+    if (mode != SceneCameraLinkMode::Clone) {
         auto camera = CameraMut(source.as_str());
         if (camera.is_none()) {
             rstd_error("view-linked camera source '{}' is not registered", source);
@@ -3205,10 +3205,16 @@ void Scene::UpdateLinkedCamera(ref<str> name) {
             if (visited.contains(link.name.as_str())) continue;
             auto camera = CameraMut(link.name.as_str());
             if (camera.is_none()) continue;
-            if (link.reference_frame)
-                (**camera).SetViewDelta(*link.reference_frame * (**source).GetViewMatrix());
-            else
+            if (link.reference_frame) {
+                Eigen::Matrix4d view = (**source).GetViewMatrix();
+                if (link.mode == SceneCameraLinkMode::ViewPlaneDelta) {
+                    // Keep the reference eye at zero view depth without changing its screen XY.
+                    view(2, 3) = -view.row(2).head<3>().dot(link.reference_frame->col(3).head<3>());
+                }
+                (**camera).SetViewDelta(*link.reference_frame * view);
+            } else {
                 (**camera).Clone(**source);
+            }
             (**camera).Update();
             pending.push(link.name.clone());
         }

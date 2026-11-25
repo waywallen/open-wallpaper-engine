@@ -1283,6 +1283,7 @@ enum class SceneCameraLinkMode
 {
     Clone,
     ViewDelta,
+    ViewPlaneDelta,
 };
 
 class SceneCamera {
@@ -3660,6 +3661,7 @@ private:
 
     struct LinkedCamera {
         String                  name;
+        SceneCameraLinkMode     mode;
         Option<Eigen::Matrix4d> reference_frame;
     };
 
