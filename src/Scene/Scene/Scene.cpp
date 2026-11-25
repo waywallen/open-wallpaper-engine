@@ -2156,8 +2156,8 @@ Vec<String> Scene::RemoveNodeCamerasImpl(slice<SceneNodeId> owners, bool rebuild
             empty_links.push(source->clone());
             return;
         }
-        linked->retain([&](const String& name) {
-            return ! removed.contains(name.as_str());
+        linked->retain([&](const LinkedCamera& camera) {
+            return ! removed.contains(camera.name.as_str());
         });
         if (linked->is_empty()) empty_links.push(source->clone());
     });
@@ -3104,27 +3104,49 @@ void Scene::RegisterCameraPathUserBinding(String key, Arc<SceneCameraPath> path)
     m_camera_path_user_index.Register(rstd::move(key), rstd::move(path), owner);
 }
 
-void Scene::RegisterLinkedCamera(String source, String linked) {
+void Scene::RegisterLinkedCamera(String source, String linked, SceneCameraLinkMode mode) {
+    LinkedCamera value { .name = rstd::move(linked) };
+    if (mode == SceneCameraLinkMode::ViewDelta) {
+        auto camera = CameraMut(source.as_str());
+        if (camera.is_none()) {
+            rstd_error("view-linked camera source '{}' is not registered", source);
+            return;
+        }
+        value.reference_frame = Some(Eigen::Matrix4d((**camera).GetViewMatrix().inverse()));
+    }
     auto cameras = m_linked_cameras.get_mut(source.as_str());
     if (cameras.is_some()) {
-        (**cameras).push(rstd::move(linked));
+        (**cameras).push(rstd::move(value));
         return;
     }
-    Vec<String> values;
-    values.push(rstd::move(linked));
+    Vec<LinkedCamera> values;
+    values.push(rstd::move(value));
     (void)m_linked_cameras.insert(rstd::move(source), rstd::move(values));
 }
 
 void Scene::UpdateLinkedCamera(ref<str> name) {
-    auto linked = m_linked_cameras.get(name);
-    if (linked.is_none()) return;
-    auto source = Camera(name);
-    if (source.is_none()) return;
-    for (const auto& camera_name : **linked) {
-        auto camera = CameraMut(camera_name.as_str());
-        if (camera.is_none()) continue;
-        (**camera).Clone(**source);
-        (**camera).Update();
+    if (! m_linked_cameras.contains_key(name)) return;
+    Vec<String>     pending;
+    HashSet<String> visited;
+    pending.push(String::make(name));
+    for (usize index {}; index < pending.len(); ++index) {
+        auto source_name = pending[index].clone();
+        if (visited.contains(source_name.as_str())) continue;
+        (void)visited.insert(source_name.clone());
+        auto linked = m_linked_cameras.get(source_name.as_str());
+        auto source = CameraMut(source_name.as_str());
+        if (linked.is_none() || source.is_none()) continue;
+        for (const auto& link : **linked) {
+            if (visited.contains(link.name.as_str())) continue;
+            auto camera = CameraMut(link.name.as_str());
+            if (camera.is_none()) continue;
+            if (link.reference_frame)
+                (**camera).SetViewDelta(*link.reference_frame * (**source).GetViewMatrix());
+            else
+                (**camera).Clone(**source);
+            (**camera).Update();
+            pending.push(link.name.clone());
+        }
     }
 }
 

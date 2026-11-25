@@ -3664,6 +3664,61 @@ TEST(ImageEffectCamera, PassthroughFollowsActiveProjectionAndTransforms) {
     }
 }
 
+TEST(SceneCameraParsing, OrthographicPathMovesPerspectiveViewWithoutReplacingProjection) {
+    using namespace rstd::prelude;
+    auto document = owe::wpscene::ParseSceneDocumentJson(R"JSON({
+        "camera": {},
+        "general": {
+            "orthogonalprojection": {"width":3840,"height":2160},
+            "perspectiveoverridefov":90
+        },
+        "objects": [{"id":37,"camera":"default","origin":"0 95.48364 0","zoom":1}]
+    })JSON"_str,
+                                                         24);
+    ASSERT_TRUE(document);
+    auto assets = owe::fs::make_physical_fs(
+        owe::fs::Path(rstd::cppstd::as_str(WAYWALLEN_ASSETS_DIR).unwrap()));
+    ASSERT_TRUE(assets);
+    owe::fs::VFS vfs;
+    ASSERT_TRUE(vfs.mount("/assets"_str, rstd::move(assets).unwrap()));
+    wavsen::audio::SoundManager sound;
+    owe::SceneParser            parser;
+    auto parsed = parser.Parse("mixed-projection-cameras"_str,
+                               ref<owe::wpscene::SceneDocument>::from_raw_parts(&*document),
+                               mut_ref<owe::fs::VFS>::from_raw_parts(&vfs),
+                               mut_ref<wavsen::audio::SoundManager>::from_raw_parts(&sound));
+    ASSERT_TRUE(parsed);
+    auto& scene        = *parsed->scene;
+    auto  orthographic = scene.CameraHandle("global"_str).unwrap();
+    auto  perspective  = scene.CameraHandle("global_perspective"_str).unwrap();
+    scene.TickCameraPaths();
+    auto check_views = [&] {
+        const auto eye = orthographic->GetPosition();
+        EXPECT_NEAR(perspective->GetPosition().x(), eye.x(), 1e-5);
+        EXPECT_NEAR(perspective->GetPosition().y(), eye.y(), 1e-5);
+        EXPECT_NEAR(perspective->GetPosition().z(), 1080.0, 1e-5);
+        EXPECT_TRUE(perspective->IsPerspective());
+        EXPECT_DOUBLE_EQ(perspective->Fov(), 90.0);
+        EXPECT_DOUBLE_EQ(perspective->NearClip(), 15000.0);
+        EXPECT_DOUBLE_EQ(perspective->FarClip(), 5.0);
+    };
+    EXPECT_NEAR(orthographic->GetPosition().y(), 1175.48364, 1e-4);
+    check_views();
+    scene.UpdateCameraFillMode(u32(1280), u32(1024), owe::FillMode::ASPECTCROP);
+    check_views();
+    auto node   = orthographic->GetAttachedNode().unwrap();
+    auto parent = node->Parent();
+    ASSERT_NE(parent, nullptr);
+    parent->SetVisible(false);
+    scene.TickCameraPaths();
+    EXPECT_NEAR(orthographic->GetPosition().y(), 1080.0, 1e-5);
+    check_views();
+    parent->SetVisible(true);
+    scene.TickCameraPaths();
+    EXPECT_NEAR(orthographic->GetPosition().y(), 1175.48364, 1e-4);
+    check_views();
+}
+
 TEST(SceneCameraScript, SkeletonMouseControlIsContinuousAndSettles) {
     using namespace rstd::prelude;
     auto file = rstd::format("{}/3292370168/scene.pkg",

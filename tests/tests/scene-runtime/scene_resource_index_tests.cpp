@@ -2207,6 +2207,56 @@ TEST(SceneCameras, ActiveCameraTracksRegisteredReplacement) {
     EXPECT_EQ(scene.CameraNames().len(), usize(1));
 }
 
+TEST(SceneLinkedCameras, ViewDeltaKeepsRelativeFrameAndPropagatesToClones) {
+    owe::Scene scene;
+    auto       source =
+        Arc<owe::SceneCamera>::make(owe::SceneCamera::MakeOrthographic(3840, 2160, 2000, -2000));
+    auto node = Arc<owe::SceneNode>::make();
+    node->SetTranslate({ 1920, 1080, 0 });
+    source->AttachOwnedNode(node.clone());
+    auto target =
+        Arc<owe::SceneCamera>::make(owe::SceneCamera::MakePerspective(16.0 / 9.0, 15000, 5, 90));
+    target->SetLookAt({ 1920, 1080, 1080 }, { 1920, 1080, 0 }, Eigen::Vector3d::UnitY());
+    auto clone = Arc<owe::SceneCamera>::make(*target);
+    scene.RegisterCamera("source"_Str, source.clone());
+    scene.RegisterCamera("target"_Str, target.clone());
+    scene.RegisterCamera("clone"_Str, clone.clone());
+    scene.RegisterLinkedCamera("source"_Str, "target"_Str, owe::SceneCameraLinkMode::ViewDelta);
+    scene.RegisterLinkedCamera("target"_Str, "clone"_Str);
+    const Eigen::Matrix4d source_frame = source->GetViewMatrix().inverse();
+    const auto            target_base  = target->CameraSnapshot();
+    node->SetTranslate({ 1940, 1175.48364f, 0 });
+    node->SetRotation({ 0.0f, 0.0f, 0.2f });
+    node->SetScale({ 0.9f, 1.1f, 1.0f });
+    source->SetViewOffset({ 2, 3, 0 });
+    source->SetWidth(1920);
+    source->SetHeight(1080);
+    scene.UpdateLinkedCamera("source"_str);
+    const Eigen::Matrix4d expected = target_base.view * source_frame * source->GetViewMatrix();
+    EXPECT_TRUE(target->GetViewMatrix().isApprox(expected));
+    EXPECT_TRUE(target->CameraSnapshot().projection.isApprox(target_base.projection));
+    EXPECT_TRUE(target->IsPerspective());
+    EXPECT_DOUBLE_EQ(target->Fov(), 90);
+    EXPECT_DOUBLE_EQ(target->NearClip(), 15000);
+    EXPECT_DOUBLE_EQ(target->FarClip(), 5);
+    EXPECT_TRUE(clone->GetViewMatrix().isApprox(expected));
+    EXPECT_TRUE(clone->GetPosition().isApprox(target->GetPosition()));
+    EXPECT_TRUE(clone->CameraSnapshot().projection.isApprox(target_base.projection));
+    const auto revision = target->CameraSnapshot().revision;
+    scene.UpdateLinkedCamera("source"_str);
+    EXPECT_EQ(target->CameraSnapshot().revision, revision);
+    node->SetTranslate({ 1920, 1080, 0 });
+    node->SetRotation(Eigen::Vector3f::Zero());
+    node->SetScale(Eigen::Vector3f::Ones());
+    source->SetViewOffset(Eigen::Vector3d::Zero());
+    scene.UpdateLinkedCamera("source"_str);
+    EXPECT_TRUE(target->GetViewMatrix().isApprox(target_base.view));
+    EXPECT_TRUE(clone->GetViewMatrix().isApprox(target_base.view));
+    scene.RegisterLinkedCamera("clone"_Str, "source"_Str);
+    scene.UpdateLinkedCamera("source"_str);
+    EXPECT_FALSE(source->IsPerspective());
+}
+
 TEST(SceneCameras, ActiveTransformsUpdateLinkedCamera) {
     owe::Scene scene;
     auto       source =

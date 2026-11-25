@@ -2114,6 +2114,47 @@ TEST(SceneCameraProjection, ExplicitDepthUnprojectsWithoutWorldPlaneIntersection
         scene.ScreenToWorld({ 0.5f, 0.5f }, Some(0.0)).isApprox(Eigen::Vector3d(0.0, 2.0, 9.9)));
 }
 
+TEST(SceneCameraState, ViewDeltaPreservesProjectionAndUpdatesEyeReflectionAndClones) {
+    auto                  camera = owe::SceneCamera::MakePerspective(1.5, 15000, 5, 90);
+    const Eigen::Vector3d eye(2, 4, 10), center(1, 2, 0), up(0, 1, 0), offset(3, 5, 7);
+    camera.SetLookAt(eye, center, up);
+    camera.SetViewOffset(offset);
+    const auto            base = camera.CameraSnapshot();
+    const Eigen::Matrix4d delta =
+        (Eigen::Translation3d(2, -95, 4) * Eigen::AngleAxisd(0.2, Eigen::Vector3d::UnitZ()) *
+         Eigen::Scaling(0.9, 1.1, 1.0))
+            .matrix();
+    const Eigen::Matrix4d inverse = delta.inverse();
+    camera.SetViewDelta(delta);
+    const auto current = camera.CameraSnapshot();
+    EXPECT_TRUE(current.view.isApprox(base.view * delta));
+    EXPECT_TRUE(current.projection.isApprox(base.projection));
+    const Eigen::Vector3d moved_eye    = (inverse * (eye + offset).homogeneous()).head<3>();
+    const Eigen::Vector3d moved_center = (inverse * (center + offset).homogeneous()).head<3>();
+    const Eigen::Vector3d moved_up     = inverse.block<3, 3>(0, 0) * up;
+    EXPECT_TRUE(camera.GetPosition().isApprox(moved_eye));
+    EXPECT_TRUE(camera.GetDirection().isApprox((moved_center - moved_eye).normalized()));
+    EXPECT_TRUE(camera.Transforms().eye.isApprox(eye));
+    EXPECT_TRUE(camera.AuthoredTransforms().eye.isApprox(eye));
+    auto reflected_eye    = moved_eye;
+    auto reflected_center = moved_center;
+    reflected_eye.y()     = -reflected_eye.y();
+    reflected_center.y()  = -reflected_center.y();
+    EXPECT_TRUE(camera.GetPosition(owe::SceneRenderViewKind::Reflection).isApprox(reflected_eye));
+    EXPECT_TRUE(camera.GetViewMatrix(owe::SceneRenderViewKind::Reflection)
+                    .isApprox(Eigen::LookAt(reflected_eye, reflected_center, moved_up)));
+    camera.SetViewDelta(delta);
+    EXPECT_EQ(camera.CameraSnapshot().revision, current.revision);
+    auto clone = camera;
+    EXPECT_TRUE(clone.GetViewMatrix().isApprox(current.view));
+    EXPECT_TRUE(clone.GetPosition().isApprox(moved_eye));
+    camera.SetViewDelta(Eigen::Matrix4d::Identity());
+    EXPECT_TRUE(camera.GetViewMatrix().isApprox(base.view));
+    EXPECT_TRUE(camera.GetPosition().isApprox(eye + offset));
+    camera.SetViewDelta(Eigen::Matrix4d::Zero());
+    EXPECT_TRUE(camera.GetViewMatrix().isApprox(base.view));
+}
+
 TEST(SceneCameraState, ViewOffsetMovesReflectionAndUniformEyeTogether) {
     auto camera =
         Arc<owe::SceneCamera>::make(owe::SceneCamera::MakePerspective(1.5, 0.1, 1000, 60));

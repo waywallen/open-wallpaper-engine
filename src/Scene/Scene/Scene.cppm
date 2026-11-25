@@ -1279,6 +1279,12 @@ enum class SceneCameraFovPolicy
     OrthographicProjection,
 };
 
+enum class SceneCameraLinkMode
+{
+    Clone,
+    ViewDelta,
+};
+
 class SceneCamera {
 public:
     static auto MakeOrthographic(double width, double height, double near, double far)
@@ -1356,6 +1362,8 @@ public:
         m_view_offset = safe;
         InvalidateRenderTransforms();
     }
+    // Share camera motion without replacing the receiving camera's projection or base pose.
+    void SetViewDelta(const Eigen::Matrix4d& delta);
     bool SetTransforms(const SceneCameraTransforms& transforms);
     auto AuthoredTransforms() const -> SceneCameraTransforms;
     bool SetAuthoredTransforms(const SceneCameraTransforms& transforms);
@@ -1380,6 +1388,7 @@ public:
         const bool attachment_changed = m_node != cam.m_node;
         const bool pose_changed =
             m_lookat != cam.m_lookat || m_view_offset != cam.m_view_offset ||
+            m_view_delta != cam.m_view_delta ||
             (cam.m_lookat && (m_eye != cam.m_eye || m_center != cam.m_center || m_up != cam.m_up));
         const bool projection_changed = m_perspective != cam.m_perspective ||
                                         m_width != cam.m_width || m_height != cam.m_height ||
@@ -1398,6 +1407,9 @@ public:
         m_center                      = cam.m_center;
         m_up                          = cam.m_up;
         m_view_offset                 = cam.m_view_offset;
+        m_view_delta                  = cam.m_view_delta;
+        m_inverse_view_delta          = cam.m_inverse_view_delta;
+        m_has_view_delta              = cam.m_has_view_delta;
         m_owned_node                  = cam.m_owned_node.clone();
         m_node                        = cam.m_node;
         if (attachment_changed)
@@ -1452,6 +1464,9 @@ private:
     Eigen::Vector3d m_center { -Eigen::Vector3d::UnitZ() };
     Eigen::Vector3d m_up { Eigen::Vector3d::UnitY() };
     Eigen::Vector3d m_view_offset { Eigen::Vector3d::Zero() };
+    Eigen::Matrix4d m_view_delta { Eigen::Matrix4d::Identity() };
+    Eigen::Matrix4d m_inverse_view_delta { Eigen::Matrix4d::Identity() };
+    bool            m_has_view_delta { false };
 
     mutable CachedView      m_primary_view;
     mutable CachedView      m_reflection_view;
@@ -3499,7 +3514,8 @@ public:
     void RegisterTransformUpdater(Box<dyn<FnMut<void(f64)>>> updater, SceneNodeId owner = {});
     void TickTransformUpdaters();
 
-    void RegisterLinkedCamera(String source, String linked);
+    void RegisterLinkedCamera(String source, String linked,
+                              SceneCameraLinkMode mode = SceneCameraLinkMode::Clone);
     void UpdateLinkedCamera(ref<str> name);
     void SetActiveCameraViewOffset(const Eigen::Vector3d& offset);
 
@@ -3629,6 +3645,11 @@ private:
     usize       RemoveNodeRenderTargetsImpl(slice<SceneNodeId> owners, bool rebuild);
     Vec<String> RemoveNodeCamerasImpl(slice<SceneNodeId> owners, bool rebuild);
 
+    struct LinkedCamera {
+        String                  name;
+        Option<Eigen::Matrix4d> reference_frame;
+    };
+
     u32                                          m_resource_generation { 0 };
     u32                                          m_next_node_index { 0 };
     u32                                          m_next_effect_index { 0 };
@@ -3642,7 +3663,7 @@ private:
     bool                                         m_render_graph_dirty { false };
     bool                                         m_planar_reflection_enabled { false };
     HashMap<i32, String>                         m_render_group_cameras;
-    HashMap<String, Vec<String>>                 m_linked_cameras;
+    HashMap<String, Vec<LinkedCamera>>           m_linked_cameras;
     HashMap<i32, SceneNodeId>                    m_layer_link_source_ids;
     HashMap<i32, SceneNode*>                     m_layer_link_source_nodes;
     HashMap<i32, array<i32, 2>>                  m_layer_link_source_extents;

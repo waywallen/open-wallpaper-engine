@@ -16,7 +16,7 @@ using namespace rstd::literals;
 
 namespace
 {
-Matrix4d SanitizeNodeCameraFrame(Matrix4d frame) {
+Matrix4d SanitizeCameraFrame(Matrix4d frame) {
     if (! frame.allFinite()) return Matrix4d::Identity();
 
     constexpr double kAxisEps = 1e-10;
@@ -42,7 +42,7 @@ Vector3d SceneCamera::GetPosition(SceneRenderViewKind view) const {
 }
 
 Vector3d SceneCamera::GetDirection() const {
-    const auto transforms = Transforms();
+    const auto& transforms = CurrentRenderTransforms(SceneRenderViewKind::Primary);
     return (transforms.center - transforms.eye).normalized();
 }
 
@@ -84,6 +84,11 @@ auto SceneCamera::CachedTransforms(CachedView& cache, SceneRenderViewKind view) 
     auto transforms = BaseTransforms();
     transforms.eye += m_view_offset;
     transforms.center += m_view_offset;
+    if (m_has_view_delta) {
+        transforms.eye    = (m_inverse_view_delta * transforms.eye.homogeneous()).head<3>();
+        transforms.center = (m_inverse_view_delta * transforms.center.homogeneous()).head<3>();
+        transforms.up     = m_inverse_view_delta.block<3, 3>(0, 0) * transforms.up;
+    }
     if (view == SceneRenderViewKind::Reflection) {
         transforms.eye.y()    = -transforms.eye.y();
         transforms.center.y() = -transforms.center.y();
@@ -112,9 +117,25 @@ void SceneCamera::RefreshAttachedFrame() const {
     m_node->UpdateTrans();
     const auto revision = m_node->NodeState().WorldRevision();
     if (m_attached_revision && *m_attached_revision == revision) return;
-    m_attached_frame    = SanitizeNodeCameraFrame(m_node->ModelTrans());
+    m_attached_frame    = SanitizeCameraFrame(m_node->ModelTrans());
     m_attached_revision = Some(u64(revision));
     if (! m_lookat) InvalidateRenderTransforms();
+}
+
+void SceneCamera::SetViewDelta(const Matrix4d& delta) {
+    Matrix4d safe = SanitizeCameraFrame(delta);
+    if (! safe.row(3).isApprox(Vector4d(0.0, 0.0, 0.0, 1.0).transpose()))
+        safe = Matrix4d::Identity();
+    if (m_view_delta == safe) return;
+    Matrix4d inverse = safe.inverse();
+    if (! inverse.allFinite()) {
+        safe    = Matrix4d::Identity();
+        inverse = Matrix4d::Identity();
+    }
+    m_view_delta         = safe;
+    m_inverse_view_delta = inverse;
+    m_has_view_delta     = ! safe.isIdentity(0.0);
+    InvalidateRenderTransforms();
 }
 
 bool SceneCamera::SetTransforms(const SceneCameraTransforms& transforms) {
@@ -192,6 +213,7 @@ auto SceneCamera::RenderMatrices(SceneRenderViewKind kind) const
         else
             view = Matrix4d::Identity();
         view = view * Affine3d(Translation3d(-m_view_offset)).matrix();
+        if (m_has_view_delta) view = view * m_view_delta;
     }
     cache.matrices.Set(view, ProjectionMatrix());
     cache.matrices_dirty = false;
