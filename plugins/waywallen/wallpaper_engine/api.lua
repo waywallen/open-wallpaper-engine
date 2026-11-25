@@ -187,9 +187,9 @@ local function artist_files(ctx, artist, query)
             local id = tostring(item.publishedfileid or "")
             if not seen[id] then error("Steam returned an unexpected Workshop item") end
             if not item.result or tonumber(item.result) == 1 then
-                if M.artist_id(item.creator) ~= artist
-                    or (item.consumer_app_id and tostring(item.consumer_app_id) ~= M.APPID) then
-                    error("Steam returned an item outside the requested artist scope")
+                -- The artist listing includes co-authored items, while creator is the publisher.
+                if item.consumer_app_id and tostring(item.consumer_app_id) ~= M.APPID then
+                    error("Steam returned an item outside the requested Workshop app")
                 end
                 by_id[id] = item
             end

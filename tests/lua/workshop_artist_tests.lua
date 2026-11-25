@@ -1,6 +1,7 @@
 local source = assert(arg[1], "plugin directory required")
 local modules, requests, responses = {}, {}, {}
 local id = "76561198000000001"
+local publisher_id = "76561198000000002"
 function tr(value) return value end
 modules["wallpaper_engine.session"] = {
     authorized = function(ctx, callback) return callback("test-token", ctx.http) end,
@@ -11,7 +12,9 @@ modules["wallpaper_engine.profile"] = {
     get = function(_, ids)
         profile_calls = profile_calls + 1
         assert(ids[1] == id)
-        return { [id] = { name = "Artist", avatar_url = "https://example.com/avatar.jpg", url = "https://steamcommunity.com/profiles/" .. id .. "/" } }
+        local profiles = { [id] = { name = "Artist", avatar_url = "https://example.com/avatar.jpg", url = "https://steamcommunity.com/profiles/" .. id .. "/" } }
+        if ids[2] == publisher_id then profiles[publisher_id] = { name = "Publisher" } end
+        return profiles
     end,
 }
 function import(name)
@@ -108,10 +111,18 @@ responses[#responses + 1] = { result = 15 }
 assert(not pcall(api.search, ctx, {}))
 page({}, nil)
 assert(#api.search(ctx, {artist_id=id}).items == 0)
+page({"1", "3"}, 2)
+reply({{publishedfileid="3",creator=publisher_id,consumer_app_id=431960}, item})
+result = discover.search(ctx, {artist_id=id})
+assert(#result.items == 2 and result.items[1].id == "1" and result.items[2].id == "3")
+assert(result.items[2].author == "Publisher" and not result.has_more)
 page({"1"}, 1)
-reply({{publishedfileid="1",creator="76561198000000002"}})
+reply({{publishedfileid="2",creator=id,consumer_app_id=431960}})
+assert(not pcall(api.search, ctx, {artist_id=id}))
+page({"1"}, 1)
+reply({{publishedfileid="1",creator=id,consumer_app_id=480}})
 assert(not pcall(api.search, ctx, {artist_id=id}))
 responses[#responses + 1] = {html="author",elements={}}
 assert(not pcall(api.search, ctx, {artist_id=id}))
-assert(profile_calls == 3)
+assert(profile_calls == 4)
 print("workshop artist tests passed")
