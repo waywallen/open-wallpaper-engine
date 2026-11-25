@@ -882,7 +882,7 @@ JSValue MakeAnimationEvent(JSContext* ctx, const owe::SceneAnimationEvent& event
     return ev;
 }
 
-// Invoke `name` on the script's module namespace if exported, passing one
+// Invoke `name` with the module namespace as receiver, passing one
 // event arg. `thisLayer` should already be bound to the script's node by
 // the caller. Exceptions are caught and logged once per sha.
 void BindFieldScriptContext(JSContext*, const FieldScript::Impl&, JSValueConst);
@@ -892,7 +892,7 @@ void InvokeEventCallback(JSContext* ctx, JSValue ns, const char* name, JSValue e
     JSValue fn = JS_GetPropertyStr(ctx, ns, name);
     if (JS_IsFunction(ctx, fn)) {
         JSValue arg = JS_DupValue(ctx, ev);
-        JSValue r   = JS_Call(ctx, fn, JS_UNDEFINED, 1, &arg);
+        JSValue r   = JS_Call(ctx, fn, ns, 1, &arg);
         JS_FreeValue(ctx, arg);
         if (JS_IsException(r)) {
             rt->LogError(ctx, sha, name);
@@ -917,12 +917,14 @@ void SweepDeferred(JSContext* ctx, EngineHostState* host) {
         while (! host->deferred[i].dead && host->deferred[i].fire_at <= now) {
             auto* previous = host->active_field_script;
             auto* owner    = host->deferred[i].owner;
+            JSValue receiver = JS_UNDEFINED;
             if (owner != nullptr && owner->m_impl->alive) {
                 BindFieldScriptContext(ctx, *owner->m_impl, host->default_layer);
                 host->active_field_script = owner;
+                receiver                  = owner->m_impl->module_ns;
             }
             JSValue fn  = JS_DupValue(ctx, host->deferred[i].fn);
-            JSValue ret = JS_Call(ctx, fn, JS_UNDEFINED, 0, nullptr);
+            JSValue ret = JS_Call(ctx, fn, receiver, 0, nullptr);
             JS_FreeValue(ctx, fn);
             host->active_field_script = previous;
             if (JS_IsException(ret)) {
@@ -3315,7 +3317,7 @@ void DispatchUserProperties(JSContext* ctx, JsRuntime::Impl* rt, FieldScript* sc
         if (! JS_IsUndefined(rt->wrapped_scene)) BindThisScene(ctx, rt->wrapped_scene);
         rt->host.active_field_script = script;
         JSValue arg                  = JS_DupValue(ctx, changes);
-        JSValue result               = JS_Call(ctx, fn, JS_UNDEFINED, 1, &arg);
+        JSValue result               = JS_Call(ctx, fn, field->module_ns, 1, &arg);
         JS_FreeValue(ctx, arg);
         if (JS_IsException(result))
             rt->LogError(ctx, field->sha.as_str(), "applyUserProperties threw");
@@ -3335,7 +3337,7 @@ void DispatchGeneralSettings(JSContext* ctx, JsRuntime::Impl* rt, FieldScript* s
         if (! JS_IsUndefined(rt->wrapped_scene)) BindThisScene(ctx, rt->wrapped_scene);
         rt->host.active_field_script = script;
         JSValue arg                  = JsonToJs(ctx, settings);
-        JSValue result               = JS_Call(ctx, fn, JS_UNDEFINED, 1, &arg);
+        JSValue result               = JS_Call(ctx, fn, field->module_ns, 1, &arg);
         JS_FreeValue(ctx, arg);
         if (JS_IsException(result))
             rt->LogError(ctx, field->sha.as_str(), "applyGeneralSettings threw");
@@ -3755,7 +3757,7 @@ void JsRuntime::TickAll(slice<owe::SceneAnimationEventDispatch> animation_events
             if (! I->event_value_override) RefreshLayerScriptArgument(ctx, *I);
             JSValue args[2] = { MakeAnimationEvent(ctx, dispatch.event),
                                 JS_DupValue(ctx, I->current_value) };
-            JSValue ret     = JS_Call(ctx, I->animation_event_fn, JS_UNDEFINED, 2, args);
+            JSValue ret     = JS_Call(ctx, I->animation_event_fn, I->module_ns, 2, args);
             JS_FreeValue(ctx, args[0]);
             JS_FreeValue(ctx, args[1]);
             if (JS_IsException(ret)) {
@@ -3791,10 +3793,10 @@ void JsRuntime::TickAll(slice<owe::SceneAnimationEventDispatch> animation_events
         JSValue ret;
         if (I->update_takes_arg) {
             JSValue args[1] = { JS_DupValue(ctx, I->current_value) };
-            ret             = JS_Call(ctx, I->update_fn, JS_UNDEFINED, 1, args);
+            ret             = JS_Call(ctx, I->update_fn, I->module_ns, 1, args);
             JS_FreeValue(ctx, args[0]);
         } else {
-            ret = JS_Call(ctx, I->update_fn, JS_UNDEFINED, 0, nullptr);
+            ret = JS_Call(ctx, I->update_fn, I->module_ns, 0, nullptr);
         }
         if (JS_IsException(ret)) {
             m_impl->LogError(ctx, I->sha.as_str(), "update threw");
@@ -3925,7 +3927,7 @@ void RunFieldScriptInit(JSContext* ctx, JsRuntime::Impl* rt, FieldScript* fs) {
         if (! JS_IsUndefined(rt->wrapped_scene)) BindThisScene(ctx, rt->wrapped_scene);
         rt->host.active_field_script = fs;
         JSValue arg                  = JS_DupValue(ctx, I->current_value);
-        JSValue result               = JS_Call(ctx, I->init_fn, JS_UNDEFINED, 1, &arg);
+        JSValue result               = JS_Call(ctx, I->init_fn, I->module_ns, 1, &arg);
         JS_FreeValue(ctx, arg);
         if (JS_IsException(result)) rt->LogError(ctx, I->sha.as_str(), "init threw");
         JS_FreeValue(ctx, result);

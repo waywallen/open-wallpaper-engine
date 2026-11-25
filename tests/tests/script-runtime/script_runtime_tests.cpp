@@ -142,6 +142,114 @@ TEST(ScriptReturnValue, BoolRequiresBoolean) {
     EXPECT_FALSE(script->last_value().as_Bool().value.v);
 }
 
+TEST(ScriptReceiver, NamespaceIsLiveAndIsolatedPerField) {
+    auto              root = Arc<owe::SceneNode>::make();
+    JsRuntime         runtime;
+    Vec<FieldScript*> scripts;
+    for (int index = 0; index < 2; ++index) {
+        auto* script = runtime.MakeFieldScript(
+            R"JS(
+                'use strict';
+                const topLevelThis = this;
+                let receiver;
+                export let state = 0;
+                function plainCall() { return this; }
+                export function init(value) { receiver = this; state = value; }
+                export function update() {
+                    if (this.spritesheetIndex === -1) return -2;
+                    if (this !== receiver || this.init !== init || this.update !== update ||
+                        this.state !== state || topLevelThis !== undefined ||
+                        plainCall() !== undefined || this === thisLayer || this === thisObject ||
+                        Reflect.set(this, 'extra', 1)) return -1;
+                    state++;
+                    return this.state;
+                }
+            )JS"_str,
+            "test/module_receiver"_str,
+            FieldKind::Scalar,
+            owe::MakeObject(),
+            owe::IntoJson(index * 10),
+            root.as_ptr(),
+            index == 0 ? FieldScriptInitialization::Automatic
+                       : FieldScriptInitialization::Deferred);
+        ASSERT_NE(script, nullptr);
+        scripts.push(rstd::move(script));
+    }
+    runtime.SetSceneRoot(root.as_ptr());
+    ASSERT_TRUE(runtime.InitializeFieldScript(*scripts[usize(1)]));
+    for (int frame = 1; frame <= 3; ++frame) {
+        runtime.TickAll();
+        EXPECT_DOUBLE_EQ(LastScalar(scripts[usize()]), double(frame));
+        EXPECT_DOUBLE_EQ(LastScalar(scripts[usize(1)]), double(frame + 10));
+    }
+}
+
+TEST(ScriptReceiver, SettingsMediaCursorAndAnimationShareTheModuleReceiver) {
+    auto root = Arc<owe::SceneNode>::make();
+    auto node = Arc<owe::SceneNode>::make();
+    node->SetTranslate({ 500.0f, 500.0f, 0.0f });
+    node->SetSize({ 200.0f, 200.0f });
+    root->AppendChild(node.clone());
+    JsRuntime runtime;
+    auto*     script = MakeProbe(runtime,
+                                 "test/event_module_receiver",
+                                 R"JS(
+        export const marker = {};
+        let events = 0;
+        function mark(receiver, bit) {
+            if (receiver.marker !== marker) throw new Error('wrong event receiver');
+            events |= bit;
+        }
+        export function applyGeneralSettings() { mark(this, 1); }
+        export function init() { mark(this, 2); }
+        export function applyUserProperties() { mark(this, 4); }
+        export function mediaPlaybackChanged() { mark(this, 8); }
+        export function mediaPropertiesChanged() { mark(this, 16); }
+        export function mediaThumbnailChanged() { mark(this, 32); }
+        export function cursorMove() { mark(this, 64); }
+        export function animationEvent() { mark(this, 128); }
+        export function update() { return this.marker === marker ? events : -1; }
+    )JS",
+                                 node.as_ptr());
+    ASSERT_NE(script, nullptr);
+    runtime.SetSceneRoot(root.as_ptr());
+    runtime.SetUserProperty("enabled"_str, owe::IntoJson(true));
+    runtime.SetMediaStatus(MediaStatus { .state = 1, .title = "Song"_Str });
+    FrameInputs input;
+    input.cursor_in_window = true;
+    input.cursor_x         = 500.0f / 1920.0f;
+    input.cursor_y         = 1.0f - 500.0f / 1080.0f;
+    runtime.SetFrameInputs(input);
+    Vec<owe::SceneAnimationEventDispatch> events;
+    events.push({ .node = node.as_ptr(), .event = { .name = "beat"_Str } });
+    runtime.TickAll(events.as_slice());
+    EXPECT_DOUBLE_EQ(LastScalar(script), 255.0);
+}
+
+TEST(ScriptReceiver, TimersUseTheOwnerNamespaceAndPreserveBoundReceivers) {
+    auto      root = Arc<owe::SceneNode>::make();
+    JsRuntime runtime;
+    auto*     script = MakeProbe(runtime, "test/timer_module_receiver", R"JS(
+        export const marker = {};
+        let events = 0;
+        const bound = { value: 4 };
+        export function init() {
+            engine.setTimeout(function() { if (this.marker === marker) events |= 1; }, 10);
+            const cancel = engine.setInterval(function() {
+                if (this.marker === marker) events |= 2;
+                cancel();
+            }, 10);
+            engine.setTimeout(function() { events |= this.value; }.bind(bound), 10);
+            engine.setTimeout(() => { if (this.marker === marker) events |= 8; }, 10);
+        }
+        export function update() { return events; }
+    )JS");
+    ASSERT_NE(script, nullptr);
+    runtime.SetSceneRoot(root.as_ptr());
+    Tick(runtime, 0.02);
+    EXPECT_DOUBLE_EQ(LastScalar(script), 15.0);
+}
+
 TEST(ScriptInitialization, UsesSceneOwnerOrderInsteadOfRegistrationOrder) {
     auto root = Arc<owe::SceneNode>::make();
 

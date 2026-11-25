@@ -34,14 +34,18 @@ import wescene.types;
 
 using namespace rstd::literals;
 
-TEST(SceneEnvironmentScripts, StardewNightUpdatesSunMoonStarsAndClouds) {
+TEST(SceneEnvironmentScripts, StardewNightUpdatesEnvironmentAndNpcAnimations) {
     using namespace rstd::prelude;
     auto package = rstd::path::PathBuf::from(rstd::cppstd::as_str(WAYWALLEN_WORKSHOP_DIR).unwrap())
                        .join("3248239912/scene.pkg"_str);
     if (! rstd::fs::exists(package).unwrap_or(false))
         GTEST_SKIP() << "workshop 3248239912 is not available";
-    auto properties =
-        owe::ParseJson(R"({"enabletimeoverride":true,"timeoverride":3.95})"_str).unwrap();
+    auto                        properties = owe::ParseJson(R"({
+        "enabletimeoverride":true,"timeoverride":3.95,
+        "spouse":"0","spouse2":"0","spouse3":"0",
+        "villager":"0","villager2":"0","villager3":"0"
+    })"_str)
+                                                 .unwrap();
     auto                        cache = rstd::fs::TempDir::make("owe-stardew-storage"_str).unwrap();
     wavsen::audio::SoundManager sound;
     auto loaded = owe::LoadScene({ .source_pkg_path = rstd::move(package),
@@ -52,6 +56,28 @@ TEST(SceneEnvironmentScripts, StardewNightUpdatesSunMoonStarsAndClouds) {
                                  mut_ref<wavsen::audio::SoundManager>::from_raw_parts(&sound));
     ASSERT_TRUE(loaded.is_ok());
     auto& scene = *loaded->parsed.scene;
+    auto  scripts = scene.ExtensionMut<owe::script::ScriptScene>();
+    ASSERT_TRUE(scripts.is_some());
+    auto* animations = (**scripts).runtime().MakeFieldScript(
+        R"JS(
+            export function update() {
+                const counts = ['Spouse', 'Villager', 'CustomNPC'].map(group => {
+                    let count = 0;
+                    for (let index = 1; index <= 3; index++) {
+                        const animator = shared.Animators[group + index];
+                        if (animator.playing && animator.currentAnimationName !== '' &&
+                            animator.framesPassed > 0) count++;
+                    }
+                    return count;
+                });
+                return new Vec3(counts[0], counts[1], counts[2]);
+            }
+        )JS"_str,
+        "test/stardew_npc_animations"_str,
+        owe::script::FieldKind::Vec3,
+        owe::ParseJson("{}"_str).unwrap(),
+        owe::ParseJson("0"_str).unwrap());
+    ASSERT_NE(animations, nullptr);
     for (int tick = 0; tick < 5; ++tick) {
         owe::script::FrameInputs input;
         input.runtime     = float(tick) / 30.0f;
@@ -59,6 +85,11 @@ TEST(SceneEnvironmentScripts, StardewNightUpdatesSunMoonStarsAndClouds) {
         input.time_of_day = 3.95f / 24.0f;
         owe::script::TickSceneScripts(scene, input);
     }
+    ASSERT_TRUE(animations->last_value().is_Vec3());
+    const auto counts = animations->last_value().as_Vec3().value;
+    EXPECT_DOUBLE_EQ(counts.x, 3.0);
+    EXPECT_DOUBLE_EQ(counts.y, 3.0);
+    EXPECT_DOUBLE_EQ(counts.z, 3.0);
     auto* sun    = scene.RootMut()->FindByName("Sun"_str);
     auto* moon   = scene.RootMut()->FindByName("Moon"_str);
     auto* stars  = scene.RootMut()->FindByName("Stars"_str);
