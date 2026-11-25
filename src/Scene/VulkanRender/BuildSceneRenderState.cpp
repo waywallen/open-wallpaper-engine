@@ -687,19 +687,39 @@ static bool ShouldSkipNoRuntimeEffect(SceneNode* node, Scene& scene) {
            ! effect_layer->HasRuntimeVisibleEffect();
 }
 
-static bool HasExternalRenderTargetRead(const SceneMaterial& material, ref<str> local_target) {
-    for (const auto& texture : material.textures) {
-        auto name = texture.as_str();
-        if (! IsLocalSceneMaterialTextureDependency(ClassifySceneMaterialTexture(name)) &&
-            name != local_target)
-            return true;
+static bool HasPreparedRenderTarget(const Scene& scene, ref<str> name) {
+    if (scene.PlanarReflectionEnabled() && name == WE_REFLECTION_PREFIX) return true;
+    for (const auto& shadow : scene.ShadowDefinitions()) {
+        if (shadow.target.as_str() == name) return true;
     }
     return false;
 }
 
-static Option<bool> DepthDrawKind(SceneNode& node, Scene& scene) {
+static bool HasExternalRenderTargetRead(const SceneMaterial& material, ref<str> local_target,
+                                        const Scene* prepared_targets = nullptr) {
+    for (const auto& texture : material.textures) {
+        auto name = texture.as_str();
+        auto dependency = ClassifySceneMaterialTexture(name);
+        if (name == local_target || IsLocalSceneMaterialTextureDependency(dependency)) continue;
+        if (prepared_targets != nullptr) {
+            // The mip framebuffer is from the previous frame, not the current draw sequence.
+            if (dependency == SceneMaterialTextureDependency::MipMappedFramebuffer) continue;
+            if (HasPreparedRenderTarget(*prepared_targets, name)) continue;
+        }
+        return true;
+    }
+    if (prepared_targets != nullptr) {
+        for (const auto& source : material.texture_sources) {
+            if (source.kind == SceneMaterialTextureSourceKind::DepthAttachment) return true;
+        }
+    }
+    return false;
+}
+
+static Option<bool> DepthDrawKind(SceneNode& node, Scene& scene, bool primary_opaque = false) {
     auto* mesh = node.Mesh();
     if (mesh == nullptr || mesh->Submeshes().is_empty()) return None();
+    if (primary_opaque && node.HasLayer()) return None();
     if (! node.HasLayer() && ! node.Camera().is_empty()) return None();
     if (node.Perspective()) {
         auto active = scene.ActiveCamera();
@@ -714,7 +734,8 @@ static Option<bool> DepthDrawKind(SceneNode& node, Scene& scene) {
         auto slot = rstd::as_cast<usize>(submesh.material_slot);
         if (slot >= mesh->MaterialSlots().len() || ! mesh->MaterialSlots()[slot]) return None();
         const auto& material = *mesh->MaterialSlots()[slot];
-        if (! material.Pipeline().depth_test || HasExternalRenderTargetRead(material, ""_str))
+        if (! material.Pipeline().depth_test ||
+            HasExternalRenderTargetRead(material, ""_str, primary_opaque ? &scene : nullptr))
             return None();
         const bool writes = material.Pipeline().depth_write;
         const auto blend  = material.Pipeline().blend_mode;
@@ -810,9 +831,17 @@ static void ConfigureNestedOutput(SceneNode* node, ref<str> output, ref<str> inh
     }
 }
 
+enum class SceneDrawSelection
+{
+    All,
+    PrimaryOpaque,
+    Remaining
+};
+
 static void EmitSceneNode(SceneNode* node, ref<str> inherited_output, ref<str> inherited_camera,
                           ExtraInfo& extra, const HashSet<const SceneNode*>& emit_skip_subtrees,
-                          const BTreeSet<i32>& linked_ids, bool hidden_ancestor = false) {
+                          const BTreeSet<i32>& linked_ids, SceneDrawSelection selection,
+                          bool hidden_ancestor = false) {
     if (node == nullptr || emit_skip_subtrees.contains(node)) return;
 
     auto&      scene       = *extra.scene;
@@ -839,7 +868,8 @@ static void EmitSceneNode(SceneNode* node, ref<str> inherited_output, ref<str> i
                 emit = false;
             } else {
                 node_output = source_record->render_target_key.as_str();
-                if (node->HasLayer() && ! node->Layer()->PublishesOutput()) {
+                if (selection != SceneDrawSelection::PrimaryOpaque && node->HasLayer() &&
+                    ! node->Layer()->PublishesOutput()) {
                     node->Layer()->SetFinalTarget(node_output);
                     node->Layer()->SetFinalLocal(true);
                 }
@@ -850,6 +880,7 @@ static void EmitSceneNode(SceneNode* node, ref<str> inherited_output, ref<str> i
     auto group_camera =
         wallpaper.is_some() ? scene.RenderGroupCamera(*wallpaper) : None<ref<str>>();
     if (emit && group_camera) {
+        if (selection == SceneDrawSelection::PrimaryOpaque) return;
         FlushDepthDraws(extra);
         ConfigureNestedOutput(node, node_output, inherited_camera);
         auto* effect_layer = ToGraphPass(node, node_output, extra, true);
@@ -865,6 +896,7 @@ static void EmitSceneNode(SceneNode* node, ref<str> inherited_output, ref<str> i
                           extra,
                           emit_skip_subtrees,
                           linked_ids,
+                          SceneDrawSelection::All,
                           child_hidden);
         }
         if (effect_layer != nullptr && effect_layer->HasRenderEffects()) {
@@ -875,18 +907,24 @@ static void EmitSceneNode(SceneNode* node, ref<str> inherited_output, ref<str> i
     }
 
     if (emit) {
-        ConfigureNestedOutput(node, node_output, inherited_camera);
-        if (node->Mesh() != nullptr) {
-            auto camera = scene.ActiveCamera();
-            auto kind = ! linked && node_output == SpecTex_Default && inherited_camera.is_empty() &&
-                                camera.is_some() && (*camera)->IsPerspective()
-                            ? DepthDrawKind(*node, scene)
-                            : None<bool>();
-            if (kind.is_some()) {
-                extra.pending_depth_draws.push({ node, *kind });
-            } else {
-                FlushDepthDraws(extra);
-                ToGraphPass(node, node_output, extra);
+        auto camera = node->Mesh() != nullptr ? scene.ActiveCamera() : None<ref<SceneCamera>>();
+        const bool primary_depth = ! linked && node_output == SpecTex_Default &&
+                                   inherited_camera.is_empty() && camera &&
+                                   (*camera)->IsPerspective();
+        const bool early_opaque  = selection != SceneDrawSelection::All && primary_depth &&
+                                   DepthDrawKind(*node, scene, true).unwrap_or(false);
+        if (selection == SceneDrawSelection::PrimaryOpaque) {
+            if (early_opaque) ToGraphPass(node, node_output, extra);
+        } else if (! early_opaque) {
+            ConfigureNestedOutput(node, node_output, inherited_camera);
+            if (node->Mesh() != nullptr) {
+                auto kind = primary_depth ? DepthDrawKind(*node, scene) : None<bool>();
+                if (kind.is_some()) {
+                    extra.pending_depth_draws.push({ node, *kind });
+                } else {
+                    FlushDepthDraws(extra);
+                    ToGraphPass(node, node_output, extra);
+                }
             }
         }
     }
@@ -897,6 +935,7 @@ static void EmitSceneNode(SceneNode* node, ref<str> inherited_output, ref<str> i
                       extra,
                       emit_skip_subtrees,
                       linked_ids,
+                      selection,
                       child_hidden);
     }
 }
@@ -1068,8 +1107,27 @@ auto owe::BuildSceneRenderState(Scene& scene, const RenderSceneSnapshot& render_
         EmitPlanarReflectionNode(scene.RootMut().as_raw_ptr(), extra, emit_skip_subtrees);
     }
 
-    EmitSceneNode(
-        scene.RootMut().as_raw_ptr(), SpecTex_Default, {}, extra, emit_skip_subtrees, linked_ids);
+    auto*      root   = scene.RootMut().as_raw_ptr();
+    auto       camera = scene.ActiveCamera();
+    const bool sort_transparent =
+        scene.TransparentSorting() && camera && (*camera)->IsPerspective();
+    if (sort_transparent) {
+        // Framebuffer effects in the blended scene need the opaque scene as their background.
+        EmitSceneNode(root,
+                      SpecTex_Default,
+                      {},
+                      extra,
+                      emit_skip_subtrees,
+                      linked_ids,
+                      SceneDrawSelection::PrimaryOpaque);
+    }
+    EmitSceneNode(root,
+                  SpecTex_Default,
+                  {},
+                  extra,
+                  emit_skip_subtrees,
+                  linked_ids,
+                  sort_transparent ? SceneDrawSelection::Remaining : SceneDrawSelection::All);
     FlushDepthDraws(extra);
 
     // Emit global post-process draws and copies after the scene traversal.

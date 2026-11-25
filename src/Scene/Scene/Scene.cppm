@@ -3341,6 +3341,12 @@ public:
     bool SetImageEffectRuntimeVisible(const SceneImageEffectRef& ref, bool visible);
     void EnablePlanarReflection();
     bool PlanarReflectionEnabled() const { return m_planar_reflection_enabled; }
+    void SetTransparentSorting(bool enabled) {
+        if (m_transparent_sorting == enabled) return;
+        m_transparent_sorting = enabled;
+        m_render_graph_dirty  = true;
+    }
+    bool TransparentSorting() const { return m_transparent_sorting; }
     bool ConsumeRenderGraphDirty();
     bool ApplyUserNodeVisibilityBindings(ref<str> key, const Json& property);
     bool ApplyUserImageEffectVisibilityBindings(ref<str> key, const Json& property);
@@ -3662,6 +3668,7 @@ private:
     bool                                         m_texture_animations_dirty { true };
     bool                                         m_render_graph_dirty { false };
     bool                                         m_planar_reflection_enabled { false };
+    bool                                         m_transparent_sorting { false };
     HashMap<i32, String>                         m_render_group_cameras;
     HashMap<String, Vec<LinkedCamera>>           m_linked_cameras;
     HashMap<i32, SceneNodeId>                    m_layer_link_source_ids;

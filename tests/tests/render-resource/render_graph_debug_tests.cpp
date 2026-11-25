@@ -757,6 +757,65 @@ TEST(SceneRenderGraph, DoesNotReorderAcrossFramebufferSampling) {
     EXPECT_EQ(names[usize(2)], "opaque-after"_str);
 }
 
+TEST(SceneRenderGraph, TransparentSortingDrawsOpaqueBackgroundBeforeFramebufferEffects) {
+    owe::Scene scene;
+    scene.RegisterRenderTarget(
+        "_rt_default"_Str,
+        owe::SceneRenderTarget { .width = i32(1280), .height = i32(720), .withDepth = true });
+    scene.RegisterRenderTarget("_rt_MipMappedFrameBuffer"_Str,
+                               owe::SceneRenderTarget {
+                                   .width        = i32(1280),
+                                   .height       = i32(720),
+                                   .has_mipmap   = true,
+                                   .mipmap_level = 2,
+                               });
+    scene.EnablePlanarReflection();
+    scene.RegisterCamera("perspective"_Str,
+                         Arc<owe::SceneCamera>::make(
+                             owe::SceneCamera::MakePerspective(16.0 / 9.0, 0.1, 1000.0, 50.0)));
+    ASSERT_TRUE(scene.SetActiveCamera("perspective"_str));
+    scene.SetTransparentSorting(true);
+
+    auto add = [&](ref<str> name, bool writes_depth, Vec<String> textures) {
+        auto node         = Arc<owe::SceneNode>::make();
+        auto mesh         = Arc<owe::SceneMesh>::make();
+        auto material     = GraphMaterial(textures.len());
+        material.name     = String::make(name);
+        material.textures = rstd::move(textures);
+        material.SetDepthTest(true);
+        material.SetDepthWrite(writes_depth);
+        material.SetBlendMode(writes_depth ? owe::BlendMode::Disable : owe::BlendMode::Translucent);
+        mesh->AddMaterial(rstd::move(material));
+        mesh->Submeshes().push(owe::SceneMesh::Submesh {});
+        node->AddMesh(rstd::move(mesh));
+        scene.RootMut()->AppendChild(rstd::move(node));
+    };
+    add("clock"_str, false, {});
+    auto framebuffer = Vec<String>::make();
+    framebuffer.push("_rt_default"_Str);
+    add("framebuffer-effect"_str, false, framebuffer.clone());
+    auto prepared = Vec<String>::make();
+    prepared.push("_rt_MipMappedFrameBuffer"_Str);
+    prepared.push("_rt_Reflection"_Str);
+    add("ground"_str, true, rstd::move(prepared));
+    add("opaque-framebuffer-reader"_str, true, rstd::move(framebuffer));
+
+    auto graph = owe::BuildSceneRenderState(scene).unwrap();
+    ASSERT_TRUE(graph.graph.compile().is_ok());
+    Vec<String> names;
+    for (auto id : graph.graph.inspect().order) {
+        const auto& name = graph.graph.passes()[usize(id)].name;
+        if (name == "clock"_str || name == "framebuffer-effect"_str || name == "ground"_str ||
+            name == "opaque-framebuffer-reader"_str)
+            names.push(name.clone());
+    }
+    ASSERT_EQ(names.len(), usize(4));
+    EXPECT_EQ(names[usize(0)], "ground"_str);
+    EXPECT_EQ(names[usize(1)], "clock"_str);
+    EXPECT_EQ(names[usize(2)], "framebuffer-effect"_str);
+    EXPECT_EQ(names[usize(3)], "opaque-framebuffer-reader"_str);
+}
+
 TEST(SceneRenderGraph, OrdersShadowAtlasWriterBeforeReceiver) {
     owe::Scene scene;
     scene.RegisterRenderTarget(String::make("_rt_default"_str),

@@ -228,6 +228,7 @@ void InitContext(SceneParseContext& context, fs::VFS& vfs, const wpscene::SceneM
     }
     scene.SetOrtho({ i32(ortho_extent[usize()]), i32(ortho_extent[usize(1)]) });
     scene.SetViewportScale(f32(sc.general.zoom));
+    scene.SetTransparentSorting(sc.general.transparentsorting);
     context.layer_resources->ortho_w            = ortho_extent[usize()];
     context.layer_resources->ortho_h            = ortho_extent[usize(1)];
     context.layer_resources->orthographic_scene = sc.general.isOrtho;
