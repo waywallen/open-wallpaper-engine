@@ -1,6 +1,7 @@
 #include <rstd/test/gtest.hpp>
 
 import rstd;
+import rstd.cppstd;
 import rstd.json;
 import wavsen.audio;
 import wescene.json;
@@ -195,6 +196,33 @@ TEST(SceneUserProperty, LoadsSavedValuesWithOneScriptSnapshotAndAppliesLiveChang
     owe::SceneUserPropertyApplier::Apply(scene, "brightness"_str, reset);
     EXPECT_FLOAT_EQ(probe->Translate().y(), 3.0f);
     EXPECT_FLOAT_EQ(probe->Translate().z(), 0.5f);
+}
+
+TEST(SceneUserProperty, ScriptStorageIsReadyBeforeModuleEvaluationAndInitialization) {
+    auto directory = rstd::fs::TempDir::make("owe-script-storage-load"_str).unwrap();
+    auto project   = rstd::path::PathBuf::from(directory.path());
+    ASSERT_TRUE(rstd::fs::write(project.join("scene.json"_str).as_path(), R"JSON({
+        "camera":{},"general":{},"objects":[{"id":1,"name":"Storage probe","visible":{
+            "value":true,"script":"const count = localStorage.get('count') ?? 0; export function init() { localStorage.set('count', count + 1); thisLayer.origin = new Vec3(count, localStorage.get('count'), 0); }"
+        }}]
+    })JSON"_bytes)
+                    .is_ok());
+    wavsen::audio::SoundManager sound;
+    for (int load = 0; load < 2; ++load) {
+        auto loaded = owe::LoadScene({ .source_pkg_path = project.join("scene.pkg"_str),
+                                       .assets_dir      = project.clone(),
+                                       .cache_dir       = project.join("cache"_str),
+                                       .scene_id        = "storage-probe"_Str },
+                                     mut_ref<wavsen::audio::SoundManager>::from_raw_parts(&sound));
+        ASSERT_TRUE(loaded.is_ok()) << rstd::cppstd::to_string(loaded.unwrap_err().message);
+        auto* probe = loaded->parsed.scene->RootMut()->FindByName("Storage probe"_str);
+        ASSERT_NE(probe, nullptr);
+        EXPECT_FLOAT_EQ(probe->Translate().x(), float(load));
+        EXPECT_FLOAT_EQ(probe->Translate().y(), float(load + 1));
+        EXPECT_TRUE(
+            rstd::fs::exists(project.join("cache/script_localstorage/storage-probe.json"_str))
+                .unwrap());
+    }
 }
 
 TEST(SceneUserProperty, AppliesRegisteredShaderUniformBinding) {

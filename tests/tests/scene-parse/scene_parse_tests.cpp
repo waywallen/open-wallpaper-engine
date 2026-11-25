@@ -26,12 +26,66 @@ import wescene.pkg_fs;
 import wescene.pkg.scene_obj;
 import wescene.scene;
 import wescene.scene_user_property;
+import wescene.scene_loader;
 import wescene.script;
 import wescene.spec_names;
 import wescene.testing.scene_parse_probe;
 import wescene.types;
 
 using namespace rstd::literals;
+
+TEST(SceneEnvironmentScripts, StardewNightUpdatesSunMoonStarsAndClouds) {
+    using namespace rstd::prelude;
+    auto package = rstd::path::PathBuf::from(rstd::cppstd::as_str(WAYWALLEN_WORKSHOP_DIR).unwrap())
+                       .join("3248239912/scene.pkg"_str);
+    if (! rstd::fs::exists(package).unwrap_or(false))
+        GTEST_SKIP() << "workshop 3248239912 is not available";
+    auto properties =
+        owe::ParseJson(R"({"enabletimeoverride":true,"timeoverride":3.95})"_str).unwrap();
+    auto                        cache = rstd::fs::TempDir::make("owe-stardew-storage"_str).unwrap();
+    wavsen::audio::SoundManager sound;
+    auto loaded = owe::LoadScene({ .source_pkg_path = rstd::move(package),
+                                   .assets_dir      = rstd::path::PathBuf::from(
+                                       rstd::cppstd::as_str(WAYWALLEN_ASSETS_DIR).unwrap()),
+                                   .cache_dir       = rstd::path::PathBuf::from(cache.path()),
+                                   .user_properties = (**properties.as_object()).clone() },
+                                 mut_ref<wavsen::audio::SoundManager>::from_raw_parts(&sound));
+    ASSERT_TRUE(loaded.is_ok());
+    auto& scene = *loaded->parsed.scene;
+    for (int tick = 0; tick < 5; ++tick) {
+        owe::script::FrameInputs input;
+        input.runtime     = float(tick) / 30.0f;
+        input.frametime   = 1.0f / 30.0f;
+        input.time_of_day = 3.95f / 24.0f;
+        owe::script::TickSceneScripts(scene, input);
+    }
+    auto* sun    = scene.RootMut()->FindByName("Sun"_str);
+    auto* moon   = scene.RootMut()->FindByName("Moon"_str);
+    auto* stars  = scene.RootMut()->FindByName("Stars"_str);
+    auto* clouds = scene.RootMut()->FindByName("CLOUD SYSTEM"_str);
+    ASSERT_NE(sun, nullptr);
+    ASSERT_NE(moon, nullptr);
+    ASSERT_NE(stars, nullptr);
+    ASSERT_NE(clouds, nullptr);
+    EXPECT_LT(sun->Translate().y(), 172.0f) << sun->Translate().y();
+    EXPECT_GT(moon->Translate().y(), 172.0f) << moon->Translate().y();
+    EXPECT_GT(stars->Alpha(), 0.9f) << stars->Alpha();
+    EXPECT_EQ(clouds->GetChildren().len(), usize(20));
+    for (const auto& cloud : clouds->GetChildren()) {
+        EXPECT_TRUE(cloud->Color().allFinite());
+        EXPECT_GT(cloud->Color().x(), 0.3f) << cloud->Color().x();
+    }
+    owe::script::SetSceneUserProperty(
+        scene, "enabletimeoverride"_str, owe::ParseJson("false"_str).unwrap());
+    owe::script::FrameInputs actual;
+    actual.runtime     = 1.0f;
+    actual.frametime   = 1.0f / 30.0f;
+    actual.time_of_day = 3.95f / 24.0f;
+    owe::script::TickSceneScripts(scene, actual);
+    EXPECT_TRUE(sun->Translate().allFinite());
+    EXPECT_TRUE(moon->Translate().allFinite());
+    EXPECT_TRUE(std::isfinite(stars->Alpha()));
+}
 
 TEST(FieldBindingJson, CompatibilityReaderPopulatesAnimationMetadata) {
     auto parsed = owe::ParseJson(R"({"enabled":true,"x":{"value":1.5},"y":-2.0,"magic":7})"_str);

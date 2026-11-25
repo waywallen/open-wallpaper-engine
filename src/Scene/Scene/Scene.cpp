@@ -2558,6 +2558,26 @@ auto Scene::LayerIndex(const SceneNode& node) const -> Option<usize> {
     return parent ? parent->ChildIndex(node) : None<usize>();
 }
 
+bool Scene::ReparentNode(SceneNode& node, SceneNode* parent, bool adjust_transform) {
+    if (&node == m_scene_graph.get()) return false;
+    if (! parent) parent = m_scene_graph.get();
+    auto* owner = node.NodeState().Owner();
+    if (! owner) return false;
+    auto index = owner->ChildIndex(node);
+    if (index.is_none()) return false;
+    Eigen::Matrix4d local = node.GetLocalTrans();
+    if (adjust_transform) {
+        node.UpdateTrans();
+        parent->UpdateTrans();
+        if (parent->ModelTrans().determinant() == 0.0) return false;
+        local = parent->ModelTrans().inverse() * node.ModelTrans();
+    }
+    if (! parent->AppendChild(owner->GetChildren()[*index].clone())) return false;
+    if (adjust_transform) node.SetLocalTrans(local);
+    m_render_graph_dirty = true;
+    return true;
+}
+
 bool Scene::SortLayer(SceneNode& node, usize index) {
     auto* parent = node.Parent();
     if (parent == nullptr || ! parent->MoveChild(node, index)) return false;
@@ -3022,11 +3042,41 @@ bool Scene::ImageEffectRuntimeVisible(const SceneImageEffectRef& ref) const {
 SceneMaterial* Scene::ImageEffectMaterial(const SceneImageEffectRef& ref, usize index) {
     if (! ref.id.Valid() || ref.id.generation != m_resource_generation) return nullptr;
     auto record = m_image_effects.get(scene_id_key(ref.id.index, ref.id.generation));
-    if (record.is_none() || ! (**record).effect || index >= (**record).effect->Nodes().len())
-        return nullptr;
-    auto& node = (**record).effect->Nodes()[index];
-    if (! node->sceneNode || ! node->sceneNode->HasMaterial()) return nullptr;
-    return node->sceneNode->Mesh()->Material();
+    if (record.is_none() || ! (**record).effect) return nullptr;
+    for (const auto& node : (**record).effect->Nodes()) {
+        if (! node->sceneNode || ! node->sceneNode->HasMaterial()) continue;
+        if (index == usize()) return node->sceneNode->Mesh()->Material();
+        --index;
+    }
+    return nullptr;
+}
+
+usize Scene::ImageEffectMaterialCount(const SceneImageEffectRef& ref) const {
+    if (! ref.id.Valid() || ref.id.generation != m_resource_generation) return usize();
+    auto record = m_image_effects.get(scene_id_key(ref.id.index, ref.id.generation));
+    if (record.is_none() || ! (**record).effect) return usize();
+    usize count {};
+    for (const auto& node : (**record).effect->Nodes())
+        if (node->sceneNode && node->sceneNode->HasMaterial()) ++count;
+    return count;
+}
+
+bool Scene::SetImageEffectMaterialShaderValueByKey(const SceneImageEffectRef& effect_ref,
+                                                   ref<str>                   material_key,
+                                                   const ShaderValue&         value) {
+    if (! effect_ref.id.Valid() || effect_ref.id.generation != m_resource_generation) return false;
+    auto record = m_image_effects.get(scene_id_key(effect_ref.id.index, effect_ref.id.generation));
+    if (record.is_none() || ! (**record).effect) return false;
+    bool changed = false;
+    for (const auto& node : (**record).effect->Nodes()) {
+        if (! node->sceneNode || ! node->sceneNode->HasMaterial()) continue;
+        auto* material = node->sceneNode->Mesh()->Material();
+        if (! material->customShader.variant) continue;
+        const auto& aliases = material->customShader.variant->Description().uniform_aliases;
+        if (! aliases.contains_key(material_key)) continue;
+        changed = SetMaterialShaderValueByKey(*material, material_key, value) || changed;
+    }
+    return changed;
 }
 
 bool Scene::SetImageEffectRuntimeVisible(const SceneImageEffectRef& ref, bool visible) {

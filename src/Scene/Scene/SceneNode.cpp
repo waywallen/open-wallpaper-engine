@@ -23,6 +23,22 @@ Matrix4d SceneNode::GetLocalTrans() const {
     return m_local_frame * trans.matrix();
 }
 
+void SceneNode::SetLocalTrans(const Matrix4d& transform) {
+    Matrix3d rotation;
+    Matrix3d scaling;
+    Affine3d(transform).computeRotationScaling(&rotation, &scaling);
+    m_translate = transform.block<3, 1>(0, 3).cast<float>();
+    m_scale     = scaling.diagonal().cast<float>();
+    for (int axis = 0; axis < 3; ++axis)
+        if (m_scale[axis] == 0.0f) m_scale[axis] = 1.0f;
+    const Vector3d zyx = rotation.canonicalEulerAngles(2, 1, 0);
+    m_rotation         = Vector3f(zyx.z(), zyx.y(), zyx.x());
+    m_local_frame      = Matrix4d::Identity();
+    // Retain shear introduced by non-uniformly scaled parents.
+    m_local_frame = transform * GetLocalTrans().inverse();
+    MarkTransDirty();
+}
+
 void SceneNode::RotateObjectSpace(const Vector3f& rotation) {
     const Quaternionf current = AngleAxisf(m_rotation.z(), Vector3f::UnitZ()) *
                                 AngleAxisf(m_rotation.y(), Vector3f::UnitY()) *

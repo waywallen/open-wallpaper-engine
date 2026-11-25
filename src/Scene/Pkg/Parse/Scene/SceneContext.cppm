@@ -189,6 +189,7 @@ struct SceneLayerBuildContext {
     Arc<SceneLayerResources>             layer_resources;
     fs::VFS*                             vfs { nullptr };
     Option<ref<rstd::json::Map>>         user_properties;
+    Option<rstd::path::PathBuf>          script_storage_path;
     HashMap<String, vectext::FontSource> font_sources;
 
     Option<Arc<SceneNode>> effect_camera_node;
@@ -395,9 +396,10 @@ struct ProcessOpts {
 SceneParseContext
 BuildContext(Scene&, fs::VFS&, ref<str> scene_id, const wpscene::SceneMetadata&,
              array<i32, 2> ortho_extent, Option<ref<rstd::json::Map>> user_properties = None(),
-             Option<rstd::path::PathBuf> shader_cache_dir = None(),
-             GeometryShaderLimits        geometry_limits  = {},
-             Arc<ShadowAtlasLayout>      shadow_layout    = Arc<ShadowAtlasLayout>::make(),
+             Option<rstd::path::PathBuf> shader_cache_dir    = None(),
+             Option<rstd::path::PathBuf> script_storage_path = None(),
+             GeometryShaderLimits        geometry_limits     = {},
+             Arc<ShadowAtlasLayout>      shadow_layout       = Arc<ShadowAtlasLayout>::make(),
              bool geometry_shader_supported = true, Option<ImageReadyCallback> image_ready = None(),
              TextureMemoryOptions texture_memory = {});
 

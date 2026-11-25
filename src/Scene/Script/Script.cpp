@@ -1874,6 +1874,16 @@ JSValue NodeGetNameValue(JSContext* ctx, JSValueConst this_val) {
         ctx, rstd::cppstd::as_string_view(n->Name()).data(), n->Name().len().to_primitive());
 }
 
+JSValue NodeSetName(JSContext* ctx, JSValueConst this_val, JSValueConst value) {
+    auto* node = GetLayerNode(this_val);
+    if (! node) return JS_UNDEFINED;
+    const char* name = JS_ToCString(ctx, value);
+    if (! name) return JS_EXCEPTION;
+    node->SetName(String::make(rstd::cppstd::as_str(name).unwrap()));
+    JS_FreeCString(ctx, name);
+    return JS_UNDEFINED;
+}
+
 JSValue NodeGetName(JSContext* ctx, JSValueConst this_val, int, JSValueConst*) {
     return NodeGetNameValue(ctx, this_val);
 }
@@ -1986,6 +1996,33 @@ JSValue EffectGetMaterial(JSContext* ctx, JSValueConst this_val, int argc, JSVal
     auto* owner = handle->owner.is_some() ? (*handle->owner)->node : nullptr;
     return WrapMaterial(
         ctx, handle->host->scene->ImageEffectMaterial(*handle->ref, usize(index)), owner);
+}
+
+JSValue EffectGetMaterialCount(JSContext* ctx, JSValueConst this_val, int, JSValueConst*) {
+    auto* handle = GetEffectHandle(this_val);
+    if (! handle || ! handle->host || ! handle->host->scene || ! handle->ref ||
+        (handle->owner.is_some() && ! (*handle->owner)->node))
+        return JS_NewInt32(ctx, 0);
+    return JS_NewInt64(
+        ctx,
+        static_cast<rstd::int64_t>(
+            handle->host->scene->ImageEffectMaterialCount(*handle->ref).to_primitive()));
+}
+
+JSValue EffectSetMaterialProperty(JSContext* ctx, JSValueConst this_val, int argc,
+                                  JSValueConst* argv) {
+    auto* handle = GetEffectHandle(this_val);
+    if (! handle || ! handle->host || ! handle->host->scene || ! handle->ref || argc < 2 ||
+        (handle->owner.is_some() && ! (*handle->owner)->node))
+        return JS_UNDEFINED;
+    const char* key = JS_ToCString(ctx, argv[0]);
+    if (! key) return JS_EXCEPTION;
+    auto value = ReadShaderValue(ctx, argv[1]);
+    if (value.is_some())
+        (void)handle->host->scene->SetImageEffectMaterialShaderValueByKey(
+            *handle->ref, rstd::cppstd::as_str(key).unwrap(), *value);
+    JS_FreeCString(ctx, key);
+    return JS_UNDEFINED;
 }
 
 bool TreeContains(owe::SceneNode* root, owe::SceneNode* needle) {
@@ -2246,11 +2283,11 @@ JSValue NodeSceneDestroyLayer(JSContext* ctx, JSValueConst, int argc, JSValueCon
         ctx, node && IsScriptSceneLayer(host, node) && host->scene->RequestLayerDeletion(*node));
 }
 
-owe::SceneNode* ResolveSceneLayerArgument(JSContext* ctx, JSValueConst this_val,
+owe::SceneNode* ResolveSceneLayerArgument(JSContext* ctx, owe::SceneNode* root,
                                           JSValueConst value) {
     if (auto* node = GetLayerNode(value)) return node;
-    auto* root = GetLayerNode(this_val);
     if (root == nullptr) return nullptr;
+    if (JS_IsNumber(value)) return SceneLayerAt(ctx, root, value);
     const char* name = JS_ToCString(ctx, value);
     if (name == nullptr) return nullptr;
     auto* node = root->FindByName(rstd::cppstd::as_str(name).unwrap());
@@ -2258,11 +2295,27 @@ owe::SceneNode* ResolveSceneLayerArgument(JSContext* ctx, JSValueConst this_val,
     return node;
 }
 
+JSValue NodeSetParent(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
+    auto* host = static_cast<EngineHostState*>(JS_GetContextOpaque(ctx));
+    auto* node = GetLayerNode(this_val);
+    if (! host || ! host->scene || ! node) return JS_UNDEFINED;
+    owe::SceneNode* parent = nullptr;
+    if (argc > 0 && ! JS_IsUndefined(argv[0]) && ! JS_IsNull(argv[0])) {
+        parent = ResolveSceneLayerArgument(ctx, host->scene_root, argv[0]);
+        if (! parent) return JS_UNDEFINED;
+    }
+    if (argc > 1 && ! JS_IsBool(argv[1]) && ! JS_IsUndefined(argv[1]))
+        return JS_ThrowTypeError(ctx, "setParent attachment is not supported");
+    const bool adjust = argc > 1 && JS_ToBool(ctx, argv[1]) != 0;
+    (void)host->scene->ReparentNode(*node, parent, adjust);
+    return JS_UNDEFINED;
+}
+
 JSValue NodeSceneGetLayerIndex(JSContext* ctx, JSValueConst this_val, int argc,
                                JSValueConst* argv) {
     auto* host = static_cast<EngineHostState*>(JS_GetContextOpaque(ctx));
     if (host == nullptr || host->scene == nullptr || argc < 1) return JS_NewInt32(ctx, -1);
-    auto* node = ResolveSceneLayerArgument(ctx, this_val, argv[0]);
+    auto* node = ResolveSceneLayerArgument(ctx, GetLayerNode(this_val), argv[0]);
     if (node == nullptr) return JS_NewInt32(ctx, -1);
     auto index = host->scene->LayerIndex(*node);
     if (index.is_none()) return JS_NewInt32(ctx, -1);
@@ -2272,7 +2325,7 @@ JSValue NodeSceneGetLayerIndex(JSContext* ctx, JSValueConst this_val, int argc,
 JSValue NodeSceneSortLayer(JSContext* ctx, JSValueConst this_val, int argc, JSValueConst* argv) {
     auto* host = static_cast<EngineHostState*>(JS_GetContextOpaque(ctx));
     if (host == nullptr || host->scene == nullptr || argc < 2) return JS_UNDEFINED;
-    auto*         node = ResolveSceneLayerArgument(ctx, this_val, argv[0]);
+    auto*         node = ResolveSceneLayerArgument(ctx, GetLayerNode(this_val), argv[0]);
     rstd::int64_t index {};
     if (node == nullptr || JS_ToInt64(ctx, &index, argv[1]) != 0 || index < 0) return JS_UNDEFINED;
     (void)host->scene->SortLayer(*node, usize(static_cast<rstd::size_t>(index)));
@@ -2925,11 +2978,12 @@ const JSCFunctionListEntry s_layer_proto_funcs[] = {
     JS_CGETSET_DEF("perspective", NodeGetPerspective, NodeSetPerspective),
     JS_CGETSET_DEF("alignment", NodeGetAlignment, NodeSetAlignment),
     JS_CGETSET_DEF("text", NodeGetText, NodeSetText),
-    JS_CGETSET_DEF("name", NodeGetNameValue, NodeSetIgnore),
+    JS_CGETSET_DEF("name", NodeGetNameValue, NodeSetName),
     JS_CGETSET_DEF("verticalalign", NodeGetVAlign, NodeSetVAlign),
     JS_CGETSET_DEF("horizontalalign", NodeGetHAlign, NodeSetHAlign),
     JS_CGETSET_DEF("pointsize", NodeGetPointSize, NodeSetPointSize),
     JS_CFUNC_DEF("getParent", 0, NodeGetParent),
+    JS_CFUNC_DEF("setParent", 2, NodeSetParent),
     JS_CFUNC_DEF("getTransformMatrix", 0, NodeGetTransformMatrix),
     JS_CFUNC_DEF("getAttachmentOrigin", 1, NodeGetAttachmentOrigin),
     JS_CFUNC_DEF("rotateObjectSpace", 1, NodeRotateObjectSpace),
@@ -3003,6 +3057,8 @@ const JSCFunctionListEntry s_effect_proto_funcs[] = {
     JS_CGETSET_DEF("visible", EffectGetVisible, EffectSetVisible),
     JS_CGETSET_DEF("name", EffectGetName, NodeSetIgnore),
     JS_CFUNC_DEF("getMaterial", 1, EffectGetMaterial),
+    JS_CFUNC_DEF("getMaterialCount", 0, EffectGetMaterialCount),
+    JS_CFUNC_DEF("setMaterialProperty", 2, EffectSetMaterialProperty),
     JS_CFUNC_DEF("getAnimation", 1, PropertyObjectGetAnimation),
 };
 

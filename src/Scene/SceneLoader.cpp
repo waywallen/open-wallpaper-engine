@@ -1,6 +1,5 @@
 module wescene.scene_loader;
 import wescene.pkg_fs;
-import wescene.script;
 import owe.user_property;
 import rstd.log;
 using namespace rstd::prelude;
@@ -139,6 +138,12 @@ auto LoadScene(SceneLoadRequest request, mut_ref<wavsen::audio::SoundManager> so
                                     "unsupported or missing scene document"_Str });
     Option<PathBuf> shader_cache;
     if (! request.cache_dir.is_empty()) shader_cache = Some(request.cache_dir.clone());
+    Option<PathBuf> script_storage;
+    if (! request.cache_dir.is_empty()) {
+        auto directory = request.cache_dir.join("script_localstorage"_str);
+        (void)rstd::fs::create_dir_all(directory);
+        script_storage = Some(directory.join(rstd::format("{}.json", request.scene_id).as_str()));
+    }
     SceneParser parser;
     auto        parsed = parser.Parse(
         request.scene_id.as_str(),
@@ -149,11 +154,12 @@ auto LoadScene(SceneLoadRequest request, mut_ref<wavsen::audio::SoundManager> so
           .user_properties  = Some(ref<rstd::json::Map>::from_raw_parts(&properties)),
           .general_settings = Some(ref<rstd::json::Map>::from_raw_parts(&request.general_settings)),
           .shader_cache_dir = rstd::move(shader_cache),
-          .capabilities     = request.capabilities,
-          .image_ready      = rstd::move(request.image_ready),
-          .sound_unmount    = rstd::move(request.sound_unmount),
-          .sound_mount      = rstd::move(request.sound_mount),
-          .texture_memory   = rstd::move(request.texture_memory) });
+          .script_storage_path = rstd::move(script_storage),
+          .capabilities        = request.capabilities,
+          .image_ready         = rstd::move(request.image_ready),
+          .sound_unmount       = rstd::move(request.sound_unmount),
+          .sound_mount         = rstd::move(request.sound_mount),
+          .texture_memory      = rstd::move(request.texture_memory) });
     if (parsed.is_err()) {
         auto error = parsed.unwrap_err();
         return Err(
@@ -167,12 +173,6 @@ auto LoadScene(SceneLoadRequest request, mut_ref<wavsen::audio::SoundManager> so
             SceneLoadSpan(request.load_bench, &SceneLoadProbeIds::load_initial_properties);
         return SceneUserPropertyApplier::ApplyInitialBindings(*loaded.scene, properties);
     }();
-    if (! request.cache_dir.is_empty()) {
-        auto directory = request.cache_dir.join("script_localstorage"_str);
-        (void)rstd::fs::create_dir_all(directory);
-        auto file = directory.join(rstd::format("{}.json", request.scene_id).as_str());
-        script::SetScenePersistence(*loaded.scene, rstd::move(file));
-    }
     return Ok(LoadedScene { rstd::move(loaded),
                             rstd::move(request.scene_id),
                             rstd::move(properties),

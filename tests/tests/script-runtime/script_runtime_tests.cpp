@@ -2803,6 +2803,7 @@ TEST(ScriptLayerLookup, InvalidatedEffectAndMaterialsDoNotModifyTheirLayer) {
             material.color = new Vec3(0, 1, 0);
             globalThis.savedMaterial.color = new Vec3(0, 1, 0);
             effect.visible = false;
+            effect.setMaterialProperty('color', new Vec3(0, 0, 1));
             return effect.name === 'color' ? 1 : 0;
         }
     )JS");
@@ -2824,6 +2825,69 @@ TEST(ScriptLayerLookup, InvalidatedEffectAndMaterialsDoNotModifyTheirLayer) {
     ASSERT_TRUE(color.is_some());
     EXPECT_FLOAT_EQ((**color)[usize()], 1.0f);
     EXPECT_FLOAT_EQ((**color)[usize(1)], 0.0f);
+}
+
+TEST(ScriptLayerLookup, EffectMaterialPropertiesUpdateEveryMatchingPass) {
+    owe::Scene scene;
+    auto       layer = Arc<owe::SceneNode>::make();
+    scene.AttachRuntimeNode(*scene.RootMut(), layer.clone());
+    auto effect_layer =
+        Arc<owe::SceneNodeLayer>::make(layer.as_ptr(), 64.0f, 64.0f, "_rt_properties"_str);
+    auto effect = Arc<owe::SceneImageEffect>::make();
+    effect->AddNode(owe::SceneImageEffectNode { .sceneNode = Arc<owe::SceneNode>::make() });
+    Vec<owe::SceneMaterial*> materials;
+    for (int index = 0; index < 3; ++index) {
+        auto                        node = Arc<owe::SceneNode>::make();
+        auto                        mesh = Arc<owe::SceneMesh>::make();
+        owe::SceneMaterial          material;
+        owe::SceneShaderVariantDesc variant;
+        if (index < 2) {
+            (void)variant.uniform_aliases.insert("Opacity"_Str, "u_Alpha"_Str);
+            (void)variant.uniform_aliases.insert("Shadow Offset"_Str, "u_Offset"_Str);
+            (void)variant.uniform_aliases.insert("Shadow Color"_Str, "u_Color"_Str);
+            (void)variant.uniform_aliases.insert("Mask"_Str, "u_Mask"_Str);
+        }
+        material.customShader.variant = Some(owe::SceneShaderVariant::from(rstd::move(variant)));
+        mesh->AddMaterial(rstd::move(material));
+        materials.push(mesh->Material());
+        node->AddMesh(rstd::move(mesh));
+        effect->AddNode(owe::SceneImageEffectNode { .sceneNode = node.clone() });
+    }
+    effect_layer->AddEffect(effect);
+    layer->AttachLayer(effect_layer.clone());
+    JsRuntime runtime;
+    runtime.SetScene(&scene);
+    runtime.SetSceneRoot(scene.RootMut().as_raw_ptr());
+    auto* script = MakeProbe(runtime,
+                             "test/effect_material_properties",
+                             R"JS(
+        export function update() {
+            const effect = thisLayer.getEffect(0);
+            effect.setMaterialProperty('Opacity', 0.4);
+            effect.setMaterialProperty('Shadow Offset', new Vec2(0.1, 0.2));
+            effect.setMaterialProperty('Shadow Color', new Vec3(0.3, 0.4, 0.5));
+            effect.setMaterialProperty('Mask', new Vec4(1, 0, 0, 1));
+            effect.setMaterialProperty('Unknown', 7);
+            effect.getMaterial(2).other = 0.8;
+            return effect.getMaterialCount();
+        }
+    )JS",
+                             layer.as_ptr());
+    ASSERT_NE(script, nullptr);
+    runtime.TickAll();
+    EXPECT_DOUBLE_EQ(LastScalar(script), 3.0);
+    for (usize index {}; index < usize(2); ++index) {
+        const auto& values = materials[index]->customShader.constValues;
+        ASSERT_TRUE(values.contains_key("u_Alpha"_str));
+        EXPECT_FLOAT_EQ((**values.get("u_Alpha"_str))[usize()], 0.4f);
+        EXPECT_EQ((**values.get("u_Offset"_str)).size(), usize(2));
+        EXPECT_EQ((**values.get("u_Color"_str)).size(), usize(3));
+        EXPECT_EQ((**values.get("u_Mask"_str)).size(), usize(4));
+        EXPECT_FALSE(values.contains_key("Unknown"_str));
+    }
+    EXPECT_EQ(materials[usize(2)]->customShader.constValues.len(), usize(1));
+    EXPECT_FLOAT_EQ((**materials[usize(2)]->customShader.constValues.get("other"_str))[usize()],
+                    0.8f);
 }
 
 TEST(ScriptLayerLookup, MissingLayerKeepsDefaultTransformShape) {
@@ -3744,6 +3808,97 @@ TEST(ScriptScene, CreatedLayersCanBeSortedBeforeAnExistingLayer) {
     EXPECT_EQ(children[usize(3)].as_ptr(), body.as_ptr());
     EXPECT_DOUBLE_EQ(LastScalar(fs), 1023.0);
     EXPECT_TRUE(scene.ConsumeRenderGraphDirty());
+}
+
+TEST(ScriptScene, CreatedLayersCanBeRenamedAndParented) {
+    owe::Scene scene;
+    auto       parent = Arc<owe::SceneNode>::make(Eigen::Vector3f(100, 20, 0),
+                                                  Eigen::Vector3f::Ones(),
+                                                  Eigen::Vector3f::Zero(),
+                                                  "clouds"_str);
+    scene.AttachRuntimeNode(*scene.RootMut(), parent.clone());
+    Vec<Arc<owe::SceneNode>> created;
+    JsRuntime                runtime;
+    runtime.SetScene(&scene);
+    runtime.SetLayerFactory(JsRuntime::LayerFactory::make(
+        [&scene, &created](owe::SceneNode*, LayerAssetReference) -> Option<Arc<owe::SceneNode>> {
+            auto node = Arc<owe::SceneNode>::make();
+            scene.AttachRuntimeNode(*scene.RootMut(), node.clone());
+            created.push(node.clone());
+            return Some(rstd::move(node));
+        }));
+    auto* script = MakeProbe(runtime,
+                             "test/parent_created_layers",
+                             R"JS(
+        let result = 0;
+        export function init() {
+            const child = thisScene.createLayer('models/cloud.json');
+            child.name = 'cloud';
+            child.origin = new Vec3(5, 7, 0);
+            child.setParent(thisLayer);
+            const nested = thisScene.createLayer('models/cloud.json');
+            nested.setParent('cloud', false);
+            result = thisScene.getLayer('cloud') === child &&
+                     nested.getParent() === child &&
+                     thisLayer.getChildren()[0] === child;
+            thisLayer.setParent(child);
+        }
+        export function update() { return result ? 1 : 0; }
+    )JS",
+                             parent.as_ptr());
+    ASSERT_NE(script, nullptr);
+    runtime.SetSceneRoot(scene.RootMut().as_raw_ptr());
+    runtime.TickAll();
+    ASSERT_EQ(created.len(), usize(2));
+    EXPECT_DOUBLE_EQ(LastScalar(script), 1.0);
+    EXPECT_EQ(parent->Parent(), scene.RootMut().as_raw_ptr());
+    created[usize()]->UpdateTrans();
+    EXPECT_DOUBLE_EQ(created[usize()]->ModelTrans()(0, 3), 105.0);
+    EXPECT_DOUBLE_EQ(created[usize()]->ModelTrans()(1, 3), 27.0);
+    EXPECT_TRUE(scene.ConsumeRenderGraphDirty());
+}
+
+TEST(ScriptScene, ReparentingCanPreserveWorldTransformAndRemoveParent) {
+    owe::Scene scene;
+    auto       parent = Arc<owe::SceneNode>::make(Eigen::Vector3f(100, 20, 0),
+                                                  Eigen::Vector3f(2, 3, 1),
+                                                  Eigen::Vector3f(0, 0, 0.4f),
+                                                  "parent"_str);
+    auto       child  = Arc<owe::SceneNode>::make(
+        Eigen::Vector3f(5, 7, 0), Eigen::Vector3f::Ones(), Eigen::Vector3f::Zero(), "child"_str);
+    scene.AttachRuntimeNode(*scene.RootMut(), parent.clone());
+    scene.AttachRuntimeNode(*scene.RootMut(), child.clone());
+    child->UpdateTrans();
+    const Eigen::Matrix4d original = child->ModelTrans();
+    JsRuntime             runtime;
+    runtime.SetScene(&scene);
+    runtime.RegisterInitialLayerConfig(parent.as_ptr(), owe::MakeObject());
+    runtime.SetSceneRoot(scene.RootMut().as_raw_ptr());
+    auto* script = MakeProbe(runtime,
+                             "test/parent_preserve_transform",
+                             R"JS(
+        export function init() { thisLayer.setParent(0, true); }
+        export function update() { return thisLayer.getParent().name === 'parent' ? 1 : 0; }
+    )JS",
+                             child.as_ptr());
+    ASSERT_NE(script, nullptr);
+    runtime.TickAll();
+    EXPECT_DOUBLE_EQ(LastScalar(script), 1.0);
+    child->UpdateTrans();
+    EXPECT_TRUE(child->ModelTrans().isApprox(original, 1e-5));
+    auto* detach = MakeProbe(runtime,
+                             "test/remove_parent",
+                             R"JS(
+        export function init() { thisLayer.setParent(undefined, true); }
+        export function update() { return 1; }
+    )JS",
+                             child.as_ptr());
+    ASSERT_NE(detach, nullptr);
+    child->UpdateTrans();
+    EXPECT_EQ(child->Parent(), scene.RootMut().as_raw_ptr());
+    EXPECT_TRUE(child->ModelTrans().isApprox(original, 1e-5));
+    EXPECT_NEAR(child->Translate().x(), 5.0f, 1e-4);
+    EXPECT_NEAR(child->Translate().y(), 7.0f, 1e-4);
 }
 
 TEST(ScriptScene, RegisteredAssetFactoryDoesNotReusePendingDeletion) {

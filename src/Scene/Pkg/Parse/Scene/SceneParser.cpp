@@ -81,6 +81,7 @@ auto owe::SceneParser::Parse(ref<str> scene_id, ref<wpscene::SceneDocument> docu
                      ResolveOrthoProjectionExtent(metadata, objects.as_slice()),
                      Some(property_state.Values()),
                      rstd::move(options.shader_cache_dir),
+                     rstd::move(options.script_storage_path),
                      GeometryShaderLimits {
                          .max_output_vertices = options.capabilities.max_geometry_output_vertices,
                          .max_total_output_components =

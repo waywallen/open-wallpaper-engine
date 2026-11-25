@@ -736,11 +736,13 @@ void IndexSceneDocument(SceneParseContext& context, ref<wpscene::SceneDocument> 
 SceneParseContext
 BuildContext(Scene& scene, fs::VFS& vfs, ref<str> scene_id, const wpscene::SceneMetadata& sc,
              array<i32, 2> ortho_extent, Option<ref<rstd::json::Map>> user_properties,
-             Option<rstd::path::PathBuf> shader_cache_dir, GeometryShaderLimits geometry_limits,
+             Option<rstd::path::PathBuf> shader_cache_dir,
+             Option<rstd::path::PathBuf> script_storage_path, GeometryShaderLimits geometry_limits,
              Arc<ShadowAtlasLayout> shadow_layout, bool geometry_shader_supported,
              Option<ImageReadyCallback> image_ready, TextureMemoryOptions texture_memory) {
     SceneParseContext context(scene, vfs);
     context.user_properties = user_properties;
+    context.script_storage_path = rstd::move(script_storage_path);
     PrepareAnimationBindings(context, sc.general.field_bindings);
     InitContext(
         context, vfs, sc, ortho_extent, rstd::move(image_ready), rstd::move(texture_memory));

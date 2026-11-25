@@ -1883,6 +1883,7 @@ public:
     auto            ChildIndex(const SceneNode& child) const -> Option<usize>;
     bool            MoveChild(SceneNode& child, usize index);
     Eigen::Matrix4d GetLocalTrans() const;
+    void            SetLocalTrans(const Eigen::Matrix4d& transform);
 
     const auto& Translate() const { return m_translate; }
     const auto& Rotation() const { return m_rotation; }
@@ -2110,6 +2111,7 @@ public:
     const auto& GetChildren() const { return m_node.Children(); }
 
     ref<str>   Name() const { return m_name.as_str(); }
+    void       SetName(String name) { m_name = rstd::move(name); }
     SceneNode* Parent() const { return m_node.Parent(); }
 
     // Anchor for transform-only inheritance. The node does NOT join `p`'s
@@ -3338,6 +3340,9 @@ public:
     String                      ImageEffectName(const SceneImageEffectRef& ref) const;
     bool                        ImageEffectRuntimeVisible(const SceneImageEffectRef& ref) const;
     SceneMaterial*              ImageEffectMaterial(const SceneImageEffectRef& ref, usize index);
+    usize                       ImageEffectMaterialCount(const SceneImageEffectRef& ref) const;
+    bool SetImageEffectMaterialShaderValueByKey(const SceneImageEffectRef& effect_ref,
+                                                ref<str> material_key, const ShaderValue& value);
     bool SetImageEffectRuntimeVisible(const SceneImageEffectRef& ref, bool visible);
     void EnablePlanarReflection();
     bool PlanarReflectionEnabled() const { return m_planar_reflection_enabled; }
@@ -3389,6 +3394,7 @@ public:
     // Call after detaching the node and invalidating its script handles.
     usize RemoveNodeImageEffects(SceneNodeId owner);
     void  AttachRuntimeNode(SceneNode& parent, Arc<SceneNode> node);
+    bool  ReparentNode(SceneNode& node, SceneNode* parent, bool adjust_transform = false);
     auto  LayerIndex(const SceneNode& node) const -> Option<usize>;
     bool  SortLayer(SceneNode& node, usize index);
     auto AudioDemand() const -> ref<AudioResponseDemand> { return m_audio_response_demand.deref(); }

@@ -42,6 +42,7 @@ struct SceneParseOptions {
     Option<ref<rstd::json::Map>>      user_properties;
     Option<ref<rstd::json::Map>>      general_settings;
     Option<rstd::path::PathBuf>       shader_cache_dir;
+    Option<rstd::path::PathBuf>       script_storage_path;
     SceneParseCapabilities            capabilities;
     Option<ImageReadyCallback>        image_ready;
     Option<SceneSoundUnmountCallback> sound_unmount;
