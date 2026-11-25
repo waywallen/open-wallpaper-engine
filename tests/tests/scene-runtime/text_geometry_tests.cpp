@@ -391,6 +391,46 @@ TEST(TextGeometry, DynamicEffectFollowsCurrentTextBounds) {
     EXPECT_FLOAT_EQ(geometry.effect_frame_height, 221.0f);
 }
 
+TEST(TextGeometry, LinkedSurfaceContainsLayoutInkAndPadding) {
+    owe::text::TextGeometryPolicy policy { .frame_width   = 230,
+                                           .frame_height  = 128,
+                                           .dynamic       = true,
+                                           .has_effect    = true,
+                                           .linked_source = true };
+    owe::text::TextLayoutMetrics  metrics { .text_width      = 230.734375f,
+                                            .text_height     = 127,
+                                            .source_width    = 226.890625f,
+                                            .source_height   = 125,
+                                            .source_center_x = -1.921875f,
+                                            .padding         = { 1.f, 1.f } };
+    for (bool effect : { true, false }) {
+        policy.has_effect = effect;
+        auto geometry     = owe::text::ResolveTextGeometry(policy, metrics);
+        EXPECT_FLOAT_EQ(geometry.rt_width, 232.734375f);
+        EXPECT_FLOAT_EQ(geometry.rt_height, 129);
+        EXPECT_FLOAT_EQ(geometry.draw_width, geometry.rt_width);
+        EXPECT_FLOAT_EQ(geometry.effect_frame_width, geometry.rt_width);
+        EXPECT_FLOAT_EQ(geometry.uv_source_height, geometry.rt_height);
+        EXPECT_FLOAT_EQ(geometry.draw_offset_x, 0);
+        EXPECT_FLOAT_EQ(geometry.draw_offset_y, 0);
+    }
+    metrics.text_width    = 100;
+    metrics.text_height   = 40;
+    metrics.source_width  = 120;
+    metrics.source_height = 50;
+    for (float sign : { -1.f, 1.f }) {
+        metrics.source_center_x = 20 * sign;
+        metrics.source_center_y = 10 * sign;
+        auto geometry           = owe::text::ResolveTextGeometry(policy, metrics);
+        EXPECT_FLOAT_EQ(geometry.rt_width, 162);
+        EXPECT_FLOAT_EQ(geometry.rt_height, 72);
+        EXPECT_LE(metrics.source_center_x + metrics.source_width / 2, geometry.rt_width / 2 - 1);
+        EXPECT_GE(metrics.source_center_x - metrics.source_width / 2, -geometry.rt_width / 2 + 1);
+        EXPECT_LE(metrics.source_center_y + metrics.source_height / 2, geometry.rt_height / 2 - 1);
+        EXPECT_GE(metrics.source_center_y - metrics.source_height / 2, -geometry.rt_height / 2 + 1);
+    }
+}
+
 TEST(TextLayouter, FailedUpdatesKeepAcceptedStateAndRetry) {
     auto                    resources = TextResources();
     auto                    mesh      = Arc<owe::SceneMesh>::make();

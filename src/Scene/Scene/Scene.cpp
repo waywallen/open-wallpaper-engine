@@ -2899,6 +2899,21 @@ void Scene::RegisterLayerLinkSource(WallpaperLayerId id, SceneNode& node, array<
     (void)m_layer_link_source_extents.insert(id.value, rstd::move(extent));
 }
 
+bool Scene::ResizeLayerLinkSource(WallpaperLayerId id, array<i32, 2> extent) {
+    auto* node = RegisteredLayerLinkSource(id);
+    if (node == nullptr) return false;
+    extent[usize()]  = rstd::cmp::max(extent[usize()], i32(1));
+    extent[usize(1)] = rstd::cmp::max(extent[usize(1)], i32(1));
+    auto previous    = m_layer_link_source_extents.get(id.value);
+    bool changed     = previous.is_none() || **previous != extent;
+    (void)m_layer_link_source_extents.insert(id.value, extent);
+    auto key = GenLinkTex(rstd::as_cast<isize>(id.value));
+    changed |= RenderTarget(key.as_str()).is_none();
+    (void)EnsureLinkRenderTarget(id, *node);
+    changed |= ResizeRenderTarget(key.as_str(), extent[usize()], extent[usize(1)]);
+    return changed;
+}
+
 SceneNode* Scene::RegisteredLayerLinkSource(WallpaperLayerId id) const {
     auto source = m_layer_link_source_nodes.get(id.value);
     return source.is_some() ? **source : nullptr;

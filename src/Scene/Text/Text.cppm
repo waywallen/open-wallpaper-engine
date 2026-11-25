@@ -187,7 +187,7 @@ struct TextGeometryPolicy {
     float frame_height { 1.0f };
     bool  dynamic { false };
     bool  has_effect { false };
-    bool  frame_bound { false };
+    bool  linked_source { false };
     bool  preserve_text_bbox { false };
 };
 

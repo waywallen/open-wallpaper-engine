@@ -3555,6 +3555,7 @@ public:
     }
     void       RegisterLayerLinkSource(WallpaperLayerId id, SceneNode& node);
     void       RegisterLayerLinkSource(WallpaperLayerId id, SceneNode& node, array<i32, 2> extent);
+    bool       ResizeLayerLinkSource(WallpaperLayerId id, array<i32, 2> extent);
     SceneNode* RegisteredLayerLinkSource(WallpaperLayerId id) const;
     Option<SceneNodeId>      RegisteredLayerLinkSourceId(WallpaperLayerId id) const;
     Option<WallpaperLayerId> ResolveLayerLinkSource(const SceneNode& node) const;

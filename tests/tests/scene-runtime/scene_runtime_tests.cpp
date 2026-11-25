@@ -1725,6 +1725,124 @@ TEST(SceneParserText, SurfaceOriginPreservesGlyphLayoutAcrossUpdates) {
     verify("g"_str, 50, "top"_str);
 }
 
+TEST(SceneParserText, LinkedSurfaceResizesAllTargetsAcrossUpdates) {
+    for (bool effect : { false, true }) {
+        SCOPED_TRACE(effect);
+        auto document = owe::wpscene::ParseSceneDocumentJson(R"JSON({
+            "camera":{},"general":{"orthogonalprojection":{"width":1920,"height":1080}},
+            "objects":[
+                {"id":1,"name":"Source","text":{"value":"02","user":"caption"},
+                 "font":"systemfont_DejaVu Sans","pointsize":24,"size":"8 8",
+                 "padding":{"value":"1 2","script":"let frame=0; export function update(v){ return ++frame === 1 ? new Vec2(5,7) : new Vec2(1,2); }"},
+                 "visible":{"value":true,"script":"let frame=0; export function update(v){ thisLayer.pointsize = ++frame === 1 ? 36 : 12; return v; }"}},
+                {"id":2,"name":"Consumer","image":"models/util/solidlayer.json","size":"32 32","dependencies":[1]}
+            ]
+        })JSON"_str,
+                                                             owe::wpscene::kSceneVersionUnknown);
+        ASSERT_TRUE(document);
+        if (effect) {
+            document->objects[usize()].authored.as_object_mut().unwrap()->insert(
+                "effects"_Str,
+                owe::ParseJson(R"([{"file":"effects/blur/effect.json"}])"_str).unwrap());
+        }
+        auto assets = owe::fs::make_physical_fs(
+            owe::fs::Path(rstd::cppstd::as_str(WAYWALLEN_ASSETS_DIR).unwrap()));
+        ASSERT_TRUE(assets);
+        owe::fs::VFS vfs;
+        ASSERT_TRUE(vfs.mount("/assets"_str, rstd::move(assets).unwrap()));
+        wavsen::audio::SoundManager sound;
+        auto                        parsed =
+            owe::SceneParser().Parse("linked-text-surface"_str,
+                                     ref<owe::wpscene::SceneDocument>::from_raw_parts(&*document),
+                                     mut_ref<owe::fs::VFS>::from_raw_parts(&vfs),
+                                     mut_ref<wavsen::audio::SoundManager>::from_raw_parts(&sound));
+        ASSERT_TRUE(parsed);
+        auto&      scene  = *parsed->scene;
+        const auto link   = owe::WallpaperLayerId { .value = i32(1) };
+        auto*      source = scene.RegisteredLayerLinkSource(link);
+        ASSERT_NE(source, nullptr);
+        auto  identity = source->Identity();
+        auto* node     = scene.RootMut()->FindByName("Source"_str);
+        ASSERT_NE(node, nullptr);
+        auto* consumer = scene.RootMut()->FindByName("Consumer"_str);
+        ASSERT_NE(consumer, nullptr);
+        ASSERT_NE(consumer->Mesh(), nullptr);
+        ASSERT_NE(consumer->Mesh()->Material(), nullptr);
+        auto link_key = scene.EnsureLinkRenderTarget(link, *source);
+        (void)scene.SetMaterialTextureSlot(*consumer->Mesh()->Material(), u32(), link_key.as_str());
+        auto verify = [&](ref<str> text, double size, array<float, 2> padding) {
+            SCOPED_TRACE(to_string(text));
+            auto                       resources = Arc<owe::text::TextResources>::make();
+            auto                       mesh      = Arc<owe::SceneMesh>::make();
+            owe::text::TextLayoutStyle style;
+            style.mesh_origin = owe::text::TextMeshOrigin::Layout;
+            style.padding     = padding;
+            owe::text::TextLayouter reference(resources.clone(),
+                                              { .family = "DejaVu Sans"_Str, .size = size },
+                                              mesh.clone(),
+                                              rstd::move(style),
+                                              64);
+            ASSERT_TRUE(reference.SetText(text).is_ok());
+            auto geometry = owe::text::ResolveTextGeometry({ .frame_width   = 8,
+                                                             .frame_height  = 8,
+                                                             .dynamic       = true,
+                                                             .has_effect    = effect,
+                                                             .linked_source = true },
+                                                           reference.Metrics());
+            auto width =
+                i32(static_cast<rstd::int32_t>(f32(geometry.rt_width).ceil().to_primitive()));
+            auto height =
+                i32(static_cast<rstd::int32_t>(f32(geometry.rt_height).ceil().to_primitive()));
+            auto check = [&](ref<str> key) {
+                auto target = scene.RenderTarget(key);
+                ASSERT_TRUE(target);
+                EXPECT_EQ((**target).width, width);
+                EXPECT_EQ((**target).height, height);
+            };
+            check(scene.EnsureLinkRenderTarget(link, *source).as_str());
+            check(scene.NodeResourceKey(node->Identity(), "text_composite"_str).as_str());
+            if (effect)
+                check(scene.NodeResourceKey(node->Identity(), "text_effect_final"_str).as_str());
+            auto camera = scene.CameraHandle(source->Camera());
+            ASSERT_TRUE(camera);
+            EXPECT_DOUBLE_EQ((**camera).Width(), width.to_primitive());
+            EXPECT_DOUBLE_EQ((**camera).Height(), height.to_primitive());
+            EXPECT_EQ(scene.RegisteredLayerLinkSourceId(link).unwrap(), identity);
+            auto  snapshot  = owe::ExtractRenderSceneSnapshot(scene);
+            auto* published = snapshot.linkSource(link);
+            ASSERT_NE(published, nullptr);
+            auto* descriptor = snapshot.renderTargetDesc(published->render_target);
+            ASSERT_NE(descriptor, nullptr);
+            EXPECT_EQ(descriptor->desc.width, width);
+            EXPECT_EQ(descriptor->desc.height, height);
+            auto* actual = source->Mesh();
+            ASSERT_NE(actual, nullptr);
+            const auto& vertices = actual->GetVertexArray(usize());
+            auto count  = actual->GetIndexArray(usize()).RenderDataCount().to_primitive() / 6 * 4;
+            auto stride = vertices.OneSize().to_primitive();
+            for (rstd::size_t i = 0; i < count; ++i) {
+                EXPECT_GE(vertices.Data()[i * stride],
+                          -width.to_primitive() / 2.f + padding[usize()] - 1e-4f);
+                EXPECT_LE(vertices.Data()[i * stride],
+                          width.to_primitive() / 2.f - padding[usize()] + 1e-4f);
+                EXPECT_GE(vertices.Data()[i * stride + 1],
+                          -height.to_primitive() / 2.f + padding[usize(1)] - 1e-4f);
+                EXPECT_LE(vertices.Data()[i * stride + 1],
+                          height.to_primitive() / 2.f - padding[usize(1)] + 1e-4f);
+            }
+        };
+        verify("02"_str, 100, { 1.f, 2.f });
+        auto caption = owe::ParseJson(R"({"value":"Ag\n10"})"_str).unwrap();
+        ASSERT_TRUE(scene.ApplyUserTextBindings("caption"_str, caption));
+        owe::script::TickSceneScripts(scene, owe::script::FrameInputs {});
+        verify("Ag\n10"_str, 150, { 5.f, 7.f });
+        caption = owe::ParseJson(R"({"value":"g"})"_str).unwrap();
+        ASSERT_TRUE(scene.ApplyUserTextBindings("caption"_str, caption));
+        owe::script::TickSceneScripts(scene, owe::script::FrameInputs {});
+        verify("g"_str, 50, { 1.f, 2.f });
+    }
+}
+
 TEST(SceneUserTextBinding, AppliesDescriptorPayloadToMatchingBindings) {
     owe::Scene  scene;
     std::string first;

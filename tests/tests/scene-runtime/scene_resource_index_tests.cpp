@@ -1888,6 +1888,34 @@ TEST(SceneRenderTargets, EnsureLinkRenderTargetCreatesOwnedDescriptor) {
     EXPECT_EQ((**fallback_target).height, i32(1080));
 }
 
+TEST(SceneRenderTargets, ResizeLayerLinkSourceKeepsIdentityAndEmitsExtentChanges) {
+    owe::Scene     scene;
+    owe::SceneNode source;
+    auto           layer = owe::WallpaperLayerId { .value = i32(7) };
+    scene.RegisterLayerLinkSource(layer, source, { i32(64), i32(32) });
+    auto identity = source.Identity();
+    auto key      = scene.EnsureLinkRenderTarget(layer, source);
+    EXPECT_TRUE(scene.ResizeLayerLinkSource(layer, { i32(96), i32(48) }));
+    EXPECT_TRUE(scene.ResizeLayerLinkSource(layer, { i32(128), i32(64) }));
+    EXPECT_FALSE(scene.ResizeLayerLinkSource(layer, { i32(128), i32(64) }));
+    EXPECT_EQ(source.Identity(), identity);
+    EXPECT_EQ(scene.RegisteredLayerLinkSource(layer), &source);
+    EXPECT_EQ(scene.EnsureLinkRenderTarget(layer, source), key);
+    auto target = scene.RenderTarget(key.as_str()).unwrap();
+    EXPECT_EQ(target->width, i32(128));
+    EXPECT_EQ(target->height, i32(64));
+    auto events = scene.ConsumePreparedRenderTargetDirtyEvents();
+    ASSERT_EQ(events.len(), usize(1));
+    EXPECT_EQ(events[usize()].name, key);
+    EXPECT_EQ(events[usize()].old_width, i32(64));
+    EXPECT_EQ(events[usize()].width, i32(128));
+    EXPECT_EQ(events[usize()].height, i32(64));
+    EXPECT_TRUE(scene.ResizeLayerLinkSource(layer, { i32(), i32(-1) }));
+    EXPECT_EQ(scene.RenderTarget(key.as_str()).unwrap()->width, i32(1));
+    EXPECT_FALSE(scene.ResizeLayerLinkSource({ .value = i32(8) }, { i32(16), i32(16) }));
+    EXPECT_TRUE(scene.RenderTarget("_rt_link_8"_str).is_none());
+}
+
 TEST(SceneRenderTargets, RemovesNodeTargetsWithoutRemovingSharedTargets) {
     owe::Scene scene;
     auto       first      = Arc<owe::SceneNode>::make();

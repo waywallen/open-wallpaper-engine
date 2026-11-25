@@ -491,27 +491,28 @@ TextGeometry ResolveTextGeometry(const TextGeometryPolicy& policy,
     const float text_bbox_h = text_h + 2.0f * pad_y;
     const float src_bbox_w  = src_w + 2.0f * pad_x;
     const float src_bbox_h  = src_h + 2.0f * pad_y;
+    const float layout_bbox_w =
+        rstd::cmp::max(text_w, 2.0f * f32(src_cx).abs().to_primitive() + src_w) + 2.0f * pad_x;
+    const float layout_bbox_h =
+        rstd::cmp::max(text_h, 2.0f * f32(src_cy).abs().to_primitive() + src_h) + 2.0f * pad_y;
 
     const float dynamic_w = rstd::cmp::max(
         1024.0f, rstd::cmp::max(frame_w * 3.0f, rstd::cmp::max(text_bbox_w, src_bbox_w)));
     const float dynamic_h = rstd::cmp::max(
         256.0f, rstd::cmp::max(frame_h * 2.0f, rstd::cmp::max(text_bbox_h, src_bbox_h)));
-    const bool dynamic_effect = policy.dynamic && policy.has_effect;
-
-    const float dynamic_effect_w = rstd::cmp::max(text_bbox_w, frame_w);
-    const float dynamic_effect_h = rstd::cmp::max(text_bbox_h, frame_h);
-    const float rt_max_w = policy.dynamic ? (! policy.has_effect ? dynamic_w : dynamic_effect_w)
-                                          : (policy.has_effect ? frame_w : src_bbox_w);
-    const float rt_max_h = policy.dynamic ? (! policy.has_effect ? dynamic_h : dynamic_effect_h)
-                                          : (policy.has_effect ? frame_h : src_bbox_h);
+    const bool  layout_surface = policy.has_effect || policy.linked_source;
+    const float surface_w =
+        policy.linked_source ? layout_bbox_w : rstd::cmp::max(layout_bbox_w, frame_w);
+    const float surface_h =
+        policy.linked_source ? layout_bbox_h : rstd::cmp::max(layout_bbox_h, frame_h);
 
     TextGeometry out;
-    out.rt_width            = policy.frame_bound ? frame_w : rstd::cmp::max(rt_max_w, src_bbox_w);
-    out.rt_height           = policy.frame_bound ? frame_h : rstd::cmp::max(rt_max_h, src_bbox_h);
+    out.rt_width  = layout_surface ? surface_w : (policy.dynamic ? dynamic_w : src_bbox_w);
+    out.rt_height = layout_surface ? surface_h : (policy.dynamic ? dynamic_h : src_bbox_h);
     out.effect_frame_width  = frame_w;
     out.effect_frame_height = frame_h;
 
-    if (! policy.has_effect) {
+    if (! layout_surface) {
         const bool tight_bbox = ! policy.preserve_text_bbox;
         out.draw_width        = tight_bbox ? src_w : text_bbox_w;
         out.draw_height       = tight_bbox ? src_h : text_bbox_h;
@@ -522,20 +523,8 @@ TextGeometry ResolveTextGeometry(const TextGeometryPolicy& policy,
         return out;
     }
 
-    if (dynamic_effect) {
-        out.draw_width          = dynamic_effect_w;
-        out.draw_height         = dynamic_effect_h;
-        out.uv_source_width     = out.draw_width;
-        out.uv_source_height    = out.draw_height;
-        out.effect_frame_width  = out.uv_source_width;
-        out.effect_frame_height = out.uv_source_height;
-        return out;
-    }
-
-    out.draw_width       = frame_w;
-    out.draw_height      = frame_h;
-    out.uv_source_width  = frame_w;
-    out.uv_source_height = frame_h;
+    out.draw_width = out.uv_source_width = out.effect_frame_width = surface_w;
+    out.draw_height = out.uv_source_height = out.effect_frame_height = surface_h;
     return out;
 }
 
