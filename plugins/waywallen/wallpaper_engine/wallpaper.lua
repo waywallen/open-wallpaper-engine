@@ -141,16 +141,9 @@ local PLAYBACK_SPEED_PROPERTY = {
     value = 100,
 }
 
-local function load_project_properties(entry, ctx)
-    local dir = project_util.project_dir_of(entry)
-    if not dir then return nil end
-    local proj = dir .. "/project.json"
-    if not ctx.fs.exists(proj) then return nil end
-    local content = ctx.fs.read(proj)
-    if not content then return nil end
-    local parsed = ctx.json.parse(content)
-    if not parsed or type(parsed) ~= "table" then return nil end
-    local props = parsed.general and parsed.general.properties or {}
+local function project_properties(manifest)
+    if not manifest then return nil end
+    local props = type(manifest.general) == "table" and manifest.general.properties
     if type(props) ~= "table" then return {} end
     return props
 end
@@ -175,6 +168,59 @@ local function color_wire_value(value)
     end
     if #components < 3 or #components > 4 then return nil end
     return table.concat(components, " ")
+end
+
+local function preset_attachment(ctx, dir, value, property_type)
+    if type(value) ~= "string" then return nil end
+    if value == "" then return value end
+    local relative = value:gsub("\\", "/")
+    if not relative:match("^files/.+") or relative:find("%z") or
+        ("/" .. relative .. "/"):find("/../", 1, true) then
+        return nil
+    end
+    local root = ctx.fs.canonicalize(dir)
+    local files = ctx.fs.canonicalize(dir .. "/files")
+    local path = ctx.fs.canonicalize(dir .. "/" .. relative)
+    if not root or not files or not path or
+        files:sub(1, #root + 1) ~= root .. "/" or
+        path:sub(1, #files + 1) ~= files .. "/" then
+        return nil
+    end
+    local exists = property_type == "directory" and ctx.fs.is_dir or ctx.fs.is_file
+    return exists(path) and path or nil
+end
+
+local function apply_preset_defaults(ctx, resolved, props, report)
+    local defaults, ignored = {}, {}
+    for name, value in pairs(resolved.preset or {}) do
+        local key = PROPERTY_KEY_MAP[name] or name
+        local property = props[key]
+        local wire
+        if type(property) == "table" and type(property.type) == "string" and
+            property.type ~= "text" and property.type ~= "group" and
+            (resolved.wp_type ~= "video" or key == "waywallen.scheme_color") then
+            if property.type == "color" then
+                wire = color_wire_value(value)
+            elseif property.type == "file" or property.type == "directory" then
+                value = preset_attachment(ctx, resolved.preset_dir, value, property.type)
+                wire = value
+            elseif type(value) == "string" or type(value) == "number" or type(value) == "boolean" then
+                wire = tostring(value)
+            end
+        end
+        if wire ~= nil then
+            property.value = value
+            defaults[key] = wire
+        elseif report then
+            ignored[#ignored + 1] = tostring(name)
+        end
+    end
+    if #ignored > 0 then
+        table.sort(ignored)
+        ctx.log("wallpaper_engine: Workshop preset " .. ctx.fs.basename(resolved.preset_dir) ..
+            " ignored properties: " .. table.concat(ignored, ", "))
+    end
+    return defaults
 end
 
 local function prefix_property_titles(props)
@@ -204,12 +250,17 @@ local function add_predefined_properties(entry, props)
 end
 
 function M.properties(entry, ctx)
-    local props = load_project_properties(entry, ctx)
+    local resolved, err = project_util.resolver(ctx).entry(entry)
+    if not resolved then error(err) end
+    local props = project_properties(resolved.manifest)
     if not props then return nil end
     map_property_keys(props)
-    props = language.filter(props, ctx)
+    local defaults = apply_preset_defaults(ctx, resolved, props, false)
+    local selected
+    if defaults.language ~= nil then selected = props.language.value end
+    props = language.filter(props, ctx, selected)
 
-    local locale, locale_fallback = load_locale(ctx, entry.library_root)
+    local locale, locale_fallback = load_locale(ctx, resolved.library_root)
     if locale or locale_fallback then
         for _, v in pairs(props) do
             if type(v) == "table" and type(v.text) == "string" then
@@ -252,30 +303,26 @@ local function we_assets(ctx)
 end
 
 function M.apply(entry, ctx)
-    local extras = { path = entry.resource }
-    local default_user_properties = {}
+    local resolved, err = project_util.resolver(ctx).entry(entry)
+    if not resolved then error(err) end
+    local extras = { path = resolved.resource }
+    local props = project_properties(resolved.manifest) or {}
+    map_property_keys(props)
+    local default_user_properties = apply_preset_defaults(ctx, resolved, props, true)
     if entry.wp_type == "video" then
-        local props = load_project_properties(entry, ctx)
-        if props then
-            map_property_keys(props)
-            local scheme = props["waywallen.scheme_color"]
-            if type(scheme) == "table" then
-                local value = color_wire_value(scheme.value)
-                if value then
-                    default_user_properties["waywallen.scheme_color"] = value
-                end
-            end
+        local scheme = props["waywallen.scheme_color"]
+        if default_user_properties["waywallen.scheme_color"] == nil and type(scheme) == "table" then
+            default_user_properties["waywallen.scheme_color"] = color_wire_value(scheme.value)
         end
     end
     if entry.wp_type == "scene" then
-        local props = load_project_properties(entry, ctx)
-        local selected = props and language.preferred_value(props, ctx) or nil
-        if selected then
-            default_user_properties["language"] = tostring(selected)
+        if default_user_properties.language == nil then
+            local selected = language.preferred_value(props, ctx)
+            if selected ~= nil then default_user_properties.language = tostring(selected) end
         end
         local assets
-        if entry.library_root and entry.library_root ~= "" then
-            local candidate = entry.library_root .. project_util.ASSETS_REL
+        if resolved.library_root ~= "" then
+            local candidate = resolved.library_root .. project_util.ASSETS_REL
             if ctx.fs.exists(candidate) then
                 assets = candidate
             end
@@ -285,7 +332,10 @@ function M.apply(entry, ctx)
             extras.assets = assets
         end
     end
-    if entry.external_id and entry.external_id ~= "" then
+    if resolved.preset_dir then
+        local id = ctx.fs.basename(resolved.preset_dir)
+        if id and id:match("^[1-9]%d*$") then extras.workshop_id = id end
+    elseif entry.external_id and entry.external_id ~= "" then
         extras.workshop_id = entry.external_id
     end
     return {

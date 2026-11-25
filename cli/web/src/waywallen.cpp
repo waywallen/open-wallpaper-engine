@@ -281,17 +281,26 @@ void set_runtime_mute(HostState& s, bool muted) {
     apply_effective_volume(s);
 }
 
+ref<str> web_property_key(const owe::Json& properties, ref<str> key) {
+    if (key == "waywallen.scheme_color"_str && properties.get("schemecolor"_str).is_some() &&
+        properties.get(key).is_none()) {
+        return "schemecolor"_str;
+    }
+    return key;
+}
+
 void merge_user_property_overrides(owe::Json& properties, const rstd::json::Map& overrides) {
     if (! properties.is_object()) properties = owe::Json::Object(rstd::json::Map::make());
     overrides.iter().for_each([&](auto entry) {
         auto [entry_key, entry_value] = entry;
-        auto current                  = properties.get(entry_key->as_str());
+        auto key                      = web_property_key(properties, entry_key->as_str());
+        auto current                  = properties.get(key);
         auto descriptor =
             current.is_some()
                 ? owe::MergeUserPropertyDescriptor(**current, *entry_value)
                 : owe::MergeUserPropertyDescriptor(rstd::into<owe::Json>(""_Str), *entry_value);
         auto object = properties.as_object_mut();
-        (*object)->insert(entry_key->clone(), rstd::move(descriptor));
+        (*object)->insert(String::make(key), rstd::move(descriptor));
     });
 }
 
@@ -311,17 +320,19 @@ void apply_setting(HostState& s, HostMsg::Setting_payload&& setting) {
     } else {
         auto patch      = owe::MakeUserPropertyWirePatch(setting.value.as_str());
         auto descriptor = patch.clone();
+        auto key        = setting.key.as_str();
         if (s.user_properties) {
-            auto current = s.user_properties->get(setting.key.as_str());
+            key          = web_property_key(*s.user_properties, key);
+            auto current = s.user_properties->get(key);
             if (current.is_some()) {
                 descriptor = owe::MergeUserPropertyDescriptor(**current, patch);
             }
             auto object = s.user_properties->as_object_mut();
             if (object.is_some()) {
-                (*object)->insert(setting.key.clone(), descriptor.clone());
+                (*object)->insert(String::make(key), descriptor.clone());
             }
         }
-        s.host->ApplyUserProperty(setting.key.as_str(), descriptor);
+        s.host->ApplyUserProperty(key, descriptor);
     }
 }
 

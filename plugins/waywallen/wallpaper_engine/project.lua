@@ -43,7 +43,8 @@ function M.pick_preview(ctx, dir, project)
     return nil
 end
 
-function M.classify(ctx, dir, project, project_type)
+local function classify(ctx, dir, project)
+    local project_type = project and type(project.type) == "string" and string.lower(project.type)
     if project_type == "web" then
         if ctx.fs.exists(dir .. "/project.json") then
             return "web", dir
@@ -88,9 +89,85 @@ function M.relpath(dir, abs)
     return abs
 end
 
-function M.project_dir_of(entry)
-    if entry.wp_type == "web" then return entry.resource end
-    return entry.resource and entry.resource:match("^(.*)/[^/]+$") or nil
+function M.resolver(ctx)
+    local roots = ctx.libraries()
+    table.sort(roots)
+    local function read(dir)
+        local content = ctx.fs.read(dir .. "/project.json")
+        local parsed = content and ctx.json.parse(content)
+        if type(parsed) == "table" then return parsed end
+    end
+
+    local function base_at(root, dependency)
+        local dir = root .. M.WORKSHOP .. "/" .. dependency
+        local manifest = read(dir)
+        if not manifest or manifest.preset ~= nil then return nil end
+        local wp_type, resource = classify(ctx, dir, manifest)
+        if wp_type then
+            return {
+                wp_type = wp_type, resource = resource, manifest = manifest, library_root = root,
+            }
+        end
+    end
+
+    local function resolve_preset(dir, manifest, root)
+        local dependency = manifest and manifest.dependency
+        if type(dependency) ~= "string" or not dependency:match("^[1-9]%d*$")
+            or type(manifest.preset) ~= "table" then
+            return nil, "invalid project.json dependency or preset"
+        end
+        if ctx.fs.basename(dir) == dependency then
+            return nil, "preset depends on itself"
+        end
+        local base = base_at(root, dependency)
+        if not base then
+            for _, library in ipairs(roots) do
+                local candidate = M.normalize_root(library)
+                if candidate ~= root then
+                    base = base_at(candidate, dependency)
+                    if base then break end
+                end
+            end
+        end
+        if not base then
+            return nil, "Workshop dependency " .. dependency ..
+                " is not installed as a playable original in a registered Steam library"
+        end
+        base.preset = manifest.preset
+        base.preset_dir = dir
+        return base
+    end
+
+    return {
+        scan = function(dir, root, is_workshop)
+            local manifest = read(dir)
+            if is_workshop and manifest and manifest.preset ~= nil then
+                local base, err = resolve_preset(dir, manifest, root)
+                if not base then return nil, err end
+                return {
+                    wp_type = base.wp_type, resource = dir .. "/project.json", manifest = manifest,
+                }
+            end
+            local wp_type, resource = classify(ctx, dir, manifest)
+            if wp_type then
+                return { wp_type = wp_type, resource = resource, manifest = manifest }
+            end
+        end,
+        entry = function(entry)
+            local root = M.normalize_root(entry.library_root or "")
+            local dir
+            if ctx.fs.basename(entry.resource) == "project.json" then
+                dir = ctx.fs.parent(entry.resource)
+                local base, err = resolve_preset(dir, read(dir), root)
+                if base and base.wp_type ~= entry.wp_type then
+                    return nil, "Workshop dependency type changed; rescan the library"
+                end
+                return base, err
+            end
+            dir = entry.wp_type == "web" and entry.resource or ctx.fs.parent(entry.resource)
+            return { resource = entry.resource, manifest = dir and read(dir), library_root = root }
+        end,
+    }
 end
 
 return M

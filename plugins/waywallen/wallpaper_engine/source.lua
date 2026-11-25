@@ -24,25 +24,18 @@ function M.auto_detect(ctx)
     return found
 end
 
-local function scan_container(ctx, steam_root, container, name_prefix, is_workshop, entries)
+local function scan_container(ctx, resolver, steam_root, container, name_prefix, is_workshop, entries)
     if not ctx.fs.exists(container) then return end
     for _, dir in ipairs(ctx.fs.list_dirs(container)) do
         local id = ctx.fs.basename(dir) or dir
-        local project = nil
-        local project_path = dir .. "/project.json"
-        if ctx.fs.exists(project_path) then
-            local content = ctx.fs.read(project_path)
-            if content then project = ctx.json.parse(content) end
-        end
-        local project_type = project and project.type and string.lower(project.type) or nil
-
-        local wp_type, resource = project_util.classify(ctx, dir, project, project_type)
-        if wp_type and resource then
+        local resolved, err = resolver.scan(dir, steam_root, is_workshop)
+        if resolved then
+            local project = resolved.manifest
             local external_id = is_workshop and workshop.subscription_id(id) or nil
             table.insert(entries, {
                 name = (project and project.title) or (name_prefix .. id),
-                wp_type = wp_type,
-                resource = resource,
+                wp_type = resolved.wp_type,
+                resource = resolved.resource,
                 preview = project_util.pick_preview(ctx, dir, project),
                 library_root = steam_root,
                 description = project and project.description or nil,
@@ -58,6 +51,8 @@ local function scan_container(ctx, steam_root, container, name_prefix, is_worksh
                 size = is_workshop and workshop.size(id) or nil,
                 metadata = {},
             })
+        elseif err then
+            ctx.log("wallpaper_engine: skipping Workshop preset " .. id .. ": " .. err)
         end
     end
 end
@@ -72,17 +67,19 @@ function M.scan(ctx)
     -- Steam's own record decides which Workshop directories are subscriptions;
     -- read it once per scan, before any entry asks about its id.
     workshop.refresh(ctx, roots)
+    local resolver = project_util.resolver(ctx)
 
     for _, steam_root in ipairs(roots) do
         local content = steam_root .. project_util.WORKSHOP
         if not ctx.fs.exists(content) then
             ctx.log("wallpaper_engine: no WE workshop under " .. steam_root)
         else
-            scan_container(ctx, steam_root, content, "Workshop ", true, entries)
+            scan_container(ctx, resolver, steam_root, content, "Workshop ", true, entries)
         end
         for _, name in ipairs(project_util.LOCAL_DIRS) do
             scan_container(
                 ctx,
+                resolver,
                 steam_root,
                 steam_root .. project_util.PROJECTS_REL .. "/" .. name,
                 "",

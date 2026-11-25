@@ -189,8 +189,8 @@ end
 -- Filters the variants gated on the selected language and mirrors the value the
 -- renderer will use into the kept entries, so the panel and the wallpaper
 -- agree. Returns a new table; `props` is never modified.
-function M.filter(props, ctx)
-    local value = M.preferred_value(props, ctx)
+function M.filter(props, ctx, value)
+    if value == nil then value = M.preferred_value(props, ctx) end
     if value == nil then return props end
     local values = { language = value }
     local kept = {}
