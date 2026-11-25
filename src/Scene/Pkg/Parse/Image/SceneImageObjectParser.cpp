@@ -285,7 +285,7 @@ void ParseImageObjImpl(SceneLayerBuildContext& context, wpscene::ImageObject& im
     SceneMesh effct_final_mesh {};
     auto      spMesh              = Arc<SceneMesh>::make();
     auto&     mesh                = *spMesh;
-    const array<float, 2> mapRate = Texture0UvScale(material, wpimgobj.nopadding);
+    const array<float, 2> mapRate = Texture0UvScale(*context.scene, material, wpimgobj.nopadding);
     const bool            source_uses_framebuffer_space = hasEffect && wpimgobj.composite_layer;
     const Vector3f        source_alignment_offset = hasEffect ? Vector3f::Zero() : alignment_offset;
     auto                  add_puppet_mask_submeshes = [&](SceneMesh& target, u32 first_mask_slot) {
@@ -453,7 +453,7 @@ void ParseImageObjImpl(SceneLayerBuildContext& context, wpscene::ImageObject& im
         LoadConstvalue(
             context, supplemental_material, *supplemental_wpmat, supplemental_shader_info);
 
-        const auto supplemental_uv_scale = Texture0UvScale(supplemental_material);
+        const auto supplemental_uv_scale = Texture0UvScale(*context.scene, supplemental_material);
         const auto supplemental_slot =
             rstd::as_cast<u32>(usize(mesh.MaterialSlots().len().to_primitive()));
         mesh.AddMaterial(rstd::move(supplemental_material));

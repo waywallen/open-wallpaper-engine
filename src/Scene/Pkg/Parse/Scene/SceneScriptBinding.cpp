@@ -5,7 +5,6 @@ module;
 module wescene.pkg.parse;
 import :scene_context;
 import eigen;
-import wescene.pkg.spec_names;
 import wescene.load_bench;
 import wescene.core;
 import wescene.types;
@@ -160,17 +159,6 @@ ToSceneUserVisibilityBinding(const wpscene::VisibleUserBinding& binding) {
     out.condition     = binding.condition.clone();
     out.has_condition = binding.has_condition;
     return out;
-}
-
-array<float, 2> Texture0UvScale(const SceneMaterial& material, bool nopadding) {
-    if (nopadding) return { 1.0f, 1.0f };
-    auto it = material.customShader.constValues.get(WE_GLTEX_RESOLUTION_NAMES[usize()]);
-    if (it.is_none()) return { 1.0f, 1.0f };
-    const auto& r = **it;
-    if (r.size() < usize(4) || r[usize(0)] == 0.0f || r[usize(1)] == 0.0f) {
-        return { 1.0f, 1.0f };
-    }
-    return { r[usize(2)] / r[usize(0)], r[usize(3)] / r[usize(1)] };
 }
 
 void InstallImageAlignmentBinding(script::JsRuntime& runtime, SceneNode* node, ref<str> alignment,

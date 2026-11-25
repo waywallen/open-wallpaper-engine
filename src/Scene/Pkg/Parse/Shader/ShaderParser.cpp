@@ -38,6 +38,10 @@ static constexpr ref<str> SHADER_PLACEHOLD { "__SHADER_PLACEHOLD__"_str };
 
 namespace
 {
+auto UppercaseComboByte(u8 character) -> u8 {
+    return u8(static_cast<rstd::uint8_t>(std::toupper(character.to_primitive())));
+}
+
 // Decl scanners over GLSL declaration lines. Each WE shader decl is
 // line-scoped; the Cursor primitives in :shader_lex do all char-level work.
 
@@ -2702,6 +2706,19 @@ Combos ShaderParser::ResolveShaderCombos(const ShaderInfo& info, const Combos& i
     return resolved;
 }
 
+auto ShaderParser::FindCombo(const Combos& combos, ref<str> name) -> Option<ref<str>> {
+    for (const auto& [key, value] : combos.iter()) {
+        if (key->len() != name.len()) continue;
+        const auto bytes = key->as_str().as_bytes();
+        usize      index {};
+        while (index < name.len() &&
+               UppercaseComboByte(bytes[index]) == UppercaseComboByte(name.as_bytes()[index]))
+            ++index;
+        if (index == name.len()) return Some(value->as_str());
+    }
+    return None();
+}
+
 String ShaderParser::PreShaderSrc(fs::VFS& vfs, ref<str> src, ShaderInfo* pShaderInfo,
                                   slice<ShaderTexInfo> texinfos, ShaderCache* cache,
                                   SceneLoadBenchRecorderView bench) {
@@ -2834,8 +2851,7 @@ String ShaderParser::PreShaderHeader(ref<str> src, const Combos& combos, ShaderT
     String combo_defines;
     for (const auto& [name, value] : combos.iter()) {
         auto bytes = Vec<u8>::with_capacity(name->len());
-        for (auto character : name->as_str().as_bytes())
-            bytes.push(u8(static_cast<rstd::uint8_t>(std::toupper(character.to_primitive()))));
+        for (auto character : name->as_str().as_bytes()) bytes.push(UppercaseComboByte(character));
         auto cup = String::from_utf8(rstd::move(bytes)).unwrap();
         if (value->is_empty()) {
             rstd_error("combo '{}' can't be empty", cup);

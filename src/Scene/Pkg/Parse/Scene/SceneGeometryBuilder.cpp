@@ -2,6 +2,7 @@ module;
 
 module wescene.pkg.parse;
 import :scene_context;
+import :shader_parser;
 import eigen;
 import wescene.pkg.spec_names;
 import rstd;
@@ -15,6 +16,28 @@ namespace owe
 {
 
 using DirectDrawQuad = array<array<float, 2>, 4>;
+
+auto Texture0UvScale(const Scene& scene, const SceneMaterial& material, bool nopadding)
+    -> array<float, 2> {
+    if (nopadding) return { 1.0f, 1.0f };
+    auto resolution = material.customShader.constValues.get(WE_GLTEX_RESOLUTION_NAMES[usize()]);
+    if (resolution.is_none()) return { 1.0f, 1.0f };
+    const auto& r = **resolution;
+    if (r.size() < usize(4) || r[usize(0)] == 0.0f || r[usize(1)] == 0.0f) return { 1.0f, 1.0f };
+
+    const auto& variant = material.customShader.variant;
+    if (material.hasSprite && variant.is_some() && ! material.textures.is_empty()) {
+        auto texture = scene.Texture(material.textures[usize()].as_str());
+        if (texture.is_some() && (**texture).isSprite &&
+            (**texture).spriteAnim.numFrames() != usize()) {
+            auto spritesheet =
+                ShaderParser::FindCombo(variant->Description().resolved_combos, WE_CB_SPRITESHEET);
+            // The shader maps normalized mesh UVs to the frame's atlas rectangle.
+            if (spritesheet.is_some() && *spritesheet == "1"_str) return { 1.0f, 1.0f };
+        }
+    }
+    return { r[usize(2)] / r[usize(0)], r[usize(3)] / r[usize(1)] };
+}
 
 void GenCardMesh(SceneMesh& mesh, const array<float, 2> size, const array<float, 2> mapRate,
                  const Vector3f& position_offset) {

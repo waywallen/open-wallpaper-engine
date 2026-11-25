@@ -2516,6 +2516,56 @@ TEST(ImageEffectVisibility, InvalidScriptReturnPreservesUserBinding) {
     }
 }
 
+TEST(ImageGeometryParsing, PaddedSpriteAtlasesUseFrameLocalUvs) {
+    using namespace rstd::prelude;
+    auto dino_assets =
+        owe::fs::make_physical_fs(owe::fs::Path(WAYWALLEN_DEFAULTPROJECT_DIR "/dino_run"_str));
+    if (dino_assets.is_err()) GTEST_SKIP() << "default Dino Run project is not available";
+    auto assets = owe::fs::make_physical_fs(owe::fs::Path(WAYWALLEN_ASSETS_DIR ""_str));
+    ASSERT_TRUE(assets.is_ok());
+    owe::fs::VFS vfs;
+    ASSERT_TRUE(vfs.mount("/assets"_str, rstd::move(assets).unwrap()).is_ok());
+    ASSERT_TRUE(vfs.mount("/assets"_str, rstd::move(dino_assets).unwrap()).is_ok());
+
+    auto document = owe::wpscene::ParseSceneDocumentJson(
+        R"JSON({
+            "camera": {},
+            "general": {"orthogonalprojection": {"width": 1280, "height": 720}},
+            "objects": [
+                {"id": 1, "name": "Doux", "image": "models/doux_walk.json"},
+                {"id": 2, "name": "Mort", "image": "models/mort_walk.json"},
+                {"id": 3, "name": "Tard", "image": "models/tard_walk.json"},
+                {"id": 4, "name": "Background", "image": "models/bg1_3.json"}
+            ]
+        })JSON"_str,
+        owe::wpscene::kSceneVersionUnknown);
+    ASSERT_TRUE(document.is_some());
+    wavsen::audio::SoundManager sound;
+    owe::SceneParser            parser;
+    auto                        parsed =
+        parser.Parse("dino-sprite-uv"_str,
+                     ref<owe::wpscene::SceneDocument>::from_raw_parts(rstd::addressof(*document)),
+                     mut_ref<owe::fs::VFS>::from_raw_parts(rstd::addressof(vfs)),
+                     mut_ref<wavsen::audio::SoundManager>::from_raw_parts(rstd::addressof(sound)));
+    ASSERT_TRUE(parsed.is_ok());
+    auto scene = rstd::move(parsed).unwrap();
+    for (ref<str> name : { "Doux"_str, "Mort"_str, "Tard"_str, "Background"_str }) {
+        auto* node = scene.scene->RootMut()->FindByName(name);
+        ASSERT_NE(node, nullptr);
+        auto* mesh = node->Mesh();
+        ASSERT_NE(mesh, nullptr);
+        const auto& vertices = mesh->GetVertexArray(usize());
+        ASSERT_EQ(vertices.VertexCount(), usize(4));
+        auto uv = vertices.AttributeOffset(owe::VAttr::TexCoord.name);
+        ASSERT_TRUE(uv.is_some());
+        const auto  offset   = *uv / usize(sizeof(float)) + usize(3) * vertices.OneSize();
+        const auto* data     = vertices.Data() + offset.to_primitive();
+        const bool  is_atlas = name != "Background"_str;
+        EXPECT_FLOAT_EQ(data[0], is_atlas ? 1.0f : 544.0f / 1024.0f);
+        EXPECT_FLOAT_EQ(data[1], is_atlas ? 1.0f : 160.0f / 256.0f);
+    }
+}
+
 TEST(ImageAlignmentParsing, DisabledEffectsPreserveSourceDrawAnchor) {
     using namespace rstd::prelude;
     auto assets = owe::fs::make_physical_fs(

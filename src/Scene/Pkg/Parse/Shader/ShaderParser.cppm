@@ -238,6 +238,7 @@ public:
     static String PreShaderHeader(ref<str> src, const Combos& combos, ShaderType);
 
     static Combos ResolveShaderCombos(const ShaderInfo&, const Combos& input_combos);
+    static auto   FindCombo(const Combos&, ref<str> name) -> Option<ref<str>>;
 
     static auto CompileToSpv(ref<str> scene_id, mut_ref<ShaderUnit[]>, ShaderInfo*,
                              slice<ShaderTexInfo>, ShaderCache* cache = nullptr,

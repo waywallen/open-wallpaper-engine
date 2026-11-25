@@ -264,7 +264,8 @@ void WirePuppetAnimationScripts(SceneLayerBuildContext&, SceneNode*, Arc<PuppetL
 void RegisterPuppetLayer(SceneLayerBuildContext&, SceneNode*, Arc<PuppetLayer>);
 void MarkHiddenLinkSource(SceneLayerBuildContext&, i32);
 auto ToSceneUserVisibilityBinding(const wpscene::VisibleUserBinding&) -> SceneUserVisibilityBinding;
-auto Texture0UvScale(const SceneMaterial&, bool = false) -> array<float, 2>;
+auto Texture0UvScale(const Scene& scene, const SceneMaterial& material, bool nopadding = false)
+    -> array<float, 2>;
 auto ParticleTextureRatio(const SceneMaterial&) -> float;
 void RegisterImageAlignmentBinding(SceneLayerBuildContext&, SceneNode*, ref<str>,
                                    SceneLayerBuildContext::ImageAlignmentSetter);

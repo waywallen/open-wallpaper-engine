@@ -571,7 +571,7 @@ void ParseModelObjImpl(SceneLayerBuildContext& context, wpscene::ModelObject& mo
 
         const auto material_slot =
             rstd::as_cast<u32>(usize(mesh->MaterialSlots().len().to_primitive()));
-        const auto texcoord_scale = Texture0UvScale(scene_mat);
+        const auto texcoord_scale = Texture0UvScale(*context.scene, scene_mat);
         mesh->AddMaterial(rstd::move(scene_mat));
         RegisterMaterialBindings(*context.scene,
                                  mesh->MaterialSlots().last_mut().unwrap().get_mut(),
