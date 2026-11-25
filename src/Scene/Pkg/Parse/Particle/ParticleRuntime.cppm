@@ -239,8 +239,6 @@ struct ParticleFrame {
     array<float, 16>         audio_average {};
     Eigen::Vector3d          mouse_local { Eigen::Vector3d::Zero() };
     bool                     mouse_in_window { false };
-    Eigen::Matrix3d          world_from_local_dir { Eigen::Matrix3d::Identity() };
-    Eigen::Matrix3d          local_from_world_dir { Eigen::Matrix3d::Identity() };
     Eigen::Matrix4d          world_from_spawn_space { Eigen::Matrix4d::Identity() };
     Eigen::Matrix4d          local_from_world { Eigen::Matrix4d::Identity() };
     f64                      time {};

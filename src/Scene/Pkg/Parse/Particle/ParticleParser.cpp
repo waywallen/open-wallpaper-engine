@@ -917,23 +917,17 @@ struct MovementOperator {
     }
 
     void Update(particle::ParticleUpdateContext& context) {
-        auto frame      = ParticleFrameFrom(context.frame);
         auto positions  = context.view.PositionsMut();
         auto velocities = context.view.Write(velocity);
         auto delta      = context.delta.to_primitive();
-        auto speed      = modifiers.Speed();
+        // WE damps the retained velocity after moving and caps drag below unity.
+        const auto            retention    = 1.0 - rstd::cmp::min(drag * delta, 0x1.fffffcp-1);
+        const Eigen::Vector3d gravity_step = gravity * (modifiers.Speed() * delta);
         for (auto slot : context.slots) {
-            auto world_velocity =
-                frame->world_from_local_dir * velocities[slot.index].cast<double>();
-            Eigen::Vector3d acceleration =
-                frame->local_from_world_dir * algorism::DragForce(world_velocity, drag);
-            acceleration +=
-                speed * (frame->world_space ? frame->local_from_world_dir * gravity : gravity);
-            velocities[slot.index] =
-                (velocities[slot.index].cast<double>() + acceleration * delta).cast<float>();
-            positions[slot.index] = (positions[slot.index].cast<double>() +
-                                     velocities[slot.index].cast<double>() * delta)
-                                        .cast<float>();
+            const Eigen::Vector3d velocity = velocities[slot.index].cast<double>() + gravity_step;
+            positions[slot.index] =
+                (positions[slot.index].cast<double>() + velocity * delta).cast<float>();
+            velocities[slot.index] = (velocity * retention).cast<float>();
         }
     }
 };

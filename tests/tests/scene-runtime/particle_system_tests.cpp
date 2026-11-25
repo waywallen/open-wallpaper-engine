@@ -1004,6 +1004,49 @@ TEST(ParticleSubSystem, AppliesVortexAroundWorldSpaceOwner) {
     EXPECT_GT(std::abs(positions[usize()].z()), 0.01f);
 }
 
+TEST(ParticleSubSystem, MovementDragDoesNotReverseVelocityAtHighRate) {
+    owe::Scene             scene;
+    owe::ParticleSubSystem subsystem(scene,
+                                     Arc<owe::SceneMesh>::make(),
+                                     u32(1),
+                                     f64(30.0),
+                                     u32(1),
+                                     f64(1.0),
+                                     owe::ParticleSubSystem::SpawnType::STATIC,
+                                     owe::ParticleAnimationSpec {});
+    subsystem.AddInitializer(owe::ParticleParser::GenInitializer(
+        owe::ParseJson(R"({"name":"lifetimerandom","min":10,"max":10})"_str).unwrap(), u32(1)));
+    subsystem.AddInitializer(owe::ParticleParser::GenInitializer(
+        owe::ParseJson(R"({"name":"velocityrandom","min":"10 0 0","max":"10 0 0"})"_str).unwrap(),
+        u32(1)));
+    subsystem.AddEmitter(Box<dyn<particle::ParticleEmitterProgram>>::make(
+        owe::BoxEmitterProgram(subsystem.SpawnPipeline(),
+                               owe::ParticleBoxEmitterArgs { .instantaneous = u32(1) },
+                               usize())));
+    subsystem.AddOperator(owe::ParticleParser::GenOperator(
+        owe::ParseJson(R"({"name":"movement","drag":5,"gravity":"0 2 0"})"_str).unwrap(),
+        owe::ParticleInstanceModifiers(Arc<owe::wpscene::ParticleInstanceoverride>::make(),
+                                       owe::wpscene::Particle::EFlags { 0 },
+                                       false),
+        subsystem,
+        usize()));
+    subsystem.Finalize();
+    subsystem.Tick(f64(1.0 / 30.0), false);
+
+    auto& storage  = subsystem.System().Instance(usize()).Storage();
+    auto  position = storage.Values(subsystem.Attributes().position)[usize()];
+    auto  velocity = storage.Values(subsystem.Attributes().velocity)[usize()];
+    EXPECT_FLOAT_EQ(position.x(), 10.0f);
+    EXPECT_FLOAT_EQ(position.y(), 2.0f);
+    EXPECT_GE(velocity.x(), 0.0f);
+    EXPECT_LT(velocity.x(), 0.00001f);
+
+    subsystem.Tick(f64(1.0 / 30.0), false);
+    position = storage.Values(subsystem.Attributes().position)[usize()];
+    EXPECT_NEAR(position.x(), 10.0f, 0.00001f);
+    EXPECT_NEAR(position.y(), 4.0f, 0.00001f);
+}
+
 TEST(ParticleSubSystem, SelectsFixedWarmupStepsByCapacity) {
     auto simulate = [](u32 max_count) {
         owe::Scene             scene;

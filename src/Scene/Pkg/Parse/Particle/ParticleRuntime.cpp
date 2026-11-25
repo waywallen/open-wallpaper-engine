@@ -545,8 +545,6 @@ void ParticleSubSystem::UpdateFrameInput(f64 frame_time) {
     const auto            pointer                = m_scene.PointerPosition();
     const Eigen::Vector3d mouse_world            = m_scene.ScreenToWorld(pointer);
     Eigen::Vector3d       mouse_local            = mouse_world;
-    Eigen::Matrix3d       world_from_local_dir   = Eigen::Matrix3d::Identity();
-    Eigen::Matrix3d       local_from_world_dir   = Eigen::Matrix3d::Identity();
     Eigen::Matrix4d       local_from_world       = Eigen::Matrix4d::Identity();
     Eigen::Matrix4d       world_from_spawn_space = Eigen::Matrix4d::Identity();
     if (m_owner_node != nullptr) {
@@ -557,18 +555,10 @@ void ParticleSubSystem::UpdateFrameInput(f64 frame_time) {
         Eigen::Vector4d value =
             local_from_world * Eigen::Vector4d(mouse_world.x(), mouse_world.y(), 0.0, 1.0);
         mouse_local = value.head<3>();
-        if (! m_world_space) {
-            world_from_local_dir = model.block<3, 3>(0, 0);
-            if (f64(world_from_local_dir.determinant()).abs().to_primitive() > 1e-9) {
-                local_from_world_dir = world_from_local_dir.inverse();
-            }
-        }
     }
     m_frame.subsystem              = this;
     m_frame.mouse_local            = mouse_local;
     m_frame.mouse_in_window        = m_scene.PointerInWindow();
-    m_frame.world_from_local_dir   = world_from_local_dir;
-    m_frame.local_from_world_dir   = local_from_world_dir;
     m_frame.world_from_spawn_space = world_from_spawn_space;
     m_frame.local_from_world       = local_from_world;
     m_frame.world_space            = m_world_space;
