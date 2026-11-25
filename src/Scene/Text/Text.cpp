@@ -507,9 +507,9 @@ TextGeometry ResolveTextGeometry(const TextGeometryPolicy& policy,
         policy.linked_source ? layout_bbox_h : rstd::cmp::max(layout_bbox_h, frame_h);
 
     TextGeometry out;
-    out.rt_width  = layout_surface ? surface_w : (policy.dynamic ? dynamic_w : src_bbox_w);
-    out.rt_height = layout_surface ? surface_h : (policy.dynamic ? dynamic_h : src_bbox_h);
-    out.effect_frame_width  = frame_w;
+    out.rt_width           = layout_surface ? surface_w : (policy.dynamic ? dynamic_w : src_bbox_w);
+    out.rt_height          = layout_surface ? surface_h : (policy.dynamic ? dynamic_h : src_bbox_h);
+    out.effect_frame_width = frame_w;
     out.effect_frame_height = frame_h;
 
     if (! layout_surface) {
@@ -740,13 +740,13 @@ struct TextLayouter::Impl {
                     slice<rstd::uint32_t>::from_raw_parts(index.Data(), index.DataCount()));
                 target.index_arrays[usize()].SetRenderDataCount(index.RenderDataCount());
             }
-        capacities   = rstd::move(next_capacities);
-        text         = String::make(next);
-        font.size    = size;
-        style.halign = String::make(alignment);
+        capacities    = rstd::move(next_capacities);
+        text          = String::make(next);
+        font.size     = size;
+        style.halign  = String::make(alignment);
         style.padding = padding;
-        layout       = Some(rstd::move(output));
-        metrics      = measured;
+        layout        = Some(rstd::move(output));
+        metrics       = measured;
         if (topology)
             mesh->SetLayoutDirty();
         else

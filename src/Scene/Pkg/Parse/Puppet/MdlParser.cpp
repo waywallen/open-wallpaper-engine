@@ -1332,7 +1332,7 @@ void MdlParser::GenMeshFromMdl(SceneMesh::Submesh& submesh, const Mdl::Mesh& src
     for (size_t i = 0; i < vert_num; ++i) {
         size_t offset = 0;
         for (usize k {}; k < packers.len(); ++k) {
-            (*packers[k])(i, one_vert.begin() + offset);
+            (*packers[k])(i, one_vert.data() + offset);
             offset += SceneVertexArray::RealAttributeSize(attrs[k]).to_primitive();
         }
         vertex.SetVertexs(usize(i), one_vert.as_slice());

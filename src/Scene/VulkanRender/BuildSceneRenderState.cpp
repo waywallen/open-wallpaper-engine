@@ -698,7 +698,7 @@ static bool HasPreparedRenderTarget(const Scene& scene, ref<str> name) {
 static bool HasExternalRenderTargetRead(const SceneMaterial& material, ref<str> local_target,
                                         const Scene* prepared_targets = nullptr) {
     for (const auto& texture : material.textures) {
-        auto name = texture.as_str();
+        auto name       = texture.as_str();
         auto dependency = ClassifySceneMaterialTexture(name);
         if (name == local_target || IsLocalSceneMaterialTextureDependency(dependency)) continue;
         if (prepared_targets != nullptr) {

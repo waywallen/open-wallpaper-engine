@@ -56,7 +56,7 @@ public:
         rstd::uint32_t file_parent { NO_PARENT };
 
         // Keep the authored payload for constraint modes not evaluated yet.
-        String simulation_json;
+        String                    simulation_json;
         Option<TranslationSpring> translation_spring;
 
         // prepared

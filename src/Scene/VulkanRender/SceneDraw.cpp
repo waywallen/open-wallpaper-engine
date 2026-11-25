@@ -193,7 +193,7 @@ enum class DrawBufferIdentityKind : unsigned
     GraphIndex,
     GraphUniform,
 };
-}
+} // namespace
 
 auto SceneDraw::declareResources(ResourceDeclarationContext& context)
     -> Option<vrento::vulkan::GraphicsDrawDesc> {

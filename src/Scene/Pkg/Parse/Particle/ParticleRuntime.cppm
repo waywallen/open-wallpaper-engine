@@ -571,7 +571,7 @@ private:
     SpawnType                                                m_spawn_type { SpawnType::STATIC };
     u32                                                      m_trail_length {};
     f64                                                      m_trail_sample_interval {};
-    f64                                                           m_trail_sample_remaining {};
+    f64                                                      m_trail_sample_remaining {};
     Option<Arc<ParticleTrailUniformState>>                   m_trail_uniform_state;
     Option<Arc<ParticlePlaybackState>>                       m_playback_state;
     u32                                                      m_seen_reset_sequence {};

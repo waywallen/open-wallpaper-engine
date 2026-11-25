@@ -741,7 +741,7 @@ BuildContext(Scene& scene, fs::VFS& vfs, ref<str> scene_id, const wpscene::Scene
              Arc<ShadowAtlasLayout> shadow_layout, bool geometry_shader_supported,
              Option<ImageReadyCallback> image_ready, TextureMemoryOptions texture_memory) {
     SceneParseContext context(scene, vfs);
-    context.user_properties = user_properties;
+    context.user_properties     = user_properties;
     context.script_storage_path = rstd::move(script_storage_path);
     PrepareAnimationBindings(context, sc.general.field_bindings);
     InitContext(

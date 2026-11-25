@@ -208,7 +208,7 @@ script::ScriptScene& EnsureScriptScene(SceneLayerBuildContext& context) {
         (*context.script_scene)->runtime().SetScene(context.scene);
         if (context.script_storage_path.is_some())
             (*context.script_scene)->runtime().SetPersistence(context.script_storage_path->clone());
-        auto layers          = context.layer_resources->puppet_layers.clone();
+        auto layers = context.layer_resources->puppet_layers.clone();
         (*context.script_scene)
             ->runtime()
             .SetBoneResolvers(

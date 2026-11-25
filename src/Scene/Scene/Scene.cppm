@@ -866,8 +866,7 @@ public:
     }
     bool SetShaderValue(ref<str> uniform_name, const ShaderValue& value) {
         if (! SetShaderValueLocal(uniform_name, value, true)) return false;
-        MirrorShaderValueToShadow(
-            uniform_name, **customShader.constValues.get(uniform_name), true);
+        MirrorShaderValueToShadow(uniform_name, **customShader.constValues.get(uniform_name), true);
         return true;
     }
     void SetShadowVariant(Arc<SceneMaterial> variant) {

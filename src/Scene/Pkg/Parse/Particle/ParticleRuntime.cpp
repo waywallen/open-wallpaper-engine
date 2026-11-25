@@ -739,9 +739,9 @@ bool ParticleSubSystem::SyncPlayback() {
         (*m_playback_state)->reset_sequence.load(rstd::sync::atomic::Ordering::Acquire);
     if (sequence == m_seen_reset_sequence) return false;
 
-    m_seen_reset_sequence      = sequence;
-    m_time                     = f64();
-    m_trail_sample_remaining   = m_trail_sample_interval;
+    m_seen_reset_sequence    = sequence;
+    m_time                   = f64();
+    m_trail_sample_remaining = m_trail_sample_interval;
     for (usize index {}; index < System().InstanceCount(); ++index) {
         System().Instance(index).Reset();
         m_instance_states[index].Reset();

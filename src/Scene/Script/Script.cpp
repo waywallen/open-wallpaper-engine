@@ -240,12 +240,12 @@ struct FieldScript::Impl {
     // Layer-B: the SceneNode this script's `thisLayer` resolves to. Null →
     // fall back to the generic JS stub. `wrapped_layer` caches the JSValue
     // wrapper so per-frame swap doesn't reallocate.
-    owe::SceneNode*          node { nullptr };
-    JSValue                  wrapped_layer { JS_UNDEFINED };
-    JSValue                  wrapped_object { JS_UNDEFINED };
-    String                   property;
-    Option<CString>          property_name;
-    ScriptPropertyObjectKind object_kind { ScriptPropertyObjectKind::Layer };
+    owe::SceneNode*                          node { nullptr };
+    JSValue                                  wrapped_layer { JS_UNDEFINED };
+    JSValue                                  wrapped_object { JS_UNDEFINED };
+    String                                   property;
+    Option<CString>                          property_name;
+    ScriptPropertyObjectKind                 object_kind { ScriptPropertyObjectKind::Layer };
     bool                                     has_cursor_events { false };
     bool                                     cursor_inside { false };
     rstd::uint32_t                           cursor_pressed_buttons { 0 };
@@ -906,8 +906,8 @@ void SweepDeferred(JSContext* ctx, EngineHostState* host) {
         auto* pending_owner = host->deferred[i].owner;
         if (pending_owner != nullptr && pending_owner->m_impl->init_deferred) continue;
         while (! host->deferred[i].dead && host->deferred[i].fire_at <= now) {
-            auto* previous = host->active_field_script;
-            auto* owner    = host->deferred[i].owner;
+            auto*   previous = host->active_field_script;
+            auto*   owner    = host->deferred[i].owner;
             JSValue receiver = JS_UNDEFINED;
             if (owner != nullptr && owner->m_impl->alive) {
                 BindFieldScriptContext(ctx, *owner->m_impl, host->default_layer);
@@ -1835,7 +1835,7 @@ JSValue NodeSetBoneTransform(JSContext* ctx, JSValueConst this_val, int argc, JS
     JSValueConst      val    = argv[1];
     JSValue           m_prop = JS_GetPropertyStr(ctx, val, "m");
     if (JS_IsException(m_prop)) return JS_EXCEPTION;
-    JSValue           arr    = JS_IsUndefined(m_prop) ? JS_DupValue(ctx, val) : m_prop;
+    JSValue arr = JS_IsUndefined(m_prop) ? JS_DupValue(ctx, val) : m_prop;
 
     if (! JS_IsArray(arr)) {
         JS_FreeValue(ctx, arr);
@@ -3674,7 +3674,7 @@ void JsRuntime::TickAll(slice<owe::SceneAnimationEventDispatch> animation_events
     JSContext* ctx = m_impl->ctx;
     SweepDeferred(ctx, &m_impl->host);
     DispatchVideoEndedCallbacks(ctx, *m_impl);
-    const auto script_count = usize(m_impl->scripts.len().to_primitive());
+    const auto               script_count   = usize(m_impl->scripts.len().to_primitive());
     const auto&              input          = m_impl->host.inputs;
     constexpr rstd::uint32_t cursor_buttons = 0b111;
     const auto               btn_pressed    = input.mouse_buttons_pressed & cursor_buttons;
@@ -3714,16 +3714,16 @@ void JsRuntime::TickAll(slice<owe::SceneAnimationEventDispatch> animation_events
     }
 
     // Dispatch before update so scripts can react to cursor callbacks in the same frame.
-    const CursorWorld cursor         = CursorToWorld(input, m_impl->host.scene);
-    const bool        in_window      = input.cursor_in_window;
-    const bool        cursor_moved   = in_window && (! m_impl->cursor_was_in_window ||
-                                                     input.cursor_x != m_impl->previous_cursor_x ||
-                                                     input.cursor_y != m_impl->previous_cursor_y);
-    m_impl->previous_cursor_x        = input.cursor_x;
-    m_impl->previous_cursor_y        = input.cursor_y;
-    m_impl->cursor_was_in_window     = in_window;
-    JSValue              ev_shared   = JS_UNDEFINED;
-    auto                 ensure_ev   = [&](int button) -> JSValue {
+    const CursorWorld cursor       = CursorToWorld(input, m_impl->host.scene);
+    const bool        in_window    = input.cursor_in_window;
+    const bool        cursor_moved = in_window && (! m_impl->cursor_was_in_window ||
+                                                   input.cursor_x != m_impl->previous_cursor_x ||
+                                                   input.cursor_y != m_impl->previous_cursor_y);
+    m_impl->previous_cursor_x      = input.cursor_x;
+    m_impl->previous_cursor_y      = input.cursor_y;
+    m_impl->cursor_was_in_window   = in_window;
+    JSValue ev_shared              = JS_UNDEFINED;
+    auto    ensure_ev              = [&](int button) -> JSValue {
         if (! JS_IsUndefined(ev_shared)) JS_FreeValue(ctx, ev_shared);
         ev_shared = MakeCursorEvent(ctx, cursor, button);
         return ev_shared;

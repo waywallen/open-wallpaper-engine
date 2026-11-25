@@ -55,7 +55,7 @@ TEST(SceneEnvironmentScripts, StardewNightUpdatesEnvironmentAndNpcAnimations) {
                                    .user_properties = (**properties.as_object()).clone() },
                                  mut_ref<wavsen::audio::SoundManager>::from_raw_parts(&sound));
     ASSERT_TRUE(loaded.is_ok());
-    auto& scene = *loaded->parsed.scene;
+    auto& scene   = *loaded->parsed.scene;
     auto  scripts = scene.ExtensionMut<owe::script::ScriptScene>();
     ASSERT_TRUE(scripts.is_some());
     auto* animations = (**scripts).runtime().MakeFieldScript(

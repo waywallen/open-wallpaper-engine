@@ -1329,13 +1329,12 @@ TEST(SceneMaterialRuntimeMutation, ZeroFillsShortShaderVectorsToDeclaredShape) {
 }
 
 TEST(SceneMaterialRuntimeMutation, MirrorsShaderValuesToShadowVariant) {
-    auto shadow = Arc<owe::SceneMaterial>::make();
+    auto                        shadow = Arc<owe::SceneMaterial>::make();
     owe::SceneShaderVariantDesc shadow_variant;
     shadow_variant.shader_name = "shadowcaster"_Str;
     shadow_variant.stages.push(owe::SceneShaderVariantStage {});
     (void)shadow_variant.stages[usize()].uniforms.insert("g_StrengthBase"_Str, "float"_Str);
-    shadow->customShader.variant =
-        Some(owe::SceneShaderVariant::from(rstd::move(shadow_variant)));
+    shadow->customShader.variant = Some(owe::SceneShaderVariant::from(rstd::move(shadow_variant)));
 
     owe::SceneMaterial material;
     auto               shader = Arc<owe::SceneShader>::make();
