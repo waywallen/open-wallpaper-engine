@@ -941,6 +941,82 @@ TEST(SceneRenderGraph, InitializesOnlyThePreviousFrameInColorFeedback) {
     EXPECT_EQ(history_versions, usize(2));
 }
 
+TEST(SceneRenderGraph, EmitsAllEffectCopiesBetweenAndAfterDraws) {
+    owe::Scene scene;
+    for (auto key : { "_rt_default"_str,
+                      "_rt_effect"_str,
+                      "_rt_painted"_str,
+                      "_rt_scratch"_str,
+                      "_rt_preview"_str,
+                      "_rt_history"_str,
+                      "_rt_saved"_str })
+        scene.RegisterRenderTarget(String::make(key),
+                                   owe::SceneRenderTarget { .width                = i32(32),
+                                                            .height               = i32(32),
+                                                            .clear_on_first_write = true });
+    scene.DefaultEffectMeshMut()->Submeshes().push(owe::SceneMesh::Submesh {});
+
+    auto make_node = [](ref<str> name, Option<ref<str>> input = None()) {
+        auto node     = Arc<owe::SceneNode>::make();
+        auto mesh     = Arc<owe::SceneMesh>::make();
+        auto material = GraphMaterial(usize(bool(input)));
+        material.name = String::make(name);
+        if (input) material.textures.push(String::make(*input));
+        mesh->AddMaterial(rstd::move(material));
+        mesh->Submeshes().push(owe::SceneMesh::Submesh {});
+        node->AddMesh(rstd::move(mesh));
+        return node;
+    };
+    auto source = make_node("source"_str);
+    auto layer  = Arc<owe::SceneNodeLayer>::make(source.as_ptr(), 32.0f, 32.0f, "_rt_effect"_str);
+    layer->FinalMesh().Submeshes().push(owe::SceneMesh::Submesh {});
+    auto effect = Arc<owe::SceneImageEffect>::make();
+    effect->AddNode({ .output    = owe::SceneEffectTarget::Named("_rt_painted"_str),
+                      .sceneNode = make_node("paint"_str, Some("_rt_history"_str)) });
+    effect->AddNode({ .output    = owe::SceneEffectTarget::LayerNext(),
+                      .sceneNode = make_node("present"_str, Some("_rt_preview"_str)) });
+    auto add_copy = [&](i32 position, ref<str> src, ref<str> dst) {
+        effect->commands.push({ .dst      = owe::SceneEffectTarget::Named(dst),
+                                .src      = owe::SceneEffectTarget::Named(src),
+                                .afterpos = position });
+    };
+    add_copy(i32(1), "_rt_painted"_str, "_rt_scratch"_str);
+    add_copy(i32(1), "_rt_scratch"_str, "_rt_preview"_str);
+    add_copy(i32(2), "_rt_painted"_str, "_rt_history"_str);
+    add_copy(i32(2), "_rt_history"_str, "_rt_saved"_str);
+    layer->AddEffect(effect);
+    source->AttachLayer(rstd::move(layer));
+    scene.RootMut()->AppendChild(rstd::move(source));
+
+    auto built = owe::BuildSceneRenderState(scene);
+    if (built.is_err()) {
+        auto error = built.unwrap_err();
+        FAIL() << "graph error " << int(error.kind) << ", pass " << error.pass.value
+               << ", resource " << error.resource.value;
+    }
+    ASSERT_TRUE(built->graph.compile().is_ok());
+    for (auto key : { "_rt_scratch"_str, "_rt_preview"_str, "_rt_history"_str, "_rt_saved"_str }) {
+        auto target = built->textures.find(key);
+        ASSERT_NE(target, nullptr);
+        EXPECT_TRUE(built->graph.has_resource_writes(target->id));
+    }
+    auto  plan = built->textures.resourcePlan(built->graph).unwrap();
+    usize history_versions {};
+    for (const auto& entry : plan.textures) {
+        if (entry.request().name != "_rt_history"_str) continue;
+        ++history_versions;
+        EXPECT_TRUE(entry.preserve_contents);
+        EXPECT_TRUE(entry.initialize_transparent);
+    }
+    EXPECT_EQ(history_versions, usize(2));
+    auto history = built->textures.find("_rt_history"_str)->id;
+    EXPECT_TRUE(built->graph.version_access({ history, 0 }).read);
+    EXPECT_TRUE(built->graph.version_access({ history, 1 }).read);
+    auto preview = built->textures.find("_rt_preview"_str)->id;
+    EXPECT_FALSE(built->graph.version_access({ preview, 0 }).read);
+    EXPECT_TRUE(built->graph.version_access({ preview, 1 }).read);
+}
+
 TEST(SceneRenderGraph, SharesOneLinkTargetForMultipleConsumers) {
     owe::Scene scene;
     scene.SetOrtho({ rstd::i32(1920), rstd::i32(1080) });

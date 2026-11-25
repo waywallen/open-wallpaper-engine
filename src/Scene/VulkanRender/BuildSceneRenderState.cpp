@@ -413,21 +413,24 @@ static void LoadGraphEffects(SceneNodeLayer* effs, ExtraInfo& extra) {
     for (auto* eff : effs->ResolvedEffects()) {
         if (eff == nullptr) continue;
         usize command_index {};
-        int   nodePos = 0;
-        for (auto& n : eff->Nodes()) {
-            if (command_index < eff->commands.len() &&
-                nodePos == eff->commands[command_index].afterpos.to_primitive()) {
-                const auto& command = eff->commands[command_index];
+        auto  emit_commands = [&](i32 draws_emitted) {
+            while (command_index < eff->commands.len() &&
+                   eff->commands[command_index].afterpos == draws_emitted) {
+                const auto& command = eff->commands[command_index++];
                 auto        source  = ResolveEffectTarget(*effs, command.src);
                 auto        target  = ResolveEffectTarget(*effs, command.dst);
                 AddTextureCopy(
                     extra, MakeTextureDesc(extra, source), MakeTextureDesc(extra, target));
-                ++command_index;
             }
+        };
+        i32 draws_emitted {};
+        for (auto& n : eff->Nodes()) {
+            emit_commands(draws_emitted);
             auto target = effs->ResolvedTarget(*n);
             ToGraphPass(n->sceneNode.as_ptr(), ResolveEffectTarget(*effs, target), extra);
-            nodePos++;
+            draws_emitted += i32(1);
         }
+        emit_commands(draws_emitted);
     }
 }
 
