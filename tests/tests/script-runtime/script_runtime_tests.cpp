@@ -4244,6 +4244,32 @@ TEST(ScriptScene, BoundValuesObserveEarlierDirectWrites) {
     }
 }
 
+TEST(ScriptScene, LayerScaleAcceptsScalarAssignments) {
+    auto root  = Arc<owe::SceneNode>::make();
+    auto model = Arc<owe::SceneNode>::make(
+        Eigen::Vector3f::Zero(), Eigen::Vector3f::Ones(), Eigen::Vector3f::Zero(), "model"_str);
+    root->AppendChild(model.clone());
+    JsRuntime runtime;
+    runtime.SetSceneRoot(root.as_ptr());
+    auto* field = MakeProbe(runtime, "test/layer_scale_scalar", R"JS(
+        let tick = 0;
+        export function update() {
+            const layer = thisScene.getLayer('model');
+            layer.scale = tick++ === 0 ? 0 : 1;
+            const scale = layer.scale;
+            return scale.x + scale.y + scale.z;
+        }
+    )JS");
+    ASSERT_NE(field, nullptr);
+
+    runtime.TickAll();
+    EXPECT_TRUE(model->Scale().isZero());
+    EXPECT_DOUBLE_EQ(LastScalar(field), 0.0);
+    runtime.TickAll();
+    EXPECT_TRUE(model->Scale().isOnes());
+    EXPECT_DOUBLE_EQ(LastScalar(field), 3.0);
+}
+
 TEST(ScriptScene, UnboundArgumentsKeepPreviousReturns) {
     JsRuntime runtime;
     auto* field = runtime.MakeFieldScript("export function update(value) { return value + 1; }"_str,

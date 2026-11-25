@@ -1360,6 +1360,14 @@ JSValue NodeGetScale(JSContext* ctx, JSValueConst this_val) {
 JSValue NodeSetScale(JSContext* ctx, JSValueConst this_val, JSValueConst val) {
     auto* n = GetLayerNode(this_val);
     if (! n) return JS_UNDEFINED;
+    if (JS_IsNumber(val)) {
+        auto scale = CoerceReturn(ctx, val, FieldKind::Vec3);
+        if (scale.is_Vec3()) {
+            const auto& v = scale.as_Vec3().value;
+            n->SetScale({ float(v.x), float(v.y), float(v.z) });
+        }
+        return JS_UNDEFINED;
+    }
     double x = 0, y = 0, z = 0;
     if (! ReadXYZ(ctx, val, x, y, z)) return JS_UNDEFINED;
     n->SetScale({ float(x), float(y), float(z) });
