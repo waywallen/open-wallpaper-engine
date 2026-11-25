@@ -1246,12 +1246,10 @@ void CheckScriptMusicSelector(ref<str> initial_selection) {
     ASSERT_NE(second, nullptr);
     ASSERT_TRUE(first->SoundControl().is_some());
     ASSERT_TRUE(second->SoundControl().is_some());
-    if (initial_selection != "0"_str) {
-        EXPECT_FALSE(first->IsPlaying());
-        EXPECT_FALSE(second->IsPlaying());
-    }
+    EXPECT_EQ(first->IsPlaying(), initial_selection == "0"_str);
+    EXPECT_EQ(second->IsPlaying(), initial_selection == "1"_str);
 
-    owe::SceneUserPropertyApplier::ApplyAll(*scene.scene, properties);
+    owe::SceneUserPropertyApplier::ApplyInitialBindings(*scene.scene, properties);
     EXPECT_EQ(first->IsPlaying(), initial_selection == "0"_str);
     EXPECT_EQ(second->IsPlaying(), initial_selection == "1"_str);
     for (auto selection : { "1"_str, "2"_str, "0"_str, "1"_str }) {

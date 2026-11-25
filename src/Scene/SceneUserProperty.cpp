@@ -435,6 +435,28 @@ void ApplySoundVolume(Scene& scene, ref<str> key, const Json& property) {
     for (usize index {}; index < controls.len(); ++index) controls[index]->SetVolume(volume);
 }
 
+SceneUserPropertyMutation ApplyNativeBindings(Scene& scene, ref<str> key, const Json& property) {
+    SceneUserPropertyMutation mutation;
+    mutation.diagnostics_changed = ! scene.ShaderComboUserBindings(key).is_empty();
+    scene.ApplyUserLightVisibilityBindings(key, property);
+    mutation.clear_color = ApplyClear(scene, key, property);
+    ApplyShaderUniforms(scene, key, property);
+    mutation.texture_materials = ApplyTextureProperty(scene, key, property);
+    mutation.graph_changed     = ApplyShaderCombos(scene, key, property);
+    ApplyImageColor(scene, key, property);
+    ApplyImageAlpha(scene, key, property);
+    scene.ApplyUserTextBindings(key, property);
+    ApplyParticles(scene, key, property);
+    ApplySoundVolume(scene, key, property);
+    scene.ApplyUserPropertyBindings(key, property);
+    scene.ApplyUserCameraPathVisibilityBindings(key, property);
+    mutation.graph_changed =
+        scene.ApplyUserNodeVisibilityBindings(key, property) || mutation.graph_changed;
+    mutation.graph_changed =
+        scene.ApplyUserImageEffectVisibilityBindings(key, property) || mutation.graph_changed;
+    return mutation;
+}
+
 } // namespace
 
 void SceneUserPropertyApplier::ApplyImageBinding(Scene& scene, const SceneNode& owner, ref<str> key,
@@ -466,37 +488,20 @@ Option<array<float, 3>> ResolveSceneUserPropertyColor(const Json& property) {
 
 SceneUserPropertyMutation SceneUserPropertyApplier::Apply(Scene& scene, ref<str> raw_key,
                                                           const Json& property) {
-    SceneUserPropertyMutation mutation;
-    auto                      key     = CanonicalSceneUserPropertyKey(raw_key);
-    auto                      payload = property.clone();
-    mutation.diagnostics_changed      = ! scene.ShaderComboUserBindings(key).is_empty();
-
+    auto key     = CanonicalSceneUserPropertyKey(raw_key);
+    auto payload = property.clone();
     EnsureSceneUserPropertyState(scene).Set(key, payload);
     script::SetSceneUserProperty(scene, key, payload);
-    mutation.clear_color = ApplyClear(scene, key, payload);
-    ApplyShaderUniforms(scene, key, payload);
-    mutation.texture_materials = ApplyTextureProperty(scene, key, payload);
-    mutation.graph_changed     = ApplyShaderCombos(scene, key, payload);
-    ApplyImageColor(scene, key, payload);
-    ApplyImageAlpha(scene, key, payload);
-    scene.ApplyUserTextBindings(key, payload);
-    ApplyParticles(scene, key, payload);
-    ApplySoundVolume(scene, key, payload);
-    scene.ApplyUserPropertyBindings(key, payload);
-    scene.ApplyUserCameraPathVisibilityBindings(key, payload);
-    mutation.graph_changed =
-        scene.ApplyUserNodeVisibilityBindings(key, payload) || mutation.graph_changed;
-    mutation.graph_changed =
-        scene.ApplyUserImageEffectVisibilityBindings(key, payload) || mutation.graph_changed;
-    return mutation;
+    return ApplyNativeBindings(scene, key, payload);
 }
 
-SceneUserPropertyMutation SceneUserPropertyApplier::ApplyAll(Scene&                 scene,
-                                                             const rstd::json::Map& properties) {
+SceneUserPropertyMutation
+SceneUserPropertyApplier::ApplyInitialBindings(Scene& scene, const rstd::json::Map& properties) {
     SceneUserPropertyMutation result;
     properties.iter().for_each([&](auto entry) {
         auto [key, property] = entry;
-        auto mutation        = Apply(scene, key->as_str(), *property);
+        auto mutation =
+            ApplyNativeBindings(scene, CanonicalSceneUserPropertyKey(key->as_str()), *property);
         result.graph_changed |= mutation.graph_changed;
         result.diagnostics_changed |= mutation.diagnostics_changed;
         if (mutation.clear_color.is_some()) result.clear_color = mutation.clear_color;

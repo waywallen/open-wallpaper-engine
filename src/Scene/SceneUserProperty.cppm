@@ -36,7 +36,7 @@ Option<float>           ResolveSceneUserPropertyScalar(const Json&);
 class SceneUserPropertyApplier {
 public:
     static SceneUserPropertyMutation Apply(Scene&, ref<str> key, const Json&);
-    static SceneUserPropertyMutation ApplyAll(Scene&, const rstd::json::Map&);
+    static SceneUserPropertyMutation ApplyInitialBindings(Scene&, const rstd::json::Map&);
     static void ApplyImageBinding(Scene&, const SceneNode&, ref<str> key, const Json&);
     static Vec<SceneMaterialId> ApplyTexture(Scene&, ref<str> key, const Json&);
 };

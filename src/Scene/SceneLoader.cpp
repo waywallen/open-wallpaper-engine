@@ -165,7 +165,7 @@ auto LoadScene(SceneLoadRequest request, mut_ref<wavsen::audio::SoundManager> so
     auto mutation = [&] {
         auto property_span =
             SceneLoadSpan(request.load_bench, &SceneLoadProbeIds::load_initial_properties);
-        return SceneUserPropertyApplier::ApplyAll(*loaded.scene, properties);
+        return SceneUserPropertyApplier::ApplyInitialBindings(*loaded.scene, properties);
     }();
     if (! request.cache_dir.is_empty()) {
         auto directory = request.cache_dir.join("script_localstorage"_str);

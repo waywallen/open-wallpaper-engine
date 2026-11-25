@@ -166,7 +166,6 @@ void TickSceneScripts(owe::Scene& scene, const FrameInputs& fi) {
 void SetSceneUserProperty(owe::Scene& scene, ref<str> key, const Json& property) {
     auto script_scene = scene.ExtensionMut<ScriptScene>();
     if (script_scene.is_some()) (**script_scene).runtime().SetUserProperty(key, property);
-    scene.ApplyUserLightVisibilityBindings(key, property);
 }
 
 void SetSceneMediaStatus(owe::Scene& scene, const MediaStatus& status) {

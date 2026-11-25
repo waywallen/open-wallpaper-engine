@@ -2,12 +2,14 @@
 
 import rstd;
 import rstd.json;
+import wavsen.audio;
 import wescene.json;
 import owe.user_property;
 import wescene.scene;
 import wescene.fs;
 import wescene.pkg.parse;
 import wescene.types;
+import wescene.scene_loader;
 import wescene.scene_user_property;
 
 using namespace rstd::prelude;
@@ -93,7 +95,7 @@ TEST(SceneUserProperty, ResolvesResetWireValueFromExistingDescriptor) {
     EXPECT_FLOAT_EQ((*color)[usize(2)], 0.6f);
 }
 
-TEST(SceneUserProperty, BatchUsesSinglePropertySemantics) {
+TEST(SceneUserProperty, InitialBindingsMatchRuntimeBindings) {
     owe::Scene single;
     owe::Scene batch;
     single.SetClearColorUserKey(String::make("schemecolor"_str));
@@ -109,7 +111,7 @@ TEST(SceneUserProperty, BatchUsesSinglePropertySemantics) {
 
     auto single_mutation =
         owe::SceneUserPropertyApplier::Apply(single, "waywallen.scheme_color"_str, property);
-    auto batch_mutation = owe::SceneUserPropertyApplier::ApplyAll(batch, **values);
+    auto batch_mutation = owe::SceneUserPropertyApplier::ApplyInitialBindings(batch, **values);
 
     EXPECT_FALSE(single_mutation.graph_changed);
     EXPECT_FALSE(batch_mutation.graph_changed);
@@ -125,6 +127,74 @@ TEST(SceneUserProperty, BatchUsesSinglePropertySemantics) {
     EXPECT_FLOAT_EQ(batch_color[usize()], 0.2f);
     EXPECT_FLOAT_EQ(batch_color[usize(1)], 0.4f);
     EXPECT_FLOAT_EQ(batch_color[usize(2)], 0.6f);
+}
+
+TEST(SceneUserProperty, AppliesInitialAndRuntimeLightVisibility) {
+    owe::Scene scene;
+    auto       light = scene.RegisterLight(Box<owe::SceneLight>::make(owe::SceneLight::Desc {}));
+    light->setVisibleUserKey("lighting"_Str);
+    auto properties = owe::ParseJson(R"({"lighting":{"value":false}})"_str).unwrap();
+    ASSERT_TRUE(light->runtimeVisible());
+    owe::SceneUserPropertyApplier::ApplyInitialBindings(scene, **properties.as_object());
+    EXPECT_FALSE(light->runtimeVisible());
+
+    owe::SceneUserPropertyApplier::Apply(
+        scene, "lighting"_str, owe::ParseJson(R"({"value":true})"_str).unwrap());
+    EXPECT_TRUE(light->runtimeVisible());
+}
+
+TEST(SceneUserProperty, LoadsSavedValuesWithOneScriptSnapshotAndAppliesLiveChanges) {
+    auto directory = rstd::fs::TempDir::make("owe-initial-user-properties"_str).unwrap();
+    auto project   = rstd::path::PathBuf::from(directory.path());
+    ASSERT_TRUE(rstd::fs::write(project.join("project.json"_str).as_path(), R"JSON({
+        "general":{"properties":{
+            "brightness":{"type":"slider","value":0.5},
+            "background":{"type":"color","value":"0.2 0.4 0.6"}
+        }}
+    })JSON"_bytes)
+                    .is_ok());
+    ASSERT_TRUE(rstd::fs::write(project.join("scene.json"_str).as_path(), R"JSON({
+        "camera":{},
+        "general":{"clearcolor":{"value":"0 0 0","user":"background"}},
+        "objects":[{"id":1,"name":"Property probe","visible":{
+            "value":true,"script":"let initial, calls = 0, complete = false; export function init() { initial = engine.userProperties.brightness; } export function applyUserProperties(values) { if (calls === 0) complete = 'background' in values; thisLayer.origin = new Vec3(initial, ++calls, complete ? values.brightness : -1); }"
+        }}]
+    })JSON"_bytes)
+                    .is_ok());
+    auto                        saved = rstd::json::Map::make();
+    wavsen::audio::SoundManager sound;
+    saved.insert("brightness"_Str, owe::Json::String("0.75"_Str));
+    auto result = owe::LoadScene(
+        {
+            .source_pkg_path = project.join("scene.pkg"_str),
+            .assets_dir      = project.clone(),
+            .user_properties = rstd::move(saved),
+        },
+        mut_ref<wavsen::audio::SoundManager>::from_raw_parts(&sound));
+    ASSERT_TRUE(result.is_ok());
+    auto  loaded = rstd::move(result).unwrap();
+    auto& scene  = *loaded.parsed.scene;
+    auto* probe  = scene.RootMut()->FindByName("Property probe"_str);
+    ASSERT_NE(probe, nullptr);
+    EXPECT_FLOAT_EQ(probe->Translate().x(), 0.75f);
+    EXPECT_FLOAT_EQ(probe->Translate().y(), 1.0f);
+    EXPECT_FLOAT_EQ(probe->Translate().z(), 0.75f);
+    ASSERT_TRUE(loaded.initial_mutation.clear_color.is_some());
+    EXPECT_FLOAT_EQ(scene.ClearColor()[usize(1)], 0.4f);
+
+    auto stored = loaded.user_properties.get("brightness"_str);
+    ASSERT_TRUE(stored.is_some());
+    auto changed =
+        owe::MergeUserPropertyDescriptor(**stored, owe::MakeUserPropertyWirePatch("0.25"_str));
+    owe::SceneUserPropertyApplier::Apply(scene, "brightness"_str, changed);
+    EXPECT_FLOAT_EQ(probe->Translate().y(), 2.0f);
+    EXPECT_FLOAT_EQ(probe->Translate().z(), 0.25f);
+
+    auto reset =
+        owe::MergeUserPropertyDescriptor(changed, owe::MakeUserPropertyWirePatch("0.5"_str));
+    owe::SceneUserPropertyApplier::Apply(scene, "brightness"_str, reset);
+    EXPECT_FLOAT_EQ(probe->Translate().y(), 3.0f);
+    EXPECT_FLOAT_EQ(probe->Translate().z(), 0.5f);
 }
 
 TEST(SceneUserProperty, AppliesRegisteredShaderUniformBinding) {
