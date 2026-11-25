@@ -618,6 +618,47 @@ TEST(SceneTextScript, CanvasExtentAndPaddingAreAvailableBeforeFirstFrame) {
     EXPECT_FLOAT_EQ(label->Size().y(), initial.y() + 24.0f);
 }
 
+TEST(SceneTextScript, ReadsLastAcceptedContentAcrossWritePaths) {
+    using namespace rstd::prelude;
+    auto document = owe::wpscene::ParseSceneDocumentJson(R"JSON({
+        "camera": {},
+        "general": {"orthogonalprojection": {"width": 1920, "height": 1080}},
+        "objects": [
+            {"id":1, "name":"Label", "font":"systemfont_DejaVu Sans", "text":{
+                "value":"seed", "user":"label", "script":
+                "const codes = { seed:1, seedLine:2, user:3, direct:4 }; export function update(value) { thisLayer.origin = new Vec3(codes[value] || -1, codes[thisLayer.text] || -1, 0); if (value === 'seed') return value + 'Line'; if (value === 'user') { thisLayer.text = 'direct'; return; } return value; }"}}
+        ]
+    })JSON"_str,
+                                                         owe::wpscene::kSceneVersionUnknown);
+    ASSERT_TRUE(document.is_some());
+    auto assets = owe::fs::make_physical_fs(
+        owe::fs::Path(rstd::cppstd::as_str(WAYWALLEN_ASSETS_DIR).unwrap()));
+    ASSERT_TRUE(assets.is_ok());
+    owe::fs::VFS vfs;
+    ASSERT_TRUE(vfs.mount("/assets"_str, rstd::move(assets).unwrap()).is_ok());
+    wavsen::audio::SoundManager sound;
+    owe::SceneParser            parser;
+    auto parsed = parser.Parse("text-binding-readback"_str,
+                               ref<owe::wpscene::SceneDocument>::from_raw_parts(&*document),
+                               mut_ref<owe::fs::VFS>::from_raw_parts(&vfs),
+                               mut_ref<wavsen::audio::SoundManager>::from_raw_parts(&sound));
+    ASSERT_TRUE(parsed.is_ok());
+    auto  scene = rstd::move(parsed).unwrap();
+    auto* label = scene.scene->RootMut()->FindByName("Label"_str);
+    ASSERT_NE(label, nullptr);
+    auto tick = [&](float code) {
+        owe::script::TickSceneScripts(*scene.scene, {});
+        EXPECT_FLOAT_EQ(label->Translate().x(), code);
+        EXPECT_FLOAT_EQ(label->Translate().y(), code);
+    };
+    tick(1.0f);
+    tick(2.0f);
+    tick(2.0f);
+    ASSERT_TRUE(scene.scene->ApplyUserTextBindings("label"_str, owe::Json::String("user"_Str)));
+    tick(3.0f);
+    tick(4.0f);
+}
+
 TEST(SceneDynamicLayer, CreatesImageConfigurationDuringInitialization) {
     using namespace rstd::prelude;
     auto document = owe::wpscene::ParseSceneDocumentJson(R"JSON({

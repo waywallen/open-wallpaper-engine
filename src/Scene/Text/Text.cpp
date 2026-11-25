@@ -785,6 +785,7 @@ auto TextLayouter::SetPadding(array<float, 2> padding) -> Result<empty, vectext:
     return m_impl->Update(
         m_impl->text.as_str(), m_impl->font.size, m_impl->style.halign.as_str(), padding);
 }
+auto  TextLayouter::Text() const noexcept -> ref<str> { return m_impl->text.as_str(); }
 auto  TextLayouter::Layout() const -> const Option<vectext::TextLayout>& { return m_impl->layout; }
 float TextLayouter::TextWidth() const noexcept { return m_impl->metrics.text_width; }
 float TextLayouter::TextHeight() const noexcept { return m_impl->metrics.text_height; }

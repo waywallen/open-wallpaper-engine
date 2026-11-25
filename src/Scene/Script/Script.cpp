@@ -112,12 +112,11 @@ struct EngineHostState {
     Option<JsRuntime::LayerConfigFactory>              layer_config_factory;
     Option<JsRuntime::ModelLayerFactory>               model_layer_factory;
     HashMap<owe::SceneNode*, Arc<owe::SceneModelData>> layer_models;
-    // SceneNode -> text-content setter. Populated by text layers in the
-    // parser; consulted by NodeSetText so `thisLayer.text = "..."` reaches
-    // TextLayouter::SetText. Missing entry means the layer is not text-
-    // capable; writes silently no-op.
-    HashMap<owe::SceneNode*, JsRuntime::TextSetter> text_setters;
-    HashMap<owe::SceneNode*, String>                current_text_strings;
+    struct TextHooks {
+        JsRuntime::TextGetter getter;
+        JsRuntime::TextSetter setter;
+    };
+    HashMap<owe::SceneNode*, TextHooks> text_hooks;
     struct TextAlignHooks {
         String                             horizontal { "center"_Str };
         String                             vertical { "center"_Str };
@@ -1644,8 +1643,8 @@ JSValue NodeGetText(JSContext* ctx, JSValueConst this_val) {
     if (! n) return JS_NewString(ctx, "");
     auto* host = static_cast<EngineHostState*>(JS_GetContextOpaque(ctx));
     if (! host) return JS_NewString(ctx, "");
-    if (auto it = host->current_text_strings.get(n); it.is_some()) {
-        const auto view = rstd::cppstd::as_string_view((*it)->as_str());
+    if (auto hook = host->text_hooks.get(n); hook.is_some()) {
+        const auto view = rstd::cppstd::as_string_view((*(**hook).getter)());
         return JS_NewStringLen(ctx, view.data(), view.size());
     }
     return JS_NewString(ctx, "");
@@ -1654,13 +1653,12 @@ JSValue NodeSetText(JSContext* ctx, JSValueConst this_val, JSValueConst val) {
     auto* n = GetLayerNode(this_val);
     if (! n) return JS_UNDEFINED;
     auto* host = static_cast<EngineHostState*>(JS_GetContextOpaque(ctx));
-    auto  it   = host->text_setters.get_mut(n);
-    if (it.is_none()) return JS_UNDEFINED;
+    if (! host) return JS_UNDEFINED;
+    auto hook = host->text_hooks.get(n);
+    if (hook.is_none()) return JS_UNDEFINED;
     const char* s = JS_ToCString(ctx, val);
     if (s == nullptr) return JS_UNDEFINED;
-    auto str_ref = rstd::cppstd::as_str(s).unwrap();
-    (void)host->current_text_strings.insert(n, String::make(str_ref));
-    (**it)->operator()(str_ref);
+    (*(**hook).setter)(rstd::cppstd::as_str(s).unwrap());
     JS_FreeCString(ctx, s);
     return JS_UNDEFINED;
 }
@@ -2005,10 +2003,7 @@ void PruneSceneLayerBindings(JSContext* ctx, EngineHostState& host, owe::SceneNo
     host.script_layers.retain([&](owe::SceneNode* node) {
         return TreeContains(root, node);
     });
-    host.text_setters.retain([&](owe::SceneNode* node, auto&) {
-        return TreeContains(root, node);
-    });
-    host.current_text_strings.retain([&](owe::SceneNode* node, auto&) {
+    host.text_hooks.retain([&](owe::SceneNode* node, auto&) {
         return TreeContains(root, node);
     });
     host.text_align_hooks.retain([&](owe::SceneNode* node, auto&) {
@@ -3440,8 +3435,7 @@ void JsRuntime::InvalidateLayerPointer(owe::SceneNode* pointer) {
     auto object = host.layer_objects.remove(pointer);
     if (object.is_some()) JS_FreeValue(m_impl->ctx, *object);
     (void)host.script_layers.remove(pointer);
-    (void)host.text_setters.remove(pointer);
-    (void)host.current_text_strings.remove(pointer);
+    (void)host.text_hooks.remove(pointer);
     (void)host.text_align_hooks.remove(pointer);
     (void)host.node_origin_hooks.remove(pointer);
     (void)host.image_alignment_hooks.remove(pointer);
@@ -3765,11 +3759,9 @@ void JsRuntime::ForEachScript(EachFn fn, void* user) {
     for (usize i; i < count; ++i) fn(m_impl->scripts[i].get(), user);
 }
 
-void JsRuntime::RegisterTextSetter(owe::SceneNode* node, JsRuntime::TextSetter setter,
-                                   ref<str> initial_text) {
+void JsRuntime::RegisterTextAccessors(owe::SceneNode* node, TextGetter getter, TextSetter setter) {
     if (node == nullptr) return;
-    (void)m_impl->host.text_setters.insert(node, rstd::move(setter));
-    (void)m_impl->host.current_text_strings.insert(node, String::make(initial_text));
+    (void)m_impl->host.text_hooks.insert(node, { rstd::move(getter), rstd::move(setter) });
 }
 
 void JsRuntime::RegisterTextAlignSetters(owe::SceneNode* node, String horizontal, String vertical,

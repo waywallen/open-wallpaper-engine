@@ -217,6 +217,7 @@ public:
     auto SetPixelSize(double size) -> Result<empty, vectext::TextError>;
     auto SetHorizontalAlign(ref<str> align) -> Result<empty, vectext::TextError>;
     auto SetPadding(array<float, 2> padding) -> Result<empty, vectext::TextError>;
+    auto Text() const noexcept -> ref<str>;
     auto Layout() const -> const Option<vectext::TextLayout>&;
 
     // For ParseTextObj's initial-bbox log; reflects the most recent layout.

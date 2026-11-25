@@ -380,7 +380,6 @@ void ParseTextObjImpl(SceneLayerBuildContext& context, wpscene::TextObject& obj)
         rstd_error("text '{}': initial layout failed", obj.name);
         return;
     }
-    auto current_text       = Arc<String>::make(s_text.clone());
     auto current_point_size = Arc<double>::make(obj.pointsize);
 
     auto  initial_metrics = layouter->Metrics();
@@ -988,7 +987,24 @@ void ParseTextObjImpl(SceneLayerBuildContext& context, wpscene::TextObject& obj)
             return true;
         });
 
+    auto set_text = script::JsRuntime::TextSetter::make(
+        [layouter = layouter.clone(), update_text_layout = update_text_layout.clone()](ref<str> s) {
+            if (s == layouter->Text()) return;
+            if (layouter->SetText(s).is_err()) {
+                rstd_warn("text update failed");
+                return;
+            }
+            update_text_layout->operator()(layouter->Metrics());
+        });
     auto& script_runtime = EnsureScriptScene(context).runtime();
+    if (supports_runtime_text_write) {
+        script_runtime.RegisterTextAccessors(
+            layer_node.as_ptr(),
+            script::JsRuntime::TextGetter::make([layouter = layouter.clone()] {
+                return layouter->Text();
+            }),
+            set_text.clone());
+    }
     script_runtime.RegisterTextAlignSetters(
         layer_node.as_ptr(),
         rstd::into(anchor_state->horizontal.as_str()),
@@ -1011,18 +1027,6 @@ void ParseTextObjImpl(SceneLayerBuildContext& context, wpscene::TextObject& obj)
     if (! obj.visible_user.empty())
         layer_node->SetVisibleUserBinding(ToSceneUserVisibilityBinding(obj.visible_user));
 
-    auto set_text =
-        Arc<dyn<Fn<void(ref<str>)>>>::make([layouter           = layouter.clone(),
-                                            update_text_layout = update_text_layout.clone(),
-                                            current_text       = current_text.clone()](ref<str> s) {
-            if (s == current_text->as_str()) return;
-            if (layouter->SetText(s).is_err()) {
-                rstd_warn("text update failed");
-                return;
-            }
-            *current_text = rstd::into(s);
-            update_text_layout->operator()(layouter->Metrics());
-        });
     if (has_text_user) {
         context.scene->RegisterUserTextBinding(
             obj.text_user.name.clone(),
@@ -1120,15 +1124,6 @@ void ParseTextObjImpl(SceneLayerBuildContext& context, wpscene::TextObject& obj)
             });
         }
     }
-    if (supports_runtime_text_write) {
-        EnsureScriptScene(context).runtime().RegisterTextSetter(
-            layer_node.as_ptr(),
-            script::JsRuntime::TextSetter::make([set_text = set_text.clone()](ref<str> s) {
-                set_text->operator()(s);
-            }),
-            s_text.as_str());
-    }
-
     Vec<Arc<SceneNode>> text_before_nodes;
     if (! direct_text) text_before_nodes.push(sp_node.clone());
     RegisterNodeRef(context,

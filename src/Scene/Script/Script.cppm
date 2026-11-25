@@ -286,16 +286,12 @@ public:
     void ForEachScript(EachFn fn, void* user);
     bool Empty() const noexcept;
 
-    // Wire a text-content setter for a given SceneNode. When a script does
-    // `thisLayer.text = "..."` on a wrapper whose opaque is `node`, the JS
-    // setter dispatches into this callback. Used by text layers to receive
-    // text writes from scripts bound to non-text fields (e.g. clock
-    // scripts attached to `visible`).
-    using TextSetter      = Arc<dyn<FnMut<void(ref<str>)>>>;
+    using TextGetter      = Arc<dyn<Fn<ref<str>()>>>;
+    using TextSetter      = Arc<dyn<Fn<void(ref<str>)>>>;
     using PointSizeGetter = Arc<dyn<FnMut<double()>>>;
     using PointSizeSetter = Arc<dyn<FnMut<bool(double)>>>;
     using TextAlignSetter = Arc<dyn<FnMut<bool(ref<str>)>>>;
-    void RegisterTextSetter(owe::SceneNode* node, TextSetter setter, ref<str> initial_text);
+    void RegisterTextAccessors(owe::SceneNode* node, TextGetter getter, TextSetter setter);
     void RegisterTextAlignSetters(owe::SceneNode* node, String horizontal, String vertical,
                                   double point_size, TextAlignSetter set_horizontal,
                                   TextAlignSetter         set_vertical,
