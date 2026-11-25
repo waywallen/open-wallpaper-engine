@@ -294,6 +294,48 @@ TEST(TextLayouter, FontBoundsExcludeTrailingLeadingWithoutMovingBaselines) {
     EXPECT_FLOAT_EQ(layouter.TextWidth(), 300);
 }
 
+TEST(TextLayouter, FontHeightAdvanceRetainsFullBoundsAndPadding) {
+    auto source     = rstd::path::PathBuf::from(__FILE__ ""_str);
+    auto root       = source.as_path().parent().unwrap().parent().unwrap().parent().unwrap();
+    auto path       = rstd::path::PathBuf::from(root).join("fixtures/fonts/LineGap.ttf"_str);
+    auto bytes      = rstd::fs::read(path.as_path()).unwrap();
+    auto collection = vectext::FontCollection::create({ .system_fonts = false }).unwrap();
+    auto font       = collection
+                          .register_font(
+                              slice<unsigned char>::from_raw_parts(
+                                  reinterpret_cast<const unsigned char*>(bytes.as_slice().as_raw_ptr()),
+                                  bytes.len()),
+                              0,
+                              Some(vectext::FontMetrics { .8, .25, 1 }))
+                          .unwrap();
+    auto resources  = Arc<owe::text::TextResources>::make(rstd::move(collection));
+    for (auto origin :
+         { owe::text::TextMeshOrigin::Layout, owe::text::TextMeshOrigin::InkBounds }) {
+        auto                       mesh = Arc<owe::SceneMesh>::make();
+        owe::text::TextLayoutStyle style;
+        style.mesh_origin = origin;
+        style.padding     = { 1.f, 1.f };
+        owe::text::TextLayouter layouter(resources.clone(),
+                                         { .source = Some(font), .size = 40 },
+                                         mesh.clone(),
+                                         rstd::move(style),
+                                         32);
+        for (auto text : { "A\nA\nA"_str, "g\nA\ng"_str }) {
+            ASSERT_TRUE(layouter.SetText(text).is_ok());
+            const auto& layout  = *layouter.Layout();
+            const auto  metrics = layouter.Metrics();
+            EXPECT_DOUBLE_EQ(layout.lines()[usize(1)].baseline - layout.lines()[usize()].baseline,
+                             40.);
+            EXPECT_DOUBLE_EQ(layout.lines()[usize()].logical.height, 42.);
+            EXPECT_FLOAT_EQ(metrics.text_height, 122.f);
+            EXPECT_FLOAT_EQ(metrics.ascent_height, 112.f);
+            EXPECT_FLOAT_EQ(metrics.ascent_center_y, -5.f);
+            EXPECT_FLOAT_EQ(metrics.padding[usize()], 1.f);
+            EXPECT_FLOAT_EQ(metrics.padding[usize(1)], 1.f);
+        }
+    }
+}
+
 TEST(TextLayouter, AscentBoundsRetainFullMeasurementAndTrackTextChanges) {
     auto                       resources = TextResources();
     auto                       mesh      = Arc<owe::SceneMesh>::make();

@@ -1583,7 +1583,11 @@ TEST(SceneParserText, VerticalAlignmentUsesAscentBoundsAt300Dpi) {
         auto property = owe::ParseJson(json).unwrap();
         auto text     = property.get("value"_str).unwrap()->as_str().unwrap();
         ASSERT_TRUE(parsed->scene->ApplyUserTextBindings("caption"_str, property));
-        auto layout = resources.Layout({ .text = text, .family = "DejaVu Sans"_str, .size = 100 });
+        auto layout = resources.Layout({ .text         = text,
+                                         .family       = "DejaVu Sans"_str,
+                                         .size         = 100,
+                                         .line_metrics = vectext::TextLineMetrics::PrimaryFont,
+                                         .line_advance = vectext::TextLineAdvance::FontHeight });
         ASSERT_TRUE(layout);
         const auto  bounds  = layout->typographic_bounds();
         const float descent = float(layout->lines().last().unwrap()->descent);
