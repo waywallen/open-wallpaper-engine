@@ -1805,6 +1805,60 @@ TEST(SceneDynamicLayer, CreatesModelAssetsAndConfigurations) {
     EXPECT_FLOAT_EQ(creator->Translate().x(), 37.0f);
 }
 
+TEST(ParticleMaterial, FractionalSpriteCellsPreserveTheAtlasRowPitch) {
+    using namespace rstd::prelude;
+    auto scene_path = rstd::format("{}/2389298730/scene.pkg",
+                                   rstd::cppstd::as_str(WAYWALLEN_WORKSHOP_DIR).unwrap());
+    auto package    = owe::fs::WPPkgFs::open(owe::fs::Path(scene_path.as_str()));
+    if (package.is_err()) GTEST_SKIP() << "workshop 2389298730 is not available";
+    auto assets = owe::fs::make_physical_fs(owe::fs::Path(WAYWALLEN_ASSETS_DIR ""_str));
+    ASSERT_TRUE(assets.is_ok());
+    owe::fs::VFS vfs;
+    ASSERT_TRUE(vfs.mount("/assets"_str, rstd::move(assets).unwrap()).is_ok());
+    ASSERT_TRUE(vfs.mount("/assets"_str, package->mount_handle()).is_ok());
+
+    auto document = owe::wpscene::ParseSceneDocumentJson(
+        R"JSON({
+            "camera": {},
+            "general": {"orthogonalprojection": {"width": 1920, "height": 1080}},
+            "objects": [
+                {"id": 1, "name": "jellyfish", "particle": "particles/presets/wildfire.json"},
+                {"id": 2, "name": "fish", "particle": "particles/presets/leaves1.json"}
+            ]
+        })JSON"_str,
+        owe::wpscene::kSceneVersionUnknown);
+    ASSERT_TRUE(document.is_some());
+    wavsen::audio::SoundManager sound;
+    owe::SceneParser            parser;
+    auto parsed = parser.Parse("particle-atlas-pitch"_str,
+                               ref<owe::wpscene::SceneDocument>::from_raw_parts(&*document),
+                               mut_ref<owe::fs::VFS>::from_raw_parts(&vfs),
+                               mut_ref<wavsen::audio::SoundManager>::from_raw_parts(&sound));
+    ASSERT_TRUE(parsed.is_ok());
+    auto& scene = *parsed->scene;
+    for (ref<str> name : { "jellyfish"_str, "fish"_str }) {
+        auto* node = scene.RootMut()->FindByName(name);
+        ASSERT_NE(node, nullptr);
+        ASSERT_NE(node->Mesh(), nullptr);
+        auto* material = node->Mesh()->Material();
+        ASSERT_NE(material, nullptr);
+        ASSERT_FALSE(material->texture_metadata.is_empty());
+        const auto& metadata = material->texture_metadata[usize()];
+        auto        uniform  = material->customShader.constValues.get("g_RenderVar1"_str);
+        ASSERT_TRUE(uniform.is_some());
+        const auto& sprite  = **uniform;
+        const float columns = name == "jellyfish"_str ? 6.0f : 4.0f;
+        EXPECT_FLOAT_EQ(metadata.sample_extent[usize()], 1024.0f);
+        EXPECT_NEAR(metadata.sample_extent[usize(1)], 1024.0f, 0.01f);
+        EXPECT_FLOAT_EQ(sprite[usize(2)], columns * columns);
+        // A column-zero frame in the last row must still start at the left edge.
+        const float grid_ratio = metadata.sample_extent[usize()] / metadata.source_extent[usize()];
+        const float phase      = columns * (columns - 1.0f) * (sprite[usize()] / grid_ratio);
+        EXPECT_FLOAT_EQ(f32(phase).floor().to_primitive(), columns - 1.0f);
+        EXPECT_NEAR(phase - (columns - 1.0f), 0.0f, 1e-5f);
+    }
+}
+
 TEST(ParticleMaterial, MeshMatchesAvailableGeometryStage) {
     using namespace rstd::prelude;
     auto document = owe::wpscene::ParseSceneDocumentJson(R"JSON({

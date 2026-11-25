@@ -27,6 +27,15 @@ using namespace Eigen;
 
 namespace
 {
+auto ParticleSpriteGridExtent(float atlas_extent, float frame_extent) -> float {
+    if (! (frame_extent > 0.0f && atlas_extent > 0.0f)) return atlas_extent;
+
+    // TEXS stores fractional frame sizes; a sub-texel excess may be rounding at the atlas edge.
+    const auto frames = f64((static_cast<double>(atlas_extent) + 0.5) / frame_extent).floor();
+    if (frames < f64(1.0)) return atlas_extent;
+    return rstd::cmp::min(atlas_extent, static_cast<float>(frames.to_primitive() * frame_extent));
+}
+
 auto TextureFormatCombo(TextureFormat format) -> Option<ref<str>> {
     switch (format) {
     case TextureFormat::R8: return Some("FORMAT_R8"_str);
@@ -413,15 +422,18 @@ auto BuildMaterial(fs::VFS& vfs, ShaderCache& shader_cache,
             continue;
         }
 
-        array<i32, 4> resolution {};
-        auto          texture_name = name.as_str();
+        array<float, 4> resolution {};
+        auto            texture_name = name.as_str();
         if (IsSpecTex(texture_name)) {
             auto target = scene.RenderTarget(name.as_str());
             if (! IsSpecLinkTex(texture_name) && target.is_none()) {
                 rstd_error("{} not found in render targes", name);
             } else if (target.is_some()) {
                 const auto& rt = **target;
-                resolution     = { i32(rt.width), i32(rt.height), i32(rt.width), i32(rt.height) };
+                resolution     = { rstd::as_cast<float>(rt.width),
+                                   rstd::as_cast<float>(rt.height),
+                                   rstd::as_cast<float>(rt.width),
+                                   rstd::as_cast<float>(rt.height) };
             }
         } else {
             auto texh = [&] {
@@ -435,21 +447,16 @@ auto BuildMaterial(fs::VFS& vfs, ShaderCache& shader_cache,
                 (void)shader_info_ref.combos.insert(rstd::format("TEX{}FORMAT", i),
                                                     rstd::into(*format));
             if (texh.mipmap_larger) {
-                resolution = {
-                    i32(texh.width), i32(texh.height), i32(texh.mapWidth), i32(texh.mapHeight)
-                };
+                resolution = { static_cast<float>(texh.width),
+                               static_cast<float>(texh.height),
+                               static_cast<float>(texh.mapWidth),
+                               static_cast<float>(texh.mapHeight) };
             } else {
-                resolution = {
-                    i32(texh.mapWidth), i32(texh.mapHeight), i32(texh.mapWidth), i32(texh.mapHeight)
-                };
+                resolution = { static_cast<float>(texh.mapWidth),
+                               static_cast<float>(texh.mapHeight),
+                               static_cast<float>(texh.mapWidth),
+                               static_cast<float>(texh.mapHeight) };
             }
-            material.texture_metadata.last_mut().unwrap().get_mut() = SceneMaterialTextureMetadata {
-                .has_extent    = true,
-                .source_extent = { rstd::as_cast<float>(resolution[usize(0)]),
-                                   rstd::as_cast<float>(resolution[usize(1)]) },
-                .sample_extent = { rstd::as_cast<float>(resolution[usize(2)]),
-                                   rstd::as_cast<float>(resolution[usize(3)]) },
-            };
 
             auto scene_texture = scene.Texture(name.as_str());
             if (scene_texture.is_none()) {
@@ -475,14 +482,10 @@ auto BuildMaterial(fs::VFS& vfs, ShaderCache& shader_cache,
                         algorism::IsPowOfTwo(rstd::as_cast<u32>(texh.height))) {
                         (void)shader_info_ref.combos.insert(rstd::into(WE_CB_SPRITESHEETBLENDNPOT),
                                                             "1"_Str);
-                        resolution[usize(2)] = resolution[usize(0)] -
-                                               resolution[usize(0)] % rstd::as_cast<i32>(f1.width);
-                        resolution[usize(3)] = resolution[usize(1)] -
-                                               resolution[usize(1)] % rstd::as_cast<i32>(f1.height);
-                        material.texture_metadata.last_mut().unwrap().get_mut().sample_extent = {
-                            rstd::as_cast<float>(resolution[usize(2)]),
-                            rstd::as_cast<float>(resolution[usize(3)])
-                        };
+                        resolution[usize(2)] =
+                            ParticleSpriteGridExtent(resolution[usize(0)], f1.width);
+                        resolution[usize(3)] =
+                            ParticleSpriteGridExtent(resolution[usize(1)], f1.height);
                     }
                     (void)materialShader.constValues.insert(
                         rstd::into(G_RENDERVAR1),
@@ -493,14 +496,17 @@ auto BuildMaterial(fs::VFS& vfs, ShaderCache& shader_cache,
                             f1.rate }));
                 }
             }
+            material.texture_metadata.last_mut().unwrap().get_mut() = SceneMaterialTextureMetadata {
+                .has_extent    = true,
+                .source_extent = { resolution[usize(0)], resolution[usize(1)] },
+                .sample_extent = { resolution[usize(2)], resolution[usize(3)] },
+            };
         }
         if (! resolution.is_empty()) {
             const auto gResolution = WE_GLTEX_RESOLUTION_NAMES[usize(i)];
 
-            (void)materialShader.constValues.insert(
-                rstd::into(gResolution), ShaderValue(resolution.clone().map([](i32 value) {
-                    return rstd::as_cast<float>(value);
-                })));
+            (void)materialShader.constValues.insert(rstd::into(gResolution),
+                                                    ShaderValue(resolution));
         }
     }
     if (environment.lighting.Enabled()) {
