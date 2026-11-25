@@ -590,6 +590,10 @@ struct TextLayouter::Impl {
         const auto        bounds = output.typographic_bounds();
         measured.text_width      = float(bounds.width);
         measured.text_height     = float(bounds.height);
+        const float descent =
+            output.lines().is_empty() ? 0.0f : float(output.lines().last().unwrap()->descent);
+        measured.ascent_height   = rstd::cmp::max(measured.text_height - descent, 0.0f);
+        measured.ascent_center_y = -descent * .5f;
         measured.source_width    = measured.text_width;
         measured.source_height   = measured.text_height;
         measured.padding         = padding;

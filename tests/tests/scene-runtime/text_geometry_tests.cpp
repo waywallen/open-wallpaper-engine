@@ -294,6 +294,35 @@ TEST(TextLayouter, FontBoundsExcludeTrailingLeadingWithoutMovingBaselines) {
     EXPECT_FLOAT_EQ(layouter.TextWidth(), 300);
 }
 
+TEST(TextLayouter, AscentBoundsRetainFullMeasurementAndTrackTextChanges) {
+    auto                       resources = TextResources();
+    auto                       mesh      = Arc<owe::SceneMesh>::make();
+    owe::text::TextLayoutStyle style;
+    style.mesh_origin = owe::text::TextMeshOrigin::Layout;
+    owe::text::TextLayouter layouter(
+        resources.clone(), TextFont(), mesh.clone(), rstd::move(style), 32);
+    for (auto size : { 64.0, 100.0 }) {
+        ASSERT_TRUE(layouter.SetPixelSize(size).is_ok());
+        for (auto text : { "02"_str, "g"_str, "Ag\n10"_str, ""_str }) {
+            ASSERT_TRUE(layouter.SetText(text).is_ok());
+            const auto& layout  = *layouter.Layout();
+            const auto  bounds  = layout.typographic_bounds();
+            const auto  metrics = layouter.Metrics();
+            const auto& first   = layout.lines().first().unwrap();
+            const auto& last    = layout.lines().last().unwrap();
+            EXPECT_FLOAT_EQ(metrics.text_height, float(bounds.height));
+            EXPECT_FLOAT_EQ(metrics.ascent_height,
+                            float(last->baseline - first->baseline + first->ascent));
+            EXPECT_FLOAT_EQ(metrics.ascent_center_y, -float(last->descent) * .5f);
+            EXPECT_FLOAT_EQ(layouter.TextHeight(), metrics.text_height);
+            EXPECT_LE(metrics.ascent_height, metrics.text_height);
+            ASSERT_TRUE(layouter.SetPadding({ 32.0f, 32.0f }).is_ok());
+            EXPECT_FLOAT_EQ(layouter.Metrics().ascent_height, metrics.ascent_height);
+            EXPECT_FLOAT_EQ(layouter.Metrics().ascent_center_y, metrics.ascent_center_y);
+        }
+    }
+}
+
 TEST(TextGeometry, DynamicEffectFollowsCurrentTextBounds) {
     const owe::text::TextGeometryPolicy policy {
         .frame_width  = 419.0f,

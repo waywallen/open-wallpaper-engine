@@ -171,12 +171,14 @@ struct TextLayoutStyle {
 };
 
 struct TextLayoutMetrics {
-    float text_width { 0.0f };
-    float text_height { 0.0f };
-    float source_width { 0.0f };
-    float source_height { 0.0f };
-    float source_center_x { 0.0f };
-    float source_center_y { 0.0f };
+    float           text_width { 0.0f };
+    float           text_height { 0.0f };
+    float           ascent_height { 0.0f };
+    float           ascent_center_y { 0.0f };
+    float           source_width { 0.0f };
+    float           source_height { 0.0f };
+    float           source_center_x { 0.0f };
+    float           source_center_y { 0.0f };
     array<float, 2> padding { 0.0f, 0.0f };
 };
 

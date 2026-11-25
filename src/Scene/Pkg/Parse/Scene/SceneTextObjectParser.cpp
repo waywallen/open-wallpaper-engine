@@ -33,11 +33,11 @@ array<i32, 2> TextLayerExtent(const text::TextGeometry& geometry) {
     };
 }
 
-rstd::uint32_t TextPointSizeToPx(float point_size) {
-    constexpr float kPointsizeToPx = 4.0f;
+double TextPointSizeToPx(float point_size) {
+    // WE creates its font faces at 300 DPI; preserve fractional pixel sizes.
+    constexpr double kPointsizeToPx = 300.0 / 72.0;
     if (! f32(point_size).is_finite() || point_size <= 0.0f) return 1;
-    auto px = static_cast<rstd::uint32_t>(f32(point_size * kPointsizeToPx).round().to_primitive());
-    return rstd::cmp::min<rstd::uint32_t>(1024, rstd::cmp::max<rstd::uint32_t>(1, px));
+    return rstd::cmp::min(1024.0, rstd::cmp::max(1.0, point_size * kPointsizeToPx));
 }
 
 array<i32, 2> TextEffectFboExtent(const text::TextGeometry& geometry, u32 scale, u32 fit) {
@@ -416,6 +416,7 @@ void ParseTextObjImpl(SceneLayerBuildContext& context, wpscene::TextObject& obj)
         String vertical;
         float  width { 1.0f };
         float  height { 1.0f };
+        float  center_y { 0.0f };
     };
     auto anchor_state = Arc<TextAnchorState>::make(TextAnchorState {
         .horizontal = rstd::into(initial_halign),
@@ -888,7 +889,7 @@ void ParseTextObjImpl(SceneLayerBuildContext& context, wpscene::TextObject& obj)
     auto apply_text_anchor = Arc<dyn<Fn<void()>>>::make(
         [layer_hold = layer_hold.clone(), anchor_state = anchor_state.clone()]() {
             auto*    layer_ptr = layer_hold.as_ptr().as_raw_ptr();
-            Vector3d offset    = Vector3d::Zero();
+            Vector3d offset { 0.0, anchor_state->center_y, 0.0 };
             if (anchor_state->horizontal.as_str().contains("left"_str))
                 offset.x() += anchor_state->width * 0.5;
             if (anchor_state->horizontal.as_str().contains("right"_str))
@@ -908,9 +909,12 @@ void ParseTextObjImpl(SceneLayerBuildContext& context, wpscene::TextObject& obj)
          runtime_targets   = runtime_targets.clone(),
          geometry_policy,
          direct_text](text::TextLayoutMetrics metrics) {
-            auto* layer_ptr      = layer_hold.as_ptr().as_raw_ptr();
-            anchor_state->width  = metrics.text_width;
-            anchor_state->height = metrics.text_height;
+            auto* layer_ptr     = layer_hold.as_ptr().as_raw_ptr();
+            anchor_state->width = metrics.text_width;
+            // Vertical alignment follows ascenders; measurement still includes descenders.
+            anchor_state->height =
+                metrics.ascent_height > 0 ? metrics.ascent_height : metrics.text_height;
+            anchor_state->center_y = metrics.ascent_center_y;
             if (direct_text) {
                 layer_ptr->SetSize({ metrics.text_width + 2.0f * metrics.padding[usize()],
                                      metrics.text_height + 2.0f * metrics.padding[usize(1)] });

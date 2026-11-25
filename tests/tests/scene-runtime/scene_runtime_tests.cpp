@@ -1548,6 +1548,56 @@ TEST(SceneParserText, AlignmentDoesNotMoveChildFrames) {
     }
 }
 
+TEST(SceneParserText, VerticalAlignmentUsesAscentBoundsAt300Dpi) {
+    auto document = owe::wpscene::ParseSceneDocumentJson(R"JSON({
+        "camera": {},
+        "general": {"orthogonalprojection":{"width":1920,"height":1080}},
+        "objects": [
+            {"id":1,"name":"Top","text":{"value":"02","user":"caption"},
+             "font":"systemfont_DejaVu Sans","pointsize":24,"verticalalign":"top"},
+            {"id":2,"name":"Center","text":{"value":"02","user":"caption"},
+             "font":"systemfont_DejaVu Sans","pointsize":24,"verticalalign":"center"},
+            {"id":3,"name":"Bottom","text":{"value":"02","user":"caption"},
+             "font":"systemfont_DejaVu Sans","pointsize":24,"verticalalign":"bottom"},
+            {"id":4,"name":"Offscreen","text":{"value":"02","user":"caption"},
+             "font":"systemfont_DejaVu Sans","pointsize":24,"verticalalign":"center",
+             "colorBlendMode":11}
+        ]
+    })JSON"_str,
+                                                         owe::wpscene::kSceneVersionUnknown);
+    ASSERT_TRUE(document);
+    auto assets = owe::fs::make_physical_fs(
+        owe::fs::Path(rstd::cppstd::as_str(WAYWALLEN_ASSETS_DIR).unwrap()));
+    ASSERT_TRUE(assets);
+    owe::fs::VFS vfs;
+    ASSERT_TRUE(vfs.mount("/assets"_str, rstd::move(assets).unwrap()));
+    wavsen::audio::SoundManager sound;
+    auto                        parsed =
+        owe::SceneParser().Parse("text-ascent-alignment"_str,
+                                 ref<owe::wpscene::SceneDocument>::from_raw_parts(&*document),
+                                 mut_ref<owe::fs::VFS>::from_raw_parts(&vfs),
+                                 mut_ref<wavsen::audio::SoundManager>::from_raw_parts(&sound));
+    ASSERT_TRUE(parsed);
+    owe::text::TextResources resources;
+    for (auto json : { R"({"value":"02"})"_str, R"({"value":"Ag\n10"})"_str }) {
+        auto property = owe::ParseJson(json).unwrap();
+        auto text     = property.get("value"_str).unwrap()->as_str().unwrap();
+        ASSERT_TRUE(parsed->scene->ApplyUserTextBindings("caption"_str, property));
+        auto layout = resources.Layout({ .text = text, .family = "DejaVu Sans"_str, .size = 100 });
+        ASSERT_TRUE(layout);
+        const auto  bounds  = layout->typographic_bounds();
+        const float descent = float(layout->lines().last().unwrap()->descent);
+        for (auto name : { "Top"_str, "Center"_str, "Bottom"_str, "Offscreen"_str }) {
+            auto node = parsed->scene->RootMut()->FindByName(name);
+            ASSERT_NE(node, nullptr);
+            double expected = -descent * .5;
+            if (name == "Top"_str) expected -= (bounds.height - descent) * .5;
+            if (name == "Bottom"_str) expected += (bounds.height - descent) * .5;
+            EXPECT_NEAR(node->GeometryTransform()(1, 3), expected, 1e-5);
+        }
+    }
+}
+
 TEST(SceneUserTextBinding, AppliesDescriptorPayloadToMatchingBindings) {
     owe::Scene  scene;
     std::string first;
