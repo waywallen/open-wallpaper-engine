@@ -128,7 +128,9 @@ void RegisterPuppetLayer(SceneLayerBuildContext& context, SceneNode* node, Arc<P
     if (! node) return;
     for (const auto& playback : layer->AnimationPlaybacks())
         node->RegisterAnimation(playback.clone());
-    (void)context.layer_resources->puppet_layers->by_node.insert(node, rstd::move(layer));
+    auto& registry = *context.layer_resources->puppet_layers;
+    registry.has_translation_physics |= layer->HasTranslationPhysics();
+    (void)registry.by_node.insert(node, rstd::move(layer));
 }
 
 Option<Arc<PuppetLayer>> LookupPuppetLayer(const Arc<PuppetLayerRegistry>& layers,
@@ -268,6 +270,23 @@ script::ScriptScene& EnsureScriptScene(SceneLayerBuildContext& context) {
                         world.matrix()             = node->ModelTrans().cast<float>();
                         Eigen::Affine3f local_bone = world.inverse() * Eigen::Affine3f(mat);
                         (*layer)->setBoneTransform(index, local_bone);
+                    }),
+                script::JsRuntime::BoneImpulseResolver::make(
+                    [layers = layers.clone()](
+                        SceneNode* node, Option<u32> index, script::Vec3Value impulse) {
+                        auto layer = LookupPuppetLayer(layers, node);
+                        if (! layer) return;
+                        node->UpdateTrans();
+                        const Eigen::Vector3d direction(impulse.x, impulse.y, impulse.z);
+                        const Eigen::Vector3f local =
+                            (node->ModelTrans().topLeftCorner<3, 3>().inverse() * direction)
+                                .cast<float>();
+                        (*layer)->ApplyBoneImpulse(index, local);
+                    }),
+                script::JsRuntime::BoneResetPhysicsResolver::make(
+                    [layers = layers.clone()](SceneNode* node, Option<u32> index) {
+                        auto layer = LookupPuppetLayer(layers, node);
+                        if (layer) (*layer)->ResetBonePhysics(index);
                     }));
         (*context.script_scene)
             ->runtime()

@@ -1712,8 +1712,12 @@ function __wwCreateNodeStub() {
             if (key === 'getVideoTexture')     return () => __wwCreateVideoTextureStub();
             if (key === 'getAnimation')        return ()   => __wwCreateAnimationStub();
             if (key === 'getAnimationLayer')   return (_n) => __wwCreateAnimationStub();
+            if (key === 'getBoneCount')        return () => 0;
+            if (key === 'getBoneIndex')        return (_n) => -1;
             if (key === 'getBoneTransform')    return (_b) => new Mat4();
             if (key === 'setBoneTransform')    return (_b, _m) => undefined;
+            if (key === 'applyBonePhysicsImpulse') return () => undefined;
+            if (key === 'resetBonePhysicsSimulation') return () => undefined;
             if (key === 'destroyLayer')        return (_layer) => undefined;
             if (key in target) return target[key];
             return undefined;

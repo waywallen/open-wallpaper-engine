@@ -2462,6 +2462,150 @@ TEST(SceneObjectExpansion, ShapeOwnsItsWallpaperLayerIdentity) {
     EXPECT_EQ(shape->WallpaperIdentity()->value, rstd::i32(42));
 }
 
+TEST(PuppetScriptParsing, JellySimpleDragsChildBoneAndReturnsToRest) {
+    using namespace rstd::prelude;
+
+    auto path = rstd::env::var("OWE_JELLY_SIMPLE_SCENE"_str);
+    if (path.is_err()) GTEST_SKIP() << "set OWE_JELLY_SIMPLE_SCENE to the simple sample";
+
+    wavsen::audio::SoundManager sound;
+    auto                        loaded =
+        owe::LoadScene({ .source_pkg_path = rstd::path::PathBuf::from(path->as_str()),
+                         .assets_dir = rstd::path::PathBuf::from(WAYWALLEN_ASSETS_DIR ""_str) },
+                       mut_ref<wavsen::audio::SoundManager>::from_raw_parts(&sound));
+    ASSERT_TRUE(loaded.is_ok());
+    auto& scene = *loaded->parsed.scene;
+    auto* jelly = scene.RootMut()->FindByName("jelly_simple"_str);
+    ASSERT_NE(jelly, nullptr);
+    auto scripts = scene.ExtensionMut<owe::script::ScriptScene>();
+    ASSERT_TRUE(scripts.is_some());
+    auto* pose = (**scripts).runtime().MakeFieldScript(
+        R"JS(export function update() {
+            const position = thisLayer.getBoneTransform(1).translation();
+            return new Vec3(position.x, position.y, thisLayer.getBoneIndex('missing'));
+        })JS"_str,
+        "jelly-test-pose"_str,
+        owe::script::FieldKind::Vec3,
+        owe::Json(),
+        owe::Json(),
+        jelly);
+    ASSERT_NE(pose, nullptr);
+
+    owe::script::FrameInputs input;
+    input.canvas_w = input.screen_w = 1920;
+    input.canvas_h = input.screen_h = 1080;
+    input.cursor_in_window          = true;
+    input.frametime                 = 1.0f / 60.0f;
+    const auto tick                 = [&] {
+        input.runtime = static_cast<float>(scene.Runtime().Frame().elapsed.to_primitive());
+        scene.TickNodeFieldAnimations();
+        owe::script::TickSceneScripts(scene, input);
+        scene.PassFrameTime(input.frametime);
+    };
+    tick();
+    ASSERT_TRUE(pose->last_value().is_Vec3());
+    const auto rest = pose->last_value().as_Vec3().value;
+    EXPECT_EQ(rest.z, -1.0);
+    input.cursor_x           = static_cast<float>((rest.x + 1.0) / 1920.0);
+    input.cursor_y           = 1.0f - static_cast<float>(rest.y / 1080.0);
+    input.mouse_buttons_down = input.mouse_buttons_pressed = 1;
+    tick();
+    input.mouse_buttons_pressed = 0;
+    input.cursor_x += 80.0f / 1920.0f;
+    tick();
+    EXPECT_NEAR(pose->last_value().as_Vec3().value.x, rest.x + 80.0, 1.0);
+    input.mouse_buttons_down     = 0;
+    input.mouse_buttons_released = 1;
+    tick();
+    input.mouse_buttons_released = 0;
+    for (int i = 0; i < 180; ++i) tick();
+    EXPECT_NEAR(pose->last_value().as_Vec3().value.x, rest.x, 0.01);
+}
+
+TEST(PuppetScriptParsing, JellyTutorialDragsBoneZeroAndPlaysReleaseAnimation) {
+    using namespace rstd::prelude;
+    auto path = rstd::env::var("OWE_JELLY_TUTORIAL_SCENE"_str);
+    if (path.is_err()) GTEST_SKIP() << "set OWE_JELLY_TUTORIAL_SCENE to the advanced sample";
+
+    wavsen::audio::SoundManager sound;
+    auto                        loaded =
+        owe::LoadScene({ .source_pkg_path = rstd::path::PathBuf::from(path->as_str()),
+                         .assets_dir = rstd::path::PathBuf::from(WAYWALLEN_ASSETS_DIR ""_str) },
+                       mut_ref<wavsen::audio::SoundManager>::from_raw_parts(&sound));
+    ASSERT_TRUE(loaded.is_ok());
+    auto& scene   = *loaded->parsed.scene;
+    auto* jelly   = scene.RootMut()->FindByName("jelly_sheet_001"_str);
+    auto* loop    = scene.RootMut()->FindByName("stretchloop"_str);
+    auto* release = scene.RootMut()->FindByName("stretchend"_str);
+    ASSERT_NE(jelly, nullptr);
+    ASSERT_NE(loop, nullptr);
+    ASSERT_NE(release, nullptr);
+    auto scripts = scene.ExtensionMut<owe::script::ScriptScene>();
+    ASSERT_TRUE(scripts.is_some());
+    auto* pose = (**scripts).runtime().MakeFieldScript(
+        R"JS(export function update() {
+            return new Vec3(thisLayer.getBoneTransform(0).translation().x,
+                            thisLayer.getBoneTransform(1).translation().x,
+                            thisLayer.getBoneCount());
+        })JS"_str,
+        "jelly-test-pose"_str,
+        owe::script::FieldKind::Vec3,
+        owe::Json(),
+        owe::Json(),
+        jelly);
+    ASSERT_NE(pose, nullptr);
+
+    owe::script::FrameInputs input;
+    input.canvas_w = input.screen_w = 1920;
+    input.canvas_h = input.screen_h = 1080;
+    input.cursor_in_window          = true;
+    input.frametime                 = 1.0f / 60.0f;
+    const auto tick                 = [&] {
+        input.runtime = static_cast<float>(scene.Runtime().Frame().elapsed.to_primitive());
+        scene.TickNodeFieldAnimations();
+        owe::script::TickSceneScripts(scene, input);
+        scene.PassFrameTime(input.frametime);
+    };
+    tick();
+    ASSERT_TRUE(pose->last_value().is_Vec3());
+    const auto rest = pose->last_value().as_Vec3().value;
+    EXPECT_EQ(rest.z, 13.0);
+    EXPECT_NEAR(rest.x, 825.0, 1.0);
+    EXPECT_FALSE(jelly->TexAnim().playing);
+
+    input.cursor_x           = static_cast<float>(rest.x / 1920.0);
+    input.cursor_y           = 1.0f - 491.3f / 1080.0f;
+    input.mouse_buttons_down = input.mouse_buttons_pressed = 1;
+    tick();
+    EXPECT_TRUE(loop->IsPlaying());
+    input.mouse_buttons_pressed = 0;
+    input.cursor_x += 120.0f / 1920.0f;
+    tick();
+    EXPECT_EQ(jelly->TexAnim().current_frame, 2);
+    EXPECT_NEAR(pose->last_value().as_Vec3().value.x, rest.x + 120.0, 1.0);
+
+    input.mouse_buttons_down     = 0;
+    input.mouse_buttons_released = 1;
+    input.cursor_x               = 0.72f;
+    tick();
+    EXPECT_FALSE(loop->IsPlaying());
+    EXPECT_TRUE(release->IsPlaying());
+    EXPECT_EQ(jelly->TexAnim().current_frame, 0);
+    EXPECT_GT(pose->last_value().as_Vec3().value.x, rest.x);
+    input.mouse_buttons_released = 0;
+    bool neighboring_bone_moved  = false;
+    bool bounced                 = false;
+    for (int i = 0; i < 180; ++i) {
+        tick();
+        neighboring_bone_moved |= std::abs(pose->last_value().as_Vec3().value.y - rest.y) > 0.1;
+        bounced |= jelly->Scale().x() < 1.35f;
+    }
+    EXPECT_TRUE(neighboring_bone_moved);
+    EXPECT_TRUE(bounced);
+    EXPECT_NEAR(pose->last_value().as_Vec3().value.x, rest.x, 0.01);
+    EXPECT_NEAR(pose->last_value().as_Vec3().value.y, rest.y, 0.01);
+}
+
 TEST(PuppetScriptParsing, VisibilityScriptsInitializeTheirOwnPlayback) {
     const auto pkg_path =
         std::filesystem::path(WAYWALLEN_WORKSHOP_DIR) / "3462491575" / "scene.pkg";

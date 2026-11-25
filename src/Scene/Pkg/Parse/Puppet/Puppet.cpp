@@ -40,6 +40,20 @@ static usize TextureChannelTrackCount(const Puppet::Animation& animation) {
     return count;
 }
 
+static void LimitSpringDisplacement(Vector3f& offset, Vector3f& velocity, float limit) {
+    if (! offset.allFinite() || ! velocity.allFinite()) {
+        offset.setZero();
+        velocity.setZero();
+        return;
+    }
+    if (limit <= 0.0f) return;
+    const float distance = offset.stableNorm();
+    if (distance <= limit) return;
+    const Vector3f direction = offset / distance;
+    offset                   = direction * limit;
+    velocity -= direction * rstd::cmp::max(0.0f, direction.dot(velocity));
+}
+
 static bool HasAuthoredTrack(const Puppet::BoneTrack& track) {
     constexpr float eps      = 1e-6f;
     auto            non_zero = [](const Eigen::Vector3f& v) {
@@ -283,10 +297,16 @@ slice<Eigen::Affine3f> PuppetLayer::genFrame(double time) noexcept {
         affine.rotate(quat.cast<float>());
         affine.scale(scale);
         affine = parent * affine;
+        if (! m_springs.is_empty() && m_springs[i]) {
+            auto& spring = *m_springs[i];
+            spring.rest  = affine.translation();
+            affine.translation() += spring.offset;
+            if (m_script_bone_overrides[i]) affine.linear() = m_script_bone_overrides[i]->linear();
+        }
     }
 
     for (usize i {}; i < m_final_affines.len() && i < m_script_bone_overrides.len(); ++i) {
-        if (m_script_bone_overrides[i].is_some()) {
+        if (m_script_bone_overrides[i] && (m_springs.is_empty() || ! m_springs[i])) {
             m_final_affines[i] = *m_script_bone_overrides[i];
         }
     }
@@ -646,6 +666,13 @@ PuppetLayer::PuppetLayer(Arc<Puppet> pup): m_puppet(rstd::move(pup)) {
         m_final_affines.emplace_back(Affine3f::Identity());
         m_script_bone_overrides.emplace_back(None());
     }
+    for (const auto& bone : m_puppet->bones) {
+        if (! bone.translation_spring) continue;
+        m_springs.reserve(m_puppet->bones.len());
+        for (const auto& entry : m_puppet->bones)
+            m_springs.push(entry.translation_spring ? Some(SpringState {}) : None<SpringState>());
+        break;
+    }
 }
 PuppetLayer::~PuppetLayer() = default;
 
@@ -655,8 +682,63 @@ rstd::uint32_t PuppetLayer::boneCount() const noexcept {
 
 void PuppetLayer::setBoneTransform(rstd::uint32_t         index,
                                    const Eigen::Affine3f& transform) noexcept {
-    if (index == 0) return;
+    if (index == 0 || ! transform.matrix().allFinite()) return;
     const usize zero_based(index - 1);
     if (zero_based >= m_script_bone_overrides.len()) return;
+    if (! m_springs.is_empty() && m_springs[zero_based]) {
+        (void)genFrame(0.0);
+        const auto& spec   = *m_puppet->bones[zero_based].translation_spring;
+        auto&       spring = *m_springs[zero_based];
+        spring.offset      = (transform.translation() - spring.rest).cwiseProduct(spec.axes);
+        spring.velocity.setZero();
+        LimitSpringDisplacement(spring.offset, spring.velocity, spec.max_distance);
+    }
     m_script_bone_overrides[zero_based] = Some(Eigen::Affine3f(transform));
+}
+
+void PuppetLayer::AdvancePhysics(ref<SceneFrame> frame) noexcept {
+    const double delta = frame->delta.to_primitive();
+    if (m_springs.is_empty() || m_physics_revision == frame->revision ||
+        ! frame->delta.is_finite() || delta <= 0.0)
+        return;
+    m_physics_revision = frame->revision;
+    for (usize i {}; i < m_springs.len(); ++i) {
+        if (! m_springs[i]) continue;
+        (void)m_script_bone_overrides[i].take();
+        auto&       spring = *m_springs[i];
+        const auto& config = *m_puppet->bones[i].translation_spring;
+        if (spring.offset.isZero(1e-4f) && spring.velocity.isZero(1e-4f)) {
+            spring.offset.setZero();
+            spring.velocity.setZero();
+            continue;
+        }
+        // Implicit Euler keeps stiff authored springs stable even at low frame rates.
+        for (double remaining = rstd::cmp::min(delta, 0.25); remaining > 0.0;) {
+            const double step = rstd::cmp::min(remaining, 1.0 / 120.0);
+            const float  dt   = static_cast<float>(step);
+            spring.velocity   = (spring.velocity - config.stiffness * dt * spring.offset) /
+                                (1.0f + config.friction * dt + config.stiffness * dt * dt);
+            spring.offset += spring.velocity * dt;
+            LimitSpringDisplacement(spring.offset, spring.velocity, config.max_distance);
+            remaining -= step;
+        }
+    }
+}
+
+void PuppetLayer::ApplyBoneImpulse(Option<u32> index, const Vector3f& impulse) noexcept {
+    if (! impulse.allFinite()) return;
+    for (usize i {}; i < m_springs.len(); ++i) {
+        if (! m_springs[i] || (index && index->to_primitive() != i.to_primitive() + 1)) continue;
+        const auto& spec   = *m_puppet->bones[i].translation_spring;
+        auto&       spring = *m_springs[i];
+        spring.velocity += impulse.cwiseProduct(spec.axes) / rstd::cmp::max(spec.inertia, 1.0f);
+    }
+}
+
+void PuppetLayer::ResetBonePhysics(Option<u32> index) noexcept {
+    for (usize i {}; i < m_springs.len(); ++i) {
+        if (! m_springs[i] || (index && index->to_primitive() != i.to_primitive() + 1)) continue;
+        m_springs[i] = Some(SpringState {});
+        (void)m_script_bone_overrides[i].take();
+    }
 }

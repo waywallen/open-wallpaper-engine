@@ -44,6 +44,7 @@ struct SceneSyntheticObjectIds {
 struct PuppetLayerRegistry {
     HashMap<SceneNode*, Arc<PuppetLayer>> by_node;
     HashMap<SceneNode*, Arc<PuppetLayer>> fallback_by_node;
+    bool                                  has_translation_physics { false };
 };
 
 struct SceneShaderEnvironment {

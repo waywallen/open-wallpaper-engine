@@ -88,8 +88,9 @@ Flags (see `viewer/arg.hpp`):
     - [x] Animation
 	- [x] Attachments (MDAT)
 	- [x] Mesh masks
+	- [x] Interactive
     - [ ] Bone simulation
-    - [ ] Morph (MDMP)
+	- [ ] Shape Animations
 - [X] 3D model
 - [x] Scenescript  
 - [x] User Properties

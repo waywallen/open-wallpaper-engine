@@ -318,6 +318,57 @@ TEST(Puppet, ArcOwnedLayerExposesBorrowedTransforms) {
     EXPECT_TRUE(transform->matrix().isApprox(Eigen::Matrix4f::Identity()));
 }
 
+TEST(Puppet, ScriptedSpringPoseDrivesSkinningAndSettlesOncePerFrame) {
+    auto  puppet              = Arc<owe::Puppet>::make();
+    auto& spring              = puppet->bones.emplace_back();
+    spring.translation_spring = Some(owe::Puppet::TranslationSpring {
+        .max_distance = 20.0f,
+        .axes         = Eigen::Vector3f::UnitX(),
+    });
+    auto& child               = puppet->bones.emplace_back();
+    child.bind_parent = child.anim_parent = 0;
+    child.local_bind.translation().x()    = 5.0f;
+    puppet->prepared();
+
+    owe::PuppetLayer layer(puppet.clone());
+    owe::PuppetLayer other(puppet.clone());
+    Eigen::Affine3f  target = Eigen::Affine3f::Identity();
+    target.translation()    = Eigen::Vector3f(40.0f, 8.0f, 0.0f);
+    layer.setBoneTransform(1, target);
+    EXPECT_FLOAT_EQ(layer.boneTransform(1, 0.0)->translation().x(), 20.0f);
+    EXPECT_FLOAT_EQ(layer.boneTransform(1, 0.0)->translation().y(), 0.0f);
+    EXPECT_FLOAT_EQ(layer.genFrame(0.0)[usize(1)].translation().x(), 20.0f);
+    EXPECT_FLOAT_EQ(other.boneTransform(1, 0.0)->translation().x(), 0.0f);
+
+    owe::SceneFrame frame;
+    frame.delta  = f64(1.0 / 30.0);
+    auto advance = [&] {
+        ++frame.revision;
+        frame.elapsed += frame.delta;
+        layer.AdvancePhysics(ref<owe::SceneFrame>::from_raw_parts(&frame));
+    };
+    advance();
+    const float after = layer.boneTransform(1, 0.0)->translation().x();
+    EXPECT_GT(after, 0.0f);
+    EXPECT_LT(after, 20.0f);
+    layer.AdvancePhysics(ref<owe::SceneFrame>::from_raw_parts(&frame));
+    EXPECT_FLOAT_EQ(layer.boneTransform(1, 0.0)->translation().x(), after);
+    bool overshot = false;
+    for (int i = 0; i < 90; ++i) {
+        advance();
+        overshot |= layer.boneTransform(1, 0.0)->translation().x() < -0.1f;
+    }
+    EXPECT_TRUE(overshot);
+    EXPECT_NEAR(layer.boneTransform(1, 0.0)->translation().x(), 0.0f, 0.01f);
+
+    layer.ApplyBoneImpulse(Some(u32(1)), Eigen::Vector3f(300.0f, 300.0f, 0.0f));
+    advance();
+    EXPECT_GT(layer.boneTransform(1, 0.0)->translation().x(), 0.0f);
+    EXPECT_FLOAT_EQ(layer.boneTransform(1, 0.0)->translation().y(), 0.0f);
+    layer.ResetBonePhysics(None());
+    EXPECT_FLOAT_EQ(layer.boneTransform(1, 0.0)->translation().x(), 0.0f);
+}
+
 TEST(Puppet, SamplesTextureChannelBlendMapFromAnimationPlayback) {
     auto  puppet     = Arc<owe::Puppet>::make();
     auto& animation  = puppet->anims.emplace_back();

@@ -266,9 +266,13 @@ public:
         Box<dyn<FnMut<Option<BoneTransformData>(owe::SceneNode*, uint32_t, double)>>>;
     using BoneSetTransformResolver =
         Box<dyn<FnMut<void(owe::SceneNode*, uint32_t, const BoneTransformData&)>>>;
+    using BoneImpulseResolver      = Box<dyn<FnMut<void(owe::SceneNode*, Option<u32>, Vec3Value)>>>;
+    using BoneResetPhysicsResolver = Box<dyn<FnMut<void(owe::SceneNode*, Option<u32>)>>>;
     void SetBoneResolvers(BoneIndexResolver index_resolver, BoneCountResolver count_resolver,
                           BoneTransformResolver    transform_resolver,
-                          BoneSetTransformResolver set_transform_resolver);
+                          BoneSetTransformResolver set_transform_resolver,
+                          BoneImpulseResolver      impulse_resolver,
+                          BoneResetPhysicsResolver reset_resolver);
     using AttachmentIndexResolver = Box<dyn<FnMut<Option<usize>(owe::SceneNode*, ref<str>)>>>;
     using AttachmentOriginResolver =
         Box<dyn<FnMut<Option<Vec3Value>(owe::SceneNode*, usize, double)>>>;

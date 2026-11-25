@@ -27,6 +27,15 @@ using namespace Eigen;
 namespace owe
 {
 
+struct PuppetPhysicsRuntime {
+    Arc<PuppetLayerRegistry> layers;
+
+    void Update(ref<SceneFrame> frame) {
+        if (! layers->has_translation_physics) return;
+        for (const auto& [node, layer] : layers->by_node.iter()) (*layer)->AdvancePhysics(frame);
+    }
+};
+
 template<typename T>
 struct CopyableArcHold {
     Arc<T> value;
@@ -407,6 +416,8 @@ void FinalizeScene(SceneParseContext& context) {
             ParticleRuntimeSystem { (*context.layer_resources->particle_runtime).clone() },
             SceneRuntimeSchedule::BeforeRender);
     }
+    context.scene->Runtime().RegisterSystem(
+        PuppetPhysicsRuntime { context.layer_resources->puppet_layers.clone() });
     context.layer_resources->shader_cache->ReleaseTransientEntries();
     context.scene->InstallExtension(
         Box<Arc<ShaderCache>>::make(context.layer_resources->shader_cache.clone()));

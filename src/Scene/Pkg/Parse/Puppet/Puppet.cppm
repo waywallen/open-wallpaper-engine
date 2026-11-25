@@ -25,6 +25,14 @@ public:
     };
     static constexpr rstd::uint32_t NO_PARENT = 0xFFFFFFFFu;
 
+    struct TranslationSpring {
+        float           stiffness { 200.0f };
+        float           friction { 10.0f };
+        float           inertia { 30.0f };
+        float           max_distance { 200.0f };
+        Eigen::Vector3f axes { Eigen::Vector3f::Ones() };
+    };
+
     // Bind hierarchy and animation hierarchy are tracked independently.
     //
     // - bind_parent drives prepared(): world_bind = parent.world_bind * local_bind.
@@ -47,9 +55,9 @@ public:
         // skinning while keeping anim_parent on this chain.
         rstd::uint32_t file_parent { NO_PARENT };
 
-        // Per-bone WE bone_simulation JSON (spring/damping/gravity for
-        // hair/cloth). Captured raw; evaluation hook is TBD.
+        // Keep the authored payload for constraint modes not evaluated yet.
         String simulation_json;
+        Option<TranslationSpring> translation_spring;
 
         // prepared
         Eigen::Affine3f world_bind { Eigen::Affine3f::Identity() };
@@ -280,6 +288,10 @@ public:
     rstd::uint32_t          boneCount() const noexcept;
     Option<Eigen::Affine3f> boneTransform(rstd::uint32_t index, double time) noexcept;
     void          setBoneTransform(rstd::uint32_t index, const Eigen::Affine3f& transform) noexcept;
+    bool          HasTranslationPhysics() const noexcept { return ! m_springs.is_empty(); }
+    void          AdvancePhysics(ref<SceneFrame> frame) noexcept;
+    void          ApplyBoneImpulse(Option<u32> index, const Eigen::Vector3f& impulse) noexcept;
+    void          ResetBonePhysics(Option<u32> index) noexcept;
     Option<usize> attachmentIndex(ref<str> name) const noexcept;
     Option<Eigen::Affine3f> attachmentTransform(usize index, double time) noexcept;
     auto AnimationPlaybacks() const noexcept -> slice<Arc<SceneAnimationPlayback>>;
@@ -314,11 +326,19 @@ private:
         operator bool() const noexcept { return anim != nullptr; };
     };
 
+    struct SpringState {
+        Eigen::Vector3f rest { Eigen::Vector3f::Zero() };
+        Eigen::Vector3f offset { Eigen::Vector3f::Zero() };
+        Eigen::Vector3f velocity { Eigen::Vector3f::Zero() };
+    };
+
     Vec<Layer>                       m_layers;
     Vec<Arc<SceneAnimationPlayback>> m_playbacks;
     Vec<float>                       m_texture_channel_blend_map;
     Vec<Eigen::Affine3f>             m_final_affines;
     Vec<Option<Eigen::Affine3f>>     m_script_bone_overrides;
+    Vec<Option<SpringState>>         m_springs;
+    u64                              m_physics_revision {};
     Arc<Puppet>                      m_puppet;
 };
 

@@ -476,6 +476,38 @@ bool ParseIkConfig(fs::BinaryReader& f, Puppet::IkConfig& ik) {
     return true;
 }
 
+auto ReadTranslationSpring(ref<str> source) -> Option<Puppet::TranslationSpring> {
+    auto parsed = ParseJson(source);
+    if (parsed.is_err() || ! parsed->as_object()) return None();
+    const auto& data        = *parsed;
+    bool        simulation  = false;
+    bool        translation = false;
+    i32         mode {};
+    GetJsonValue(data, "se"_str, simulation, false);
+    GetJsonValue(data, "t"_str, translation, false);
+    GetJsonValue(data, "s"_str, mode, false);
+    if (! simulation || ! translation || mode != i32()) return None();
+
+    Puppet::TranslationSpring spring;
+    const auto                read = [&](ref<str> key, float& field) {
+        float value = field;
+        if (GetJsonValue(data, key, value, false) && f32(value).is_finite() && value >= 0.0f)
+            field = value;
+    };
+    read("ts"_str, spring.stiffness);
+    read("tf"_str, spring.friction);
+    read("ti"_str, spring.inertia);
+    read("tm"_str, spring.max_distance);
+
+    const array<ref<str>, 3> keys { "tax"_str, "tay"_str, "taz"_str };
+    for (usize i {}; i < keys.len(); ++i) {
+        bool enabled = true;
+        GetJsonValue(data, keys[i], enabled, false);
+        spring.axes[i.to_primitive()] = enabled ? 1.0f : 0.0f;
+    }
+    return Some(spring);
+}
+
 bool ParseMDLS(fs::BinaryReader& f, Mdl& mdl, ref<str> path) {
     mdl.mdls = ReadMdlVersion(f);
 
@@ -512,6 +544,8 @@ bool ParseMDLS(fs::BinaryReader& f, Mdl& mdl, ref<str> path) {
             for (auto& x : row) x = f.ReadFloat();
         }
         bone.simulation_json = f.ReadStr();
+        if (bone.sim_type == 1 && ! bone.simulation_json.is_empty())
+            bone.translation_spring = ReadTranslationSpring(bone.simulation_json.as_str());
     }
 
     if (mdl.mdls > 1) {
