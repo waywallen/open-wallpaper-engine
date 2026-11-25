@@ -12,7 +12,7 @@ BRIDGE_INSTALL_DIR="${BRIDGE_INSTALL_DIR:-$PROJECT_DIR/build/waywallen-bridge-in
 BUNDLE_DIR="$PROJECT_DIR/build/waywallen-plugin-bundle"
 SYMBOLS_DIR="$PROJECT_DIR/build/waywallen-plugin-symbols"
 DIST_DIR="${DIST_DIR:-$PROJECT_DIR/dist}"
-PLUGIN_ID="org.waywallen.open-wallpaper-engine"
+PACKAGE_NAME="open-wallpaper-engine"
 
 info() { printf '\n\033[1;36m==> %s\033[0m\n' "$*"; }
 fail() { printf '\033[1;31mERROR:\033[0m %s\n' "$*" >&2; exit 1; }
@@ -175,12 +175,12 @@ OWE_WAYWALLEN_PLUGIN_BUNDLE_LAYOUT=ON "$LITO_BIN" install \
     --prefix "$BUNDLE_DIR" \
     --config "tools.pkg-config.search-path=[\"$BRIDGE_INSTALL_DIR/lib/pkgconfig\",\"$CONDA_PREFIX/lib/pkgconfig\"]"
 
-info "Packaging plugin bundle"
+info "Packaging Open Wallpaper Engine bundle"
 rm -f "$DIST_DIR"/*.zip
 plugin_version="$(sed -n 's/^version = "\([^"]*\)"$/\1/p' "$BUNDLE_DIR/plugin.toml")"
 [[ -n "$plugin_version" ]] || fail "plugin version not found in $BUNDLE_DIR/plugin.toml"
 system_name="$(uname -s | tr '[:upper:]' '[:lower:]')"
-package_path="$DIST_DIR/$PLUGIN_ID-$plugin_version-$system_name-$host_arch.zip"
+package_path="$DIST_DIR/$PACKAGE_NAME-$plugin_version-$system_name-$host_arch.zip"
 
 info "Packaging renderer debug symbols"
 rm -rf "$SYMBOLS_DIR"

@@ -13,42 +13,47 @@ CEF-based host for web wallpapers.
 ## How to use
 
 ### Waywallen plugin
-There are prebuilt zips in [Releases page](https://github.com/waywallen/open-wallpaper-engine/releases).  
-It only works for flatpak and appimage version of waywallen.  
+For Waywallen's Flatpak and AppImage builds, download the
+`open-wallpaper-engine-*.zip` for your architecture from the
+[Releases page](https://github.com/waywallen/open-wallpaper-engine/releases) and
+install it from Waywallen's Plugins page.
 
-If you built waywallen yourself, you must [build](BUILD.md) this.  
-If you use linux distribution package, you must install this as package too.  
+If you built Waywallen yourself, [build and install the plugin](BUILD.md#plugin-bundle).
+If you use a Linux distribution package, install its matching plugin package.
 
 ### Standalone viewer
-[Build](BUILD.md) first.  
+Extract the prebuilt ZIP and run the commands below from the extracted
+directory. The bundle contains the same binaries for standalone preview and
+Waywallen integration. For source builds, see [BUILD.md](BUILD.md).
 
-`SceneViewer` is a GLFW + Vulkan window that loads a Wallpaper Engine `pkg` directly. Point it at the Wallpaper Engine's `assets/` directory and a `scene.pkg`:
+`owe-scene` loads a Wallpaper Engine `scene.pkg` directly. Pass the
+Wallpaper Engine `assets/` directory and the scene file:
 
 ```bash
-./build/clang-release/viewer/SceneViewer \
-    <wallpaper engine installed dir>/assets/ \
-    <steamapps dir>/workshop/<id>/scene.pkg
+./bin/owe-scene \
+    "/path/to/steamapps/common/wallpaper_engine/assets" \
+    "/path/to/steamapps/workshop/content/431960/<id>/scene.pkg"
 ```
 
-Flags (see `viewer/arg.hpp`):
+Flags (see `owe-scene --help`):
 
 | Flag | Default | Description |
 |------|---------|-------------|
 | `-R, --resolution WxH` | `1280x720` | window size, e.g. `1920x1080` |
 | `-f, --fps N`          | `15`       | render fps |
 | `-M, --msaa N`         | `1`        | MSAA samples for the screen RT (1/2/4/8/16; `1` = off) |
-| `-C, --cache-path DIR` | XDG cache  | shader/blob cache directory |
+| `-C, --cache-path DIR` | XDG cache  | shader cache directory |
 | `-V, --valid-layer`    | off        | enable Vulkan validation layers |
 | `-G, --graphviz`       | off        | dump render graph to `graph.dot` |
 
 
-`WebViewer` is the CEF-backed HTML/JS counterpart (only built with `BUILD_WEWEB=ON`):
+`owe-web` is the CEF-backed HTML/JS counterpart and uses Vulkan for presentation.
+Keep the bundled CEF runtime alongside the executable:
 
 ```bash
-./build/clang-release/viewer/WebViewer \
-    <steamapps dir>/workshop/<id> \
-    --width 1920 --height 1080 \
-    --presenter egl     # egl (default) or vulkan
+./bin/weweb/owe-web \
+    "/path/to/steamapps/workshop/content/431960/<id>" \
+    --width 1920 --height 1080
 ```
 
 ## Feature list

@@ -45,7 +45,7 @@ dependencies = [
 
 [[packages]]
 name = "owe-audio"
-version = "0.3.4"
+version = "0.4.0"
 dependencies = [
   "liffto",
   "rstd-std",
@@ -53,7 +53,7 @@ dependencies = [
 
 [[packages]]
 name = "owe-cli-common"
-version = "0.3.4"
+version = "0.4.0"
 dependencies = [
   "owe-audio",
   "rstd-log",
@@ -64,7 +64,7 @@ dependencies = [
 
 [[packages]]
 name = "owe-cli-scene"
-version = "0.3.4"
+version = "0.4.0"
 dependencies = [
   "owe-cli-common",
   "owe-core",
@@ -82,7 +82,7 @@ dependencies = [
 
 [[packages]]
 name = "owe-cli-web"
-version = "0.3.4"
+version = "0.4.0"
 dependencies = [
   "owe-audio",
   "owe-cli-common",
@@ -99,7 +99,7 @@ dependencies = [
 
 [[packages]]
 name = "owe-core"
-version = "0.3.4"
+version = "0.4.0"
 dependencies = [
   "rstd-argparse",
   "rstd-cppstd",
@@ -114,7 +114,7 @@ source = "git+https://chromium.googlesource.com/external/gitlab.com/libeigen/eig
 
 [[packages]]
 name = "owe-scene"
-version = "0.3.4"
+version = "0.4.0"
 dependencies = [
   "owe-audio",
   "owe-core",
@@ -124,6 +124,7 @@ dependencies = [
   "rstd-argparse",
   "rstd-bench",
   "rstd-cppstd",
+  "rstd-dlopn",
   "rstd-json",
   "rstd-log",
   "rstd-parse",
@@ -139,7 +140,7 @@ source = "git+https://github.com/quickjs-ng/quickjs.git#3c051980ab7e783dfbfb1c70
 
 [[packages]]
 name = "owe-tests"
-version = "0.3.4"
+version = "0.4.0"
 dependencies = [
   "liffto",
   "owe-audio",
@@ -161,7 +162,7 @@ dependencies = [
 
 [[packages]]
 name = "owe-types"
-version = "0.3.4"
+version = "0.4.0"
 dependencies = [
   "owe-core",
   "rstd-std",
@@ -170,7 +171,7 @@ dependencies = [
 
 [[packages]]
 name = "owe-utils"
-version = "0.3.4"
+version = "0.4.0"
 dependencies = [
   "licrypto",
   "owe-core",
@@ -182,7 +183,7 @@ dependencies = [
 
 [[packages]]
 name = "owe-vulkan"
-version = "0.3.4"
+version = "0.4.0"
 dependencies = [
   "owe-core",
   "owe-types",
@@ -201,7 +202,7 @@ source = "git+https://github.com/KhronosGroup/glslang.git#275822a6261ee689aadb1d
 
 [[packages]]
 name = "owe-waywallen-plugin"
-version = "0.3.4"
+version = "0.4.0"
 runtime-dependencies = [
   "owe-cli-scene",
   "owe-cli-web",
@@ -209,7 +210,7 @@ runtime-dependencies = [
 
 [[packages]]
 name = "owe-web"
-version = "0.3.4"
+version = "0.4.0"
 dependencies = [
   "owe-core",
   "rstd-cppstd",
@@ -250,9 +251,9 @@ architectures = [
 
 [[packages]]
 name = "rstd-alloc"
-version = "0.1.15"
+version = "0.1.16"
 source = "registry+https://registry.litocpp.org/"
-checksum = "5cf687a31b57883ffea1449002ce0baabe23323237218ab98f46bd9349b8a4fc"
+checksum = "44ea1b24cad3aa6dc1f9c5b20591d40b459fdae11102e7586982ec477c7e4149"
 dependencies = [
   "rstd-core",
   "rstd-runtime",
@@ -260,24 +261,24 @@ dependencies = [
 
 [[packages]]
 name = "rstd-argparse"
-version = "0.1.15"
+version = "0.1.16"
 source = "registry+https://registry.litocpp.org/"
-checksum = "e227c722387fb5c4b336eedecc3b66267eb3ff4e831a9e5129d02063caa21f5b"
+checksum = "f41e826b079ba7d47660f6a9bba25aa9cfcb959e04e8ef6bfd74a142abadbb11"
 dependencies = [
   "rstd-std",
 ]
 
 [[packages]]
 name = "rstd-basic"
-version = "0.1.15"
+version = "0.1.16"
 source = "registry+https://registry.litocpp.org/"
-checksum = "05161743f9f3d60173f6858c433611915d80e24c357623c4b23db9011dea2cae"
+checksum = "2a46514549767bab052b56fbe230628c5678cef752f128e0764c56e5b125f4d6"
 
 [[packages]]
 name = "rstd-bench"
-version = "0.1.15"
+version = "0.1.16"
 source = "registry+https://registry.litocpp.org/"
-checksum = "7689fac9d72f0b5f3893ec12c98cf242896e79a2b45077509be3ebb1b2bfc3e5"
+checksum = "4b449334ebcefff9c851c0fd6c1cc61dcb614af5d5ce2bdee0b7651266942551"
 dependencies = [
   "rstd-json",
   "rstd-std",
@@ -285,9 +286,9 @@ dependencies = [
 
 [[packages]]
 name = "rstd-core"
-version = "0.1.15"
+version = "0.1.16"
 source = "registry+https://registry.litocpp.org/"
-checksum = "dc63868984249e22e865958f92c964565bf9c1f1a2bd2b330f48c3d391a42cdd"
+checksum = "e1995ba881900ffef1b92b21122c2ece563943d3eb15fec1c613e7147f1d6036"
 dependencies = [
   "rstd-basic",
   "rstd-runtime",
@@ -295,27 +296,27 @@ dependencies = [
 
 [[packages]]
 name = "rstd-cppstd"
-version = "0.1.15"
+version = "0.1.16"
 source = "registry+https://registry.litocpp.org/"
-checksum = "9c725892412c45d06b74e5bedafdebd0cda1f6641053320b93f0bd44a71f91b8"
+checksum = "914fd17b3f74a681be81e170cc4ce5539c7bcea420b628cddbf0f8cca586622a"
 dependencies = [
   "rstd-std",
 ]
 
 [[packages]]
 name = "rstd-dlopn"
-version = "0.1.15"
+version = "0.1.16"
 source = "registry+https://registry.litocpp.org/"
-checksum = "15c1b2eba51faa5a735d3758fa82b3f4c7b7c1bfcc3ab43dce7a39cef0f051dc"
+checksum = "8a5d9faef79d1ae8febfcfc822ee3002651df895ae42cd510f85871b0695131f"
 dependencies = [
   "rstd-std",
 ]
 
 [[packages]]
 name = "rstd-json"
-version = "0.1.15"
+version = "0.1.16"
 source = "registry+https://registry.litocpp.org/"
-checksum = "e9bd7ba456caaa624670da94cb292bf70b37d5fd5ebe10c4921efc0b2ea20239"
+checksum = "6ac0e9d0ec70c969a0306e796df541571f2ca7bf09a472177997c25df8009fd6"
 dependencies = [
   "rstd-core",
   "rstd-parse",
@@ -325,9 +326,9 @@ dependencies = [
 
 [[packages]]
 name = "rstd-log"
-version = "0.1.15"
+version = "0.1.16"
 source = "registry+https://registry.litocpp.org/"
-checksum = "ede868eec350c6fd8167cfe2e15f02d4ad2f70162f530835ba1af5ebe9f802fd"
+checksum = "14d1c9163a34040892412993550b5e36012e464515b26471fafcde9d34d9a705"
 dependencies = [
   "rstd-core",
   "rstd-std",
@@ -335,15 +336,15 @@ dependencies = [
 
 [[packages]]
 name = "rstd-nostd"
-version = "0.1.15"
+version = "0.1.16"
 source = "registry+https://registry.litocpp.org/"
-checksum = "9a882ae276858cf0d33109beee26cdce65a48586043c9fd4a0b52d582a221b70"
+checksum = "6d151fd9defa6d78ce55b4ae93ca98c144964c9cedc31bfff33fdce1be4c6067"
 
 [[packages]]
 name = "rstd-parse"
-version = "0.1.15"
+version = "0.1.16"
 source = "registry+https://registry.litocpp.org/"
-checksum = "67e5741a7fc14755c0337a764b1aa6ee3f978755a4eca743bee28425825cb038"
+checksum = "f789651d4466ce8ac102aad6969eefab7e12310caa678aadb53ef4f9033dba79"
 dependencies = [
   "rstd-alloc",
   "rstd-core",
@@ -351,24 +352,24 @@ dependencies = [
 
 [[packages]]
 name = "rstd-runtime"
-version = "0.1.15"
+version = "0.1.16"
 source = "registry+https://registry.litocpp.org/"
-checksum = "b240844d9e564bf379589846bf97a267b7ecec54ef5254726c75b30d5c20af9b"
+checksum = "61bededc3eb6dc7292475f8381533c903897a87f3f56414c2b8f3627ba6da941"
 
 [[packages]]
 name = "rstd-serde"
-version = "0.1.15"
+version = "0.1.16"
 source = "registry+https://registry.litocpp.org/"
-checksum = "6bbaa21de113efed8ce1b49f4f096675e90ab039b0f8b1a23860190ae6524826"
+checksum = "b90b937664745eecd01158803cabb7302f89a6a9f9d510c1a6a318e9c5651c3d"
 dependencies = [
   "rstd-alloc",
 ]
 
 [[packages]]
 name = "rstd-std"
-version = "0.1.15"
+version = "0.1.16"
 source = "registry+https://registry.litocpp.org/"
-checksum = "9ce5825219175f9f1eafe8cac663679c9939b3976f96ab3d031210972332e7cc"
+checksum = "4203a240c7f78d9f2a5a8ce9bb6a31b8dd3d65ccb34a7ed0149a7b9e831187f5"
 dependencies = [
   "rstd-alloc",
   "rstd-core",
@@ -377,9 +378,9 @@ dependencies = [
 
 [[packages]]
 name = "rstd-test"
-version = "0.1.15"
+version = "0.1.16"
 source = "registry+https://registry.litocpp.org/"
-checksum = "bf437fe103b415ea924f7810d21a6a0060c11fa4db3570cdc9a85192abbd2fd8"
+checksum = "e4ad1fb6e8de10c8ac0f3d4e401b154a8abd966b594a12e2c427e579cad09f02"
 dependencies = [
   "rstd-std",
 ]
@@ -396,17 +397,21 @@ dependencies = [
 [[packages]]
 name = "vectext"
 version = "0.1.0"
-source = "git+https://github.com/vecren/vectext.git#36fc965d8cb418f9dc17d31683dc268dabb52cb2"
+source = "git+https://github.com/vecren/vectext.git#4b371daf184a8067327d95ceee5a46efdd1f3f72"
 dependencies = [
   "liunicode",
   "rstd-nostd",
   "rstd-std",
 ]
 
+[[packages.externals]]
+name = "freetype"
+source = "git+https://github.com/freetype/freetype.git#37515cf56ba3349656049edbed89ffc6f6466f2d"
+
 [[packages]]
 name = "vrento"
 version = "0.1.0"
-source = "git+https://github.com/vecren/vrento.git#544ae17c754c63c8c50334b9ee4345f21a3257bd"
+source = "git+https://github.com/vecren/vrento.git#ecf0509f10ce61f124e787777f87b026ab5b6d43"
 dependencies = [
   "ligraph",
   "lito-spirv",
@@ -418,7 +423,7 @@ dependencies = [
 [[packages]]
 name = "vui"
 version = "0.1.0"
-source = "git+https://github.com/vecren/vui.git#05d70181d9a3e64d759260df7668038dea022dbc"
+source = "git+https://github.com/vecren/vui.git#8dc96c204bf0554476063974fa66b6cba6abd19c"
 dependencies = [
   "ligraph",
   "rstd-std",
@@ -428,7 +433,7 @@ dependencies = [
 [[packages]]
 name = "vui-host"
 version = "0.1.0"
-source = "git+https://github.com/vecren/vui.git#05d70181d9a3e64d759260df7668038dea022dbc"
+source = "git+https://github.com/vecren/vui.git#8dc96c204bf0554476063974fa66b6cba6abd19c"
 dependencies = [
   "rstd-dlopn",
   "vui-render",
@@ -438,7 +443,7 @@ dependencies = [
 [[packages]]
 name = "vui-render"
 version = "0.1.0"
-source = "git+https://github.com/vecren/vui.git#05d70181d9a3e64d759260df7668038dea022dbc"
+source = "git+https://github.com/vecren/vui.git#8dc96c204bf0554476063974fa66b6cba6abd19c"
 dependencies = [
   "lito-spirv",
   "vrento",
@@ -447,9 +452,9 @@ dependencies = [
 
 [[packages]]
 name = "vvk"
-version = "0.1.2"
+version = "0.1.3"
 source = "registry+https://registry.litocpp.org/"
-checksum = "5342ef810782acabfd73f14469294faefa594fc0696fdacddd8de7978a2ef177"
+checksum = "0cf54b98e7a9ded5ec6c1df22a759d24fa5df21b7bf0be8f91ea8023d06174b8"
 dependencies = [
   "rstd-dlopn",
   "rstd-log",

@@ -13,9 +13,9 @@ from urllib import request
 
 
 DEFAULT_REPO = "waywallen/open-wallpaper-engine"
-PLUGIN_ID = "org.waywallen.open-wallpaper-engine"
+PACKAGE_NAME = "open-wallpaper-engine"
 DEFAULT_ARCHES = ("x86_64", "aarch64")
-PLUGIN_TEMPLATE_DIR = Path("plugins") / PLUGIN_ID
+PLUGIN_TEMPLATE_DIR = Path("plugins") / "waywallen"
 PLUGIN_TEMPLATE_NAMES = ("plugin.toml.in", "weweb-renderer.toml.in")
 
 
@@ -151,7 +151,7 @@ def asset_sha256(asset: dict, download_missing_digest: bool) -> str:
 
 
 def asset_name(version: str, arch: str) -> str:
-    return f"{PLUGIN_ID}-{version}-linux-{arch}.zip"
+    return f"{PACKAGE_NAME}-{version}-linux-{arch}.zip"
 
 
 def update_manifest(
@@ -173,7 +173,7 @@ def update_manifest(
 
     for arch in arches:
         name = asset_name(version, arch)
-        asset = assets.get(name)
+        asset = assets.get(name) or assets.get(f"org.waywallen.{name}")
         if not asset:
             raise SystemExit(f"release is missing asset {name}; available assets: {available}")
 

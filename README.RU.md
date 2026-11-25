@@ -19,46 +19,47 @@
 
 ### Плагин Waywallen
 
-Готовые ZIP-архивы доступны на [странице релизов](https://github.com/waywallen/open-wallpaper-engine/releases).
-Плагин работает только с версиями Waywallen в форматах Flatpak и AppImage.
+Для версий Waywallen в форматах Flatpak и AppImage скачайте архив
+`open-wallpaper-engine-*.zip` для своей архитектуры со
+[страницы релизов](https://github.com/waywallen/open-wallpaper-engine/releases)
+и установите его через раздел «Плагины» в Waywallen.
 
-Если вы собирали Waywallen самостоятельно, необходимо также [собрать](BUILD.md)
-этот проект. При использовании пакета из репозитория дистрибутива плагин также
-нужно установить как пакет.
+Если вы собирали Waywallen самостоятельно, [соберите и установите плагин](BUILD.md#plugin-bundle).
+Если Waywallen установлен из репозитория дистрибутива, установите соответствующий пакет плагина.
 
 ### Автономный просмотрщик
 
-Сначала выполните [сборку](BUILD.md).
+Распакуйте готовый ZIP-архив и выполните команды ниже из распакованного каталога.
+В архиве находятся одни и те же исполняемые файлы для автономного просмотра и
+интеграции с Waywallen. О сборке из исходников см. [BUILD.md](BUILD.md).
 
-`SceneViewer` - окно GLFW + Vulkan, загружающее `pkg` из Wallpaper Engine
-напрямую. Укажите каталог `assets/` установленного Wallpaper Engine и файл
-`scene.pkg`:
+`owe-scene` загружает `scene.pkg` напрямую. Укажите каталог `assets/`
+установленного Wallpaper Engine и файл сцены:
 
 ```bash
-./build/clang-release/viewer/SceneViewer \
-    <каталог установки wallpaper engine>/assets/ \
-    <каталог steamapps>/workshop/<id>/scene.pkg
+./bin/owe-scene \
+    "/path/to/steamapps/common/wallpaper_engine/assets" \
+    "/path/to/steamapps/workshop/content/431960/<id>/scene.pkg"
 ```
 
-Параметры (см. `viewer/arg.hpp`):
+Параметры (см. `owe-scene --help`):
 
 | Параметр | По умолчанию | Описание |
 |-----------|--------------|----------|
 | `-R, --resolution WxH` | `1280x720` | размер окна, например `1920x1080` |
 | `-f, --fps N` | `15` | частота рендеринга в FPS |
 | `-M, --msaa N` | `1` | число выборок MSAA для экранной целевой поверхности (1/2/4/8/16; `1` = выкл.) |
-| `-C, --cache-path DIR` | кэш XDG | каталог кэша шейдеров и блобов |
+| `-C, --cache-path DIR` | кэш XDG | каталог кэша шейдеров |
 | `-V, --valid-layer` | выкл. | включить слои валидации Vulkan |
 | `-G, --graphviz` | выкл. | сохранить граф рендеринга в `graph.dot` |
 
-`WebViewer` - аналог для HTML/JS на основе CEF. Он собирается только при
-`BUILD_WEWEB=ON`:
+`owe-web` использует CEF для HTML/JS и Vulkan для вывода изображения.
+Оставьте файлы CEF из архива рядом с исполняемым файлом:
 
 ```bash
-./build/clang-release/viewer/WebViewer \
-    <каталог steamapps>/workshop/<id> \
-    --width 1920 --height 1080 \
-    --presenter egl     # egl (по умолчанию) или vulkan
+./bin/weweb/owe-web \
+    "/path/to/steamapps/workshop/content/431960/<id>" \
+    --width 1920 --height 1080
 ```
 
 ## Список возможностей

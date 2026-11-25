@@ -1,3 +1,38 @@
+<release version="0.4.0" date="2026-11-25">
+  <description>
+    <p>Added:</p>
+    <ul>
+      <li>Interactive Puppet Warps with bone dragging, spring return and directional impulses.</li>
+      <li>OpenAL spatial audio for scene wallpapers, loaded on demand.</li>
+      <li>Workshop preset support.</li>
+      <li>Linear DMA-BUF support on GPUs without Vulkan DRM format modifiers. #188 by @HarleyGaniere</li>
+    </ul>
+    <p>Fixes:</p>
+    <ul>
+      <li>Show only scene properties for the active language. #190 by @Iltius</li>
+      <li>Resolve linked layer textures before applying the source layer's blend mode. #192 by @DeiTYmon</li>
+      <li>Keep web wallpapers muted from startup. #197 by @wehrwolfmann</li>
+      <li>Include co-authored Workshop items when browsing an artist's work.</li>
+      <li>SceneScript drag capture, callback receivers, property updates and layer bindings.</li>
+      <li>Perspective camera links, text placement, effect ordering and sprite atlas sampling.</li>
+      <li>Spotlight projection textures, shadow cascades and material shadow settings.</li>
+      <li>Particle warmup, turbulence, control points and rope trails.</li>
+      <li>Random sound playback intervals and large-model index parsing.</li>
+    </ul>
+    <p>Improved:</p>
+    <ul>
+      <li>Share transient render targets across layers and effects to reduce VRAM use. #194 by @Shnimlz</li>
+      <li>Reuse draw preparation, shader artifacts and pipeline recipes across render-graph rebuilds.</li>
+      <li>Reduce per-frame work for draw resource lookups and transform uniforms.</li>
+    </ul>
+    <p>Changed:</p>
+    <ul>
+      <li>Unify standalone previews and Waywallen renderers as owe-scene and owe-web, using vui-host for standalone windows.</li>
+      <li>Update CEF to 158 and support multiplane DMA-BUF imports.</li>
+    </ul>
+  </description>
+</release>
+
 <release version="0.3.4" date="2026-11-18">
   <description>
     <p>Added:</p>
