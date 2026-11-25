@@ -1422,6 +1422,127 @@ TEST(ScriptCursor, ClickAndDownUpInside) {
     EXPECT_EQ(fs->last_value().as_Scalar().value.v, 1'010'101);
 }
 
+TEST(ScriptCursor, DragTracksPressTargetUntilReleaseOutside) {
+    owe::SceneNode target;
+    target.SetTranslate({ 250.0f, 500.0f, 0.0f });
+    target.SetSize({ 40.0f, 40.0f });
+    owe::SceneNode other;
+    other.SetTranslate({ 750.0f, 500.0f, 0.0f });
+    other.SetSize({ 40.0f, 40.0f });
+
+    JsRuntime rt;
+    auto*     drag  = MakeProbe(rt,
+                                "test/capture_drag",
+                                R"JS(
+        let dragging = false, ended = 0, leftAfterRelease = 0;
+        export function cursorDown() { dragging = true; }
+        export function cursorMove(e) {
+            if (dragging) thisLayer.origin = new Vec3(e.worldPosition.x, 500, 0);
+        }
+        export function cursorUp() { dragging = false; ended++; }
+        export function cursorLeave() { if (!dragging) leftAfterRelease++; }
+        export function update() { return ended * 10 + leftAfterRelease; }
+    )JS",
+                                &target);
+    auto*     hover = MakeProbe(rt,
+                                "test/capture_hover",
+                                R"JS(
+        let enters = 0, moves = 0;
+        export function cursorEnter() { enters++; }
+        export function cursorMove() { moves++; }
+        export function update() { return enters * 10 + moves; }
+    )JS",
+                                &other);
+    ASSERT_NE(drag, nullptr);
+    ASSERT_NE(hover, nullptr);
+
+    auto frame = MakeFi(1000.0f, 1000.0f);
+    auto tick  = [&] {
+        rt.SetFrameInputs(frame);
+        rt.TickAll();
+    };
+    frame.cursor_in_window      = true;
+    frame.cursor_x              = 0.25f;
+    frame.cursor_y              = 0.5f;
+    frame.mouse_buttons_pressed = 1;
+    frame.mouse_buttons_down    = 1;
+    tick();
+
+    frame.mouse_buttons_pressed = 0;
+    frame.cursor_x              = 0.75f;
+    tick();
+    EXPECT_FLOAT_EQ(target.Translate().x(), 750.0f);
+    EXPECT_EQ(LastScalar(hover), 0.0);
+    EXPECT_EQ(LastScalar(drag), 0.0);
+
+    frame.cursor_x = 0.875f;
+    tick();
+    EXPECT_FLOAT_EQ(target.Translate().x(), 875.0f);
+
+    frame.cursor_x               = 0.75f;
+    frame.mouse_buttons_down     = 0;
+    frame.mouse_buttons_released = 1;
+    tick();
+    EXPECT_EQ(LastScalar(drag), 11.0);
+    EXPECT_EQ(LastScalar(hover), 11.0);
+
+    frame.mouse_buttons_released = 0;
+    frame.cursor_x               = 0.875f;
+    tick();
+    frame.cursor_x = 0.25f;
+    tick();
+    EXPECT_FLOAT_EQ(target.Translate().x(), 875.0f);
+}
+
+TEST(ScriptCursor, ReleasesOnlyCapturedButtonsOutsideWindow) {
+    owe::SceneNode target;
+    target.SetTranslate({ 250.0f, 500.0f, 0.0f });
+    target.SetSize({ 40.0f, 40.0f });
+    JsRuntime rt;
+    auto*     script = MakeProbe(rt,
+                                 "test/capture_buttons",
+                                 R"JS(
+        let released = 0;
+        export function cursorUp(e) { released += 1 << e.button; }
+        export function update() { return released; }
+    )JS",
+                                 &target);
+    ASSERT_NE(script, nullptr);
+
+    auto frame = MakeFi(1000.0f, 1000.0f);
+    auto tick  = [&] {
+        rt.SetFrameInputs(frame);
+        rt.TickAll();
+    };
+    frame.cursor_in_window      = true;
+    frame.cursor_x              = 0.25f;
+    frame.cursor_y              = 0.5f;
+    frame.mouse_buttons_pressed = 2;
+    frame.mouse_buttons_down    = 2;
+    tick();
+
+    frame.cursor_x              = 0.75f;
+    frame.mouse_buttons_pressed = 1;
+    frame.mouse_buttons_down    = 3;
+    tick();
+
+    frame.cursor_in_window       = false;
+    frame.mouse_buttons_pressed  = 0;
+    frame.mouse_buttons_released = 1;
+    frame.mouse_buttons_down     = 2;
+    tick();
+    EXPECT_EQ(LastScalar(script), 0.0);
+
+    frame.mouse_buttons_released = 2;
+    frame.mouse_buttons_down     = 0;
+    tick();
+    EXPECT_EQ(LastScalar(script), 2.0);
+
+    frame.mouse_buttons_released = 2;
+    tick();
+    EXPECT_EQ(LastScalar(script), 2.0);
+}
+
 TEST(ScriptCursor, ClickRestartsNamedAnimationLayer) {
     owe::SceneNode node;
     node.SetTranslate({ 500.0f, 500.0f, 0.0f });

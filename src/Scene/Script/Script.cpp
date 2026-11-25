@@ -245,9 +245,9 @@ struct FieldScript::Impl {
     String                   property;
     Option<CString>          property_name;
     ScriptPropertyObjectKind object_kind { ScriptPropertyObjectKind::Layer };
-    // Per-script cursor-inside-bbox state used to edge-detect
-    // cursorEnter / cursorLeave between frames.
+    bool                                     has_cursor_events { false };
     bool                                     cursor_inside { false };
+    rstd::uint32_t                           cursor_pressed_buttons { 0 };
     Option<Arc<owe::SceneAnimationPlayback>> animation;
     Option<Arc<owe::SceneAnimationLayer>>    animation_layer;
     Vec<String>                              registered_assets;
@@ -3567,11 +3567,19 @@ void JsRuntime::TickAll(slice<owe::SceneAnimationEventDispatch> animation_events
     SweepDeferred(ctx, &m_impl->host);
     DispatchVideoEndedCallbacks(ctx, *m_impl);
     const auto script_count = usize(m_impl->scripts.len().to_primitive());
+    const auto&              input          = m_impl->host.inputs;
+    constexpr rstd::uint32_t cursor_buttons = 0b111;
+    const auto               btn_pressed    = input.mouse_buttons_pressed & cursor_buttons;
+    const auto               btn_release    = input.mouse_buttons_released & cursor_buttons;
+    const auto held_buttons = input.mouse_buttons_down & cursor_buttons & ~btn_release;
+    bool       capturing    = false;
 
     // Node animations run before scripts; cached script returns must not erase their values.
     for (usize index {}; index < script_count; ++index) {
         auto* script                 = m_impl->scripts[index]->m_impl.get();
         script->event_value_override = false;
+        capturing |=
+            script->alive && script->node && (script->cursor_pressed_buttons & held_buttons);
         if (script->alive && ! script->init_deferred &&
             script->object_kind == ScriptPropertyObjectKind::AnimationLayer &&
             script->animation_layer.is_some() &&
@@ -3598,17 +3606,14 @@ void JsRuntime::TickAll(slice<owe::SceneAnimationEventDispatch> animation_events
     }
 
     // Dispatch before update so scripts can react to cursor callbacks in the same frame.
-    const CursorWorld cursor    = CursorToWorld(m_impl->host.inputs, m_impl->host.scene);
-    const bool        in_window = m_impl->host.inputs.cursor_in_window;
-    const bool        cursor_moved =
-        in_window && (! m_impl->cursor_was_in_window ||
-                      m_impl->host.inputs.cursor_x != m_impl->previous_cursor_x ||
-                      m_impl->host.inputs.cursor_y != m_impl->previous_cursor_y);
-    m_impl->previous_cursor_x        = m_impl->host.inputs.cursor_x;
-    m_impl->previous_cursor_y        = m_impl->host.inputs.cursor_y;
+    const CursorWorld cursor         = CursorToWorld(input, m_impl->host.scene);
+    const bool        in_window      = input.cursor_in_window;
+    const bool        cursor_moved   = in_window && (! m_impl->cursor_was_in_window ||
+                                                     input.cursor_x != m_impl->previous_cursor_x ||
+                                                     input.cursor_y != m_impl->previous_cursor_y);
+    m_impl->previous_cursor_x        = input.cursor_x;
+    m_impl->previous_cursor_y        = input.cursor_y;
     m_impl->cursor_was_in_window     = in_window;
-    const rstd::uint32_t btn_pressed = m_impl->host.inputs.mouse_buttons_pressed;
-    const rstd::uint32_t btn_release = m_impl->host.inputs.mouse_buttons_released;
     JSValue              ev_shared   = JS_UNDEFINED;
     auto                 ensure_ev   = [&](int button) -> JSValue {
         if (! JS_IsUndefined(ev_shared)) JS_FreeValue(ctx, ev_shared);
@@ -3618,31 +3623,38 @@ void JsRuntime::TickAll(slice<owe::SceneAnimationEventDispatch> animation_events
     for (usize script_index {}; script_index < script_count; ++script_index) {
         auto* fs = m_impl->scripts[script_index].get();
         auto* I  = fs->m_impl.get();
-        if (! I->alive || I->init_deferred || ! I->node) continue;
+        if (! I->alive || I->init_deferred || ! I->node || ! I->has_cursor_events) continue;
+        // While a press is captured, suspend hover transitions and route motion to
+        // the press targets. Button edges can still require a hit test.
         const bool now_inside =
-            in_window &&
+            in_window && (! capturing || btn_pressed || btn_release) &&
             (m_impl->host.scene
-                 ? m_impl->host.scene->HitTestNode(
-                       *I->node, { m_impl->host.inputs.cursor_x, m_impl->host.inputs.cursor_y })
+                 ? m_impl->host.scene->HitTestNode(*I->node, { input.cursor_x, input.cursor_y })
                  : HitTestNode(I->node, cursor));
+        const bool move =
+            cursor_moved &&
+            (capturing ? (I->cursor_pressed_buttons & held_buttons) != 0 : now_inside);
+        const bool hover_changed = ! capturing && now_inside != I->cursor_inside;
+        const auto pressed_here  = now_inside ? btn_pressed : 0u;
+        const auto released_here =
+            now_inside ? btn_release : btn_release & I->cursor_pressed_buttons;
+        I->cursor_pressed_buttons = (I->cursor_pressed_buttons | pressed_here) & held_buttons;
+        if (! hover_changed && ! move && ! pressed_here && ! released_here) continue;
         BindFieldScriptContext(ctx, *I, m_impl->host.default_layer);
         m_impl->host.active_field_script = fs;
-        if (now_inside != I->cursor_inside) {
-            InvokeEventCallback(ctx,
-                                I->module_ns,
-                                now_inside ? "cursorEnter" : "cursorLeave",
-                                ensure_ev(-1),
-                                m_impl.get(),
-                                I->sha.as_str());
+        if (hover_changed) {
             I->cursor_inside = now_inside;
+            if (now_inside)
+                InvokeEventCallback(
+                    ctx, I->module_ns, "cursorEnter", ensure_ev(-1), m_impl.get(), I->sha.as_str());
         }
-        if (now_inside && cursor_moved) {
+        if (move) {
             InvokeEventCallback(
                 ctx, I->module_ns, "cursorMove", ensure_ev(-1), m_impl.get(), I->sha.as_str());
         }
-        if (btn_pressed && now_inside) {
+        if (pressed_here) {
             for (int b = 0; b < 3; ++b) {
-                if (btn_pressed & (1u << b)) {
+                if (pressed_here & (1u << b)) {
                     InvokeEventCallback(ctx,
                                         I->module_ns,
                                         "cursorDown",
@@ -3658,14 +3670,17 @@ void JsRuntime::TickAll(slice<owe::SceneAnimationEventDispatch> animation_events
                 }
             }
         }
-        if (btn_release && now_inside) {
+        if (released_here) {
             for (int b = 0; b < 3; ++b) {
-                if (btn_release & (1u << b)) {
+                if (released_here & (1u << b)) {
                     InvokeEventCallback(
                         ctx, I->module_ns, "cursorUp", ensure_ev(b), m_impl.get(), I->sha.as_str());
                 }
             }
         }
+        if (hover_changed && ! now_inside)
+            InvokeEventCallback(
+                ctx, I->module_ns, "cursorLeave", ensure_ev(-1), m_impl.get(), I->sha.as_str());
     }
     if (! JS_IsUndefined(ev_shared)) JS_FreeValue(ctx, ev_shared);
 
@@ -4000,6 +4015,19 @@ bool EvaluateFieldScriptModule(JSContext* ctx, JsRuntime::Impl* rt, FieldScript&
     } else {
         JS_FreeValue(ctx, animation_event_fn);
         I->animation_event_fn = JS_UNDEFINED;
+    }
+    if (I->node) {
+        for (auto name : array<const char*, 6> { "cursorEnter",
+                                                 "cursorLeave",
+                                                 "cursorMove",
+                                                 "cursorDown",
+                                                 "cursorUp",
+                                                 "cursorClick" }) {
+            JSAtom atom          = JS_NewAtom(ctx, name);
+            I->has_cursor_events = JS_HasProperty(ctx, ns, atom) > 0;
+            JS_FreeAtom(ctx, atom);
+            if (I->has_cursor_events) break;
+        }
     }
     // Reuse the coerced initial value as the seed for (value)-form
     // updates so the first frame's `update(value)` sees a Vec3, not a
