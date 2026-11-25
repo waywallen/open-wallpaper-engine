@@ -1123,6 +1123,62 @@ TEST(ParticleSubSystem, StartsRopeHistoryAtWarmedPosition) {
     EXPECT_NEAR(trail->At(particle::ParticleSlot {}, usize(3)).x(), 1.0f, 1e-6f);
 }
 
+TEST(ParticleSubSystem, SamplesRopeHistoryOnceWhenAnUpdateSpansMultipleIntervals) {
+    owe::Scene             scene;
+    auto                   uniforms = Arc<owe::ParticleTrailUniformState>::make();
+    owe::ParticleSubSystem subsystem(scene,
+                                     Arc<owe::SceneMesh>::make(),
+                                     u32(1),
+                                     f64(4.0),
+                                     u32(1),
+                                     f64(1.0),
+                                     owe::ParticleSubSystem::SpawnType::STATIC,
+                                     owe::ParticleAnimationSpec {},
+                                     {},
+                                     u32(4),
+                                     f64(0.5),
+                                     f64(),
+                                     false,
+                                     Some(uniforms.clone()));
+    subsystem.AddInitializer(owe::ParticleParser::GenInitializer(
+        owe::ParseJson(R"({"name":"lifetimerandom","min":10,"max":10})"_str).unwrap(), u32(1)));
+    subsystem.AddInitializer(owe::ParticleParser::GenInitializer(
+        owe::ParseJson(R"({"name":"velocityrandom","min":"1 0 0","max":"1 0 0"})"_str).unwrap(),
+        u32(1)));
+    subsystem.AddEmitter(Box<dyn<particle::ParticleEmitterProgram>>::make(
+        owe::BoxEmitterProgram(subsystem.SpawnPipeline(),
+                               owe::ParticleBoxEmitterArgs { .instantaneous = u32(1) },
+                               usize())));
+    subsystem.AddOperator(owe::ParticleParser::GenOperator(
+        owe::ParseJson(R"({"name":"movement"})"_str).unwrap(),
+        owe::ParticleInstanceModifiers(Arc<owe::wpscene::ParticleInstanceoverride>::make(),
+                                       owe::wpscene::Particle::EFlags { 0 },
+                                       false),
+        subsystem,
+        usize()));
+    subsystem.Finalize();
+    subsystem.Tick(f64(1.0 / 64.0), false);
+
+    auto& instance = subsystem.System().Instance(usize());
+    auto  trail    = instance.Storage().AttributeRef(subsystem.TrailKey().unwrap());
+    const particle::ParticleSlot slot {};
+    ASSERT_EQ(trail->State(slot).sample_count, usize(1));
+    auto first = trail->At(slot, usize(3));
+
+    subsystem.Tick(f64(7.0 / 128.0), false);
+    EXPECT_EQ(trail->State(slot).sample_count, usize(2));
+    EXPECT_EQ(trail->At(slot, usize(2)), first);
+    EXPECT_EQ(trail->At(slot, usize(3)), instance.Binding().Read().Positions()[usize()]);
+    EXPECT_FLOAT_EQ(uniforms->render_var[usize(2)], 0.0f);
+
+    subsystem.Tick(f64(1.0 / 64.0), false);
+    EXPECT_EQ(trail->State(slot).sample_count, usize(2));
+    EXPECT_FLOAT_EQ(uniforms->render_var[usize(2)], 0.5f);
+    subsystem.Tick(f64(1.0 / 64.0), false);
+    EXPECT_EQ(trail->State(slot).sample_count, usize(3));
+    EXPECT_FLOAT_EQ(uniforms->render_var[usize(2)], 0.0f);
+}
+
 TEST(ParticleSubSystem, AppliesTurbulenceMaskAsAxisWeights) {
     auto simulate = [](ref<str> config, bool orthographic_scene = true) -> Eigen::Vector3f {
         owe::Scene             scene;

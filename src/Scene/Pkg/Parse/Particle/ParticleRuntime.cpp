@@ -97,9 +97,8 @@ private:
 class TrailUpdateProgram {
 public:
     TrailUpdateProgram(ParticleAttributes                                    attributes,
-                       particle::ParticleAttributeKey<TrailHistoryAttribute> trail,
-                       f64                                                   sample_interval)
-        : m_attributes(attributes), m_trail(trail), m_sample_interval(sample_interval) {}
+                       particle::ParticleAttributeKey<TrailHistoryAttribute> trail)
+        : m_attributes(attributes), m_trail(trail) {}
 
     void Compile(particle::ParticleViewCompiler& compiler) {
         compiler.ReadBase(m_attributes.position);
@@ -112,32 +111,12 @@ public:
         auto positions = context.view.Positions();
         auto trail     = context.view.WriteObject(m_trail_object);
 
-        auto interval     = m_sample_interval.to_primitive();
-        auto delta        = context.delta.to_primitive();
-        auto remainder    = frame->trail_sample_remainder.to_primitive();
-        auto sample_steps = rstd::cmp::min(frame->trail_sample_steps, trail->SampleCapacity());
-
         for (auto slot : context.slots) {
-            auto index = slot.index;
-            auto state = trail->State(slot);
-            if (! state.has_previous_position) {
-                trail->Initialize(slot, positions[index]);
-                trail->SetPreviousPosition(slot, positions[index]);
-                continue;
+            if (trail->State(slot).sample_count == usize()) {
+                trail->Initialize(slot, positions[slot.index]);
+            } else if (frame->sample_trail) {
+                trail->Push(slot, positions[slot.index]);
             }
-            for (usize sample {}; sample < sample_steps; ++sample) {
-                auto age = remainder +
-                           static_cast<double>((sample_steps - sample - usize(1)).to_primitive()) *
-                               interval;
-                auto amount = delta > 0.0
-                                  ? rstd::cmp::min(1.0, rstd::cmp::max(0.0, (delta - age) / delta))
-                                  : 1.0;
-                auto position =
-                    state.previous_position +
-                    (positions[index] - state.previous_position) * static_cast<float>(amount);
-                trail->Push(slot, position);
-            }
-            trail->SetPreviousPosition(slot, positions[index]);
         }
     }
 
@@ -145,7 +124,6 @@ private:
     ParticleAttributes                                        m_attributes;
     particle::ParticleAttributeKey<TrailHistoryAttribute>     m_trail;
     particle::ParticleWriteObjectIndex<TrailHistoryAttribute> m_trail_object;
-    f64                                                       m_sample_interval {};
 };
 
 } // namespace
@@ -278,13 +256,6 @@ auto TrailHistoryAttribute::State(particle::ParticleSlot slot) const -> TrailSlo
     return m_states[slot.index];
 }
 
-void TrailHistoryAttribute::SetPreviousPosition(particle::ParticleSlot slot,
-                                                const Eigen::Vector3f& position) {
-    auto& state                 = m_states[slot.index];
-    state.previous_position     = position;
-    state.has_previous_position = true;
-}
-
 auto owe::ParticleFrameFrom(ref<dyn<rstd::any::Any>> frame) -> ref<ParticleFrame> {
     auto value = rstd::any::downcast_ref<ParticleFrame>(frame);
     if (value.is_none()) rstd::panic { "unexpected particle frame context" };
@@ -373,6 +344,7 @@ ParticleSubSystem::ParticleSubSystem(Scene& scene, Arc<SceneMesh> mesh, u32 max_
                                   ? f64()
                                   : f64(trail_duration.to_primitive() /
                                         static_cast<double>(trail_length.to_primitive()))),
+      m_trail_sample_remaining(m_trail_sample_interval),
       m_trail_uniform_state(rstd::move(trail_uniform_state)) {
     if (m_trail_length != u32()) {
         m_trail_key =
@@ -393,7 +365,7 @@ void ParticleSubSystem::Finalize() {
     m_program.AddEvent(Box<dyn<particle::ParticleEventProgram>>::make(ChildEventProgram(*this)));
     if (m_trail_key.is_some()) {
         m_program.AddPostUpdate(Box<dyn<particle::ParticleUpdateProgram>>::make(
-            TrailUpdateProgram(m_attributes, *m_trail_key, m_trail_sample_interval)));
+            TrailUpdateProgram(m_attributes, *m_trail_key)));
     }
     m_program.AddExtractor(
         Box<dyn<particle::ParticleExtractProgram>>::make(ParticleRawGenerator(*this)));
@@ -565,27 +537,21 @@ void ParticleSubSystem::UpdateFrameInput(f64 frame_time) {
     m_frame.time                   = m_time;
     m_frame.delta                  = frame_time;
     m_frame.emitter_delta          = frame_time;
-    m_frame.trail_sample_steps     = usize();
-    m_frame.trail_sample_remainder = f64();
+    m_frame.sample_trail           = false;
     if (m_trail_key.is_some()) {
-        const auto interval = m_trail_sample_interval.to_primitive();
-        if (interval > 0.0) {
-            auto elapsed = m_trail_sample_accumulator.to_primitive() + frame_time.to_primitive();
-            const auto total_steps =
-                u64(static_cast<rstd::uint64_t>(f64(elapsed / interval).floor().to_primitive()));
-            elapsed -= static_cast<double>(total_steps.to_primitive()) * interval;
-            m_trail_sample_accumulator     = f64(elapsed);
-            m_frame.trail_sample_steps     = rstd::as_cast<usize>(total_steps);
-            m_frame.trail_sample_remainder = f64(elapsed);
-            if (m_trail_uniform_state.is_some()) {
-                (*m_trail_uniform_state)->render_var[usize(2)] = static_cast<float>(
-                    rstd::cmp::min(1.0, rstd::cmp::max(0.0, elapsed / interval)));
+        if (frame_time > f64()) {
+            m_trail_sample_remaining -= frame_time;
+            if (m_trail_sample_remaining <= f64()) {
+                // WE records at most one position per update, even after a long simulation step.
+                m_trail_sample_remaining = m_trail_sample_interval;
+                m_frame.sample_trail     = true;
             }
-        } else {
-            m_frame.trail_sample_steps = usize(1);
-            if (m_trail_uniform_state.is_some()) {
-                (*m_trail_uniform_state)->render_var[usize(2)] = 1.0f;
-            }
+        }
+        if (m_trail_uniform_state.is_some()) {
+            const auto interval  = m_trail_sample_interval.to_primitive();
+            const auto remaining = m_trail_sample_remaining.to_primitive();
+            (*m_trail_uniform_state)->render_var[usize(2)] =
+                interval > 0.0 ? static_cast<float>(1.0 - remaining / interval) : 1.0f;
         }
     }
     for (usize index {}; index < m_frame.audio_average.len(); ++index) {
@@ -763,7 +729,6 @@ void ParticleSubSystem::Warmup(ParticleInstanceRef current, ref<dyn<rstd::any::A
         for (auto slot : current.instance->ActiveSlots()) {
             const auto& position = positions[slot.index];
             trail->Initialize(slot, position);
-            trail->SetPreviousPosition(slot, position);
         }
     }
 }
@@ -776,7 +741,7 @@ bool ParticleSubSystem::SyncPlayback() {
 
     m_seen_reset_sequence      = sequence;
     m_time                     = f64();
-    m_trail_sample_accumulator = f64();
+    m_trail_sample_remaining   = m_trail_sample_interval;
     for (usize index {}; index < System().InstanceCount(); ++index) {
         System().Instance(index).Reset();
         m_instance_states[index].Reset();

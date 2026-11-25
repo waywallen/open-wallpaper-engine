@@ -196,11 +196,9 @@ struct OscillationAttributes {
 };
 
 struct TrailSlotState {
-    usize           head {};
-    usize           len {};
-    usize           sample_count {};
-    Eigen::Vector3f previous_position { Eigen::Vector3f::Zero() };
-    bool            has_previous_position { false };
+    usize head {};
+    usize len {};
+    usize sample_count {};
 };
 
 struct TrailHistoryAttribute {
@@ -223,8 +221,6 @@ struct TrailHistoryAttribute {
     void Initialize(particle::ParticleSlot slot, const Eigen::Vector3f& position);
     auto At(particle::ParticleSlot slot, usize logical_index) const -> Eigen::Vector3f;
     auto State(particle::ParticleSlot slot) const -> TrailSlotState;
-    void SetPreviousPosition(particle::ParticleSlot slot, const Eigen::Vector3f& position);
-    auto SampleCapacity() const noexcept -> usize { return m_sample_capacity; }
 
 private:
     particle::ParticleAttributeDescriptor m_descriptor;
@@ -244,8 +240,7 @@ struct ParticleFrame {
     f64                      time {};
     f64                      delta {};
     f64                      emitter_delta {};
-    usize                    trail_sample_steps {};
-    f64                      trail_sample_remainder {};
+    bool                     sample_trail { false };
     bool                     warming_up { false };
     bool                     world_space { false };
 };
@@ -576,7 +571,7 @@ private:
     SpawnType                                                m_spawn_type { SpawnType::STATIC };
     u32                                                      m_trail_length {};
     f64                                                      m_trail_sample_interval {};
-    f64                                                      m_trail_sample_accumulator {};
+    f64                                                           m_trail_sample_remaining {};
     Option<Arc<ParticleTrailUniformState>>                   m_trail_uniform_state;
     Option<Arc<ParticlePlaybackState>>                       m_playback_state;
     u32                                                      m_seen_reset_sequence {};
