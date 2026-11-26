@@ -45,7 +45,7 @@ dependencies = [
 
 [[packages]]
 name = "owe-audio"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
   "liffto",
   "rstd-std",
@@ -53,7 +53,7 @@ dependencies = [
 
 [[packages]]
 name = "owe-cli-common"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
   "owe-audio",
   "rstd-log",
@@ -64,7 +64,7 @@ dependencies = [
 
 [[packages]]
 name = "owe-cli-scene"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
   "owe-cli-common",
   "owe-core",
@@ -82,7 +82,7 @@ dependencies = [
 
 [[packages]]
 name = "owe-cli-web"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
   "owe-audio",
   "owe-cli-common",
@@ -99,7 +99,7 @@ dependencies = [
 
 [[packages]]
 name = "owe-core"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
   "rstd-argparse",
   "rstd-cppstd",
@@ -114,7 +114,7 @@ source = "git+https://chromium.googlesource.com/external/gitlab.com/libeigen/eig
 
 [[packages]]
 name = "owe-scene"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
   "owe-audio",
   "owe-core",
@@ -140,7 +140,7 @@ source = "git+https://github.com/quickjs-ng/quickjs.git#3c051980ab7e783dfbfb1c70
 
 [[packages]]
 name = "owe-tests"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
   "liffto",
   "owe-audio",
@@ -162,7 +162,7 @@ dependencies = [
 
 [[packages]]
 name = "owe-types"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
   "owe-core",
   "rstd-std",
@@ -171,7 +171,7 @@ dependencies = [
 
 [[packages]]
 name = "owe-utils"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
   "licrypto",
   "owe-core",
@@ -183,7 +183,7 @@ dependencies = [
 
 [[packages]]
 name = "owe-vulkan"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
   "owe-core",
   "owe-types",
@@ -202,7 +202,7 @@ source = "git+https://github.com/KhronosGroup/glslang.git#275822a6261ee689aadb1d
 
 [[packages]]
 name = "owe-waywallen-plugin"
-version = "0.4.0"
+version = "0.4.1"
 runtime-dependencies = [
   "owe-cli-scene",
   "owe-cli-web",
@@ -210,7 +210,7 @@ runtime-dependencies = [
 
 [[packages]]
 name = "owe-web"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
   "owe-core",
   "rstd-cppstd",

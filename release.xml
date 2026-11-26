@@ -1,3 +1,16 @@
+<release version="0.4.1" date="2026-11-26">
+  <description>
+    <p>Added:</p>
+    <ul>
+      <li>Chromium-based browser login helper for Waywallen on Linux, provided by owe-web.</li>
+    </ul>
+    <p>Changed:</p>
+    <ul>
+      <li>Use --ipc to select Waywallen renderer mode instead of a fixed --waywallen argument.</li>
+    </ul>
+  </description>
+</release>
+
 <release version="0.4.0" date="2026-11-25">
   <description>
     <p>Added:</p>
