@@ -1,7 +1,3 @@
-module;
-
-#include <cstring>
-
 export module owe.cli.web;
 
 import rstd.argparse;
@@ -219,8 +215,8 @@ int RunPreview(int argc, char** argv) {
     // CEF re-executes this binary with its own arguments.
     if (int helper_exit = host.RunOrExitIfHelper(argc, argv); helper_exit >= 0) return helper_exit;
 
-    if (argc > 1 && std::strcmp(argv[1], "--waywallen") == 0) {
-        eprintln("owe-web: --waywallen requires a Linux build with the waywallen feature");
+    if (owe::cli::HasIpcArgument(argc, argv)) {
+        eprintln("owe-web: --ipc requires a Linux build with the waywallen feature");
         return 2;
     }
 
@@ -392,10 +388,9 @@ int RunPreview(int argc, char** argv) {
 
 extern "C++" int main(int argc, char** argv) {
 #if defined(LITO_FEAT_WAYWALLEN) && __is_target_os(linux)
-    if (argc > 1 && std::strcmp(argv[1], "--waywallen") == 0) {
+    if (owe::cli::HasIpcArgument(argc, argv)) {
         // The bridge entry handles CEF helpers before parsing the remaining arguments.
-        argv[1] = argv[0];
-        return waywallen::run(argc - 1, argv + 1);
+        return waywallen::run(argc, argv);
     }
 #endif
     return RunPreview(argc, argv);

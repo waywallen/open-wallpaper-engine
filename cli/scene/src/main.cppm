@@ -1,7 +1,3 @@
-module;
-
-#include <cstring>
-
 export module owe.cli.scene;
 
 import vvk;
@@ -11,6 +7,7 @@ import rstd.bench;
 import rstd.log;
 import wavsen.audio;
 import wescene.core;
+import wescene.cli;
 import wescene.json;
 import wescene.render_cli;
 import wescene.scene_wallpaper;
@@ -403,12 +400,11 @@ int RunPreview(int argc, char** argv) {
 } // namespace
 
 extern "C++" int main(int argc, char** argv) {
-    if (argc > 1 && std::strcmp(argv[1], "--waywallen") == 0) {
+    if (owe::cli::HasIpcArgument(argc, argv)) {
 #if defined(LITO_FEAT_WAYWALLEN) && __is_target_os(linux)
-        argv[1] = argv[0];
-        return waywallen::run(argc - 1, argv + 1);
+        return waywallen::run(argc, argv);
 #else
-        eprintln("--waywallen requires a Linux build with the waywallen feature");
+        eprintln("--ipc requires a Linux build with the waywallen feature");
         return 2;
 #endif
     }

@@ -69,8 +69,7 @@ lito install -p owe-waywallen-plugin --prefix ../install --profile debug
 ```
 
 The plugin package enables the `waywallen` feature on both CLI packages. The
-plugin manifest passes `--waywallen` to use the bridge without opening a window.
-The daemon must support fixed renderer `args` in the plugin manifest.
+daemon's `--ipc` argument selects the bridge without opening a preview window.
 
 The bundle contains:
 

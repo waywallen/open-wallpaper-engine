@@ -25,6 +25,25 @@ int main(int argc, char** argv) {
         return 0;
     }
 
+    auto has_ipc = [](auto... arguments) {
+        const char* args[] = { "owe-scene", arguments... };
+        return owe::cli::HasIpcArgument(static_cast<int>(sizeof...(arguments) + 1), args);
+    };
+    rstd_assert(! has_ipc());
+    rstd_assert(! has_ipc("assets", "scene.pkg"));
+    rstd_assert(has_ipc("--ipc", "/tmp/renderer.sock", "--path", "scene.pkg"));
+    rstd_assert(has_ipc("--path", "scene.pkg", "--ipc", "/tmp/renderer.sock"));
+    rstd_assert(has_ipc("--path", "scene.pkg", "--ipc=/tmp/renderer.sock"));
+    rstd_assert(has_ipc("--ipc", "/tmp/\xff.sock"));
+    rstd_assert(has_ipc("--ipc=/tmp/\xff.sock"));
+    rstd_assert(has_ipc("--ipc"));
+    rstd_assert(has_ipc("--ipc="));
+    rstd_assert(! has_ipc("--", "--ipc", "/tmp/renderer.sock"));
+    rstd_assert(! has_ipc("--", "--ipc=/tmp/renderer.sock"));
+    rstd_assert(! has_ipc("--ipc-channel-handle=42", "--type=renderer"));
+    rstd_assert(! has_ipc("--ipc-other", "/tmp/renderer.sock"));
+    rstd_assert(! has_ipc("--path=--ipc", "scene.pkg"));
+
     auto executable = ref<OsStr>::from_encoded_bytes_unchecked(CStr::from_ptr(argv[0]).to_bytes());
     auto run        = [&](ref<str> argument) {
         return rstd::process::Command::make(executable)

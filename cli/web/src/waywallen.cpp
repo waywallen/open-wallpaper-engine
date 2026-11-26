@@ -80,7 +80,7 @@ const T& ArgValue(const rstd::argparse::Matches& matches, const rstd::argparse::
 Options parse_args(int argc, char** argv) {
     using namespace rstd::argparse;
 
-    auto command = Command::make("owe-web --waywallen"_str);
+    auto command = Command::make("owe-web"_str);
     auto ipc     = command.add_arg(Arg<String>::value("ipc"_str, string_parser())
                                        .long_name("ipc"_str)
                                        .help("Unix-domain socket path for daemon IPC"_str)

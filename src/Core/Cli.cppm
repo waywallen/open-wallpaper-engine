@@ -63,6 +63,20 @@ auto Finish(rstd::argparse::Parser&              parser,
 export namespace owe::cli
 {
 
+bool HasIpcArgument(int argc, const char* const* argv) {
+    auto prefix_text = "--ipc="_str;
+    auto prefix      = prefix_text.as_bytes();
+    for (int i = 1; i < argc; ++i) {
+        auto text     = CStr::from_ptr(argv[i]);
+        auto argument = text.to_bytes();
+        if (argument == "--"_str.as_bytes()) break;
+        if (argument == "--ipc"_str.as_bytes() ||
+            (argument.len() >= prefix.len() && argument.subslice(usize(), prefix.len()) == prefix))
+            return true;
+    }
+    return false;
+}
+
 auto ParseEnv(rstd::argparse::Command&& command) -> Result<rstd::argparse::Matches, ParseExit> {
     auto built = Build(rstd::move(command));
     if (built.is_err()) return Err(built.unwrap_err());

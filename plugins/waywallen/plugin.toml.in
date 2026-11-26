@@ -25,7 +25,6 @@ directory = "i18n"
 
 [renderers.wescene-renderer]
 bin = "@OWE_WESCENE_BIN@"
-args = ["--waywallen"]
 types = ["scene"]
 type_labels = { scene = { msgid = "Scene" } }
 priority = 100
