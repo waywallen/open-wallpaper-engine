@@ -20,6 +20,8 @@ sources = [
   "ClientHandler.cpp",
   "OsrRenderHandler.cpp",
   "BrowserHost.cpp",
+  "BrowserHelper.cppm",
+  "BrowserHelper.cpp",
 ]
 
 [usage]

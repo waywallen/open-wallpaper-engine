@@ -387,6 +387,7 @@ int RunPreview(int argc, char** argv) {
 } // namespace
 
 extern "C++" int main(int argc, char** argv) {
+    if (weweb::HasBrowserHelperArgument(argc, argv)) return weweb::RunBrowserHelper(argc, argv);
 #if defined(LITO_FEAT_WAYWALLEN) && __is_target_os(linux)
     if (owe::cli::HasIpcArgument(argc, argv)) {
         // The bridge entry handles CEF helpers before parsing the remaining arguments.

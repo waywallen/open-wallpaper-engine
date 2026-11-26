@@ -1,6 +1,12 @@
 
 # CEF (Wallpaper Engine *web*) renderer. web wp_type entries come from the
 # Lua entry above.
+[web_helpers.chromium]
+bin = "@OWE_WEWEB_BIN@"
+args = ["--web-helper"]
+protocol_version = 1
+label = { msgid = "Chromium / owe-web" }
+
 [renderers.weweb-renderer]
 bin = "@OWE_WEWEB_BIN@"
 types = ["web"]
