@@ -219,6 +219,8 @@ struct HostState {
     f32                              base_volume { 1.0f };
     bool                             muted { false };
     bool                             audio_gate_open { false };
+    // Paint callbacks seen; the main loop kicks CEF only when it stalls.
+    usize painted {};
 
     Mutex<BridgeSubscriptions>       subscriptions { BridgeSubscriptions {} };
     rstd::sync::atomic::Atomic<bool> audio_response_demand { false };
@@ -782,6 +784,7 @@ int run(int argc, char** argv) {
     // any pending negotiate directive first so the slot pool reflects
     // the latest extent / fourcc before acquiring.
     host.SetAcceleratedPaintCallback([&state, &core, &producer](const weweb::DmaBufFrame& frame) {
+        ++state.painted;
         if (! core.drainPendingDirective()) return;
         if (! core.ready()) return;
         if (frame.visible_width != static_cast<int>(core.width()) ||
@@ -801,6 +804,7 @@ int run(int argc, char** argv) {
     });
 
     host.SetCpuPaintCallback([&state, &core, &producer](const weweb::CpuPaintFrame& frame) {
+        ++state.painted;
         if (! core.drainPendingDirective()) return;
         if (! core.ready()) return;
         if (frame.width != static_cast<int>(core.width()) ||
@@ -857,6 +861,8 @@ int run(int argc, char** argv) {
     auto reader_handle = rstd::move(reader).unwrap_unchecked();
 
     auto next_audio_push = Instant::now();
+    auto next_tick       = Instant::now();
+    auto painted_at_kick = state.painted;
 
     while (! host.ShouldExit()) {
         if (state.shutdown.load(rstd::sync::atomic::Ordering::Acquire)) host.RequestClose();
@@ -874,14 +880,19 @@ int run(int argc, char** argv) {
             continue;
         }
         // CEF's OSR pacing goes idle without explicit invalidate kicks
-        // (see project memory: CEF 147 OSR + DMA-BUF). Dedup happens
-        // inside CEF at windowless_frame_rate.
-        host.Invalidate();
+        // (see project memory: CEF 147 OSR + DMA-BUF). Kick only when no
+        // frame arrived since the last tick: on top of CEF's own frame timer
+        // a kick per tick paints above windowless_frame_rate.
+        if (state.painted == painted_at_kick) host.Invalidate();
+        painted_at_kick = state.painted;
 
         const auto now = Instant::now();
         if (state.audio_response_demand.load(rstd::sync::atomic::Ordering::Acquire) &&
             now >= next_audio_push) {
-            next_audio_push = now + Duration::from_millis(u64(33));
+            // Advance from the last deadline; restarting from `now` skips
+            // pushes when the loop itself ticks every 33 ms.
+            next_audio_push = next_audio_push + Duration::from_millis(u64(33));
+            if (next_audio_push < now) next_audio_push = now;
             array<float, 128> response {};
             {
                 auto audio = state.audio.lock().unwrap();
@@ -895,7 +906,15 @@ int run(int argc, char** argv) {
             host.PushAudioData(response.as_slice());
         }
 
-        rstd::thread::sleep(frame_delay(state));
+        // Sleep until the next tick, not a full interval after the work, so
+        // the loop keeps the target rate.
+        next_tick       = next_tick + frame_delay(state);
+        const auto wake = Instant::now();
+        if (next_tick > wake) {
+            rstd::thread::sleep(next_tick - wake);
+        } else {
+            next_tick = wake;
+        }
     }
 
     state.shutdown.store(true, rstd::sync::atomic::Ordering::Release);
