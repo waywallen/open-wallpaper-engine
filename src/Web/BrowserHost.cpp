@@ -1,7 +1,10 @@
 module;
 
 #include <algorithm>
+#include <cstdlib>
 #include <cstring>
+
+#include "include/cef_version.h"
 
 #if __is_target_os(macos)
 #    include <mach-o/dyld.h>
@@ -37,6 +40,19 @@ std::string CefPath(ref<Path> path) {
     auto bytes = os.as_encoded_bytes();
     return { reinterpret_cast<const char*>(bytes.as_raw_ptr()), bytes.len().to_primitive() };
 }
+
+#if __is_target_os(linux) && CEF_VERSION_MAJOR >= 156
+// CEF 156+ captures OSR frames into scanout buffers with the compositor's
+// modifiers; radeonsi picks a DCC one and no frame ever arrives
+// (chromiumembedded/cef#4237). Keep any AMD_DEBUG flags already set.
+void DisableAmdDcc() {
+    const char* cur   = std::getenv("AMD_DEBUG");
+    std::string flags = cur ? cur : "";
+    if (("," + flags + ",").find(",nodcc,") != std::string::npos) return;
+    flags += flags.empty() ? "nodcc" : ",nodcc";
+    ::setenv("AMD_DEBUG", flags.c_str(), 1);
+}
+#endif
 } // namespace
 
 #if __is_target_os(macos)
@@ -261,6 +277,11 @@ bool BrowserHost::Init(const InitOptions& opts) {
     impl_->app->SetSharedTextureEnabled(opts.shared_texture_enabled);
     impl_->app->SetRenderNodeOverride(opts.render_node_override.as_str());
     impl_->app->SetOzonePlatform(opts.ozone_platform);
+
+#if __is_target_os(linux) && CEF_VERSION_MAJOR >= 156
+    // The GPU process inherits the environment from CefInitialize.
+    DisableAmdDcc();
+#endif
 
     if (! CefInitialize(main_args, settings, impl_->app.get(), nullptr)) {
         eprintln("weweb: CefInitialize failed");
